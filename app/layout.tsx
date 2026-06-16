@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Recora Dashboard",
-  description: "Recora AI visibility and brand monitoring dashboard."
+  title: "Recora ダッシュボード",
+  description: "RecoraのAI検索分析ダッシュボード。"
 };
 
 export const viewport: Viewport = {

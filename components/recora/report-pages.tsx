@@ -85,7 +85,7 @@ function DetailTabs({ items, active = 0 }: { items: readonly string[]; active?: 
 
 const kpiCards = [
   {
-    label: "ブランド可視性",
+    label: "AI表示率",
     value: "8.7%",
     helper: "AI検索での表示率",
     delta: -2.1,
@@ -94,7 +94,7 @@ const kpiCards = [
     sparkline: [11, 10, 9, 10, 8, 9, 8.7, 8.7]
   },
   {
-    label: "AI検索での言及数",
+    label: "AI言及数",
     value: "156",
     helper: "回答内のブランド言及",
     delta: 18,
@@ -103,9 +103,9 @@ const kpiCards = [
     sparkline: [92, 108, 121, 116, 132, 141, 148, 156]
   },
   {
-    label: "引用・参照数",
+    label: "参照回数",
     value: "87",
-    helper: "Recora関連の引用",
+    helper: "Recora関連の参照",
     delta: 11,
     deltaLabel: "前週比 +11",
     tone: "blue" as const,
@@ -162,19 +162,19 @@ const roadmapSteps = [
   {
     step: 1,
     title: "基盤を整える",
-    description: "AIが読み取りやすい事業説明、カテゴリ定義、比較軸、引用されるページ構造を整備します。",
+    description: "AIが読み取りやすい事業説明、カテゴリ定義、比較軸、参照されるページ構造を整備します。",
     effect: "推定効果: +1.5pt"
   },
   {
     step: 2,
     title: "コンテンツを強化する",
-    description: "購買判断軸、比較プロンプト、技術監査、ソース根拠を補強し、引用候補を増やします。",
+    description: "選定基準、比較プロンプト、サイト技術診断、参照元の根拠を補強し、AIに参照される候補を増やします。",
     effect: "推定効果: +2.0pt"
   },
   {
     step: 3,
     title: "存在感を拡大する",
-    description: "競合が強いトピックに対して、第三者ソースと自社ページの両方で可視性を伸ばします。",
+    description: "競合が強いトピックに対して、第三者の参照元と自社ページの両方でAI表示率を伸ばします。",
     effect: "推定効果: +1.2pt"
   }
 ];
@@ -190,17 +190,17 @@ const priorityTasks = [
   },
   {
     priority: "High" as const,
-    task: "購買判断軸の根拠ページを作成",
+    task: "選定基準の根拠ページを作成",
     impact: "+1.8pt",
-    category: "Buyer Criteria",
+    category: "選定基準",
     action: "評価軸、重み、証拠を1ページ化",
     due: "2026/06/24"
   },
   {
     priority: "Medium" as const,
-    task: "引用されやすい外部ソースとの接点を増やす",
+    task: "参照されやすい外部メディアとの接点を増やす",
     impact: "+0.9pt",
-    category: "Sources",
+    category: "参照元",
     action: "第三者レビュー・寄稿候補を整理",
     due: "2026/06/28"
   }
@@ -208,7 +208,7 @@ const priorityTasks = [
 
 const dashboardKpiCards = [
   {
-    label: "ブランド表示率",
+    label: "AI表示率",
     value: "8.7%",
     helper: "AI回答でRecoraが表示された割合",
     delta: -2.1,
@@ -217,7 +217,7 @@ const dashboardKpiCards = [
     sparkline: weeklyTrends.map((week) => week.recora)
   },
   {
-    label: "AI回答での言及数",
+    label: "AI言及数",
     value: "156",
     helper: "対象プロンプト内のブランド言及",
     delta: 18,
@@ -226,27 +226,27 @@ const dashboardKpiCards = [
     sparkline: [92, 108, 121, 116, 132, 141, 148, 156]
   },
   {
-    label: "引用・参照数",
+    label: "参照回数",
     value: "87",
-    helper: "AI回答に引用・参照された回数",
+    helper: "AI回答に参照された回数",
     delta: 11,
     deltaLabel: "前週比 +11",
     tone: "blue" as const,
     sparkline: [48, 54, 61, 58, 69, 72, 78, 87]
   },
   {
-    label: "競合との差",
+    label: "競合差分",
     value: "14pt",
-    helper: "首位ブランドとの可視性ギャップ",
+    helper: "首位ブランドとのAI表示率の差",
     delta: -1.4,
     deltaLabel: "前週比 +1.4pt悪化",
     tone: "amber" as const,
     sparkline: [18, 17, 16, 16, 15, 14, 14]
   },
   {
-    label: "改善余地",
+    label: "改善優先度",
     value: "+5.3pt",
-    helper: "優先タスク完了時の推定改善幅",
+    helper: "優先タスク完了時の想定改善幅",
     delta: 2.1,
     deltaLabel: "前週比 +2.1pt",
     tone: "green" as const,
@@ -256,15 +256,15 @@ const dashboardKpiCards = [
 
 const dashboardAlerts = [
   {
-    title: "ブランド可視性の低下",
-    description: "前週比 -2.1pt。比較・価格系プロンプトで表示率が下がっています。",
+    title: "AI表示率の低下",
+    description: "前週比 -2.1pt。比較・価格系プロンプトでAI表示率が下がっています。",
     tone: "rose" as const,
     href: `${reportBase}/recommendations`,
     action: "改善提案へ"
   },
   {
-    title: "競合急上昇",
-    description: "Trailbase Cloud がAI回答内の比較文脈で増加しています。",
+    title: "競合の表示増加",
+    description: "Trailbase Cloud がAI回答内の比較文脈で増えています。",
     tone: "amber" as const,
     href: `${reportBase}/leaderboard`,
     action: "競合を見る"
@@ -281,17 +281,17 @@ const dashboardAlerts = [
 const dashboardQuickLinks = [
   {
     title: "AI回答ログ",
-    description: "実際の回答、言及位置、引用文脈を確認",
+    description: "実際の回答、言及位置、参照文脈を確認",
     href: `${reportBase}/conversations`
   },
   {
-    title: "引用元・ソース",
-    description: "引用されたドメインとページの変化を見る",
+    title: "参照元分析",
+    description: "参照されたドメインとページの変化を見る",
     href: `${reportBase}/sources`
   },
   {
-    title: "コンテンツ改善機会",
-    description: "不足しているトピックとPage Briefsを確認",
+    title: "コンテンツ改善案",
+    description: "不足しているトピックとページ改善案を確認",
     href: `${reportBase}/content-opportunities`
   }
 ];
@@ -300,7 +300,7 @@ export function DashboardHomePage() {
   return (
     <>
       <PageHeader
-        eyebrow="Recora dashboard"
+        eyebrow="Recora ダッシュボード"
         title="ダッシュボード"
         description="AI検索での現状、競合との差、次に取るべき改善アクションをひと目で確認します。"
         meta={<ReportFilters />}
@@ -348,7 +348,7 @@ export function DashboardHomePage() {
         <RoadmapSection />
         <DataCard
           title="レポートサマリー"
-          description="ブランド、ペルソナ、トピック、モデルの分析対象"
+          description="ブランド、ペルソナ、トピック、AIモデルの分析対象"
         >
           <ReportSummaryBlock />
         </DataCard>
@@ -437,8 +437,8 @@ function DashboardKpiGrid() {
 function VisibilityTrendCard() {
   return (
     <DataCard
-      title="可視性推移"
-      description="ブランド表示率、首位競合、検索需要の直近トレンド"
+      title="AI表示率の推移"
+      description="自社のAI表示率、首位競合、検索需要の直近推移"
       action={
         <Link href={`${reportBase}/trends`} className="text-xs font-semibold text-blue-700">
           詳細
@@ -449,7 +449,7 @@ function VisibilityTrendCard() {
         <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-4">
           <div className="flex min-w-0 items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs font-semibold text-slate-500">Recora visibility</p>
+              <p className="text-xs font-semibold text-slate-500">RecoraのAI表示率</p>
               <p className="mt-1 text-2xl font-bold text-slate-950">8.7%</p>
             </div>
             <Badge variant="outline" className="whitespace-nowrap rounded-sm border-rose-200 bg-rose-50 text-rose-700">
@@ -463,7 +463,7 @@ function VisibilityTrendCard() {
             />
           </div>
           <p className="mt-3 text-xs leading-5 text-slate-600">
-            価格比較と導入期間の質問で競合への言及が増えています。引用元の鮮度と比較ページの強化が優先です。
+            価格比較と導入期間の質問で競合への言及が増えています。参照元の鮮度と比較ページの強化が優先です。
           </p>
         </div>
         <div className="grid min-w-0 gap-3">
@@ -480,10 +480,10 @@ function NextActionsCard() {
   return (
     <DataCard
       title="次にやる3つ"
-      description="可視性回復に直結する優先アクション"
+      description="AI表示率の回復に直結する優先アクション"
       action={
         <Link href={`${reportBase}/action-plan`} className="text-xs font-semibold text-blue-700">
-          計画へ
+          改善プランへ
         </Link>
       }
     >
@@ -549,9 +549,9 @@ function RecentConversationsCard() {
         <TableHeader>
           <TableRow>
             <TableHead>トピック</TableHead>
-            <TableHead>モデル</TableHead>
+            <TableHead>AIモデル</TableHead>
             <TableHead>表示状況</TableHead>
-            <TableHead>引用</TableHead>
+            <TableHead>参照元</TableHead>
             <TableHead>要約</TableHead>
           </TableRow>
         </TableHeader>
@@ -586,11 +586,11 @@ function RecentConversationsCard() {
 function RecentSourceChangesCard() {
   return (
     <DataCard
-      title="最近の引用元変化"
-      description="引用・参照されたドメインの動き"
+      title="最近の参照元の変化"
+      description="AI回答で参照されたドメインの動き"
       action={
         <Link href={`${reportBase}/sources`} className="text-xs font-semibold text-blue-700">
-          ソース分析へ
+          参照元分析へ
         </Link>
       }
     >
@@ -600,7 +600,7 @@ function RecentSourceChangesCard() {
             <TableHead>ドメイン</TableHead>
             <TableHead>種別</TableHead>
             <TableHead className="text-right">出現数</TableHead>
-            <TableHead className="text-right">引用シェア</TableHead>
+            <TableHead className="text-right">参照シェア</TableHead>
             <TableHead>推奨アクション</TableHead>
           </TableRow>
         </TableHeader>
@@ -644,9 +644,9 @@ export function ReportsIndexPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Reports"
-        title="レポートホーム"
-        description="ブランド、競合、ペルソナ、トピック、プロンプト、モデルを束ねた監視レポート一覧です。"
+        eyebrow="レポート"
+        title="レポート概要"
+        description="ブランド、競合、ペルソナ、トピック、プロンプト、AIモデルを束ねた監視レポート一覧です。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
@@ -654,11 +654,11 @@ export function ReportsIndexPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricTile label="プロジェクト" value="1" helper="サンプルワークスペース" tone="slate" />
         <MetricTile label="プロンプト数" value={String(sampleProject.promptCount)} helper="6トピックで監視" />
-        <MetricTile label="AI回答ログ" value={String(sampleProject.conversationCount)} helper="4モデル x ペルソナ" />
-        <MetricTile label="引用数" value={String(sampleProject.citationCount)} helper="ドメイン単位で集計" />
+        <MetricTile label="AI回答ログ" value={String(sampleProject.conversationCount)} helper="4つのAIモデル x ペルソナ" />
+        <MetricTile label="参照回数" value={String(sampleProject.citationCount)} helper="ドメイン単位で集計" />
       </div>
 
-      <DataCard className="mt-5" title="レポート一覧" description="現在はサンプルデータのみです。API連携や自動実行は含めていません。">
+      <DataCard className="mt-5" title="レポート一覧" description="現在はサンプルデータのみです。外部連携や自動実行は含めていません。">
         <Table>
           <TableHeader>
             <TableRow>
@@ -683,7 +683,7 @@ export function ReportsIndexPage() {
               <TableCell>
                 <div className="text-sm font-semibold">{sampleProject.conversationCount}件のAI回答</div>
                 <div className="mt-1 text-xs text-slate-500">
-                  {sampleProject.promptCount}プロンプト / {sampleProject.modelCount}モデル
+                  {sampleProject.promptCount}プロンプト / {sampleProject.modelCount}AIモデル
                 </div>
               </TableCell>
               <TableCell>{sampleProject.lastRunAt}</TableCell>
@@ -712,9 +712,9 @@ export function ReportLandingPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Report"
+        eyebrow="レポート"
         title={sampleProject.name}
-        description="このレポートはRecoraのAI visibility / brand monitoring dashboard用サンプルです。"
+        description="このレポートは、AI検索での自社表示とブランド評価を確認するためのRecoraサンプルです。"
         meta={<ReportFilters />}
         actions={<HeaderActions />}
       />
@@ -737,10 +737,10 @@ export function ReportLandingPage() {
             <ScopeRow label="ペルソナ" value={`${personas.length}件`} />
             <ScopeRow label="トピック" value={`${topics.length}件`} />
             <ScopeRow label="プロンプト" value={`${prompts.length}件`} />
-            <ScopeRow label="モデル" value={models.map((model) => model.name).join(", ")} />
+            <ScopeRow label="AIモデル" value={models.map((model) => model.name).join(", ")} />
           </div>
         </DataCard>
-        <DataCard title="次の推奨アクション" description="最も大きい改善余地です。">
+        <DataCard title="次の推奨アクション" description="改善インパクトが最も大きい項目です。">
           <div className="space-y-4">
             <div>
               <div className="flex items-center justify-between gap-3">
@@ -762,16 +762,16 @@ export function OverviewPage() {
     <>
       <PageHeader
         eyebrow="分析"
-        title="AI検索モニタリング"
-        description="Brand visibility、Topic visibility、Model visibility、Sourcesを1つの画面で確認します。"
+        title="概要"
+        description="AI表示率、トピック別の表示状況、AIモデル別の違い、参照元を1つの画面で確認します。"
         meta={<ReportFilters />}
         actions={<HeaderActions />}
       />
       <DetailTabs items={reportDetailTabs.overview} />
       <AlertBanner
         title="AI検索での表示率に注意が必要です"
-        description="一部の購買プロンプトでRecoraの表示率が低下しています。技術監査とコンテンツ改善機会を確認してください。"
-        actionLabel="改善機会を見る"
+        description="一部の購買プロンプトでRecoraのAI表示率が低下しています。サイト技術診断とコンテンツ改善案を確認してください。"
+        actionLabel="改善案を見る"
       />
       <MetricGrid />
 
@@ -794,19 +794,19 @@ export function LeaderboardPage() {
       <PageHeader
         eyebrow="競合"
         title="競合ランキング"
-        description="AI回答内での表示率、引用シェア、好意的な語られ方、購買判断での勝率を比較します。"
+        description="AI回答内での表示率、参照シェア、好意的な語られ方、選定基準での勝率を比較します。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
       <DetailTabs items={reportDetailTabs.leaderboard} />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <MetricTile label="Recora表示率" value="58%" helper="5ブランド中3位" delta={7} />
-        <MetricTile label="首位との差分" value="14 pt" helper="Trailbaseとの差分" tone="amber" />
-        <MetricTile label="自社引用シェア" value="31%" helper="recora.aiの参照" delta={5} />
+        <MetricTile label="RecoraのAI表示率" value="58%" helper="5ブランド中3位" delta={7} />
+        <MetricTile label="競合差分" value="14 pt" helper="Trailbaseとの差分" tone="amber" />
+        <MetricTile label="自社参照シェア" value="31%" helper="recora.aiの参照" delta={5} />
       </div>
 
-      <DataCard className="mt-5" title="ブランド別リーダーボード" description="表示率はAI回答内でブランドが出現した割合です。">
+      <DataCard className="mt-5" title="ブランド別リーダーボード" description="AI表示率はAI回答内でブランドが出現した割合です。">
         <RankingTable />
       </DataCard>
 
@@ -827,7 +827,7 @@ export function LeaderboardPage() {
             ))}
           </div>
         </DataCard>
-        <DataCard title="モデル別リーダーボード" description="モデルごとにRecoraの表示率が変わります。">
+        <DataCard title="AIモデル別リーダーボード" description="AIモデルごとにRecoraのAI表示率が変わります。">
           <ModelVisibilityTable />
         </DataCard>
       </div>
@@ -840,8 +840,8 @@ export function ConversationsPage() {
     <>
       <PageHeader
         eyebrow="分析"
-        title="プロンプト分析 / AI回答ログ"
-        description="ペルソナ、トピック、プロンプト、モデルの組み合わせごとにAI回答を確認します。"
+        title="AI回答ログ"
+        description="ペルソナ、トピック、プロンプト、AIモデルの組み合わせごとにAI回答を確認します。"
         meta={<ReportFilters compact />}
         actions={
           <>
@@ -855,16 +855,16 @@ export function ConversationsPage() {
       />
       <DetailTabs items={reportDetailTabs.conversations} />
 
-      <DataCard title="AI回答ログ" description="回答サマリー、Recora表示有無、順位、引用ドメインを一覧化しています。">
+      <DataCard title="AI回答ログ" description="回答要約、Recoraの表示有無、表示順位、参照ドメインを一覧化しています。">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>プロンプト文脈</TableHead>
-              <TableHead>モデル</TableHead>
+              <TableHead>AIモデル</TableHead>
               <TableHead>Recora</TableHead>
               <TableHead>評価</TableHead>
-              <TableHead>引用ドメイン</TableHead>
-              <TableHead>回答サマリー</TableHead>
+              <TableHead>参照ドメイン</TableHead>
+              <TableHead>回答要約</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -906,7 +906,7 @@ export function ConversationsPage() {
         </Table>
       </DataCard>
 
-      <DataCard className="mt-5" title="プロンプトカバレッジ" description="サンプルプロンプトの分析対象と現在の可視性です。">
+      <DataCard className="mt-5" title="調査カバレッジ" description="サンプルプロンプトの分析対象と現在のAI表示率です。">
         <PromptCoverageTable />
       </DataCard>
     </>
@@ -918,8 +918,8 @@ export function SourcesPage() {
     <>
       <PageHeader
         eyebrow="分析"
-        title="ソース分析 / 引用分析"
-        description="AI回答で引用・参照されたドメインを集計し、所有メディア、競合、第三者ソースに分けて見ます。"
+        title="参照元分析"
+        description="AI回答で参照されたドメインを集計し、自社サイト、競合、第三者メディアに分けて確認します。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
@@ -927,16 +927,16 @@ export function SourcesPage() {
 
       <div className="grid gap-4 lg:grid-cols-4">
         <MetricTile label="参照ドメイン" value={String(sources.length)} helper="ドメイン単位で集計" />
-        <MetricTile label="自社引用シェア" value="31%" helper="recora.ai" delta={5} />
-        <MetricTile label="競合ソースシェア" value="51%" helper="競合ドメイン合計" tone="amber" />
-        <MetricTile label="第三者ソース" value="3" helper="レビュー / 業界 / 参照" tone="slate" />
+        <MetricTile label="自社参照シェア" value="31%" helper="recora.ai" delta={5} />
+        <MetricTile label="競合参照シェア" value="51%" helper="競合ドメイン合計" tone="amber" />
+        <MetricTile label="第三者メディア" value="3" helper="レビュー / 業界 / 参照" tone="slate" />
       </div>
 
-      <DataCard className="mt-5" title="ソースドメイン" description="引用シェア、出現数、信頼スコア、改善アクションをまとめています。">
+      <DataCard className="mt-5" title="参照元ドメイン" description="参照シェア、出現数、信頼スコア、改善アクションをまとめています。">
         <SourcesTable />
       </DataCard>
 
-      <DataCard className="mt-5" title="引用例" description="回答から抽出された引用候補のサンプルです。">
+      <DataCard className="mt-5" title="参照されたページ" description="AI回答から抽出された参照ページのサンプルです。">
         <CitationsTable />
       </DataCard>
     </>
@@ -950,28 +950,28 @@ export function TrendsPage() {
     <>
       <PageHeader
         eyebrow="分析"
-        title="トレンド"
-        description="週次のブランド表示率、引用カバレッジ、競合差分の推移を確認します。"
+        title="推移"
+        description="週次のAI表示率、参照カバレッジ、競合差分の推移を確認します。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <MetricTile label="6週の表示率上昇" value="+16 pt" helper="Recora brand visibility" delta={16} />
-        <MetricTile label="引用カバレッジ上昇" value="+10 pt" helper="Owned citation coverage" delta={10} />
+        <MetricTile label="6週のAI表示率上昇" value="+16 pt" helper="RecoraのAI表示率" delta={16} />
+        <MetricTile label="参照カバレッジ上昇" value="+10 pt" helper="自社サイトの参照率" delta={10} />
         <MetricTile label="首位との差分改善" value="-10 pt" helper="Trailbaseとの差が縮小" delta={10} />
       </div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_0.8fr]">
-        <DataCard title="Recora表示率の推移" description="週次の表示率です。">
+        <DataCard title="RecoraのAI表示率の推移" description="週次のAI表示率です。">
           <TinyBarChart values={weeklyTrends.map((week) => week.recora)} labels={labels} />
         </DataCard>
-        <DataCard title="引用カバレッジの推移" description="Owned sourceが引用された割合です。">
+        <DataCard title="参照カバレッジの推移" description="自社サイトが参照された割合です。">
           <TinyBarChart values={weeklyTrends.map((week) => week.citations)} labels={labels} max={60} />
         </DataCard>
       </div>
 
-      <DataCard className="mt-5" title="週次トレンドテーブル" description="主要ブランドの可視性推移です。">
+      <DataCard className="mt-5" title="週次推移テーブル" description="主要ブランドのAI表示率の推移です。">
         <Table>
           <TableHeader>
             <TableRow>
@@ -981,7 +981,7 @@ export function TrendsPage() {
               <TableHead>SignalNest</TableHead>
               <TableHead>MentionMap</TableHead>
               <TableHead>RankLens</TableHead>
-              <TableHead>自社引用</TableHead>
+              <TableHead>自社参照</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1008,21 +1008,21 @@ export function BuyerCriteriaPage() {
     <>
       <PageHeader
         eyebrow="分析"
-        title="購買判断軸分析"
-        description="購買判断軸ごとに、Recoraが勝っている点、負けている点、次に補強すべき根拠を整理します。"
+        title="選定基準分析"
+        description="選定基準ごとに、Recoraが勝っている点、負けている点、次に補強すべき根拠を整理します。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
-      <DetailTabs items={["購買判断軸", "勝ち負け要因", "補強すべき根拠"]} />
+      <DetailTabs items={["選定基準", "勝ち負け要因", "補強すべき根拠"]} />
 
       <div className="grid gap-4 lg:grid-cols-4">
-        <MetricTile label="勝ち項目" value="2 / 7" helper="引用追跡、改善提案" tone="green" />
+        <MetricTile label="勝ち項目" value="2 / 7" helper="参照元追跡、改善提案" tone="green" />
         <MetricTile label="僅差負け" value="2" helper="カバレッジ、使いやすさ" tone="amber" />
-        <MetricTile label="最大ギャップ" value="25 pt" helper="技術監査" tone="amber" />
+        <MetricTile label="最大差分" value="25 pt" helper="サイト技術診断" tone="amber" />
         <MetricTile label="加重スコア" value="71" helper="サンプル加重平均" delta={4} />
       </div>
 
-      <DataCard className="mt-5" title="判断軸スコアカード" description="AI回答が購買判断時に重視した軸をスコア化しています。">
+      <DataCard className="mt-5" title="選定基準スコアカード" description="AI回答が選定時に重視した基準をスコア化しています。">
         <BuyerCriteriaTable />
       </DataCard>
     </>
@@ -1033,9 +1033,9 @@ export function BrandPerceptionPage() {
   const themes = [
     {
       label: "好意的な認識",
-      value: "根拠を追えるAI検索モニタリング",
+      value: "根拠を追えるAI検索分析",
       score: 78,
-      notes: "Recoraはペルソナ、プロンプト、モデル、ソース単位で証拠を追える点が評価されています。"
+      notes: "Recoraはペルソナ、プロンプト、AIモデル、参照元単位で根拠を追える点が評価されています。"
     },
     {
       label: "中立的な認識",
@@ -1047,7 +1047,7 @@ export function BrandPerceptionPage() {
       label: "リスク認識",
       value: "技術的な根拠ページが不足",
       score: 44,
-      notes: "技術監査や引用されやすい構造の説明では、競合や一般的な技術資料に流れています。"
+      notes: "サイト技術診断や参照されやすいページ構造の説明では、競合や一般的な技術資料に流れています。"
     }
   ];
 
@@ -1055,7 +1055,7 @@ export function BrandPerceptionPage() {
     <>
       <PageHeader
         eyebrow="分析"
-        title="AIブランド認識"
+        title="ブランド認識"
         description="AI回答がRecoraをどのような言葉で位置づけているかを、好意・中立・リスクに分けます。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
@@ -1077,9 +1077,9 @@ export function BrandPerceptionPage() {
       <DataCard className="mt-5" title="繰り返し出る表現" description="回答中で繰り返し出る表現です。">
         <div className="grid gap-3 lg:grid-cols-2">
           {[
-            "ペルソナ別・プロンプト別の可視性",
-            "AI回答の引用元を追跡できる",
-            "競合言及からコンテンツギャップを見つけられる",
+            "ペルソナ別・プロンプト別のAI表示率",
+            "AI回答の参照元を追跡できる",
+            "競合言及から不足コンテンツを見つけられる",
             "ガバナンス説明は今後の補強余地",
             "代理店や成長チームに向いている",
             "大手向け競合より公開事例が少ない"
@@ -1100,20 +1100,20 @@ export function TechnicalAuditPage() {
     <>
       <PageHeader
         eyebrow="改善"
-        title="技術監査"
-        description="AI回答で引用されやすい構造になっているか、所有ページの読み取りやすさを確認します。"
+        title="サイト技術診断"
+        description="AI回答で参照されやすい構造になっているか、自社ページの読み取りやすさを確認します。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
       <DetailTabs items={reportDetailTabs.technicalAudit} />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <MetricTile label="監査スコア" value="63" helper="チェック平均" tone="amber" />
-        <MetricTile label="要改善" value="2" helper="比較根拠、購買判断軸" tone="amber" />
+        <MetricTile label="診断スコア" value="63" helper="チェック平均" tone="amber" />
+        <MetricTile label="要改善" value="2" helper="比較根拠、選定基準" tone="amber" />
         <MetricTile label="良好" value="2" helper="エンティティ説明、改善提案" tone="green" />
       </div>
 
-      <DataCard className="mt-5" title="技術監査チェック" description="完全自動実行ではなく、サンプル監査結果として表示しています。">
+      <DataCard className="mt-5" title="サイト技術診断チェック" description="完全自動実行ではなく、サンプル診断結果として表示しています。">
         <TechnicalAuditTable />
       </DataCard>
     </>
@@ -1125,7 +1125,7 @@ export function ContentOpportunitiesPage() {
     <>
       <PageHeader
         eyebrow="改善"
-        title="コンテンツ改善機会"
+        title="コンテンツ改善案"
         description="RecoraがAI回答で負けているトピックを見つけ、補強すべきページや根拠を優先度順に並べます。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
@@ -1135,10 +1135,10 @@ export function ContentOpportunitiesPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <MetricTile label="高優先トピック" value="3" helper="スコア80以上" tone="amber" />
         <MetricTile label="影響プロンプト" value="30" helper="5つの改善グループ" />
-        <MetricTile label="最大競合ギャップ" value="35 pt" helper="購買判断軸" tone="amber" />
+        <MetricTile label="最大競合差分" value="35 pt" helper="選定基準" tone="amber" />
       </div>
 
-      <DataCard className="mt-5" title="改善機会バックログ" description="トピックごとの改善ページ、影響プロンプト、次の一手です。">
+      <DataCard className="mt-5" title="改善案バックログ" description="トピックごとの改善ページ、影響プロンプト、次の一手です。">
         <ContentOpportunitiesTable />
       </DataCard>
     </>
@@ -1146,6 +1146,230 @@ export function ContentOpportunitiesPage() {
 }
 
 type PlaceholderRouteKey = keyof typeof placeholderRouteSummaries;
+
+type PlaceholderRelatedLink = {
+  label: string;
+  href: string;
+  helper: string;
+};
+
+type PlaceholderPageDetail = {
+  outcome: string;
+  canCheck: string[];
+  planned: string[];
+  requiredData: string[];
+  links: PlaceholderRelatedLink[];
+};
+
+const placeholderPageDetails: Record<PlaceholderRouteKey, PlaceholderPageDetail> = {
+  reportHistory: {
+    outcome: "レポートの変化を時系列で追い、どの期間にAI表示率や参照元が動いたかを振り返るための画面です。",
+    canCheck: [
+      "作成済みレポートの期間、対象ブランド、主要KPIのスナップショット",
+      "測定状態、更新日、共有済みレポートの有無",
+      "前回レポートとの差分を確認するための履歴一覧"
+    ],
+    planned: [
+      "レポート間比較と主要KPIの増減ハイライト",
+      "再測定、複製、共有リンク管理",
+      "レポート作成メモと社内レビュー状態"
+    ],
+    requiredData: [
+      "プロジェクト、レポート、測定回の基本情報",
+      "AI表示率の履歴スナップショット",
+      "共有リンクとエクスポート履歴"
+    ],
+    links: [
+      { label: "レポート概要", href: "/dashboard/reports", helper: "現在のレポート一覧を見る" },
+      { label: "概要", href: `${reportBase}/overview`, helper: "最新レポートの全体像を見る" },
+      { label: "推移", href: `${reportBase}/trends`, helper: "時系列の変化を確認する" }
+    ]
+  },
+  runResults: {
+    outcome: "ペルソナ、トピック、プロンプト、AIモデルごとの取得結果を、測定単位で確認するための画面です。",
+    canCheck: [
+      "各測定回の対象プロンプト数、成功数、未取得数",
+      "AIモデル別の回答取得状況と参照データの有無",
+      "AI回答ログに入る前の測定サマリー"
+    ],
+    planned: [
+      "測定ごとの失敗理由、再測定、差分比較",
+      "AIモデル別の取得時間と調査カバレッジ確認",
+      "プロンプト単位の取得ステータス一覧"
+    ],
+    requiredData: [
+      "ペルソナ、トピック、プロンプト、AIモデル",
+      "AI回答ログ、AI言及数、参照回数",
+      "測定ログと取得ステータス"
+    ],
+    links: [
+      { label: "AI回答ログ", href: `${reportBase}/conversations`, helper: "取得済み回答を確認する" },
+      { label: "プロンプト分析", href: `${reportBase}/prompts`, helper: "取得対象の分類を見る" },
+      { label: "概要", href: `${reportBase}/overview`, helper: "測定結果の集計を見る" }
+    ]
+  },
+  export: {
+    outcome: "分析結果を社内共有、顧客報告、改善タスク化に使える形へ出力するための画面です。",
+    canCheck: [
+      "出力対象に含めるKPI、AI回答ログ、参照元、改善提案",
+      "CSV、共有用レポート、タスク一覧の出力イメージ",
+      "期間、地域、AIモデルで絞り込んだ出力範囲"
+    ],
+    planned: [
+      "CSV / PDF / 共有リンクの出力",
+      "チーム向け、経営向け、制作向けのテンプレート切り替え",
+      "出力履歴と再ダウンロード"
+    ],
+    requiredData: [
+      "AI表示率、AI回答ログ",
+      "参照回数、参照元、選定基準",
+      "改善提案と改善タスク"
+    ],
+    links: [
+      { label: "参照元分析", href: `${reportBase}/sources`, helper: "出力対象の参照データを見る" },
+      { label: "選定基準分析", href: `${reportBase}/buyer-criteria`, helper: "報告に使う勝ち負けを確認する" },
+      { label: "改善提案", href: `${reportBase}/recommendations`, helper: "出力する施策候補を見る" }
+    ]
+  },
+  prompts: {
+    outcome: "AI回答でRecoraがどの質問意図に強いか、どのプロンプトで競合に負けているかを整理する画面です。",
+    canCheck: [
+      "プロンプトカテゴリ、意図、優先度、現在のAI表示率",
+      "ペルソナ別・トピック別の調査カバレッジ",
+      "AIモデルごとの差が出やすい質問パターン"
+    ],
+    planned: [
+      "プロンプト分類と意図別の勝ち負け集計",
+      "AIモデル別の違いと未取得プロンプトの検出",
+      "改善に使うプロンプトギャップスコア"
+    ],
+    requiredData: [
+      "ペルソナ、トピック、プロンプト",
+      "AIモデル、AI回答ログ",
+      "AI言及数と表示順位"
+    ],
+    links: [
+      { label: "トピック・プロンプト", href: "/dashboard/config/topics-prompts", helper: "監視対象を確認する" },
+      { label: "AI回答ログ", href: `${reportBase}/conversations`, helper: "実際の回答を読む" },
+      { label: "概要", href: `${reportBase}/overview`, helper: "集計結果を見る" }
+    ]
+  },
+  recommendations: {
+    outcome: "AI表示率の低下や競合差分の要因を分解し、優先度順に改善施策へつなげる画面です。",
+    canCheck: [
+      "改善インパクト、緊急度、影響プロンプトの整理",
+      "コンテンツ、参照元、サイト技術診断のどこを直すべきか",
+      "スコア内訳に基づく次の一手"
+    ],
+    planned: [
+      "スコア内訳と推定改善幅の表示",
+      "改善提案から改善プランへの変換",
+      "担当者、期限、完了状態の紐づけ"
+    ],
+    requiredData: [
+      "AI表示率と推移",
+      "コンテンツ改善案とサイト技術診断",
+      "参照元、選定基準、リスク検知"
+    ],
+    links: [
+      { label: "コンテンツ改善案", href: `${reportBase}/content-opportunities`, helper: "改善すべきトピックを見る" },
+      { label: "サイト技術診断", href: `${reportBase}/technical-audit`, helper: "参照されやすさを確認する" },
+      { label: "改善プラン", href: `${reportBase}/action-plan`, helper: "実行計画へ進む" }
+    ]
+  },
+  misinformationRisks: {
+    outcome: "AI回答内の古い情報、誤認、競合との混同を検出し、ブランドリスクを管理する画面です。",
+    canCheck: [
+      "誤った料金、導入期間、機能説明などのリスク候補",
+      "競合名との混同や文脈上の弱い表現",
+      "どのAIモデル、プロンプト、参照元で発生しているか"
+    ],
+    planned: [
+      "リスク深刻度、発生頻度、証拠回答の一覧",
+      "修正すべき自社ページと外部参照元の候補",
+      "ブランドファクトとの照合と監視リスト"
+    ],
+    requiredData: [
+      "AI回答ログと回答要約",
+      "参照回数と参照ドメイン",
+      "ブランド情報と競合の別名"
+    ],
+    links: [
+      { label: "ブランド認識", href: `${reportBase}/brand-perception`, helper: "認識の強み弱みを見る" },
+      { label: "AI回答ログ", href: `${reportBase}/conversations`, helper: "該当回答を確認する" },
+      { label: "参照元分析", href: `${reportBase}/sources`, helper: "誤情報の参照元を見る" }
+    ]
+  },
+  actionPlan: {
+    outcome: "改善提案を30/60/90日の実行計画に落とし込み、チームで進捗を管理する画面です。",
+    canCheck: [
+      "優先タスク、推定効果、関連カテゴリ、期限",
+      "短期で直す基盤、中期で強化するコンテンツ、長期で広げる存在感",
+      "改善提案と実行タスクの接続"
+    ],
+    planned: [
+      "30/60/90日プランとタスク管理",
+      "担当者、期限、ステータス、依存関係",
+      "完了タスクがAI表示率に与えた影響の記録"
+    ],
+    requiredData: [
+      "改善提案とコンテンツ改善案",
+      "サイト技術診断と参照元",
+      "チームメンバーとタスク状況"
+    ],
+    links: [
+      { label: "改善提案", href: `${reportBase}/recommendations`, helper: "施策候補を見る" },
+      { label: "コンテンツ改善案", href: `${reportBase}/content-opportunities`, helper: "作るべきページを見る" },
+      { label: "サイト技術診断", href: `${reportBase}/technical-audit`, helper: "技術タスクを見る" }
+    ]
+  },
+  team: {
+    outcome: "AI検索改善を進めるメンバー、担当領域、確認権限を管理するための設定画面です。",
+    canCheck: [
+      "プロジェクト参加者と役割の一覧",
+      "担当するブランド、トピック、改善タスク",
+      "共有レポートや承認フローに関わる権限"
+    ],
+    planned: [
+      "ロール別権限と招待管理",
+      "タスク担当者、通知先、レビュー担当の設定",
+      "レポート共有範囲と閲覧権限"
+    ],
+    requiredData: [
+      "メンバー、役割、プロジェクト権限",
+      "タスク担当者",
+      "通知設定"
+    ],
+    links: [
+      { label: "プロジェクト設定", href: "/dashboard/config/project", helper: "基本設定を見る" },
+      { label: "ペルソナ", href: "/dashboard/config/personas", helper: "担当する購買層を見る" },
+      { label: "改善プラン", href: `${reportBase}/action-plan`, helper: "担当タスクの流れを見る" }
+    ]
+  },
+  apiIntegrations: {
+    outcome: "外部ツールとRecoraのデータ連携を管理し、将来の自動取得や共有に備える画面です。",
+    canCheck: [
+      "連携予定のデータ取得元と出力先",
+      "レポート共有、エクスポート、通知に関わる接続方針",
+      "外部連携を入れないサンプル状態での設計範囲"
+    ],
+    planned: [
+      "APIキー、Webhook、通知先の管理",
+      "定期実行、外部BI、タスク管理ツール連携",
+      "連携ログと失敗時の再試行"
+    ],
+    requiredData: [
+      "連携先、認証情報",
+      "測定スケジュール、出力先",
+      "Webhookイベントと配信状態"
+    ],
+    links: [
+      { label: "プロジェクト設定", href: "/dashboard/config/project", helper: "連携スコープを見る" },
+      { label: "エクスポート", href: `${reportBase}/export`, helper: "出力先の想定を見る" },
+      { label: "測定結果", href: `${reportBase}/runs`, helper: "将来の測定ログを見る" }
+    ]
+  }
+};
 
 function PlaceholderPageShell({
   summaryKey,
@@ -1157,6 +1381,7 @@ function PlaceholderPageShell({
   tabs?: readonly string[];
 }) {
   const summary = placeholderRouteSummaries[summaryKey];
+  const detail = placeholderPageDetails[summaryKey];
 
   return (
     <>
@@ -1170,56 +1395,111 @@ function PlaceholderPageShell({
       {tabs ? <DetailTabs items={tabs} /> : null}
 
       <DataCard
-        title="準備中"
-        description="画面構成とナビゲーションを先に用意しています。分析ロジック、API連携、自動実行はまだ追加していません。"
+        title="この画面の位置づけ"
+        description="現在はサンプルデータで画面の役割を示しています。分析ロジック、外部連携、自動実行は追加していません。"
       >
-        <div className="grid gap-3 md:grid-cols-3">
-          <PlaceholderStep
-            title="表示構成"
-            description="サイドバー上の位置づけと、詳細項目を置くタブ構成を確認できます。"
-          />
-          <PlaceholderStep
-            title="既存データを維持"
-            description="Recoraの既存サンプルデータと分析画面は削除せず、リンク切れだけ防いでいます。"
-          />
-          <PlaceholderStep
-            title="次の実装余地"
-            description="必要になった段階でテーブル、スコア、実行ログなどを追加できる状態です。"
-          />
+        <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/50 p-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <Badge variant="outline" className="border-blue-200 bg-white text-blue-700">
+              設計済み
+            </Badge>
+            <p className="mt-3 text-sm leading-6 text-slate-700">{detail.outcome}</p>
+          </div>
+          <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500">
+            Recora roadmap
+          </span>
         </div>
       </DataCard>
 
-      <DataCard className="mt-5" title="関連する既存画面" description="現在の分析項目は既存画面で確認できます。">
-        <div className="grid gap-3 lg:grid-cols-3">
-          <PlaceholderLink href={`${reportBase}/overview`} label="概要" />
-          <PlaceholderLink href={`${reportBase}/conversations`} label="AI回答ログ" />
-          <PlaceholderLink href={`${reportBase}/sources`} label="引用元・ソース" />
-        </div>
-      </DataCard>
+      <div className="mt-5 grid min-w-0 gap-5 xl:grid-cols-2">
+        <PlaceholderInfoCard
+          label="確認"
+          title="この画面で確認できること"
+          items={detail.canCheck}
+        />
+        <PlaceholderInfoCard
+          label="今後"
+          title="今後追加される分析・機能"
+          items={detail.planned}
+          tone="amber"
+        />
+        <PlaceholderInfoCard
+          label="データ"
+          title="必要になるデータ"
+          items={detail.requiredData}
+          tone="green"
+        />
+        <DataCard title="関連する既存画面" description="今ある分析画面から、近い情報を確認できます。">
+          <div className="space-y-3">
+            {detail.links.map((link) => (
+              <PlaceholderLink key={link.href} href={link.href} label={link.label} helper={link.helper} />
+            ))}
+          </div>
+        </DataCard>
+      </div>
     </>
   );
 }
 
-function PlaceholderStep({ title, description }: { title: string; description: string }) {
+function PlaceholderInfoCard({
+  label,
+  title,
+  items,
+  tone = "blue"
+}: {
+  label: string;
+  title: string;
+  items: string[];
+  tone?: "blue" | "amber" | "green";
+}) {
+  const toneClass =
+    tone === "amber"
+      ? "border-orange-200 bg-orange-50 text-orange-700"
+      : tone === "green"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : "border-blue-200 bg-blue-50 text-blue-700";
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-      <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
-        準備中
-      </Badge>
-      <p className="mt-3 font-bold text-slate-950">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
-    </div>
+    <DataCard
+      title={title}
+      action={
+        <Badge variant="outline" className={cn("whitespace-nowrap rounded-sm", toneClass)}>
+          {label}
+        </Badge>
+      }
+    >
+      <ul className="space-y-3">
+        {items.map((item) => (
+          <li key={item} className="flex gap-3 text-sm leading-6 text-slate-600">
+            <span
+              className={cn(
+                "mt-2 h-2 w-2 shrink-0 rounded-full",
+                tone === "amber" && "bg-orange-500",
+                tone === "green" && "bg-emerald-500",
+                tone === "blue" && "bg-blue-600"
+              )}
+            />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </DataCard>
   );
 }
 
-function PlaceholderLink({ href, label }: { href: string; label: string }) {
+function PlaceholderLink({ href, label, helper }: { href: string; label: string; helper: string }) {
   return (
     <Link
       href={href}
-      className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:border-blue-200 hover:text-blue-700"
+      className="group flex min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
     >
-      {label}
-      <ArrowRight className="h-4 w-4" />
+      <span className="min-w-0">
+        <span className="block">{label}</span>
+        <span className="mt-1 block truncate text-xs font-semibold text-slate-500 group-hover:text-blue-600">
+          {helper}
+        </span>
+      </span>
+      <ArrowRight className="h-4 w-4 shrink-0 transition group-hover:translate-x-0.5" />
     </Link>
   );
 }
@@ -1266,7 +1546,7 @@ export function PersonasConfigPage() {
       <PageHeader
         eyebrow="設定"
         title="ペルソナ"
-        description="AI回答を取得する購買ペルソナです。各ペルソナの重みがVisibility集計に反映されます。"
+        description="AI回答を取得する購買ペルソナです。各ペルソナの重みがAI表示率の集計に反映されます。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
@@ -1310,7 +1590,7 @@ export function TopicsPromptsConfigPage() {
                 </div>
                 <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
                   <ScopeRow label="プロンプト" value={String(topic.promptCount)} />
-                  <ScopeRow label="表示率" value={formatPercent(topic.visibility)} />
+                  <ScopeRow label="AI表示率" value={formatPercent(topic.visibility)} />
                   <ScopeRow label="ギャップ" value={`${topic.gap} pt`} />
                 </div>
               </div>
@@ -1347,12 +1627,12 @@ export function ModelsConfigPage() {
     <>
       <PageHeader
         eyebrow="設定"
-        title="モデル"
-        description="AI回答を取得・比較するモデルセットです。ここではサンプル評価値を表示しています。"
+        title="AIモデル"
+        description="AI回答を取得・比較するAIモデルセットです。ここではサンプル評価値を表示しています。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
-      <DataCard title="モデル設定">
+      <DataCard title="AIモデル設定">
         <ModelsTable />
       </DataCard>
     </>
@@ -1365,7 +1645,7 @@ export function SettingsConfigPage() {
       <PageHeader
         eyebrow="設定"
         title="プロジェクト設定"
-        description="現在はプロダクト本体のサンプル状態です。API連携、自動実行、課金設定は入れていません。"
+        description="現在はプロダクト本体のサンプル状態です。外部連携、自動実行、課金設定は入れていません。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
@@ -1391,7 +1671,7 @@ export function SettingsConfigPage() {
             <ScopeRow label="ペルソナ" value={String(personas.length)} />
             <ScopeRow label="トピック" value={String(topics.length)} />
             <ScopeRow label="プロンプト" value={String(prompts.length)} />
-            <ScopeRow label="モデル" value={String(models.length)} />
+            <ScopeRow label="AIモデル" value={String(models.length)} />
           </div>
         </DataCard>
       </div>
@@ -1456,25 +1736,25 @@ function MetricGrid() {
   return (
     <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
       <MetricTile
-        label="ブランド可視性"
+        label="AI表示率"
         value={formatPercent(overall.brandVisibility)}
         helper="AI回答にRecoraが表示"
         delta={overall.movement}
       />
       <MetricTile
-        label="トピック可視性"
+        label="トピック別AI表示率"
         value={formatPercent(overall.topicVisibility)}
         helper="トピック優先度で加重"
       />
       <MetricTile
-        label="モデル可視性"
+        label="AIモデル別表示率"
         value={formatPercent(overall.modelVisibility)}
-        helper="4モデル平均"
+        helper="4つのAIモデル平均"
       />
       <MetricTile
-        label="引用カバレッジ"
+        label="参照カバレッジ"
         value={formatPercent(overall.citationCoverage)}
-        helper="自社ソース引用率"
+        helper="自社サイト参照率"
       />
       <MetricTile
         label="平均順位"
@@ -1489,7 +1769,7 @@ function MetricGrid() {
 function BrandVisibilityCard() {
   return (
     <DashboardCard
-      title="ブランド可視性"
+      title="AI表示率"
       description="AI回答内でのブランド別シェアです。"
       action={<Link href={`${reportBase}/overview`} className="text-xs font-bold text-blue-700">詳細を見る</Link>}
     >
@@ -1501,7 +1781,7 @@ function BrandVisibilityCard() {
 function CompetitiveRankingCard() {
   return (
     <DashboardCard
-      title="競合ランキング（可視性）"
+      title="競合ランキング（AI表示率）"
       description="Recoraと競合のAI表示率を比較します。"
       action={<Link href={`${reportBase}/leaderboard`} className="text-xs font-bold text-blue-700">競合比較へ</Link>}
     >
@@ -1514,14 +1794,14 @@ function PromptCategoryCard() {
   return (
     <DashboardCard
       title="プロンプトカテゴリ分析"
-      description="トピック別の可視性、前週比、メンション数です。"
+      description="トピック別のAI表示率、前週比、AI言及数です。"
       action={<Link href="/dashboard/config/topics-prompts" className="text-xs font-bold text-blue-700">カテゴリ詳細へ</Link>}
     >
       <Table className="min-w-[560px]">
         <TableHeader>
           <TableRow>
             <TableHead>カテゴリ</TableHead>
-            <TableHead>可視性</TableHead>
+            <TableHead>AI表示率</TableHead>
             <TableHead>前週比</TableHead>
             <TableHead>プロンプト数</TableHead>
           </TableRow>
@@ -1547,9 +1827,9 @@ function PromptCategoryCard() {
 function ModelPerformanceCard() {
   return (
     <DashboardCard
-      title="モデル別パフォーマンス"
-      description="AIモデルごとの表示率・引用率です。"
-      action={<Link href="/dashboard/config/models" className="text-xs font-bold text-blue-700">すべてのモデル</Link>}
+      title="AIモデル別パフォーマンス"
+      description="AIモデルごとのAI表示率・参照率です。"
+      action={<Link href="/dashboard/config/models" className="text-xs font-bold text-blue-700">すべてのAIモデル</Link>}
     >
       <ModelVisibilityTable compact />
     </DashboardCard>
@@ -1559,11 +1839,11 @@ function ModelPerformanceCard() {
 function SourceCitationCard() {
   return (
     <DashboardCard
-      title="ソース・引用分析"
-      description="AI回答が参照している引用元の内訳です。"
+      title="参照元分析"
+      description="AI回答が参照している参照元の内訳です。"
       action={<Link href={`${reportBase}/sources`} className="text-xs font-bold text-blue-700">詳細を見る</Link>}
     >
-      <DonutChart items={sourceDonutItems} centerLabel="引用元内訳" centerValue="100%" />
+      <DonutChart items={sourceDonutItems} centerLabel="参照元内訳" centerValue="100%" />
     </DashboardCard>
   );
 }
@@ -1571,7 +1851,7 @@ function SourceCitationCard() {
 function TopReferencedPagesCard() {
   return (
     <DashboardCard
-      title="引用されているページ TOP5"
+      title="参照されているページ TOP5"
       description="AI回答で参照されたRecora関連ページです。"
       action={<Link href={`${reportBase}/sources`} className="text-xs font-bold text-blue-700">すべて見る</Link>}
     >
@@ -1579,7 +1859,7 @@ function TopReferencedPagesCard() {
         <TableHeader>
           <TableRow>
             <TableHead>ページ</TableHead>
-            <TableHead>引用数</TableHead>
+            <TableHead>参照回数</TableHead>
             <TableHead>前週比</TableHead>
           </TableRow>
         </TableHeader>
@@ -1603,20 +1883,20 @@ function ImprovementPanel() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-bold text-slate-950">改善提案（優先度順）</h2>
-          <p className="mt-1 text-xs leading-5 text-slate-500">可視性低下の要因に近い順で並べています。</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">AI表示率低下の要因に近い順で並べています。</p>
         </div>
       </div>
       <div className="mt-4 space-y-3">
         <PrioritySuggestionCard
           priority="High"
           title="製品・サービスカテゴリの強化"
-          description="カテゴリ説明の可視性が低く、競合に奪われています。"
+          description="カテゴリ説明のAI表示率が低く、競合に奪われています。"
           href={`${reportBase}/content-opportunities`}
         />
         <PrioritySuggestionCard
           priority="Medium"
-          title="AI引用コンテンツの最適化"
-          description="引用される根拠ページを補強すると、可視性向上が期待できます。"
+          title="AI参照コンテンツの最適化"
+          description="参照される根拠ページを補強すると、AI表示率向上が期待できます。"
           href={`${reportBase}/sources`}
         />
         <PrioritySuggestionCard
@@ -1701,7 +1981,7 @@ function RoadmapSection() {
 function OverviewHeatmap() {
   return (
     <DataCard
-      title="ペルソナ x トピック可視性"
+      title="ペルソナ x トピック別AI表示率"
       description="どの購買ペルソナとトピックでRecoraがAI回答に出やすいかを可視化します。"
     >
       <div className="overflow-x-auto">
@@ -1741,13 +2021,13 @@ function MatrixRow({ personaId, personaName }: { personaId: (typeof personas)[nu
 
 function TopicVisibilityTable() {
   return (
-    <DataCard title="トピック可視性" description="トピックごとの表示率、引用率、改善ギャップです。">
+    <DataCard title="トピック別AI表示率" description="トピックごとのAI表示率、参照率、改善ギャップです。">
       <Table className="min-w-[760px]">
         <TableHeader>
           <TableRow>
             <TableHead className="min-w-[260px]">トピック</TableHead>
-            <TableHead className="min-w-[130px]">表示率</TableHead>
-            <TableHead className="min-w-[130px]">引用率</TableHead>
+            <TableHead className="min-w-[130px]">AI表示率</TableHead>
+            <TableHead className="min-w-[130px]">参照率</TableHead>
             <TableHead className="whitespace-nowrap">ギャップ</TableHead>
             <TableHead className="whitespace-nowrap">優先度</TableHead>
           </TableRow>
@@ -1773,7 +2053,7 @@ function TopicVisibilityTable() {
 
 function ModelVisibilityPanel() {
   return (
-    <DataCard title="モデル別可視性" description="モデルごとのRecora表示率です。">
+    <DataCard title="AIモデル別表示率" description="AIモデルごとのRecoraのAI表示率です。">
       <div className="space-y-4">
         {models.map((model) => (
           <div key={model.id}>
@@ -1797,7 +2077,7 @@ function ModelVisibilityPanel() {
 
 function SourceSharePanel() {
   return (
-    <DataCard title="上位ソース" description="AI回答が参照した主なドメインです。">
+    <DataCard title="上位参照元" description="AI回答が参照した主なドメインです。">
       <div className="space-y-4">
         {sources.slice(0, 6).map((source) => (
           <div key={source.domain}>
@@ -1823,8 +2103,8 @@ function RankingTable({ compact = false }: { compact?: boolean }) {
         <TableRow>
           <TableHead className="w-14">順位</TableHead>
           <TableHead>ブランド</TableHead>
-          <TableHead>可視性</TableHead>
-          {!compact ? <TableHead>引用シェア</TableHead> : null}
+          <TableHead>AI表示率</TableHead>
+          {!compact ? <TableHead>参照シェア</TableHead> : null}
           {!compact ? <TableHead>評価</TableHead> : null}
           {!compact ? <TableHead>購買勝率</TableHead> : null}
         </TableRow>
@@ -1860,9 +2140,9 @@ function ModelVisibilityTable({ compact = false }: { compact?: boolean }) {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>モデル</TableHead>
-          <TableHead>表示率</TableHead>
-          <TableHead>引用率</TableHead>
+          <TableHead>AIモデル</TableHead>
+          <TableHead>AI表示率</TableHead>
+          <TableHead>参照率</TableHead>
           {!compact ? <TableHead>平均順位</TableHead> : null}
         </TableRow>
       </TableHeader>
@@ -1888,9 +2168,9 @@ function SourcesTable() {
           <TableHead>ドメイン</TableHead>
           <TableHead>種別</TableHead>
           <TableHead>出現数</TableHead>
-          <TableHead>引用シェア</TableHead>
+          <TableHead>参照シェア</TableHead>
           <TableHead>信頼度</TableHead>
-          <TableHead>引用トピック</TableHead>
+          <TableHead>参照トピック</TableHead>
           <TableHead>推奨アクション</TableHead>
         </TableRow>
       </TableHeader>
@@ -1934,7 +2214,7 @@ function CitationsTable() {
           <TableHead>ドメイン</TableHead>
           <TableHead>種別</TableHead>
           <TableHead>出現数</TableHead>
-          <TableHead>引用理由</TableHead>
+          <TableHead>参照理由</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -2032,7 +2312,7 @@ function ContentOpportunitiesTable() {
           <TableHead>スコア</TableHead>
           <TableHead className="whitespace-nowrap">現在</TableHead>
           <TableHead className="whitespace-nowrap">競合</TableHead>
-          <TableHead className="min-w-[180px]">不足ソース</TableHead>
+          <TableHead className="min-w-[180px]">不足している参照元</TableHead>
           <TableHead className="whitespace-nowrap">影響プロンプト</TableHead>
           <TableHead className="min-w-[220px]">推奨ページ</TableHead>
           <TableHead>次の一手</TableHead>
@@ -2064,7 +2344,7 @@ function PersonasTable() {
           <TableHead className="min-w-[220px]">ペルソナ</TableHead>
           <TableHead className="min-w-[180px]">セグメント</TableHead>
           <TableHead className="whitespace-nowrap">重み</TableHead>
-          <TableHead>現在の表示率</TableHead>
+          <TableHead>現在のAI表示率</TableHead>
           <TableHead>ジョブ</TableHead>
           <TableHead>改善機会</TableHead>
         </TableRow>
@@ -2104,7 +2384,7 @@ function PromptCoverageTable({ compact = false }: { compact?: boolean }) {
           {!compact ? <TableHead className="min-w-[170px]">トピック</TableHead> : null}
           <TableHead className="min-w-[130px]">意図</TableHead>
           <TableHead className="whitespace-nowrap">優先度</TableHead>
-          <TableHead>表示率</TableHead>
+          <TableHead>AI表示率</TableHead>
           {!compact ? <TableHead>ギャップ</TableHead> : null}
         </TableRow>
       </TableHeader>
@@ -2134,8 +2414,8 @@ function CompetitorsTable() {
         <TableRow>
           <TableHead className="min-w-[190px]">競合</TableHead>
           <TableHead className="min-w-[180px]">カテゴリ</TableHead>
-          <TableHead>表示率</TableHead>
-          <TableHead>引用シェア</TableHead>
+          <TableHead>AI表示率</TableHead>
+          <TableHead>参照シェア</TableHead>
           <TableHead>評価</TableHead>
           <TableHead>ポジショニングメモ</TableHead>
         </TableRow>
@@ -2164,11 +2444,11 @@ function ModelsTable() {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>モデル</TableHead>
+          <TableHead>AIモデル</TableHead>
           <TableHead>提供元</TableHead>
           <TableHead>AI回答数</TableHead>
-          <TableHead>表示率</TableHead>
-          <TableHead>引用率</TableHead>
+          <TableHead>AI表示率</TableHead>
+          <TableHead>参照率</TableHead>
           <TableHead>平均順位</TableHead>
           <TableHead>メモ</TableHead>
         </TableRow>
@@ -2197,7 +2477,7 @@ function ReportSummaryBlock() {
         <ScopeRow label="ブランド" value={brand.name} />
         <ScopeRow label="競合" value={String(competitors.length)} />
         <ScopeRow label="ペルソナ" value={String(personas.length)} />
-        <ScopeRow label="モデル" value={String(models.length)} />
+        <ScopeRow label="AIモデル" value={String(models.length)} />
       </div>
       <Table className="min-w-[760px]">
         <TableHeader>
@@ -2210,10 +2490,10 @@ function ReportSummaryBlock() {
         </TableHeader>
         <TableBody>
           {[
-            ["Overview", "表示率は一部で改善中", "技術監査領域が弱い", `${reportBase}/overview`],
-            ["Leaderboard", "Recoraは3位", "首位との差が14pt", `${reportBase}/leaderboard`],
-            ["Sources", "自社引用は31%", "競合ソースがまだ強い", `${reportBase}/sources`],
-            ["Buyer criteria", "2項目で勝ち", "レポート品質と技術根拠が不足", `${reportBase}/buyer-criteria`]
+            ["概要", "AI表示率は一部で改善中", "サイト技術診断領域が弱い", `${reportBase}/overview`],
+            ["競合ランキング", "Recoraは3位", "首位との差が14pt", `${reportBase}/leaderboard`],
+            ["参照元分析", "自社参照は31%", "競合参照元がまだ強い", `${reportBase}/sources`],
+            ["選定基準分析", "2項目で勝ち", "レポート品質と技術根拠が不足", `${reportBase}/buyer-criteria`]
           ].map(([area, state, risk, href]) => (
             <TableRow key={area}>
               <TableCell className="font-bold text-slate-950">{area}</TableCell>

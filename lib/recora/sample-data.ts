@@ -27,7 +27,7 @@ export type Priority = "High" | "Medium" | "Low";
 
 export const sampleProject = {
   id: "recora-growth-q2",
-  name: "Recora AI検索可視性レポート",
+  name: "Recora AI検索分析レポート",
   workspace: "Recora Growth",
   period: "2026年6月",
   startedAt: "2026-06-01",
@@ -45,9 +45,9 @@ export const brand = {
   name: "Recora",
   reading: "レコラ",
   domain: "recora.ai",
-  category: "AI visibility / brand monitoring",
+  category: "AI検索分析・ブランドモニタリング",
   description:
-    "ペルソナ、トピック、プロンプト、モデル単位でAI回答上のブランド可視性を監視するダッシュボード。",
+    "ペルソナ、トピック、プロンプト、AIモデル単位でAI回答上のAI表示率を確認するダッシュボード。",
   color: "#2563eb"
 };
 
@@ -98,7 +98,7 @@ export const competitors = [
     sentiment: 63,
     movement: 6,
     position: "SEO隣接型",
-    note: "技術SEOとAI可視性を同時に問うプロンプトで強く出ます。"
+    note: "技術SEOとAI表示率を同時に問うプロンプトで強く出ます。"
   }
 ];
 
@@ -119,11 +119,11 @@ export const personas = [
     name: "コンテンツ責任者",
     segment: "グロースチーム",
     weight: 27,
-    jobs: ["不足トピックの発見", "引用元の整理", "比較ページの更新"],
+    jobs: ["不足トピックの発見", "参照元の整理", "比較ページの更新"],
     pain: "編集優先度を変える前に、トピック単位の根拠が必要。",
     keyQuestions: 12,
     visibility: 55,
-    opportunity: "購買判断軸と導入手順を説明するページを強化する。"
+    opportunity: "選定基準と導入手順を説明するページを強化する。"
   },
   {
     id: "revops" as const,
@@ -131,10 +131,10 @@ export const personas = [
     segment: "ミッドマーケットSaaS",
     weight: 21,
     jobs: ["ベンダー適合性の確認", "データ出力の比較", "購買稟議の支援"],
-    pain: "関係者レビュー用に、信頼できるレポートと引用元の追跡性が必要。",
+    pain: "関係者レビュー用に、信頼できるレポートと参照元の追跡性が必要。",
     keyQuestions: 10,
     visibility: 49,
-    opportunity: "連携、権限、監査性の説明を追加する。"
+    opportunity: "連携、権限、追跡性の説明を追加する。"
   },
   {
     id: "agency-strategist" as const,
@@ -152,7 +152,7 @@ export const personas = [
 export const topics = [
   {
     id: "ai-visibility" as const,
-    name: "AI検索可視性",
+    name: "AI検索での表示状況",
     intent: "AI回答上のブランド表示を確認するツールを探す",
     promptCount: 9,
     visibility: 68,
@@ -173,7 +173,7 @@ export const topics = [
   {
     id: "buyer-research" as const,
     name: "購買リサーチ",
-    intent: "購買判断軸に沿ってベンダーを評価する",
+    intent: "選定基準に沿ってベンダーを評価する",
     promptCount: 7,
     visibility: 46,
     citationShare: 19,
@@ -192,8 +192,8 @@ export const topics = [
   },
   {
     id: "technical-readiness" as const,
-    name: "技術的な引用準備",
-    intent: "AIが引用しやすいページ構造か確認する",
+    name: "参照されやすいページ設計",
+    intent: "AIが参照しやすいページ構造か確認する",
     promptCount: 7,
     visibility: 42,
     citationShare: 15,
@@ -222,7 +222,7 @@ export const models = [
     averageRank: 2.2,
     sentiment: 74,
     conversations: 48,
-    note: "Strongest for category education and shortlists."
+    note: "カテゴリ理解や候補リスト型の質問で強く表示されます。"
   },
   {
     id: "gemini" as const,
@@ -233,7 +233,7 @@ export const models = [
     averageRank: 2.8,
     sentiment: 68,
     conversations: 48,
-    note: "Leans on source authority and implementation docs."
+    note: "参照元の信頼性や実装ドキュメントを重視する傾向です。"
   },
   {
     id: "perplexity" as const,
@@ -244,7 +244,7 @@ export const models = [
     averageRank: 1.9,
     sentiment: 76,
     conversations: 48,
-    note: "Most citation-heavy; comparison pages matter."
+    note: "参照元の提示が多く、比較ページの有無が効きやすい傾向です。"
   },
   {
     id: "claude" as const,
@@ -255,7 +255,7 @@ export const models = [
     averageRank: 3.1,
     sentiment: 70,
     conversations: 48,
-    note: "Stronger when prompts ask for strategic tradeoffs."
+    note: "戦略上のトレードオフを問うプロンプトで強く出ます。"
   }
 ];
 
@@ -264,7 +264,7 @@ export const prompts = [
     id: "p-001",
     topicId: "ai-visibility" as const,
     personaId: "marketing-lead" as const,
-    text: "BtoB SaaSのマーケティングチームがAI回答でのブランド可視性を監視するには、どのツールが適していますか？",
+    text: "BtoB SaaSのマーケティングチームがAI回答でのAI表示率を確認するには、どのツールが適していますか？",
     intent: "ツール探索",
     priority: "High" as const,
     visibility: 76,
@@ -275,7 +275,7 @@ export const prompts = [
     id: "p-002",
     topicId: "competitive-monitoring" as const,
     personaId: "marketing-lead" as const,
-    text: "ChatGPTやGeminiで、自社ブランドの表示率を競合と比較するにはどうすればよいですか？",
+    text: "ChatGPTやGeminiで、自社ブランドのAI表示率を競合と比較するにはどうすればよいですか？",
     intent: "競合ベンチマーク",
     priority: "High" as const,
     visibility: 58,
@@ -286,7 +286,7 @@ export const prompts = [
     id: "p-003",
     topicId: "buyer-research" as const,
     personaId: "revops" as const,
-    text: "ベンダー評価と経営向けレポートに適したAI可視性プラットフォームはどれですか？",
+    text: "ベンダー評価と経営向けレポートに適したAI検索分析ツールはどれですか？",
     intent: "購買判断",
     priority: "High" as const,
     visibility: 41,
@@ -308,18 +308,18 @@ export const prompts = [
     id: "p-005",
     topicId: "technical-readiness" as const,
     personaId: "content-lead" as const,
-    text: "製品ページや比較ページを、AI回答エンジンに引用されやすくするにはどうすればよいですか？",
-    intent: "技術的な引用準備",
+    text: "製品ページや比較ページを、AI回答で参照されやすくするにはどうすればよいですか？",
+    intent: "参照されやすいページ設計",
     priority: "High" as const,
     visibility: 39,
     bestModel: "Gemini",
-    gap: "技術監査コンテンツがまだ十分に引用されていません。"
+    gap: "サイト技術診断コンテンツがまだ十分に参照されていません。"
   },
   {
     id: "p-006",
     topicId: "agency-reporting" as const,
     personaId: "agency-strategist" as const,
-    text: "代理店がクライアント向けにAI検索可視性レポートを提供するには、どのプラットフォームが適していますか？",
+    text: "代理店がクライアント向けにAI検索分析レポートを提供するには、どのプラットフォームが適していますか？",
     intent: "代理店ワークフロー",
     priority: "Medium" as const,
     visibility: 54,
@@ -342,11 +342,11 @@ export const prompts = [
     topicId: "buyer-research" as const,
     personaId: "marketing-lead" as const,
     text: "AIブランドモニタリングダッシュボードを選ぶ際に、どの判断軸が重要ですか？",
-    intent: "購買判断軸",
+    intent: "選定基準",
     priority: "High" as const,
     visibility: 44,
     bestModel: "Claude",
-    gap: "スコアリングと引用元追跡性を説明する購買判断軸ページが必要です。"
+    gap: "スコアリングと参照元追跡性を説明する選定基準ページが必要です。"
   }
 ];
 
@@ -362,10 +362,10 @@ export const conversations = [
     recoraRank: 2,
     sentiment: "positive" as const,
     answerSummary:
-      "Recoraは、プロンプト、ペルソナ、モデル単位で監視したいチーム向けの実務的な選択肢として扱われています。",
+      "Recoraは、プロンプト、ペルソナ、AIモデル単位で確認したいチーム向けの実務的な選択肢として扱われています。",
     mentionedBrands: ["Trailbase", "Recora", "SignalNest"],
     citedDomains: ["recora.ai", "aiview-journal.jp", "trailbase.io"],
-    buyerCriteria: ["カバレッジ", "引用元追跡性", "競合ベンチマーク"]
+    buyerCriteria: ["調査カバレッジ", "参照元追跡性", "競合ベンチマーク"]
   },
   {
     id: "conv-1002",
@@ -410,7 +410,7 @@ export const conversations = [
     recoraRank: 1,
     sentiment: "positive" as const,
     answerSummary:
-      "Recoraは、AI回答上のギャップをコンテンツブリーフと改善トピックに変換する例として扱われています。",
+      "Recoraは、AI回答上のギャップをページ改善案と改善トピックに変換する例として扱われています。",
     mentionedBrands: ["Recora", "MentionMap", "RankLens"],
     citedDomains: ["recora.ai", "contentsignal.jp", "topiccraft.jp"],
     buyerCriteria: ["コンテンツ提案", "ワークフロー明確性", "測定"]
@@ -426,10 +426,10 @@ export const conversations = [
     recoraRank: null,
     sentiment: "negative" as const,
     answerSummary:
-      "技術SEO資料と引用準備チェックリストが推薦され、Recoraは表示されていません。",
+      "技術SEO資料と参照準備チェックリストが推薦され、Recoraは表示されていません。",
     mentionedBrands: ["RankLens", "Trailbase"],
     citedDomains: ["crawlbase.dev", "entitydocs.dev", "ranklens.ai"],
-    buyerCriteria: ["技術監査", "構造化データ", "クロール容易性"]
+    buyerCriteria: ["サイト技術診断", "構造化データ", "クロール容易性"]
   },
   {
     id: "conv-1006",
@@ -442,7 +442,7 @@ export const conversations = [
     recoraRank: 2,
     sentiment: "positive" as const,
     answerSummary:
-      "Recoraは、クライアント向け可視性レポートとプロンプトライブラリが必要な代理店に有用と説明されています。",
+      "Recoraは、クライアント向けAI検索分析レポートとプロンプトライブラリが必要な代理店に有用と説明されています。",
     mentionedBrands: ["Trailbase", "Recora", "MentionMap"],
     citedDomains: ["recora.ai", "agencygrowth.jp", "mentionmap.co"],
     buyerCriteria: ["クライアントレポート", "プロンプト管理", "ベンチマーク"]
@@ -458,10 +458,10 @@ export const conversations = [
     recoraRank: 2,
     sentiment: "positive" as const,
     answerSummary:
-      "モデル別の言及率、競合順位、引用元、購買判断軸を月次で追跡することが推奨されています。",
+      "AIモデル別の言及率、競合順位、参照元、選定基準を月次で追跡することが推奨されています。",
     mentionedBrands: ["SignalNest", "Recora", "Trailbase"],
     citedDomains: ["recora.ai", "signalnest.com", "growthops.jp"],
-    buyerCriteria: ["トレンド監視", "引用根拠", "エクスポート"]
+    buyerCriteria: ["推移の確認", "参照根拠", "エクスポート"]
   },
   {
     id: "conv-1008",
@@ -477,7 +477,7 @@ export const conversations = [
       "Recoraは候補に含まれますが、セキュリティとガバナンスの公開根拠を確認すべきとされています。",
     mentionedBrands: ["SignalNest", "Trailbase", "RankLens", "Recora"],
     citedDomains: ["reviewharbor.jp", "recora.ai", "signalnest.com"],
-    buyerCriteria: ["ガバナンス", "引用元追跡性", "使いやすさ"]
+    buyerCriteria: ["ガバナンス", "参照元追跡性", "使いやすさ"]
   }
 ];
 
@@ -486,11 +486,11 @@ export const citations = [
     id: "cite-001",
     conversationId: "conv-1001",
     domain: "recora.ai",
-    title: "Recora AI検索可視性モニタリングガイド",
+    title: "Recora AI検索分析ガイド",
     url: "https://recora.ai/guide/ai-visibility",
     sourceType: "自社",
     occurrences: 34,
-    citedFor: "プロンプト別・モデル別の監視"
+    citedFor: "プロンプト別・AIモデル別の確認"
   },
   {
     id: "cite-002",
@@ -520,13 +520,13 @@ export const citations = [
     url: "https://contentsignal.jp/blog/ai-search-content-strategy",
     sourceType: "業界メディア",
     occurrences: 27,
-    citedFor: "コンテンツ改善機会の整理"
+    citedFor: "コンテンツ改善案の整理"
   },
   {
     id: "cite-005",
     conversationId: "conv-1005",
     domain: "crawlbase.dev",
-    title: "AI引用に強いページ構造の基本",
+    title: "AIに参照されやすいページ構造の基本",
     url: "https://crawlbase.dev/docs/citation-ready-pages",
     sourceType: "技術参照",
     occurrences: 23,
@@ -571,8 +571,8 @@ export const sources = [
     appearances: 68,
     citationShare: 31,
     trustScore: 78,
-    citedTopics: ["AI検索可視性", "コンテンツ改善", "代理店レポート"],
-    recommendedAction: "購買判断軸ページと技術監査の例を追加する。"
+    citedTopics: ["AI検索での表示状況", "コンテンツ改善", "代理店レポート"],
+    recommendedAction: "選定基準ページとサイト技術診断の例を追加する。"
   },
   {
     domain: "trailbase.io",
@@ -599,7 +599,7 @@ export const sources = [
     citationShare: 18,
     trustScore: 73,
     citedTopics: ["購買リサーチ", "ベンダー評価"],
-    recommendedAction: "第三者評価とレビュー引用の根拠を強化する。"
+    recommendedAction: "第三者評価とレビュー参照の根拠を強化する。"
   },
   {
     domain: "crawlbase.dev",
@@ -607,7 +607,7 @@ export const sources = [
     appearances: 38,
     citationShare: 15,
     trustScore: 88,
-    citedTopics: ["技術的な引用準備"],
+    citedTopics: ["参照されやすいページ設計"],
     recommendedAction: "Recoraの改善提案を技術標準に結びつける。"
   },
   {
@@ -697,18 +697,18 @@ export const buyerCriteria = [
     bestCompetitor: "Trailbase",
     bestScore: 86,
     status: "Narrow loss",
-    evidence: "Recoraはペルソナ・モデルのカバレッジで評価されますが、Trailbaseは公開ベンチマークが広い状態です。",
+    evidence: "Recoraはペルソナ・AIモデルの調査カバレッジで評価されますが、Trailbaseは公開ベンチマークが広い状態です。",
     action: "カテゴリ全体のベンチマーク範囲と調査方法を公開する。"
   },
   {
-    name: "引用元追跡性",
+    name: "参照元追跡性",
     weight: 16,
     recoraScore: 79,
     bestCompetitor: "Recora",
     bestScore: 79,
     status: "Win",
-    evidence: "ソースドメインと会話単位の根拠を説明する回答ではRecoraが引用されています。",
-    action: "製品ページでソース確認を主な証拠として提示する。"
+    evidence: "参照元ドメインと会話単位の根拠を説明する回答ではRecoraが参照されています。",
+    action: "製品ページで参照元確認を主な証拠として提示する。"
   },
   {
     name: "競合ベンチマーク",
@@ -738,17 +738,17 @@ export const buyerCriteria = [
     bestScore: 84,
     status: "Win",
     evidence: "次に改善すべきコンテンツを問う質問ではRecoraが勝っています。",
-    action: "不足引用と購買判断軸に改善提案を紐づける。"
+    action: "不足している参照元と選定基準に改善提案を紐づける。"
   },
   {
-    name: "技術的な引用準備",
+    name: "参照されやすいページ設計",
     weight: 12,
     recoraScore: 51,
     bestCompetitor: "RankLens",
     bestScore: 76,
     status: "Loss",
-    evidence: "技術系プロンプトではSEO資料やRankLens型の監査が優先されます。",
-    action: "引用準備チェックリストと構造化データの根拠ページを作る。"
+    evidence: "技術系プロンプトではSEO資料やRankLens型の診断が優先されます。",
+    action: "参照準備チェックリストと構造化データの根拠ページを作る。"
   },
   {
     name: "使いやすさ",
@@ -763,27 +763,27 @@ export const buyerCriteria = [
 ];
 
 export const weeklyTrends = [
-  { week: "May 13", recora: 42, trailbase: 66, signalnest: 61, mentionmap: 49, ranklens: 44, citations: 21 },
-  { week: "May 20", recora: 45, trailbase: 68, signalnest: 63, mentionmap: 50, ranklens: 43, citations: 22 },
-  { week: "May 27", recora: 48, trailbase: 69, signalnest: 65, mentionmap: 49, ranklens: 45, citations: 24 },
-  { week: "Jun 03", recora: 51, trailbase: 70, signalnest: 65, mentionmap: 50, ranklens: 46, citations: 27 },
-  { week: "Jun 10", recora: 55, trailbase: 71, signalnest: 63, mentionmap: 51, ranklens: 46, citations: 29 },
-  { week: "Jun 16", recora: 58, trailbase: 72, signalnest: 64, mentionmap: 51, ranklens: 47, citations: 31 }
+  { week: "5/13", recora: 42, trailbase: 66, signalnest: 61, mentionmap: 49, ranklens: 44, citations: 21 },
+  { week: "5/20", recora: 45, trailbase: 68, signalnest: 63, mentionmap: 50, ranklens: 43, citations: 22 },
+  { week: "5/27", recora: 48, trailbase: 69, signalnest: 65, mentionmap: 49, ranklens: 45, citations: 24 },
+  { week: "6/3", recora: 51, trailbase: 70, signalnest: 65, mentionmap: 50, ranklens: 46, citations: 27 },
+  { week: "6/10", recora: 55, trailbase: 71, signalnest: 63, mentionmap: 51, ranklens: 46, citations: 29 },
+  { week: "6/16", recora: 58, trailbase: 72, signalnest: 64, mentionmap: 51, ranklens: 47, citations: 31 }
 ];
 
 export const contentOpportunities = [
   {
-    topic: "AI引用に向けた技術準備",
+    topic: "AI参照に向けた技術準備",
     opportunityScore: 91,
     currentVisibility: 42,
     competitorVisibility: 76,
-    missingSource: "引用準備チェックリスト",
+    missingSource: "参照準備チェックリスト",
     affectedPrompts: 7,
     recommendedPage: "/resources/ai-citation-readiness",
     nextStep: "構造化データ、クロール容易性、ページ構造、具体例を含むチェックリストを作成する。"
   },
   {
-    topic: "AIブランド監視の購買判断軸",
+    topic: "AIブランド分析の選定基準",
     opportunityScore: 87,
     currentVisibility: 46,
     competitorVisibility: 81,
@@ -800,7 +800,7 @@ export const contentOpportunities = [
     missingSource: "公開サンプルレポート",
     affectedPrompts: 6,
     recommendedPage: "/sample/competitive-leaderboard",
-    nextStep: "シェアオブボイスと順位変動を含む匿名カテゴリ例を公開する。"
+    nextStep: "AI内シェアと順位変動を含む匿名カテゴリ例を公開する。"
   },
   {
     topic: "代理店向けレポート運用",
@@ -840,15 +840,15 @@ export const technicalAudit = [
     detail: "公開ベンチマーク例がより具体的な競合がAI回答で優先されています。"
   },
   {
-    item: "ソースページがクロール・引用されやすい",
+    item: "参照元ページがクロール・参照されやすい",
     area: "クロール容易性",
     status: "Watch",
     score: 64,
     detail: "主要ページは読めますが、構造化された要約があると抽出しやすくなります。"
   },
   {
-    item: "購買判断軸ページが評価者の言葉に対応している",
-    area: "購買判断軸",
+    item: "選定基準ページが評価者の言葉に対応している",
+    area: "選定基準",
     status: "Needs work",
     score: 44,
     detail: "ガバナンス、出力、購買稟議に関する表現が不足しています。"
@@ -858,7 +858,7 @@ export const technicalAudit = [
     area: "コンテンツ運用",
     status: "Pass",
     score: 79,
-    detail: "コンテンツギャップの提案はAIモデルが要約しやすい状態です。"
+    detail: "不足コンテンツの提案はAIモデルが要約しやすい状態です。"
   }
 ];
 
