@@ -10,6 +10,7 @@
 
 create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;
+set search_path = public, extensions;
 
 create type public.recora_brand_type as enum (
   'primary',
@@ -463,6 +464,9 @@ create index metric_snapshots_brand_id_idx on public.metric_snapshots (brand_id)
 create index metric_snapshots_scope_idx on public.metric_snapshots (run_id, scope_type, scope_id);
 create index metric_snapshots_run_brand_scope_idx on public.metric_snapshots (run_id, brand_id, scope_type);
 
+-- v0.1 stores one aggregate row per run/scope/brand combination.
+-- If Recora later stores multiple calculation methods or metric versions,
+-- add a metric_version/calculation_method column to this unique index.
 create unique index metric_snapshots_unique_scope_idx
 on public.metric_snapshots (
   run_id,
