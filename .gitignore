@@ -13,6 +13,7 @@ build/
 .npm-cache/
 .playwright-cli/
 output/playwright/
+output/openai-inspection/
 tsconfig.tsbuildinfo
 
 # env
