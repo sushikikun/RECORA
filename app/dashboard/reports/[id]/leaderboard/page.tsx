@@ -1,5 +1,33 @@
 import { LeaderboardPage } from "@/components/recora/report-pages";
+import { getRecoraLeaderboardData } from "@/lib/recora/db";
 
-export default function ReportLeaderboardPage() {
-  return <LeaderboardPage />;
+const CURRENT_REPORT_SLUG = "recora-kenzai-q2";
+const LEGACY_REPORT_SLUG = "recora-growth-q2";
+
+type ReportLeaderboardPageProps = {
+  params: {
+    id: string;
+  };
+};
+
+export const dynamic = "force-dynamic";
+
+export default async function ReportLeaderboardPage({ params }: ReportLeaderboardPageProps) {
+  const leaderboardData = await getLeaderboardDataOrNull(normalizeReportSlug(params.id));
+
+  return <LeaderboardPage leaderboardData={leaderboardData} />;
+}
+
+async function getLeaderboardDataOrNull(projectSlug: string) {
+  try {
+    const data = await getRecoraLeaderboardData(projectSlug);
+    return data.project && data.brands.length > 0 ? data : null;
+  } catch (error) {
+    console.warn("Failed to load Recora leaderboard data. Falling back to sample data.", error);
+    return null;
+  }
+}
+
+function normalizeReportSlug(reportSlug: string) {
+  return reportSlug === LEGACY_REPORT_SLUG ? CURRENT_REPORT_SLUG : reportSlug;
 }

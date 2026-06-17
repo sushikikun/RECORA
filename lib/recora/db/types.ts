@@ -258,6 +258,19 @@ export type RecoraSourcesDbData = {
   citations: RecoraCitationRow[];
 };
 
+export type RecoraLeaderboardDbData = {
+  project: RecoraProjectRow | null;
+  latestRun: RecoraMeasurementRunRow | null;
+  brands: RecoraBrandRow[];
+  metricSnapshots: RecoraMetricSnapshotRow[];
+  runItems: RecoraRunItemRow[];
+  conversations: RecoraAiConversationRow[];
+  brandMentions: RecoraBrandMentionRow[];
+  citations: RecoraCitationRow[];
+  prompts: RecoraPromptRow[];
+  topics: RecoraTopicRow[];
+};
+
 export type RecoraDashboardCounts = {
   aiConversations: number;
   citations: number;

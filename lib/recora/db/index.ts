@@ -1,4 +1,5 @@
 export * from "./dashboard";
+export * from "./leaderboard";
 export * from "./conversations";
 export * from "./sources";
 export * from "./types";

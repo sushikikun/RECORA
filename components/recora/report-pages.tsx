@@ -41,7 +41,7 @@ import {
   weeklyTrends
 } from "@/lib/recora/sample-data";
 import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-config";
-import type { RecoraConversationsDbData, RecoraDashboardDbData, RecoraRecommendationRow, RecoraSourcesDbData } from "@/lib/recora/db";
+import type { RecoraConversationsDbData, RecoraDashboardDbData, RecoraLeaderboardDbData, RecoraRecommendationRow, RecoraSourcesDbData } from "@/lib/recora/db";
 import {
   AlertBanner,
   DashboardCard,
@@ -316,6 +316,14 @@ type DashboardRankingRow = {
   sentiment: number;
   winRate: number;
   isPrimary: boolean;
+  brandTypeLabel?: string;
+  aiMentionCount?: number;
+  recommendationCount?: number;
+  citationCount?: number;
+  averagePosition?: number | null;
+  competitiveGap?: number | null;
+  strongTopic?: string;
+  representativePrompt?: string;
 };
 type DashboardHomeViewModel = {
   projectName: string;
@@ -421,6 +429,228 @@ function createSampleRankingRows(): DashboardRankingRow[] {
   return visibilityMetrics.byBrand.map((row) => ({ brandId: row.brandId, name: row.name, visibility: row.visibility, citationShare: row.citationShare, sentiment: row.sentiment, winRate: row.winRate, isPrimary: row.brandId === "recora" }));
 }
 
+type LeaderboardCompetitorCard = {
+  id: string;
+  name: string;
+  position: string;
+  note: string;
+  movement: number;
+};
+
+type LeaderboardViewModel = {
+  primaryBrandName: string;
+  primaryVisibility: string;
+  competitiveGapValue: string;
+  competitiveGapDelta: number;
+  primaryCitationShare: string;
+  rankingRows: DashboardRankingRow[];
+  competitorCards: LeaderboardCompetitorCard[];
+};
+
+type BrandMentionAggregate = {
+  mentionCount: number;
+  recommendationCount: number;
+  scoreTotal: number;
+  scoreCount: number;
+  positions: number[];
+  topicCounts: Map<string, number>;
+  promptCounts: Map<string, number>;
+};
+
+function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): LeaderboardViewModel {
+  if (!data?.project || data.brands.length === 0) {
+    return createSampleLeaderboardViewModel();
+  }
+
+  const primaryBrand = data.brands.find((item) => item.brand_type === "primary") ?? data.brands[0];
+  const brandSnapshots = data.metricSnapshots.filter((snapshot) => snapshot.scope_type === "brand" && snapshot.brand_id);
+  const snapshotByBrandId = new Map(brandSnapshots.map((snapshot) => [snapshot.brand_id, snapshot]));
+  const conversationById = new Map(data.conversations.map((item) => [item.id, item]));
+  const runItemById = new Map(data.runItems.map((item) => [item.id, item]));
+  const promptById = new Map(data.prompts.map((item) => [item.id, item]));
+  const topicById = new Map(data.topics.map((item) => [item.id, item]));
+  const mentionStats = new Map<string, BrandMentionAggregate>();
+
+  for (const mention of data.brandMentions) {
+    if (!mention.mentioned) continue;
+
+    const stat = getBrandMentionAggregate(mentionStats, mention.brand_id);
+    stat.mentionCount += 1;
+    stat.scoreTotal += Number(mention.answer_score ?? 0);
+    stat.scoreCount += 1;
+    if (isRecommendedStatus(mention.recommendation_status)) {
+      stat.recommendationCount += 1;
+    }
+    if (typeof mention.position === "number") {
+      stat.positions.push(mention.position);
+    }
+
+    const conversation = conversationById.get(mention.conversation_id);
+    const runItem = conversation ? runItemById.get(conversation.run_item_id) : undefined;
+    const prompt = runItem ? promptById.get(runItem.prompt_id) : undefined;
+    const topic = prompt ? topicById.get(prompt.topic_id) : undefined;
+    if (topic?.name) {
+      incrementMap(stat.topicCounts, topic.name);
+    }
+    if (prompt?.text) {
+      incrementMap(stat.promptCounts, prompt.text);
+    }
+  }
+
+  const citationCounts = new Map<string, number>();
+  for (const citation of data.citations) {
+    if (!citation.brand_id) continue;
+    citationCounts.set(
+      citation.brand_id,
+      (citationCounts.get(citation.brand_id) ?? 0) + Number(citation.occurrence_count ?? 1)
+    );
+  }
+
+  const primarySnapshot = primaryBrand ? snapshotByBrandId.get(primaryBrand.id) : undefined;
+  const primaryStat = primaryBrand ? mentionStats.get(primaryBrand.id) : undefined;
+  const primaryVisibility = Math.round(primarySnapshot?.ai_visibility ?? calculateVisibility(primaryStat?.mentionCount ?? 0, data.conversations.length));
+  const topCompetitorVisibility = Math.max(
+    0,
+    ...data.brands
+      .filter((item) => item.id !== primaryBrand?.id)
+      .map((item) => Math.round(snapshotByBrandId.get(item.id)?.ai_visibility ?? calculateVisibility(mentionStats.get(item.id)?.mentionCount ?? 0, data.conversations.length)))
+  );
+  const primaryGap = Math.round(primarySnapshot?.competitive_gap ?? primaryVisibility - topCompetitorVisibility);
+  const totalMentionRows = Math.max(1, data.brandMentions.filter((item) => item.mentioned).length);
+
+  const rankingRows = data.brands
+    .map((brandItem) => {
+      const snapshot = snapshotByBrandId.get(brandItem.id);
+      const stat = mentionStats.get(brandItem.id);
+      const mentionCount = Math.round(snapshot?.ai_mention_count ?? stat?.mentionCount ?? 0);
+      const citationCountFromRows = citationCounts.get(brandItem.id) ?? 0;
+      const citationCount = Math.round(citationCountFromRows || snapshot?.citation_count || 0);
+      const averagePosition = snapshot?.average_position ?? average(stat?.positions ?? []);
+      const visibility = Math.round(snapshot?.ai_visibility ?? calculateVisibility(mentionCount, data.conversations.length));
+      const shareOfVoice = Math.round(snapshot?.share_of_voice ?? ((stat?.mentionCount ?? 0) / totalMentionRows) * 100);
+      const scoreAverage = stat?.scoreCount ? stat.scoreTotal / stat.scoreCount : null;
+      const recommendationCount = stat?.recommendationCount ?? 0;
+      const winRate = mentionCount > 0 ? Math.round((recommendationCount / mentionCount) * 100) : 0;
+      const strongTopic = getTopMapKey(stat?.topicCounts) ?? brandItem.category ?? "-";
+      const representativePrompt = truncateText(getTopMapKey(stat?.promptCounts) ?? "", 44);
+
+      return {
+        brandId: brandItem.id,
+        name: brandItem.name,
+        visibility,
+        citationShare: shareOfVoice,
+        sentiment: scoreAverage === null ? Math.round(Math.min(100, Math.max(0, visibility + 8))) : Math.round((scoreAverage / 5) * 100),
+        winRate,
+        isPrimary: brandItem.brand_type === "primary",
+        brandTypeLabel: brandItem.brand_type === "primary" ? "自社" : "競合",
+        aiMentionCount: mentionCount,
+        recommendationCount,
+        citationCount,
+        averagePosition,
+        competitiveGap: brandItem.id === primaryBrand?.id ? primaryGap : Math.round(visibility - primaryVisibility),
+        strongTopic,
+        representativePrompt
+      } satisfies DashboardRankingRow;
+    })
+    .sort((a, b) => b.visibility - a.visibility || (b.citationCount ?? 0) - (a.citationCount ?? 0));
+
+  const primaryRow = rankingRows.find((row) => row.isPrimary);
+  const competitorCards = rankingRows
+    .filter((row) => !row.isPrimary)
+    .slice(0, 4)
+    .map((row, index) => ({
+      id: row.brandId,
+      name: row.name,
+      position: String(index + 1) + "位 / AI表示率 " + row.visibility + "%",
+      movement: row.competitiveGap ?? 0,
+      note: (row.strongTopic ?? "主要トピック") + "で表示。推薦数 " + (row.recommendationCount ?? 0) + "件、参照回数 " + (row.citationCount ?? 0) + "件。"
+    }));
+
+  return {
+    primaryBrandName: primaryBrand?.name ?? brand.name,
+    primaryVisibility: formatPercent(primaryRow?.visibility ?? primaryVisibility),
+    competitiveGapValue: formatSignedPt(primaryGap),
+    competitiveGapDelta: primaryGap,
+    primaryCitationShare: formatPercent(primaryRow?.citationShare ?? Math.round(primarySnapshot?.share_of_voice ?? 0)),
+    rankingRows,
+    competitorCards
+  };
+}
+
+function createSampleLeaderboardViewModel(): LeaderboardViewModel {
+  const rankingRows = createSampleRankingRows();
+  const primaryRow = rankingRows.find((row) => row.isPrimary) ?? rankingRows[0];
+  const topCompetitor = rankingRows.find((row) => !row.isPrimary);
+  const gap = Math.round((primaryRow?.visibility ?? 0) - (topCompetitor?.visibility ?? 0));
+
+  return {
+    primaryBrandName: brand.name,
+    primaryVisibility: formatPercent(primaryRow?.visibility ?? 58),
+    competitiveGapValue: formatSignedPt(gap),
+    competitiveGapDelta: gap,
+    primaryCitationShare: formatPercent(primaryRow?.citationShare ?? 31),
+    rankingRows,
+    competitorCards: competitors.map((competitor) => ({
+      id: competitor.id,
+      name: competitor.name,
+      position: competitor.position,
+      note: competitor.note,
+      movement: competitor.movement
+    }))
+  };
+}
+
+function getBrandMentionAggregate(stats: Map<string, BrandMentionAggregate>, brandId: string) {
+  const current = stats.get(brandId);
+  if (current) return current;
+
+  const next: BrandMentionAggregate = {
+    mentionCount: 0,
+    recommendationCount: 0,
+    scoreTotal: 0,
+    scoreCount: 0,
+    positions: [],
+    topicCounts: new Map(),
+    promptCounts: new Map()
+  };
+  stats.set(brandId, next);
+  return next;
+}
+
+function incrementMap(map: Map<string, number>, key: string) {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function getTopMapKey(map?: Map<string, number>) {
+  if (!map || map.size === 0) return null;
+  return Array.from(map.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+function isRecommendedStatus(value: string) {
+  return value === "strongly_recommended" || value === "recommended";
+}
+
+function calculateVisibility(mentionCount: number, totalConversations: number) {
+  if (totalConversations <= 0) return 0;
+  return (mentionCount / totalConversations) * 100;
+}
+
+function average(values: number[]) {
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function formatSignedPt(value: number | null | undefined) {
+  if (value === null || value === undefined) return "-";
+  const rounded = Math.round(value);
+  return (rounded > 0 ? "+" : "") + rounded + "pt";
+}
+
+function truncateText(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+  return value.slice(0, maxLength) + "...";
+}
+
 function toDashboardTask(item: RecoraRecommendationRow, index: number): DashboardTask {
   return {
     priority: toDashboardPriority(item.priority),
@@ -439,7 +669,7 @@ function toDashboardPriority(value: RecoraRecommendationRow["priority"]): Dashbo
 }
 
 function recommendationTypeLabel(value: RecoraRecommendationRow["type"]) {
-  const labels: Record<RecoraRecommendationRow["type"], string> = { content: "\u30b3\u30f3\u30c6\u30f3\u30c4", source: "\u53c2\u7167\u5143", technical: "\u6280\u8853\u8a3a\u65ad", prompt: "\u30d7\u30ed\u30f3\u30d7\u30c8", risk: "\u30ea\u30b9\u30af", competitive: "\u7af6\u5408" };
+  const labels: Record<RecoraRecommendationRow["type"], string> = { content: "コンテンツ", source: "参照元", technical: "技術診断", prompt: "プロンプト", risk: "リスク", competitive: "競合" };
   return labels[value];
 }
 
@@ -948,39 +1178,41 @@ export function OverviewPage() {
   );
 }
 
-export function LeaderboardPage() {
+export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: RecoraLeaderboardDbData | null }) {
+  const leaderboardView = createLeaderboardViewModel(leaderboardData);
+
   return (
     <>
       <PageHeader
         eyebrow="競合"
         title="競合ランキング"
-        description="AI回答内での表示率、参照シェア、好意的な語られ方、選定基準での勝率を比較します。"
+        description="AI回答内での自社と競合の表示状況を、AI表示率・AI言及数・参照回数・平均順位で比較します。数値はRecora独自の測定指標です。"
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
       <DetailTabs items={reportDetailTabs.leaderboard} />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <MetricTile label="RecoraのAI表示率" value="58%" helper="5ブランド中3位" delta={7} />
-        <MetricTile label="競合差分" value="14 pt" helper="Trailbaseとの差分" tone="amber" />
-        <MetricTile label="自社参照シェア" value="31%" helper="recora.aiの参照" delta={5} />
+        <MetricTile label={leaderboardView.primaryBrandName + "のAI表示率"} value={leaderboardView.primaryVisibility} helper="ブランド別測定データから集計" delta={leaderboardView.competitiveGapDelta} />
+        <MetricTile label="競合差分" value={leaderboardView.competitiveGapValue} helper="最上位競合とのAI表示率差" tone="amber" />
+        <MetricTile label="自社のAI内シェア" value={leaderboardView.primaryCitationShare} helper="ブランド別スナップショットから集計" delta={leaderboardView.competitiveGapDelta} />
       </div>
 
-      <DataCard className="mt-5" title="ブランド別リーダーボード" description="AI表示率はAI回答内でブランドが出現した割合です。">
-        <RankingTable />
+      <DataCard className="mt-5" title="ブランド別リーダーボード" description="1回の観測だけで結論づけず、測定ごとの傾向確認に使う比較表です。">
+        <RankingTable rows={leaderboardView.rankingRows} />
       </DataCard>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <DataCard title="競合メモ" description="AI回答で競合が勝っている主な理由です。">
+        <DataCard title="競合メモ" description="AI回答内で競合が強く出ている領域と、推薦・参照の状況です。">
           <div className="space-y-3">
-            {competitors.map((competitor) => (
+            {leaderboardView.competitorCards.map((competitor) => (
               <div key={competitor.id} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-bold text-slate-950">{competitor.name}</p>
                     <p className="mt-1 text-xs font-semibold text-slate-500">{competitor.position}</p>
                   </div>
-                  <DeltaBadge value={competitor.movement} />
+                  <DeltaBadge value={competitor.movement} label={formatSignedPt(competitor.movement)} />
                 </div>
                 <p className="mt-3 text-sm leading-6 text-slate-600">{competitor.note}</p>
               </div>
@@ -1038,13 +1270,13 @@ function createConversationDisplayRows(data?: RecoraConversationsDbData | null):
     const domains = uniqueStrings((citationsByConversationId.get(conversation.id) ?? []).map((item) => item.domain));
     const mentionedBrands = mentions
       .filter((item) => item.mentioned)
-      .map((item) => brandById.get(item.brand_id) ?? "\u4e0d\u660e")
+      .map((item) => brandById.get(item.brand_id) ?? "不明")
       .filter((name, index, list) => list.indexOf(name) === index);
 
     return {
       id: conversation.id,
-      topicName: topic?.name ?? prompt?.intent ?? "\u30c8\u30d4\u30c3\u30af\u672a\u8a2d\u5b9a",
-      personaName: persona?.name ?? "\u30da\u30eb\u30bd\u30ca\u672a\u8a2d\u5b9a",
+      topicName: topic?.name ?? prompt?.intent ?? "トピック未設定",
+      personaName: persona?.name ?? "ペルソナ未設定",
       promptText: prompt?.text ?? conversation.prompt_text_snapshot,
       modelName: model?.display_name ?? conversation.model_snapshot,
       date: formatConversationDate(conversation.captured_at),
@@ -1115,15 +1347,15 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
   return (
     <>
       <PageHeader
-        eyebrow={"\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0"}
-        title={"AI\u56de\u7b54\u30ed\u30b0"}
-        description={"\u30da\u30eb\u30bd\u30ca\u3001\u30c8\u30d4\u30c3\u30af\u3001\u30d7\u30ed\u30f3\u30d7\u30c8\u3001AI\u30e2\u30c7\u30eb\u3054\u3068\u306b\u53d6\u5f97\u3057\u305fAI\u56de\u7b54\u3092\u78ba\u8a8d\u3057\u307e\u3059\u3002"}
+        eyebrow={"モニタリング"}
+        title={"AI回答ログ"}
+        description={"ペルソナ、トピック、プロンプト、AIモデルごとに取得したAI回答を確認します。"}
         meta={<ReportFilters compact />}
         actions={
           <>
             <Button variant="outline">
               <Filter className="h-4 w-4" />
-              {"\u7d5e\u308a\u8fbc\u307f"}
+              {"絞り込み"}
             </Button>
             <HeaderActions />
           </>
@@ -1132,18 +1364,18 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
       <DetailTabs items={reportDetailTabs.conversations} />
 
       <DataCard
-        title={"AI\u56de\u7b54\u30ed\u30b0"}
-        description={String(conversationRows.length) + "\u4ef6\u306eAI\u56de\u7b54\u306b\u3064\u3044\u3066\u3001\u30d6\u30e9\u30f3\u30c9\u8a00\u53ca\u3001\u8a00\u53ca\u3055\u308c\u305f\u30d6\u30e9\u30f3\u30c9\u3001\u53c2\u7167\u5143\u3092\u4e00\u89a7\u5316\u3057\u3066\u3044\u307e\u3059\u3002"}
+        title={"AI回答ログ"}
+        description={String(conversationRows.length) + "件のAI回答について、ブランド言及、言及されたブランド、参照元を一覧化しています。"}
       >
         <Table className="min-w-[1080px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="min-w-[300px]">{"\u30d7\u30ed\u30f3\u30d7\u30c8"}</TableHead>
-              <TableHead className="min-w-[140px]">{"AI\u30e2\u30c7\u30eb"}</TableHead>
-              <TableHead className="min-w-[190px]">{"\u30d6\u30e9\u30f3\u30c9\u8a00\u53ca"}</TableHead>
-              <TableHead className="min-w-[110px]">{"\u8a55\u4fa1"}</TableHead>
-              <TableHead className="min-w-[190px]">{"\u53c2\u7167\u5143"}</TableHead>
-              <TableHead className="min-w-[320px]">{"\u56de\u7b54\u8981\u7d04"}</TableHead>
+              <TableHead className="min-w-[300px]">{"プロンプト"}</TableHead>
+              <TableHead className="min-w-[140px]">{"AIモデル"}</TableHead>
+              <TableHead className="min-w-[190px]">{"ブランド言及"}</TableHead>
+              <TableHead className="min-w-[110px]">{"評価"}</TableHead>
+              <TableHead className="min-w-[190px]">{"参照元"}</TableHead>
+              <TableHead className="min-w-[320px]">{"回答要約"}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1159,15 +1391,15 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
                 <TableCell>
                   <div className="space-y-2">
                     {conversation.recoraMentioned ? (
-                      <Badge className="bg-blue-600 text-white">{"\u9806\u4f4d "}{conversation.recoraRank ?? "-"}</Badge>
+                      <Badge className="bg-blue-600 text-white">{"順位 "}{conversation.recoraRank ?? "-"}</Badge>
                     ) : (
                       <Badge variant="outline" className="border-rose-200 bg-rose-50 text-rose-700">
-                        {"\u672a\u8868\u793a"}
+                        {"未表示"}
                       </Badge>
                     )}
                     {conversation.mentionedBrands.length > 0 ? (
                       <div className="text-xs leading-5 text-slate-500">
-                        {"\u8a00\u53ca: "}{conversation.mentionedBrands.join(" / ")}
+                        {"言及: "}{conversation.mentionedBrands.join(" / ")}
                       </div>
                     ) : null}
                   </div>
@@ -1193,7 +1425,7 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
         </Table>
       </DataCard>
 
-      <DataCard className="mt-5" title={"\u8abf\u67fb\u30ab\u30d0\u30ec\u30c3\u30b8"} description={"\u30b5\u30f3\u30d7\u30eb\u30d7\u30ed\u30f3\u30d7\u30c8\u306e\u8abf\u67fb\u5bfe\u8c61\u3068\u73fe\u5728\u306eAI\u8868\u793a\u7387\u3067\u3059\u3002"}>
+      <DataCard className="mt-5" title={"調査カバレッジ"} description={"サンプルプロンプトの調査対象と現在のAI表示率です。"}>
         <PromptCoverageTable />
       </DataCard>
     </>
@@ -1206,9 +1438,9 @@ export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSource
   return (
     <>
       <PageHeader
-        eyebrow={"\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0"}
-        title={"\u53c2\u7167\u5143\u5206\u6790"}
-        description={"AI\u56de\u7b54\u3067\u53c2\u7167\u3055\u308c\u305f\u30c9\u30e1\u30a4\u30f3\u3068URL\u3092\u3001\u81ea\u793e\u30fb\u7af6\u5408\u30fb\u7b2c\u4e09\u8005\u53c2\u7167\u5143\u306b\u5206\u3051\u3066\u78ba\u8a8d\u3057\u307e\u3059\u3002"}
+        eyebrow={"モニタリング"}
+        title={"参照元分析"}
+        description={"AI回答で参照されたドメインとURLを、自社・競合・第三者参照元に分けて確認します。"}
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
@@ -1216,41 +1448,41 @@ export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSource
 
       <div className="grid gap-4 lg:grid-cols-4">
         <MetricTile
-          label={"\u53c2\u7167\u5143\u30c9\u30e1\u30a4\u30f3"}
+          label={"参照元ドメイン"}
           value={String(sourceDisplay.uniqueDomainCount)}
-          helper={String(sourceDisplay.totalCitationRows) + "\u4ef6\u306e\u53c2\u7167URL"}
+          helper={String(sourceDisplay.totalCitationRows) + "件の参照URL"}
         />
         <MetricTile
-          label={"\u81ea\u793e\u53c2\u7167\u30b7\u30a7\u30a2"}
+          label={"自社参照シェア"}
           value={sourceDisplay.ownedCitationShare + "%"}
-          helper={"\u81ea\u793e\u30c9\u30e1\u30a4\u30f3\u304c\u53c2\u7167\u3055\u308c\u305f\u6bd4\u7387"}
+          helper={"自社ドメインが参照された比率"}
         />
         <MetricTile
-          label={"\u7af6\u5408\u53c2\u7167\u30b7\u30a7\u30a2"}
+          label={"競合参照シェア"}
           value={sourceDisplay.competitorCitationShare + "%"}
-          helper={"\u7af6\u5408\u30c9\u30e1\u30a4\u30f3\u304c\u53c2\u7167\u3055\u308c\u305f\u6bd4\u7387"}
+          helper={"競合ドメインが参照された比率"}
           tone="amber"
         />
         <MetricTile
-          label={"\u7b2c\u4e09\u8005\u53c2\u7167\u5143"}
+          label={"第三者参照元"}
           value={String(sourceDisplay.thirdPartyDomainCount)}
-          helper={"\u30e1\u30c7\u30a3\u30a2\u30fb\u30ec\u30d3\u30e5\u30fc\u7cfb\u306e\u30c9\u30e1\u30a4\u30f3"}
+          helper={"メディア・レビュー系のドメイン"}
           tone="slate"
         />
       </div>
 
       <DataCard
         className="mt-5"
-        title={"\u53c2\u7167\u5143\u30c9\u30e1\u30a4\u30f3"}
-        description={"\u30c9\u30e1\u30a4\u30f3\u5225\u306e\u53c2\u7167\u56de\u6570\u3001\u53c2\u7167\u30b7\u30a7\u30a2\u3001\u30ab\u30c6\u30b4\u30ea\u3001\u4e3b\u306aURL\u3092\u307e\u3068\u3081\u3066\u3044\u307e\u3059\u3002"}
+        title={"参照元ドメイン"}
+        description={"ドメイン別の参照回数、参照シェア、カテゴリ、主なURLをまとめています。"}
       >
         <SourcesTable rows={sourceDisplay.sourceRows} />
       </DataCard>
 
       <DataCard
         className="mt-5"
-        title={"\u53c2\u7167\u3055\u308c\u305fURL"}
-        description={"AI\u56de\u7b54\u3067\u53c2\u7167\u3055\u308c\u305fURL\u3092\u4e00\u89a7\u5316\u3057\u3066\u3044\u307e\u3059\u3002OpenAI web_search\u7531\u6765\u306eURL\u3082\u540c\u3058\u5f62\u3067\u6271\u3048\u308b\u69cb\u6210\u3067\u3059\u3002"}
+        title={"参照されたURL"}
+        description={"AI回答で参照されたURLを一覧化しています。OpenAI web_search由来のURLも同じ形で扱える構成です。"}
       >
         <CitationsTable rows={sourceDisplay.citationRows} />
       </DataCard>
@@ -1381,7 +1613,7 @@ function createSampleSourcesDisplayData(): SourcesDisplayData {
     domain: citation.domain,
     sourceType: citation.sourceType,
     occurrences: citation.occurrences,
-    supportsClaimLabel: "\u30b5\u30f3\u30d7\u30eb",
+    supportsClaimLabel: "サンプル",
     citedFor: citation.citedFor
   }));
 
@@ -1392,7 +1624,7 @@ function createSampleSourcesDisplayData(): SourcesDisplayData {
     appearances: source.appearances,
     citationShare: source.citationShare,
     trustScore: source.trustScore,
-    trustLabel: "\u30b9\u30b3\u30a2 " + source.trustScore,
+    trustLabel: "スコア " + source.trustScore,
     urls: citationRows.filter((citation) => citation.domain === source.domain).map((citation) => citation.url),
     recommendedAction: source.recommendedAction
   }));
@@ -1410,25 +1642,25 @@ function createSampleSourcesDisplayData(): SourcesDisplayData {
 
 function getSourceTypeLabel(sourceType: string) {
   const labels: Record<string, string> = {
-    owned: "\u81ea\u793e",
-    competitor: "\u7af6\u5408",
-    media: "\u696d\u754c\u30e1\u30c7\u30a3\u30a2",
-    review: "\u30ec\u30d3\u30e5\u30fc",
-    technical: "\u6280\u8853\u53c2\u7167",
-    unknown: "\u672a\u5206\u985e"
+    owned: "自社",
+    competitor: "競合",
+    media: "業界メディア",
+    review: "レビュー",
+    technical: "技術参照",
+    unknown: "未分類"
   };
 
-  return labels[sourceType] ?? "\u672a\u5206\u985e";
+  return labels[sourceType] ?? "未分類";
 }
 
 function getSourceRecommendedAction(sourceType: string) {
   const actions: Record<string, string> = {
-    owned: "\u81ea\u793e\u30da\u30fc\u30b8\u306e\u5185\u5bb9\u3001\u66f4\u65b0\u65e5\u3001\u69cb\u9020\u5316\u30c7\u30fc\u30bf\u3092\u78ba\u8a8d\u3057\u3001\u5f15\u7528\u3055\u308c\u3084\u3059\u3044\u6839\u62e0\u3092\u5897\u3084\u3057\u307e\u3059\u3002",
-    competitor: "\u7af6\u5408\u304c\u53c2\u7167\u3055\u308c\u308b\u7406\u7531\u3092\u78ba\u8a8d\u3057\u3001\u6bd4\u8f03\u30da\u30fc\u30b8\u3084\u5c0e\u5165\u4e8b\u4f8b\u3067\u88dc\u5f37\u3057\u307e\u3059\u3002",
-    media: "\u7b2c\u4e09\u8005\u8a18\u4e8b\u3067\u306e\u7d39\u4ecb\u5185\u5bb9\u3068\u81ea\u793e\u306e\u8aac\u660e\u306b\u5dee\u304c\u306a\u3044\u304b\u78ba\u8a8d\u3057\u307e\u3059\u3002",
-    review: "\u30ec\u30d3\u30e5\u30fc\u7cfb\u53c2\u7167\u5143\u306e\u8a55\u4fa1\u8ef8\u306b\u5408\u308f\u305b\u3066\u3001\u6bd4\u8f03\u60c5\u5831\u3092\u88dc\u3044\u307e\u3059\u3002",
-    technical: "\u6280\u8853\u60c5\u5831\u3084FAQ\u306e\u69cb\u9020\u3092\u6574\u3048\u3001AI\u304c\u6839\u62e0\u3068\u3057\u3066\u6271\u3044\u3084\u3059\u304f\u3057\u307e\u3059\u3002",
-    unknown: "\u53c2\u7167\u5143\u306e\u6240\u6709\u8005\u3068\u7528\u9014\u3092\u78ba\u8a8d\u3057\u3001\u30ab\u30c6\u30b4\u30ea\u3092\u5206\u985e\u3057\u307e\u3059\u3002"
+    owned: "自社ページの内容、更新日、構造化データを確認し、引用されやすい根拠を増やします。",
+    competitor: "競合が参照される理由を確認し、比較ページや導入事例で補強します。",
+    media: "第三者記事での紹介内容と自社の説明に差がないか確認します。",
+    review: "レビュー系参照元の評価軸に合わせて、比較情報を補います。",
+    technical: "技術情報やFAQの構造を整え、AIが根拠として扱いやすくします。",
+    unknown: "参照元の所有者と用途を確認し、カテゴリを分類します。"
   };
 
   return actions[sourceType] ?? actions.unknown;
@@ -1459,15 +1691,15 @@ function getCitationTitle(url: string | null, domain: string) {
 }
 
 function getSupportsClaimLabel(value: boolean | null) {
-  if (value === true) return "\u78ba\u8a8d\u6e08\u307f";
-  if (value === false) return "\u8981\u78ba\u8a8d";
-  return "\u672a\u691c\u8a3c";
+  if (value === true) return "確認済み";
+  if (value === false) return "要確認";
+  return "未検証";
 }
 
 function getCitationContext(value: boolean | null) {
-  if (value === true) return "AI\u56de\u7b54\u306e\u6839\u62e0\u3068\u3057\u3066\u53c2\u7167\u3055\u308c\u3066\u3044\u307e\u3059\u3002";
-  if (value === false) return "\u53c2\u7167\u306f\u3042\u308a\u307e\u3059\u304c\u3001\u4e3b\u5f35\u3068\u306e\u4e00\u81f4\u78ba\u8a8d\u304c\u5fc5\u8981\u3067\u3059\u3002";
-  return "URL\u306f\u53d6\u5f97\u6e08\u307f\u3067\u3059\u304c\u3001\u4e3b\u5f35\u306e\u652f\u6301\u306f\u672a\u691c\u8a3c\u3067\u3059\u3002";
+  if (value === true) return "AI回答の根拠として参照されています。";
+  if (value === false) return "参照はありますが、主張との一致確認が必要です。";
+  return "URLは取得済みですが、主張の支持は未検証です。";
 }
 
 export function TrendsPage() {
@@ -2626,36 +2858,55 @@ function SourceSharePanel() {
 function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: DashboardRankingRow[] }) {
   const rankingRows = rows ?? createSampleRankingRows();
   return (
-    <Table>
+    <Table className={compact ? undefined : "min-w-[1180px]"}>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-14">順位</TableHead>
-          <TableHead>ブランド</TableHead>
-          <TableHead>AI表示率</TableHead>
-          {!compact ? <TableHead>参照シェア</TableHead> : null}
-          {!compact ? <TableHead>評価</TableHead> : null}
-          {!compact ? <TableHead>購買勝率</TableHead> : null}
+          <TableHead className="w-14 whitespace-nowrap">順位</TableHead>
+          <TableHead className="min-w-[180px]">ブランド</TableHead>
+          {!compact ? <TableHead className="whitespace-nowrap">種別</TableHead> : null}
+          <TableHead className="whitespace-nowrap">AI表示率</TableHead>
+          {!compact ? <TableHead className="whitespace-nowrap">AI言及数</TableHead> : null}
+          {!compact ? <TableHead className="whitespace-nowrap">推薦数</TableHead> : null}
+          {!compact ? <TableHead className="whitespace-nowrap">参照回数</TableHead> : null}
+          {!compact ? <TableHead className="whitespace-nowrap">AI内シェア</TableHead> : null}
+          {!compact ? <TableHead className="whitespace-nowrap">平均順位</TableHead> : null}
+          {!compact ? <TableHead className="whitespace-nowrap">競合差分</TableHead> : null}
+          {!compact ? <TableHead className="min-w-[220px]">強いトピック</TableHead> : null}
         </TableRow>
       </TableHeader>
       <TableBody>
         {rankingRows.map((row, index) => (
           <TableRow key={row.brandId} className={row.isPrimary ? "bg-blue-50/55" : undefined}>
             <TableCell className="font-bold">
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1 whitespace-nowrap">
                 {index < 3 ? <Crown className="h-3.5 w-3.5 text-orange-500" /> : null}
                 {index + 1}
               </span>
             </TableCell>
             <TableCell>
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="font-bold text-slate-950">{row.name}</span>
-                {row.brandId === "recora" ? <Badge className="bg-blue-600 text-white">自社</Badge> : null}
+                {row.isPrimary ? <Badge className="bg-blue-600 text-white">自社</Badge> : null}
               </div>
+              {!compact && row.representativePrompt ? (
+                <p className="mt-1 max-w-[320px] truncate text-xs text-slate-500">{row.representativePrompt}</p>
+              ) : null}
             </TableCell>
+            {!compact ? (
+              <TableCell className="whitespace-nowrap">
+                <Badge variant="outline" className={cn("rounded-sm", row.isPrimary ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-600")}>
+                  {row.brandTypeLabel ?? (row.isPrimary ? "自社" : "競合")}
+                </Badge>
+              </TableCell>
+            ) : null}
             <TableCell><MetricWithBar value={row.visibility} /></TableCell>
+            {!compact ? <TableCell className="whitespace-nowrap font-semibold">{row.aiMentionCount ?? "-"}</TableCell> : null}
+            {!compact ? <TableCell className="whitespace-nowrap font-semibold">{row.recommendationCount ?? "-"}</TableCell> : null}
+            {!compact ? <TableCell className="whitespace-nowrap font-semibold">{row.citationCount ?? "-"}</TableCell> : null}
             {!compact ? <TableCell><MetricWithBar value={row.citationShare} /></TableCell> : null}
-            {!compact ? <TableCell><MetricWithBar value={row.sentiment} /></TableCell> : null}
-            {!compact ? <TableCell><MetricWithBar value={row.winRate} /></TableCell> : null}
+            {!compact ? <TableCell className="whitespace-nowrap font-semibold">{row.averagePosition ? row.averagePosition.toFixed(1) : "-"}</TableCell> : null}
+            {!compact ? <TableCell className="whitespace-nowrap"><DeltaBadge value={row.competitiveGap ?? 0} label={formatSignedPt(row.competitiveGap)} /></TableCell> : null}
+            {!compact ? <TableCell className="text-sm text-slate-600">{row.strongTopic ?? "-"}</TableCell> : null}
           </TableRow>
         ))}
       </TableBody>
@@ -2693,13 +2944,13 @@ function SourcesTable({ rows = createSampleSourcesDisplayData().sourceRows }: { 
     <Table className="min-w-[1040px]">
       <TableHeader>
         <TableRow>
-          <TableHead className="min-w-[190px]">{"\u30c9\u30e1\u30a4\u30f3"}</TableHead>
-          <TableHead className="whitespace-nowrap">{"\u30ab\u30c6\u30b4\u30ea"}</TableHead>
-          <TableHead className="whitespace-nowrap">{"\u53c2\u7167\u56de\u6570"}</TableHead>
-          <TableHead className="whitespace-nowrap">{"\u53c2\u7167\u30b7\u30a7\u30a2"}</TableHead>
-          <TableHead className="whitespace-nowrap">{"\u4fe1\u983c\u30e9\u30d9\u30eb"}</TableHead>
-          <TableHead className="min-w-[260px]">{"\u4e3b\u306aURL"}</TableHead>
-          <TableHead className="min-w-[280px]">{"\u78ba\u8a8d\u30dd\u30a4\u30f3\u30c8"}</TableHead>
+          <TableHead className="min-w-[190px]">{"ドメイン"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"カテゴリ"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"参照回数"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"参照シェア"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"信頼ラベル"}</TableHead>
+          <TableHead className="min-w-[260px]">{"主なURL"}</TableHead>
+          <TableHead className="min-w-[280px]">{"確認ポイント"}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -2736,7 +2987,7 @@ function SourcesTable({ rows = createSampleSourcesDisplayData().sourceRows }: { 
         )) : (
           <TableRow>
             <TableCell colSpan={7} className="text-sm text-slate-500">
-              {"\u53c2\u7167\u5143\u30c7\u30fc\u30bf\u306f\u307e\u3060\u3042\u308a\u307e\u305b\u3093\u3002"}
+              {"参照元データはまだありません。"}
             </TableCell>
           </TableRow>
         )}
@@ -2750,11 +3001,11 @@ function CitationsTable({ rows = createSampleSourcesDisplayData().citationRows }
     <Table className="min-w-[940px]">
       <TableHeader>
         <TableRow>
-          <TableHead className="min-w-[320px]">{"\u30bf\u30a4\u30c8\u30eb\u30fbURL"}</TableHead>
-          <TableHead className="min-w-[180px]">{"\u30c9\u30e1\u30a4\u30f3"}</TableHead>
-          <TableHead className="whitespace-nowrap">{"\u30ab\u30c6\u30b4\u30ea"}</TableHead>
-          <TableHead className="whitespace-nowrap">{"\u53c2\u7167\u56de\u6570"}</TableHead>
-          <TableHead className="min-w-[260px]">{"\u6839\u62e0\u78ba\u8a8d"}</TableHead>
+          <TableHead className="min-w-[320px]">{"タイトル・URL"}</TableHead>
+          <TableHead className="min-w-[180px]">{"ドメイン"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"カテゴリ"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"参照回数"}</TableHead>
+          <TableHead className="min-w-[260px]">{"根拠確認"}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -2782,7 +3033,7 @@ function CitationsTable({ rows = createSampleSourcesDisplayData().citationRows }
         )) : (
           <TableRow>
             <TableCell colSpan={5} className="text-sm text-slate-500">
-              {"\u53c2\u7167URL\u306f\u307e\u3060\u3042\u308a\u307e\u305b\u3093\u3002"}
+              {"参照URLはまだありません。"}
             </TableCell>
           </TableRow>
         )}
