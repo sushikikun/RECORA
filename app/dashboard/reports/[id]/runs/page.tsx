@@ -1,5 +1,5 @@
-import { RunResultsPage } from "@/components/recora/report-pages";
+import { RunCyclePanel } from "@/components/recora/run-cycle-panel";
 
-export default function Page() {
-  return <RunResultsPage />;
+export default function Page({ params }: { params: { id: string } }) {
+  return <RunCyclePanel projectSlug={params.id} />;
 }
