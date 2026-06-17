@@ -1133,16 +1133,16 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
 
       <DataCard
         title={"AI\u56de\u7b54\u30ed\u30b0"}
-        description={String(conversationRows.length) + "\u4ef6\u306eAI\u56de\u7b54\u306b\u3064\u3044\u3066\u3001\u81ea\u793e\u30d6\u30e9\u30f3\u30c9\u306e\u8868\u793a\u72b6\u6cc1\u3001\u8a00\u53ca\u30d6\u30e9\u30f3\u30c9\u3001\u53c2\u7167\u5143\u30c9\u30e1\u30a4\u30f3\u3092\u4e00\u89a7\u5316\u3057\u3066\u3044\u307e\u3059\u3002"}
+        description={String(conversationRows.length) + "\u4ef6\u306eAI\u56de\u7b54\u306b\u3064\u3044\u3066\u3001\u30d6\u30e9\u30f3\u30c9\u8a00\u53ca\u3001\u8a00\u53ca\u3055\u308c\u305f\u30d6\u30e9\u30f3\u30c9\u3001\u53c2\u7167\u5143\u3092\u4e00\u89a7\u5316\u3057\u3066\u3044\u307e\u3059\u3002"}
       >
         <Table className="min-w-[1080px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="min-w-[300px]">{"\u30d7\u30ed\u30f3\u30d7\u30c8\u6587\u8108"}</TableHead>
+              <TableHead className="min-w-[300px]">{"\u30d7\u30ed\u30f3\u30d7\u30c8"}</TableHead>
               <TableHead className="min-w-[140px]">{"AI\u30e2\u30c7\u30eb"}</TableHead>
-              <TableHead className="min-w-[190px]">{"\u81ea\u793e\u30d6\u30e9\u30f3\u30c9"}</TableHead>
+              <TableHead className="min-w-[190px]">{"\u30d6\u30e9\u30f3\u30c9\u8a00\u53ca"}</TableHead>
               <TableHead className="min-w-[110px]">{"\u8a55\u4fa1"}</TableHead>
-              <TableHead className="min-w-[190px]">{"\u53c2\u7167\u5143\u30c9\u30e1\u30a4\u30f3"}</TableHead>
+              <TableHead className="min-w-[190px]">{"\u53c2\u7167\u5143"}</TableHead>
               <TableHead className="min-w-[320px]">{"\u56de\u7b54\u8981\u7d04"}</TableHead>
             </TableRow>
           </TableHeader>
