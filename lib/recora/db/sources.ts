@@ -29,19 +29,17 @@ export async function getRecoraSourcesData(
     return emptySourcesData();
   }
 
-  const latestRun = await getLatestRecoraMeasurementRun(project.id, supabase);
-  const sourceDomainsPromise = getSourceDomains(project.id, supabase);
+  const [latestRun, sourceDomains, runIds] = await Promise.all([
+    getLatestRecoraMeasurementRun(project.id, supabase),
+    getSourceDomains(project.id, supabase),
+    getCompletedRunIds(project.id, supabase)
+  ]);
 
-  if (!latestRun) {
-    const sourceDomains = await sourceDomainsPromise;
+  if (runIds.length === 0) {
     return { ...emptySourcesData(), project, latestRun, sourceDomains };
   }
 
-  const [sourceDomains, runItemIds] = await Promise.all([
-    sourceDomainsPromise,
-    getRunItemIds(latestRun.id, supabase)
-  ]);
-
+  const runItemIds = await getRunItemIdsForRuns(runIds, supabase);
   const conversationIds = await getConversationIds(runItemIds, supabase);
   const citations = await getCitations(conversationIds, supabase);
 
@@ -74,8 +72,23 @@ async function getSourceDomains(projectId: string, supabase: RecoraSupabaseClien
   return (data ?? []) as RecoraSourceDomainRow[];
 }
 
-async function getRunItemIds(runId: string, supabase: RecoraSupabaseClient) {
-  const { data, error } = await supabase.from("run_items").select("id").eq("run_id", runId);
+async function getCompletedRunIds(projectId: string, supabase: RecoraSupabaseClient) {
+  const { data, error } = await supabase
+    .from("measurement_runs")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("status", "completed")
+    .order("completed_at", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  throwIfSupabaseError("measurement_runs", error);
+  return ((data ?? []) as Array<{ id: string }>).map((run) => run.id);
+}
+
+async function getRunItemIdsForRuns(runIds: string[], supabase: RecoraSupabaseClient) {
+  if (runIds.length === 0) return [];
+
+  const { data, error } = await supabase.from("run_items").select("id").in("run_id", runIds);
 
   throwIfSupabaseError("run_items", error);
   return ((data ?? []) as Array<{ id: string }>).map((item) => item.id);

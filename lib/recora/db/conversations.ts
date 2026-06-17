@@ -48,17 +48,17 @@ export async function getRecoraConversationsData(
     return emptyConversationsData();
   }
 
-  const latestRun = await getLatestRecoraMeasurementRun(project.id, supabase);
+  const [latestRun, brands, runIds] = await Promise.all([
+    getLatestRecoraMeasurementRun(project.id, supabase),
+    getRecoraBrands(project.id, supabase),
+    getCompletedRunIds(project.id, supabase)
+  ]);
 
-  if (!latestRun) {
-    const brands = await getRecoraBrands(project.id, supabase);
+  if (runIds.length === 0) {
     return { ...emptyConversationsData(), project, latestRun, brands };
   }
 
-  const [brands, runItems] = await Promise.all([
-    getRecoraBrands(project.id, supabase),
-    getRunItems(latestRun.id, supabase)
-  ]);
+  const runItems = await getRunItemsForRuns(runIds, supabase);
 
   const conversations = await getAiConversations(
     runItems.map((item) => item.id),
@@ -106,12 +106,28 @@ function emptyConversationsData(): RecoraConversationsDbData {
   };
 }
 
-async function getRunItems(runId: string, supabase: RecoraSupabaseClient) {
+async function getCompletedRunIds(projectId: string, supabase: RecoraSupabaseClient) {
+  const { data, error } = await supabase
+    .from("measurement_runs")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("status", "completed")
+    .order("completed_at", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  throwIfSupabaseError("measurement_runs", error);
+  return ((data ?? []) as Array<{ id: string }>).map((run) => run.id);
+}
+
+async function getRunItemsForRuns(runIds: string[], supabase: RecoraSupabaseClient) {
+  if (runIds.length === 0) return [];
+
   const { data, error } = await supabase
     .from("run_items")
     .select(RUN_ITEM_COLUMNS)
-    .eq("run_id", runId)
-    .order("captured_at", { ascending: false });
+    .in("run_id", runIds)
+    .order("captured_at", { ascending: false })
+    .order("created_at", { ascending: false });
 
   throwIfSupabaseError("run_items", error);
   return (data ?? []) as RecoraRunItemRow[];

@@ -69,11 +69,37 @@ export async function getLatestRecoraMeasurementRun(
     .eq("project_id", projectId)
     .eq("status", "completed")
     .order("completed_at", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   throwIfSupabaseError("measurement_runs", error);
   return (data as RecoraMeasurementRunRow | null) ?? null;
+}
+
+export async function getLatestRunWithMetricSnapshots(
+  projectId: string,
+  supabase: RecoraSupabaseClient = createRecoraSupabaseClient()
+): Promise<RecoraMeasurementRunRow | null> {
+  const { data, error } = await supabase
+    .from("measurement_runs")
+    .select(MEASUREMENT_RUN_COLUMNS)
+    .eq("project_id", projectId)
+    .eq("status", "completed")
+    .order("completed_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  throwIfSupabaseError("measurement_runs", error);
+  const runs = (data ?? []) as RecoraMeasurementRunRow[];
+  if (runs.length === 0) return null;
+
+  const runIdsWithSnapshots = await getMetricSnapshotRunIds(
+    runs.map((run) => run.id),
+    supabase
+  );
+
+  return runs.find((run) => runIdsWithSnapshots.has(run.id)) ?? null;
 }
 
 export async function getRecoraMetricSnapshots(
@@ -142,7 +168,7 @@ export async function getRecoraDashboardData(
     return emptyDashboardData();
   }
 
-  const latestRun = await getLatestRecoraMeasurementRun(project.id, supabase);
+  const latestRun = await getLatestRunWithMetricSnapshots(project.id, supabase);
 
   const [brands, metricSnapshots, recommendations, counts] = await Promise.all([
     getRecoraBrands(project.id, supabase),
@@ -175,6 +201,17 @@ function emptyDashboardData(): RecoraDashboardDbData {
   };
 }
 
+async function getMetricSnapshotRunIds(runIds: string[], supabase: RecoraSupabaseClient) {
+  if (runIds.length === 0) return new Set<string>();
+
+  const { data, error } = await supabase
+    .from("metric_snapshots")
+    .select("run_id")
+    .in("run_id", runIds);
+
+  throwIfSupabaseError("metric_snapshots", error);
+  return new Set(((data ?? []) as Array<{ run_id: string }>).map((snapshot) => snapshot.run_id));
+}
 async function getRunItemIds(runId: string, supabase: RecoraSupabaseClient) {
   const { data, error } = await supabase.from("run_items").select("id").eq("run_id", runId);
 

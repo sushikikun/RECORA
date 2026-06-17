@@ -3,7 +3,7 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { createRecoraSupabaseClient } from "@/lib/supabase/server";
 import {
   getDefaultRecoraProjectSlug,
-  getLatestRecoraMeasurementRun,
+  getLatestRunWithMetricSnapshots,
   getRecoraBrands,
   getRecoraMetricSnapshots,
   getRecoraProject
@@ -42,7 +42,7 @@ export async function getRecoraLeaderboardData(
     return emptyLeaderboardData();
   }
 
-  const latestRun = await getLatestRecoraMeasurementRun(project.id, supabase);
+  const latestRun = await getLatestRunWithMetricSnapshots(project.id, supabase);
   const brandsPromise = getRecoraBrands(project.id, supabase);
 
   if (!latestRun) {
