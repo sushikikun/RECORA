@@ -8,6 +8,15 @@ const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/pos
 const DEFAULT_PROJECT_SLUG = process.env.RECORA_DEFAULT_PROJECT_SLUG ?? "recora-kenzai-q2";
 const INPUT_PATH = path.join(process.cwd(), "output", "recommendation-candidates", "recommendation-candidates.json");
 const SCRIPT_SOURCE = "candidate_generator";
+const DB_WRITE_POLICY: DbWritePolicy = {
+  dry_run_default: true,
+  requires_apply: true,
+  requires_candidate_ids: true,
+  requires_confirm_reviewed: true,
+  review_required_only: true,
+  candidate_only_excluded: true,
+  save_decision_auto_save_disabled: true
+};
 
 type Row = Record<string, string | null>;
 type DbRecommendationType = "content" | "source" | "technical" | "prompt" | "risk" | "competitive";
@@ -36,9 +45,18 @@ type Candidate = {
   suggested_next_action: string;
 };
 type CandidatesPayload = { generated_at: string; project_slug: string; project_name: string; candidates: Candidate[] };
-type Options = { apply: boolean; candidateIds: string[] };
+type Options = { apply: boolean; candidateIds: string[]; confirmReviewed: boolean };
 type ProjectRow = { id: string; slug: string; name: string };
 type ExistingRecommendationRow = { id: string; title: string; candidate_id: string | null; source: string | null };
+type DbWritePolicy = {
+  dry_run_default: boolean;
+  requires_apply: boolean;
+  requires_candidate_ids: boolean;
+  requires_confirm_reviewed: boolean;
+  review_required_only: boolean;
+  candidate_only_excluded: boolean;
+  save_decision_auto_save_disabled: boolean;
+};
 type RecommendationPlan = {
   candidate_id: string;
   title: string;
@@ -50,6 +68,16 @@ type RecommendationPlan = {
   mapped_type: DbRecommendationType;
   mapped_priority: DbPriority;
   mapped_status: DbStatus;
+  review_status: "review_required";
+  db_write_policy: DbWritePolicy;
+  payload_summary: {
+    candidate_id: string;
+    title: string;
+    mapped_priority: DbPriority;
+    mapped_status: DbStatus;
+    review_status: "review_required";
+    db_write_policy: DbWritePolicy;
+  };
 };
 type InsertMapping = {
   type: DbRecommendationType;
@@ -74,12 +102,12 @@ async function main() {
     const project = await getProject(db, projectSlug);
     const before = await getRecommendationsCount(db);
     const existing = await getExistingRecommendations(db, project.id, payload.candidates);
-    const plans = buildPlans(payload.candidates, options, existing);
-    const writeEnabled = options.apply && options.candidateIds.length > 0;
+    const databaseWriteAllowed = options.apply && options.candidateIds.length > 0 && options.confirmReviewed;
+    const plans = buildPlans(payload.candidates, options, existing, databaseWriteAllowed);
     const insertablePlans = plans.filter((plan) => plan.action === "would_insert");
     const insertedCandidateIds: string[] = [];
 
-    if (writeEnabled && insertablePlans.length > 0) {
+    if (databaseWriteAllowed && insertablePlans.length > 0) {
       await db.query("begin");
       try {
         for (const plan of insertablePlans) {
@@ -101,13 +129,17 @@ async function main() {
     const candidateOnlyExcludedIds = payload.candidates.filter((candidate) => candidate.should_save_to_recommendations === "candidate_only").map((candidate) => candidate.id);
     const unknownRequestedIds = options.candidateIds.filter((id) => !payload.candidates.some((candidate) => candidate.id === id));
     console.log(JSON.stringify({
-      mode: writeEnabled ? "apply" : "dry-run",
+      mode: databaseWriteAllowed ? "apply" : "dry-run",
       input: INPUT_PATH,
       projectSlug: project.slug,
-      applyRequested: options.apply,
-      candidateIdsProvided: options.candidateIds,
+      apply: options.apply,
+      confirmReviewed: options.confirmReviewed,
+      candidateIdsProvided: options.candidateIds.length > 0,
+      candidateIds: options.candidateIds,
       candidateIdsRequiredForWrite: true,
       applyRequiredForWrite: true,
+      confirmReviewedRequiredForWrite: true,
+      databaseWriteAllowed,
       reviewRequiredOnly: true,
       saveDecisionAutoSaveDisabled: true,
       recommendationsBefore: before,
@@ -125,11 +157,15 @@ async function main() {
 }
 
 function parseArgs(args: string[]): Options {
-  const options: Options = { apply: false, candidateIds: [] };
+  const options: Options = { apply: false, candidateIds: [], confirmReviewed: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--apply") {
       options.apply = true;
+      continue;
+    }
+    if (arg === "--confirm-reviewed") {
+      options.confirmReviewed = true;
       continue;
     }
     if (arg === "--candidate-ids") {
@@ -180,20 +216,44 @@ async function getExistingRecommendations(db: LocalPostgresClient, projectId: st
   `);
 }
 
-function buildPlans(candidates: Candidate[], options: Options, existing: ExistingRecommendationRow[]): RecommendationPlan[] {
+function buildPlans(candidates: Candidate[], options: Options, existing: ExistingRecommendationRow[], databaseWriteAllowed: boolean): RecommendationPlan[] {
   const requestedIds = new Set(options.candidateIds);
   return candidates.map((candidate) => {
     const mapping = mapCandidate(candidate, { generated_at: "", project_slug: "", project_name: "", candidates: [] });
     const requested = requestedIds.has(candidate.id);
     const duplicate = findDuplicate(candidate, existing);
-    const base = { candidate_id: candidate.id, title: candidate.title, requested, decision: candidate.should_save_to_recommendations, existing_recommendation_id: duplicate?.id ?? null, mapped_type: mapping.type, mapped_priority: mapping.priority, mapped_status: mapping.status };
+    const base = {
+      candidate_id: candidate.id,
+      title: candidate.title,
+      requested,
+      decision: candidate.should_save_to_recommendations,
+      existing_recommendation_id: duplicate?.id ?? null,
+      mapped_type: mapping.type,
+      mapped_priority: mapping.priority,
+      mapped_status: mapping.status,
+      review_status: "review_required" as const,
+      db_write_policy: DB_WRITE_POLICY,
+      payload_summary: {
+        candidate_id: candidate.id,
+        title: candidate.title,
+        mapped_priority: mapping.priority,
+        mapped_status: mapping.status,
+        review_status: "review_required" as const,
+        db_write_policy: DB_WRITE_POLICY
+      }
+    };
     if (!requested) return { ...base, action: "skipped", reason: "not_requested" } satisfies RecommendationPlan;
     if (candidate.should_save_to_recommendations === "candidate_only") return { ...base, action: "skipped", reason: "candidate_only_excluded" } satisfies RecommendationPlan;
     if (candidate.should_save_to_recommendations === "save") return { ...base, action: "skipped", reason: "save_decision_auto_save_disabled" } satisfies RecommendationPlan;
     if (candidate.should_save_to_recommendations !== "review_required") return { ...base, action: "skipped", reason: "not_review_required" } satisfies RecommendationPlan;
     if (duplicate) return { ...base, action: "skipped", reason: "duplicate_existing_recommendation" } satisfies RecommendationPlan;
-    return { ...base, action: "would_insert", reason: options.apply && options.candidateIds.length > 0 ? "ready_to_insert" : "dry_run_only" } satisfies RecommendationPlan;
+    return { ...base, action: "would_insert", reason: databaseWriteAllowed ? "ready_to_insert" : getDryRunReason(options) } satisfies RecommendationPlan;
   });
+}
+
+function getDryRunReason(options: Options) {
+  if (options.apply && options.candidateIds.length > 0 && !options.confirmReviewed) return "missing_confirm_reviewed";
+  return "dry_run_only";
 }
 
 function findDuplicate(candidate: Candidate, existing: ExistingRecommendationRow[]) {
@@ -225,14 +285,18 @@ function mapCandidate(candidate: Candidate, payload: CandidatesPayload): InsertM
   const targetUrl = null;
   const reason = [candidate.summary, candidate.rationale].filter(Boolean).join("\n\n");
   const impactScore = mapImpactScore(candidate.priority);
+  const evidence = asRecord(candidate.evidence);
   const metadata = {
     source: SCRIPT_SOURCE,
     candidate_id: candidate.id,
     generated_at: payload.generated_at || null,
     project_slug: payload.project_slug || null,
+    original_priority: candidate.priority,
     confidence: candidate.confidence,
     should_save_to_recommendations: candidate.should_save_to_recommendations,
-    review_status: candidate.should_save_to_recommendations,
+    review_status: "review_required",
+    observation_scope: readMetadataString(evidence, "observation_scope"),
+    data_source: readMetadataString(evidence, "data_source"),
     caution: candidate.caution,
     suggested_next_action: candidate.suggested_next_action,
     expected_impact: candidate.expected_impact,
@@ -254,16 +318,18 @@ function mapCandidate(candidate: Candidate, payload: CandidatesPayload): InsertM
       target_url: targetUrl,
       note: "Saved rows remain open for human review. Related URLs stay in metadata."
     },
-    db_write_policy: {
-      dry_run_default: true,
-      requires_apply: true,
-      requires_candidate_ids: true,
-      review_required_only: true,
-      candidate_only_excluded: true,
-      save_decision_auto_save_disabled: true
-    }
+    db_write_policy: DB_WRITE_POLICY
   };
   return { type, priority, status, impactScore, effortScore, targetUrl, reason, metadata };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function readMetadataString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" ? value : null;
 }
 
 function mapRecommendationType(type: string): DbRecommendationType {
