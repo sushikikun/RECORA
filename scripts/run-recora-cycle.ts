@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import process from "node:process";
 
 const DEFAULT_PROJECT_SLUG = "recora-kenzai-q2";
@@ -20,8 +22,15 @@ type Options = {
 
 type JsonRecord = Record<string, unknown>;
 
+type ChildScriptCommand = {
+  label: string;
+  executable: string;
+  args: string[];
+  displayCommand: string[];
+};
+
 type CommandResult = {
-  command: string[];
+  command: ChildScriptCommand;
   output: JsonRecord;
 };
 
@@ -41,12 +50,14 @@ async function main() {
       measurementRunId: null,
       measurement: {
         status: "planned_not_executed",
-        command: formatCommand(measurementCommand),
+        command: formatCommand(measurementCommand.displayCommand),
+        childCommandResolution: describeChildCommand(measurementCommand),
         insertedCounts: null
       },
       aggregate: {
         status: "not_run_waiting_for_measurement_run",
-        commandTemplate: formatCommand(aggregateCommandWithoutSourceRun),
+        commandTemplate: formatCommand(aggregateCommandWithoutSourceRun.displayCommand),
+        childCommandResolution: describeChildCommand(aggregateCommandWithoutSourceRun),
         aggregateRunId: null,
         insertedSnapshotCount: null,
         updatedSnapshotCount: null,
@@ -86,13 +97,15 @@ async function main() {
     measurementRunId,
     measurement: {
       status: getString(measurementResult.output, "runStatus"),
-      command: formatCommand(measurementCommand),
+      command: formatCommand(measurementCommand.displayCommand),
+      childCommandResolution: describeChildCommand(measurementCommand),
       insertedCounts: buildMeasurementInsertedCounts(measurementResult.output),
       guardrails: asRecord(measurementResult.output.guardrails)
     },
     aggregate: {
       status: getString(aggregateResult.output, "mode"),
-      command: formatCommand(aggregateCommand),
+      command: formatCommand(aggregateCommand.displayCommand),
+      childCommandResolution: describeChildCommand(aggregateCommand),
       selectedSourceRunId: getString(aggregateResult.output, "selectedSourceRunId"),
       aggregateRunId: getString(aggregateResult.output, "aggregateRunId") ?? getExistingAggregateRunId(aggregateResult.output),
       insertedSnapshotCount: getNumber(aggregateResult.output, "insertedSnapshotCount"),
@@ -179,24 +192,18 @@ function parseArgs(args: string[]): Options {
 }
 
 function buildMeasurementCommand(options: Options) {
-  return [
-    "npx",
-    "tsx",
-    "scripts/run-openai-measurement.ts",
+  return buildChildScriptCommand("OpenAI measurement", "scripts/run-openai-measurement.ts", [
     "--project-slug",
     options.projectSlug,
     "--prompt-limit",
     String(options.promptLimit),
     "--search-mode",
     options.searchMode
-  ];
+  ]);
 }
 
 function buildAggregateCommand(options: Options, sourceRunId: string | null) {
-  const command = [
-    "npx",
-    "tsx",
-    "scripts/recalculate-metric-snapshots.ts",
+  const args = [
     "--project-slug",
     options.projectSlug,
     "--search-mode",
@@ -204,16 +211,29 @@ function buildAggregateCommand(options: Options, sourceRunId: string | null) {
   ];
 
   if (sourceRunId) {
-    command.push("--source-run-id", sourceRunId);
+    args.push("--source-run-id", sourceRunId);
   } else {
-    command.push("--source-run-id", "<measurementRunId>");
+    args.push("--source-run-id", "<measurementRunId>");
   }
 
   if (options.applyAggregate) {
-    command.push("--apply");
+    args.push("--apply");
   }
 
-  return command;
+  return buildChildScriptCommand("metric_snapshots recalculation", "scripts/recalculate-metric-snapshots.ts", args);
+}
+
+function buildChildScriptCommand(label: string, scriptPath: string, scriptArgs: string[]): ChildScriptCommand {
+  const tsxCliPath = resolveTsxCliPath();
+  const executable = process.execPath;
+  const args = [tsxCliPath, scriptPath, ...scriptArgs];
+
+  return {
+    label,
+    executable,
+    args,
+    displayCommand: ["node", relativeForDisplay(tsxCliPath), scriptPath, ...scriptArgs]
+  };
 }
 
 function buildDashboardUrls(projectSlug: string) {
@@ -243,14 +263,12 @@ function getExistingAggregateRunId(output: JsonRecord) {
   return getString(existingAggregate, "id");
 }
 
-async function runJsonCommand(command: string[]): Promise<CommandResult> {
-  const executable = resolveExecutable(command[0]);
-  const args = command.slice(1);
-
+async function runJsonCommand(command: ChildScriptCommand): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, {
+    const child = spawn(command.executable, command.args, {
       cwd: process.cwd(),
       env: process.env,
+      shell: false,
       windowsHide: true
     });
 
@@ -268,7 +286,11 @@ async function runJsonCommand(command: string[]): Promise<CommandResult> {
     child.on("error", reject);
     child.on("close", (code) => {
       if (code !== 0) {
-        reject(new Error(`${formatCommand(command)} failed with exit code ${code}. ${summarizeText(stderr)}`));
+        reject(
+          new Error(
+            `${command.label} failed. command=${formatCommand(command.displayCommand)} exitCode=${code}. stderr=${summarizeText(stderr)}`
+          )
+        );
         return;
       }
 
@@ -278,7 +300,13 @@ async function runJsonCommand(command: string[]): Promise<CommandResult> {
           output: parseJsonFromStdout(stdout)
         });
       } catch (error) {
-        reject(new Error(`Failed to parse JSON output from ${formatCommand(command)}. ${(error as Error).message}`));
+        reject(
+          new Error(
+            `Failed to parse JSON output from ${command.label}. command=${formatCommand(command.displayCommand)}. ${
+              (error as Error).message
+            } stdoutTail=${summarizeText(stdout.slice(-1000))}`
+          )
+        );
       }
     });
   });
@@ -298,9 +326,29 @@ function parseJsonFromStdout(stdout: string): JsonRecord {
   }
 }
 
-function resolveExecutable(value: string) {
-  if (value === "npx" && process.platform === "win32") return "npx.cmd";
-  return value;
+function resolveTsxCliPath() {
+  const tsxCliPath = path.join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
+  if (!existsSync(tsxCliPath)) {
+    throw new Error(`Cannot find local tsx CLI at ${relativeForDisplay(tsxCliPath)}. Run npm install before using this script.`);
+  }
+  return tsxCliPath;
+}
+
+function relativeForDisplay(value: string) {
+  const relative = path.relative(process.cwd(), value);
+  return relative && !relative.startsWith("..") ? relative.replace(/\\/g, "/") : value.replace(/\\/g, "/");
+}
+
+function describeChildCommand(command: ChildScriptCommand) {
+  return {
+    label: command.label,
+    platform: process.platform,
+    executable: path.basename(command.executable),
+    executableKind: "process.execPath",
+    runner: relativeForDisplay(command.args[0] ?? ""),
+    shell: false,
+    displayCommand: formatCommand(command.displayCommand)
+  };
 }
 
 function formatCommand(command: string[]) {
