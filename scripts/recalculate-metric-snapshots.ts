@@ -8,8 +8,11 @@ const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/pos
 const DEFAULT_PROJECT_SLUG = process.env.RECORA_DEFAULT_PROJECT_SLUG ?? "recora-kenzai-q2";
 const RECORA_NOTE =
   "Recora-defined observation metrics. These are not official evaluations from OpenAI or any AI platform.";
+const METRIC_VERSION = "recora_metric_snapshots_v0.1";
+const CALCULATION_METHOD = "openai_measurement_run_v0_1";
 
 type Row = Record<string, string | null>;
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue | undefined };
 type SearchModeOption = "combined" | "no-search" | "web-search" | "both";
 type RecommendationStatus = "strongly_recommended" | "recommended" | "listed" | "neutral" | "absent" | "discouraged";
 type BrandType = "primary" | "competitor";
@@ -92,6 +95,13 @@ type Counts = {
   metricSnapshots: number;
 };
 
+type ExistingAggregateRun = {
+  id: string;
+  completed_at: string | null;
+  snapshot_count: number;
+  metadata: JsonValue;
+};
+
 type BrandMetric = {
   brand_id: string;
   brand_name: string;
@@ -138,6 +148,7 @@ type PlannedSnapshot = {
   share_of_voice: number;
   competitive_gap: number | null;
   average_position: number | null;
+  metadata: Record<string, JsonValue | undefined>;
 };
 
 async function main() {
@@ -166,12 +177,24 @@ async function main() {
     const sourceDomainCount = unique(citations.map((citation) => citation.source_domain_id).filter(isPresent)).length;
     const computedBrandMetrics = computeBrandMetrics(brands, selectedConversations, allConversations, brandMentions, citations);
     const computedProjectMetrics = computeProjectMetrics(project, brands, selectedConversations, citations, computedBrandMetrics);
-    const plannedSnapshots = buildPlannedSnapshots(project, brands, computedProjectMetrics, computedBrandMetrics);
-    const plannedAggregateRun = buildPlannedAggregateRun(project, sourceRun, options.searchMode);
-    const schemaLimitations = getSchemaLimitations();
-    const databaseWriteAllowed = options.apply && options.searchMode === "combined";
-    const applyWarning = options.apply && options.searchMode !== "combined"
-      ? "Apply is blocked because metric_snapshots has no search_mode column in the current schema."
+    const sampleSizeNote = buildSampleSizeNote(selectedConversations.length);
+    const confidenceNote = buildConfidenceNote(selectedConversations.length);
+    const plannedAggregateRun = buildPlannedAggregateRun(project, sourceRun, options.searchMode, sampleSizeNote);
+    const plannedSnapshots = buildPlannedSnapshots({
+      project,
+      brands,
+      sourceRun,
+      searchMode: options.searchMode,
+      projectMetrics: computedProjectMetrics,
+      brandMetrics: computedBrandMetrics,
+      sampleSize: selectedConversations.length,
+      confidenceNote
+    });
+    const schemaCapabilities = getSchemaCapabilities();
+    const existingAggregate = await findExistingAggregateRun(db, project.id, sourceRun.id, options.searchMode);
+    const databaseWriteAllowed = options.apply;
+    const applyWarning = existingAggregate
+      ? "An aggregate run for this source_run_id and search_mode already exists. Apply would not insert a duplicate."
       : null;
     let aggregateRunId: string | null = null;
     let insertedSnapshots = 0;
@@ -179,9 +202,8 @@ async function main() {
     if (databaseWriteAllowed) {
       await db.query("begin");
       try {
-        const existingAggregateRun = await findExistingSchemaLimitedAggregateRun(db, project.id, sourceRun);
-        if (existingAggregateRun) {
-          aggregateRunId = existingAggregateRun.id;
+        if (existingAggregate) {
+          aggregateRunId = existingAggregate.id;
         } else {
           aggregateRunId = await insertAggregateRun(db, plannedAggregateRun);
           for (const snapshot of plannedSnapshots) {
@@ -209,6 +231,8 @@ async function main() {
       citationCount: citations.length,
       sourceDomainCount,
       plannedAggregateRun,
+      plannedAggregateRunMetadata: plannedAggregateRun.metadata,
+      existingAggregate,
       plannedAggregateRunCreated: aggregateRunId && insertedSnapshots > 0,
       aggregateRunId,
       plannedProjectSnapshots: plannedSnapshots.filter((snapshot) => snapshot.scope_type === "project").length,
@@ -217,6 +241,12 @@ async function main() {
       insertedSnapshotCount: insertedSnapshots,
       computedProjectMetrics,
       computedBrandMetrics,
+      plannedMetricSnapshotMetadata: plannedSnapshots.map((snapshot) => ({
+        scope_type: snapshot.scope_type,
+        scope_id: snapshot.scope_id,
+        brand_id: snapshot.brand_id,
+        metadata: snapshot.metadata
+      })),
       plannedSnapshots,
       databaseWriteAllowed,
       databaseWritePerformed: insertedSnapshots > 0,
@@ -228,8 +258,9 @@ async function main() {
       recommendationsUnchanged: before.recommendations === after.recommendations,
       metricSnapshotsUnchanged: before.metricSnapshots === after.metricSnapshots,
       seedMetricSnapshotsUntouched: !options.apply && before.metricSnapshots === after.metricSnapshots,
-      schemaLimitations,
-      sampleSizeNote: buildSampleSizeNote(selectedConversations.length),
+      schemaCapabilities,
+      sampleSizeNote,
+      confidenceNote,
       note: RECORA_NOTE
     };
 
@@ -533,12 +564,17 @@ function computeProjectMetrics(
   };
 }
 
-function buildPlannedSnapshots(
-  project: ProjectRow,
-  brands: BrandRow[],
-  projectMetrics: ProjectMetrics,
-  brandMetrics: BrandMetric[]
-): PlannedSnapshot[] {
+function buildPlannedSnapshots(input: {
+  project: ProjectRow;
+  brands: BrandRow[];
+  sourceRun: SourceRunRow;
+  searchMode: SearchModeOption;
+  projectMetrics: ProjectMetrics;
+  brandMetrics: BrandMetric[];
+  sampleSize: number;
+  confidenceNote: string;
+}): PlannedSnapshot[] {
+  const { project, brands, sourceRun, searchMode, projectMetrics, brandMetrics, sampleSize, confidenceNote } = input;
   const targetBrand = brands.find((brand) => brand.id === projectMetrics.target_brand_id) ?? null;
   const targetMetric = targetBrand ? brandMetrics.find((metric) => metric.brand_id === targetBrand.id) ?? null : null;
   const projectSnapshot: PlannedSnapshot = {
@@ -550,7 +586,18 @@ function buildPlannedSnapshots(
     citation_count: projectMetrics.unique_cited_domains > 0 ? brandMetrics.reduce((sum, metric) => sum + metric.citation_count, 0) : 0,
     share_of_voice: targetMetric?.share_of_voice ?? 0,
     competitive_gap: projectMetrics.competitive_gap,
-    average_position: targetMetric?.average_estimated_answer_rank ?? null
+    average_position: targetMetric?.average_estimated_answer_rank ?? null,
+    metadata: buildMetricSnapshotMetadata({
+      sourceRun,
+      searchMode,
+      sampleSize,
+      confidenceNote,
+      scopeType: "project",
+      scopeId: project.id,
+      brandId: targetBrand?.id ?? null,
+      projectMetrics,
+      brandMetric: targetMetric ?? null
+    })
   };
   const brandSnapshots = brandMetrics.map<PlannedSnapshot>((metric) => ({
     scope_type: "brand",
@@ -561,12 +608,23 @@ function buildPlannedSnapshots(
     citation_count: metric.citation_count,
     share_of_voice: metric.share_of_voice,
     competitive_gap: metric.brand_type === "primary" ? projectMetrics.competitive_gap : null,
-    average_position: metric.average_estimated_answer_rank
+    average_position: metric.average_estimated_answer_rank,
+    metadata: buildMetricSnapshotMetadata({
+      sourceRun,
+      searchMode,
+      sampleSize,
+      confidenceNote,
+      scopeType: "brand",
+      scopeId: metric.brand_id,
+      brandId: metric.brand_id,
+      projectMetrics,
+      brandMetric: metric
+    })
   }));
   return [projectSnapshot, ...brandSnapshots];
 }
 
-function buildPlannedAggregateRun(project: ProjectRow, sourceRun: SourceRunRow, searchMode: SearchModeOption) {
+function buildPlannedAggregateRun(project: ProjectRow, sourceRun: SourceRunRow, searchMode: SearchModeOption, sampleSizeNote: string) {
   const now = new Date().toISOString();
   return {
     project_id: project.id,
@@ -580,18 +638,75 @@ function buildPlannedAggregateRun(project: ProjectRow, sourceRun: SourceRunRow, 
     source_run_id: sourceRun.id,
     data_source: "openai_measurement",
     search_mode: searchMode,
-    note: "source_run_id, data_source, and search_mode are dry-run fields only because the current v0.1 schema has no metadata column on measurement_runs."
+    metadata: buildAggregateRunMetadata(sourceRun, searchMode, sampleSizeNote)
   };
 }
 
-function getSchemaLimitations() {
+function buildAggregateRunMetadata(sourceRun: SourceRunRow, searchMode: SearchModeOption, sampleSizeNote: string): Record<string, JsonValue> {
   return {
-    measurement_runs_metadata: "not_available",
-    metric_snapshots_metadata: "not_available",
-    metric_snapshots_search_mode_column: "not_available",
-    persisted_source_run_id: "not_available_without_schema_change",
-    safe_apply_policy:
-      "Dry-run is the default. Apply is only allowed for combined mode, and duplicate prevention is schema-limited because source_run_id cannot be persisted."
+    run_kind: "aggregate",
+    source_run_id: sourceRun.id,
+    data_source: "openai_measurement",
+    calculation_method: CALCULATION_METHOD,
+    search_mode: searchMode,
+    sample_size_note: sampleSizeNote,
+    metric_version: METRIC_VERSION,
+    recora_metric_notice: RECORA_NOTE
+  };
+}
+
+function buildMetricSnapshotMetadata(input: {
+  sourceRun: SourceRunRow;
+  searchMode: SearchModeOption;
+  sampleSize: number;
+  confidenceNote: string;
+  scopeType: "project" | "brand";
+  scopeId: string;
+  brandId: string | null;
+  projectMetrics: ProjectMetrics;
+  brandMetric: BrandMetric | null;
+}): Record<string, JsonValue | undefined> {
+  const { sourceRun, searchMode, sampleSize, confidenceNote, scopeType, scopeId, brandId, projectMetrics, brandMetric } = input;
+  return {
+    source_run_id: sourceRun.id,
+    aggregate_run_kind: "aggregate",
+    data_source: "openai_measurement",
+    search_mode: searchMode,
+    metric_version: METRIC_VERSION,
+    calculation_method: CALCULATION_METHOD,
+    sample_size: sampleSize,
+    scope_type: scopeType,
+    scope_id: scopeId,
+    brand_id: brandId,
+    no_search_breakdown: buildSearchModeBreakdown(projectMetrics, brandMetric, "no-search"),
+    web_search_breakdown: buildSearchModeBreakdown(projectMetrics, brandMetric, "web-search"),
+    confidence_note: confidenceNote,
+    recora_metric_notice: RECORA_NOTE
+  };
+}
+
+function buildSearchModeBreakdown(projectMetrics: ProjectMetrics, brandMetric: BrandMetric | null, mode: "no-search" | "web-search") {
+  const isWebSearch = mode === "web-search";
+  return {
+    search_mode: mode,
+    conversation_count: isWebSearch ? projectMetrics.web_search_conversations : projectMetrics.no_search_conversations,
+    visibility_rate: isWebSearch
+      ? brandMetric?.web_search_visibility_rate ?? projectMetrics.web_search_visibility_rate
+      : brandMetric?.no_search_visibility_rate ?? projectMetrics.no_search_visibility_rate,
+    citation_coverage: isWebSearch ? projectMetrics.citation_coverage : null,
+    citation_status: isWebSearch ? "measured_when_available" : "not_applicable"
+  };
+}
+
+function getSchemaCapabilities() {
+  return {
+    measurement_runs_metadata: "available",
+    metric_snapshots_metadata: "available",
+    metric_snapshots_search_mode_column: "not_available_metadata_only",
+    persisted_source_run_id: "available_in_metadata",
+    duplicate_prevention:
+      "Uses measurement_runs.metadata source_run_id, run_kind, data_source, and search_mode. Seed snapshots with empty metadata are not matched.",
+    safe_apply_policy: "Dry-run is the default. Apply is supported but was not run in this verification."
   };
 }
 
@@ -600,32 +715,51 @@ function buildSampleSizeNote(sampleSize: number) {
   return `sample_size=${sampleSize}. Still treat metrics as Recora observations, not official AI platform evaluations.`;
 }
 
-async function findExistingSchemaLimitedAggregateRun(db: LocalPostgresClient, projectId: string, sourceRun: SourceRunRow) {
-  const sourceCompletedAt = sourceRun.completed_at || sourceRun.created_at;
-  const rows = await db.query<{ id: string }>(`
+function buildConfidenceNote(sampleSize: number) {
+  if (sampleSize < 10) return "low: fewer than 10 observations. Treat as a small Recora observation sample, not a strong trend.";
+  return "medium: enough observations for a Recora run-level summary, but still not an official AI platform evaluation.";
+}
+
+async function findExistingAggregateRun(
+  db: LocalPostgresClient,
+  projectId: string,
+  sourceRunId: string,
+  searchMode: SearchModeOption
+): Promise<ExistingAggregateRun | null> {
+  const rows = await db.query<{ id: string; completed_at: string | null; snapshot_count: string; metadata: string | null }>(`
     select mr.id::text as id
+      , mr.completed_at::text as completed_at
+      , count(ms.id)::text as snapshot_count
+      , mr.metadata::text as metadata
     from public.measurement_runs mr
+    left join public.metric_snapshots ms on ms.run_id = mr.id
     where mr.project_id = ${uuid(projectId)}
       and mr.status = 'completed'
-      and mr.period_start = ${lit(sourceRun.period_start)}::date
-      and mr.period_end = ${lit(sourceRun.period_end)}::date
-      and coalesce(mr.started_at, mr.created_at) >= ${ts(sourceCompletedAt)}
-      and exists (
-        select 1 from public.metric_snapshots ms where ms.run_id = mr.id
-      )
+      and mr.metadata->>'run_kind' = 'aggregate'
+      and mr.metadata->>'source_run_id' = ${lit(sourceRunId)}
+      and mr.metadata->>'data_source' = 'openai_measurement'
+      and mr.metadata->>'search_mode' = ${lit(searchMode)}
       and not exists (
         select 1 from public.run_items ri where ri.run_id = mr.id
       )
+    group by mr.id
     order by coalesce(mr.completed_at, mr.created_at) desc
     limit 1
   `);
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    completed_at: row.completed_at,
+    snapshot_count: Number(row.snapshot_count ?? 0),
+    metadata: parseJsonValue(row.metadata)
+  };
 }
 
 async function insertAggregateRun(db: LocalPostgresClient, planned: ReturnType<typeof buildPlannedAggregateRun>) {
   const rows = await db.query<{ id: string }>(`
     insert into public.measurement_runs (
-      project_id, status, period_start, period_end, region, language, started_at, completed_at
+      project_id, status, period_start, period_end, region, language, started_at, completed_at, metadata
     )
     values (
       ${uuid(planned.project_id)},
@@ -635,7 +769,8 @@ async function insertAggregateRun(db: LocalPostgresClient, planned: ReturnType<t
       ${lit(planned.region)},
       ${lit(planned.language)},
       ${ts(planned.started_at)},
-      ${ts(planned.completed_at)}
+      ${ts(planned.completed_at)},
+      ${jsonb(planned.metadata)}
     )
     returning id::text as id
   `);
@@ -656,7 +791,8 @@ async function insertMetricSnapshot(db: LocalPostgresClient, runId: string, snap
       share_of_voice,
       competitive_gap,
       average_position,
-      calculated_at
+      calculated_at,
+      metadata
     )
     values (
       ${uuid(runId)},
@@ -669,7 +805,8 @@ async function insertMetricSnapshot(db: LocalPostgresClient, runId: string, snap
       ${num(snapshot.share_of_voice)},
       ${nullableNum(snapshot.competitive_gap)},
       ${nullableNum(snapshot.average_position)},
-      now()
+      now(),
+      ${jsonb(snapshot.metadata)}
     )
     on conflict (
       run_id,
@@ -684,7 +821,8 @@ async function insertMetricSnapshot(db: LocalPostgresClient, runId: string, snap
       share_of_voice = excluded.share_of_voice,
       competitive_gap = excluded.competitive_gap,
       average_position = excluded.average_position,
-      calculated_at = excluded.calculated_at
+      calculated_at = excluded.calculated_at,
+      metadata = excluded.metadata
   `);
 }
 
@@ -749,6 +887,15 @@ function isNumber(value: number | null): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function parseJsonValue(value: string | null): JsonValue {
+  if (!value) return {};
+  try {
+    return JSON.parse(value) as JsonValue;
+  } catch {
+    return {};
+  }
+}
+
 function lit(value: string) {
   return `'${value.replace(/'/g, "''")}'`;
 }
@@ -775,6 +922,10 @@ function uuidList(values: string[]) {
 
 function ts(value: string | null | undefined) {
   return value ? `${lit(value)}::timestamptz` : "null";
+}
+
+function jsonb(value: unknown) {
+  return `${lit(JSON.stringify(value))}::jsonb`;
 }
 
 class LocalPostgresClient {
