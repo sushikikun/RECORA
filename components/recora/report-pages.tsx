@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { RecommendationsDbPage } from "@/components/recora/recommendations-page";
 import {
   ArrowRight,
   Crown,
@@ -41,7 +42,7 @@ import {
   weeklyTrends
 } from "@/lib/recora/sample-data";
 import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-config";
-import type { RecoraConversationsDbData, RecoraDashboardDbData, RecoraLeaderboardDbData, RecoraRecommendationRow, RecoraSourcesDbData } from "@/lib/recora/db";
+import type { RecoraConversationsDbData, RecoraDashboardDbData, RecoraLeaderboardDbData, RecoraRecommendationRow, RecoraRecommendationsDbData, RecoraSourcesDbData } from "@/lib/recora/db";
 import {
   AlertBanner,
   DashboardCard,
@@ -2403,8 +2404,8 @@ export function PromptsAnalysisPage() {
   return <PlaceholderPageShell summaryKey="prompts" eyebrow="モニタリング" tabs={reportDetailTabs.prompts} />;
 }
 
-export function RecommendationsPage() {
-  return <PlaceholderPageShell summaryKey="recommendations" eyebrow="改善" tabs={reportDetailTabs.recommendations} />;
+export function RecommendationsPage({ recommendationsData = null }: { recommendationsData?: RecoraRecommendationsDbData | null }) {
+  return <RecommendationsDbPage recommendationsData={recommendationsData} />;
 }
 
 export function MisinformationRisksPage() {

@@ -274,6 +274,15 @@ export type RecoraSourcesDbData = {
   citations: RecoraCitationRow[];
 };
 
+export type RecoraRecommendationsDbData = {
+  project: RecoraProjectRow | null;
+  latestRun: RecoraMeasurementRunRow | null;
+  brands: RecoraBrandRow[];
+  recommendations: RecoraRecommendationRow[];
+  topics: RecoraTopicRow[];
+  prompts: RecoraPromptRow[];
+};
+
 export type RecoraLeaderboardDbData = {
   project: RecoraProjectRow | null;
   latestRun: RecoraMeasurementRunRow | null;
