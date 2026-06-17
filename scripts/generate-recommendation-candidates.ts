@@ -16,13 +16,17 @@ type Priority = "P0" | "P1" | "P2";
 type Confidence = "high" | "medium" | "low";
 type SaveDecision = "save" | "review_required" | "candidate_only";
 type CandidateType = "brand_absent" | "competitor_category_drift" | "citation_mismatch" | "owned_site_not_cited" | "comparison_content_gap" | "case_study_gap" | "faq_structure_gap" | "misinformation_or_category_risk" | "source_friendly_page_gap";
+type SourceDomainType = "owned" | "competitor" | "ec" | "manufacturer" | "media" | "foreign_brand" | "unknown";
+type DataSource = "openai_inspection_only" | "seed_only" | "mixed";
+type NormalizedSupportsClaim = "true" | "false" | "unknown";
 type ProjectRow = { id: string; slug: string; name: string };
 type BrandRow = { id: string; name: string; brand_type: "primary" | "competitor"; domain: string | null };
 type TopicRow = { id: string; name: string; intent: string | null };
 type ConversationRow = { id: string; run_item_id: string; run_id: string; prompt_id: string | null; topic_id: string | null; topic_name: string | null; prompt_text: string | null; prompt_text_snapshot: string; raw_answer: string; provider: string | null; response_id: string | null; web_search_enabled: string | null; citation_status: string | null; measured_at: string | null; model_returned: string | null };
 type MentionRow = { conversation_id: string; brand_id: string; brand_name: string; brand_type: "primary" | "competitor"; mentioned: string; mention_count: string | null; evidence_snippet: string | null };
 type CitationRow = { id: string; conversation_id: string; url: string; domain: string; source_type: string | null; source_domain_type: string | null; supports_claim: string | null; brand_related: string | null; cited_text: string | null };
-type Evidence = { observation_count: number; conversation_ids: string[]; run_item_ids: string[]; prompt_texts: string[]; response_excerpts: string[]; target_brand_present: boolean; competitor_presence: Array<{ brand: string; mentioned: boolean; mention_count: number }>; citation_statuses: string[]; web_search_enabled_values: boolean[]; cited_urls: string[]; cited_domains: string[]; source_domain_types: string[]; brand_related_values: string[]; supports_claim_values: string[]; measured_at_values: string[]; evidence_label: string };
+type CitationEvidence = { url: string; domain: string; source_domain_type: SourceDomainType; brand_related: string; supports_claim: NormalizedSupportsClaim; cited_text: string | null };
+type Evidence = { observation_count: number; conversation_ids: string[]; run_item_ids: string[]; prompt_texts: string[]; response_excerpts: string[]; target_brand_present: boolean; competitor_presence: Array<{ brand: string; mentioned: boolean; mention_count: number }>; citation_statuses: string[]; web_search_enabled_values: boolean[]; cited_urls: string[]; cited_domains: string[]; citation_details: CitationEvidence[]; source_domain_types: SourceDomainType[]; brand_related_values: string[]; supports_claim_values: NormalizedSupportsClaim[]; measured_at_values: string[]; data_source: DataSource; observation_scope: string; owned_domain_match_count: number; target_domain_known: boolean; source_classification_note: string; supports_claim_note: string; existing_recommendations_count: number; db_write_status: "not_written"; evidence_label: string };
 type Candidate = { id: string; title: string; priority: Priority; type: CandidateType; summary: string; rationale: string; evidence: Evidence; expected_impact: string; effort: string; related_observation_ids: string[]; related_urls: string[]; related_brands: string[]; related_topics: string[]; confidence: Confidence; should_save_to_recommendations: SaveDecision; save_reason: string; caution: string; suggested_next_action: string };
 type Context = { project: ProjectRow; brands: BrandRow[]; topics: TopicRow[]; conversations: ConversationRow[]; seedConversations: ConversationRow[]; openaiConversations: ConversationRow[]; mentions: MentionRow[]; citations: CitationRow[]; openaiMentions: MentionRow[]; openaiCitations: CitationRow[]; webSearchCitations: CitationRow[]; primaryBrand: BrandRow; competitorBrands: BrandRow[]; evidence: Evidence };
 type CountSnapshot = Record<string, number>;
@@ -35,7 +39,7 @@ async function main() {
   try {
     const before = await getCounts(db);
     const context = await loadContext(db);
-    const candidates = buildCandidates(context);
+    const candidates = buildCandidates(context, before.recommendations ?? 0);
     const after = await getCounts(db);
     await writeOutputs(context, candidates, before, after);
     console.log(JSON.stringify({ projectSlug: context.project.slug, openaiConversations: context.openaiConversations.length, seedConversations: context.seedConversations.length, openaiCitations: context.openaiCitations.length, candidates: candidates.length, priorityBreakdown: countBy(candidates, (c) => c.priority), confidenceBreakdown: countBy(candidates, (c) => c.confidence), saveDecisionBreakdown: countBy(candidates, (c) => c.should_save_to_recommendations), output: { json: OUTPUT_JSON, markdown: OUTPUT_MD }, dbCountsUnchanged: sameCounts(before, after), dbCountsBefore: before, dbCountsAfter: after }, null, 2));
@@ -66,32 +70,65 @@ async function loadContext(db: LocalPostgresClient): Promise<Context> {
   return { project, brands, topics, conversations, seedConversations, openaiConversations, mentions, citations, openaiMentions, openaiCitations, webSearchCitations, primaryBrand, competitorBrands, evidence };
 }
 
-function buildCandidates(context: Context): Candidate[] {
-  const e = context.evidence;
+function buildCandidates(context: Context, existingRecommendationsCount: number): Candidate[] {
+  const e = { ...context.evidence, existing_recommendations_count: existingRecommendationsCount };
   const relatedTopics = getRelatedTopics(context);
   const allBrands = [context.primaryBrand.name, ...context.competitorBrands.map((b) => b.name)];
-  const citedDomains = new Set(e.cited_domains.map(normalizeDomain));
-  const ownedHints = [context.primaryBrand.domain, "recora-kenzai.example"].filter((v): v is string => Boolean(v)).map(normalizeDomain);
-  const ownedCited = ownedHints.some((d) => citedDomains.has(d));
+  const ownedCited = e.owned_domain_match_count > 0;
   const configuredCompetitorPresent = e.competitor_presence.some((item) => item.mentioned);
-  const generalCitations = context.openaiCitations.filter((c) => ["general", "unknown", "unrelated", null].includes(c.brand_related ?? null));
+  const generalCitationDetails = e.citation_details.filter((c) => ["general", "unknown", "unrelated"].includes(c.brand_related));
+  const reviewCitationDetails = e.citation_details.filter((c) => c.source_domain_type !== "owned" && c.source_domain_type !== "competitor").slice(0, 6);
+  const representativeCitationDetails = reviewCitationDetails.slice(0, 3);
+  const hasClassifiedSource = reviewCitationDetails.some((c) => c.source_domain_type !== "unknown");
+  const citationConfidence: Confidence = hasClassifiedSource ? "medium" : "low";
+  const ownedSiteConfidence: Confidence = e.target_domain_known ? "medium" : "low";
+  const brandAbsentEvidence = scopeEvidence(e, [], {
+    source_classification_note: "ブランド非表示候補では、URLではなく回答本文とブランド言及の不在を主証拠にしています。"
+  });
+  const competitorDriftEvidence = scopeEvidence(e, generalCitationDetails.slice(0, 3), {
+    source_classification_note: hasClassifiedSource ? e.source_classification_note : "引用元のカテゴリ分類が未確定のため、設定競合から別カテゴリへ流れているかは追加確認が必要です。"
+  });
+  const citationMismatchEvidence = scopeEvidence(e, reviewCitationDetails, {
+    source_classification_note: hasClassifiedSource ? e.source_classification_note : "引用元のカテゴリ分類が未確定のため、EC・海外・別カテゴリへの偏りは断定せず追加確認が必要です。"
+  });
+  const ownedSiteEvidence = scopeEvidence(e, representativeCitationDetails, {
+    source_classification_note: e.target_domain_known ? e.source_classification_note : "自社公式ドメイン定義と照合したうえで、公式サイト未引用かどうかを確認する必要があります。"
+  });
+  const sourceFriendlyEvidence = scopeEvidence(e, [], {
+    source_classification_note: "ページ構造不足は今回の観測だけでは推定止まりです。引用URLではなく追加観測とサイト棚卸しで確認します。"
+  });
   const candidates: Candidate[] = [];
-  if (context.openaiConversations.length > 0 && !e.target_brand_present) candidates.push(candidate("openai-brand-absent", "brand_absent", "自社ブランドがAI回答候補に出ていない可能性", "P1", context.openaiConversations.length >= 2 ? "medium" : "low", "review_required", "今回のOpenAI実測では、対象ブランドの言及を確認できませんでした。", "no-searchとweb-searchの両方で自社名が出ていないため、発見クエリに対する説明と実体情報の整備を確認する価値があります。", "追加観測で同傾向が出る場合、ブランド発見率の改善候補になります。", "中", allBrands, relatedTopics, e, "OpenAI実測はありますが、1〜2件の観測のため人間確認が必要です。", "同じプロンプトを複数モデルで再測定し、製品・選び方・FAQページの記述と照合してください。"));
-  if (context.openaiConversations.length > 0 && !configuredCompetitorPresent && generalCitations.length > 0) candidates.push(candidate("openai-competitor-category-drift", "competitor_category_drift", "設定競合ではなく別カテゴリ候補に流れている可能性", "P1", "medium", "review_required", "設定済み競合の言及が確認できず、別ドメインや別カテゴリに寄った可能性があります。", "web-searchの引用URLは取得できていますが、自社・設定競合との結びつきが弱いものが含まれます。", "カテゴリ定義と競合比較軸を明確にする候補です。", "中", allBrands, relatedTopics, e, "引用URLの分類に人間確認が必要です。", "引用ドメインが建材・タイル選定の文脈に適しているかを確認してください。"));
-  if (context.webSearchCitations.length > 0 && generalCitations.length > 0) candidates.push(candidate("openai-citation-mismatch", "citation_mismatch", "Web検索時の引用元がEC・海外・別カテゴリに偏っている可能性", "P1", "medium", "review_required", "web-searchありの観測では引用URLが返っていますが、自社や設定競合に直接結びつく参照元は限られています。", "supports_claimは未検証です。URLの存在だけを根拠にせず、ドメインの性質と引用位置を確認します。", "参照元のずれを直すための優先確認項目です。", "中", allBrands, relatedTopics, e, "web-searchありでURLは確認できましたが、カテゴリ分類は人間確認が必要です。", "引用URLをドメイン種別に分け、自社公式・業界メディア・レビュー・ECのどれに寄っているか確認してください。"));
-  if (context.webSearchCitations.length > 0 && !ownedCited) candidates.push(candidate("openai-owned-site-not-cited", "owned_site_not_cited", "自社公式サイト・比較記事・FAQ・事例が引用されていない可能性", "P1", "medium", "review_required", "web-searchありの観測で、自社公式ドメインの引用は確認できませんでした。", "一回のweb-search観測のため断定はできませんが、AIが参照しやすい公式根拠ページが足りないか、見つけにくい可能性があります。", "公式ページを引用されやすい状態に整えるための候補です。", "中", [context.primaryBrand.name], relatedTopics, e, "公式ドメイン定義と対象ページの確認が必要です。", "公式サイトに、選び方、比較表、FAQ、施工事例をまとめた参照しやすいページがあるか確認してください。"));
-  candidates.push(candidate("openai-source-friendly-page-gap", "source_friendly_page_gap", "AIが参照しやすいページ構造や説明文が不足している可能性", "P2", "low", "candidate_only", "今回の観測だけでは断定できませんが、引用されやすい状態を整えるための候補です。", "自社不在や公式未引用が続く場合に備え、用語定義、FAQ、選定基準、事例のまとめ方を見直す価値があります。", "中長期で引用候補を増やすための基盤整備候補です。", "低〜中", [context.primaryBrand.name], relatedTopics, e, "根拠はまだ推定止まりのため、保存前に追加観測が必要です。", "FAQ、用語定義、比較軸、施工事例の各ページを棚卸しし、プロンプトと対応する根拠を表で整理してください。"));
+  if (context.openaiConversations.length > 0 && !e.target_brand_present) candidates.push(candidate("openai-brand-absent", "brand_absent", "自社ブランドがAI回答候補に出ていない可能性", "P1", context.openaiConversations.length >= 2 ? "medium" : "low", "review_required", "今回のOpenAI実測では、対象ブランドの言及を確認できませんでした。", "no-searchとweb-searchの両方で自社名が出ていないため、発見クエリに対する説明と実体情報の整備を確認する価値があります。", "追加観測で同傾向が出る場合、ブランド発見率の改善候補になります。", "中", allBrands, relatedTopics, brandAbsentEvidence, "最も保存に近い候補ですが、OpenAI実測2件のみのためreview_requiredに留めます。", "同じプロンプトを複数モデル・複数回で再測定し、製品・選び方・FAQページの記述と照合してください。"));
+  if (context.openaiConversations.length > 0 && !configuredCompetitorPresent && generalCitationDetails.length > 0) candidates.push(candidate("openai-competitor-category-drift", "competitor_category_drift", "設定競合ではなく別カテゴリ候補に流れている可能性", "P2", "low", "candidate_only", "今回の観測では設定済み競合の言及が確認できず、想定カテゴリからずれている可能性があります。", "ただし、引用元の分類やカテゴリ適合性は未確定です。1〜2件の観測だけで競合流出とは断定しません。", "カテゴリ定義と競合比較軸を点検するための候補です。", "中", allBrands, relatedTopics, competitorDriftEvidence, "競合・カテゴリのずれはまだ弱い兆候のため、現時点では候補出力のみに留めます。", "引用ドメインが建材・タイル選定の文脈に適しているかを確認し、競合プロンプトを追加して再測定してください。"));
+  if (context.webSearchCitations.length > 0 && reviewCitationDetails.length > 0) candidates.push(candidate("openai-citation-mismatch", "citation_mismatch", hasClassifiedSource ? "Web検索時の引用元にカテゴリ確認が必要なURLがあります" : "Web検索時の引用元分類が未確定です", "P1", citationConfidence, "review_required", hasClassifiedSource ? "web-searchありの観測では引用URLが返っており、一部URLは商材・カテゴリとの関連性を確認する必要があります。" : "web-searchありの観測では引用URLが返っていますが、引用元のカテゴリ分類が未確定のため追加確認が必要です。", "supports_claimはunknownとして扱います。URLの存在だけを根拠にせず、ドメインの性質・引用位置・主張支持の有無を確認します。", "参照元のずれを直すための優先確認項目です。", "中", allBrands, relatedTopics, citationMismatchEvidence, "web-searchありでURLは確認できましたが、主張支持とカテゴリ分類は保存前レビューが必要です。", "引用URLをドメイン種別に分け、自社公式・業界メディア・レビュー・ECのどれに寄っているか確認してください。"));
+  if (context.webSearchCitations.length > 0 && (!ownedCited || !e.target_domain_known)) candidates.push(candidate("openai-owned-site-not-cited", "owned_site_not_cited", e.target_domain_known ? "自社公式サイト・比較記事・FAQ・事例が引用されていない可能性" : "自社公式ドメイン定義と引用照合が必要です", "P1", ownedSiteConfidence, "review_required", e.target_domain_known ? "web-searchありの観測で、定義済み自社公式ドメインの引用は確認できませんでした。" : "DB上の自社公式ドメイン定義が明確でないため、公式サイト未引用とは断定せず、ドメイン定義との照合が必要です。", "一回のweb-search観測のため断定はできませんが、AIが参照しやすい公式根拠ページが足りないか、見つけにくい可能性があります。", "公式ページを引用されやすい状態に整えるための確認候補です。", "中", [context.primaryBrand.name], relatedTopics, ownedSiteEvidence, "公式ドメイン定義と対象ページの確認が必要なため、review_requiredに留めます。", "公式サイトに、選び方、比較表、FAQ、施工事例をまとめた参照しやすいページがあるか確認してください。"));
+  candidates.push(candidate("openai-source-friendly-page-gap", "source_friendly_page_gap", "AIが参照しやすいページ構造や説明文が不足している可能性", "P2", "low", "candidate_only", "今回の観測だけでは断定できませんが、引用されやすい状態を整えるための候補です。", "自社不在や公式未引用が追加観測でも続く場合に備え、用語定義、FAQ、選定基準、事例のまとめ方を見直す価値があります。", "中長期で引用候補を増やすための基盤整備候補です。", "低〜中", [context.primaryBrand.name], relatedTopics, sourceFriendlyEvidence, "根拠はまだ推定止まりのため、保存せず候補出力のみに留めます。", "FAQ、用語定義、比較軸、施工事例の各ページを棚卸しし、プロンプトと対応する根拠を表で整理してください。"));
   return candidates;
 }
 
 function candidate(id: string, type: CandidateType, title: string, priority: Priority, confidence: Confidence, decision: SaveDecision, summary: string, rationale: string, expectedImpact: string, effort: string, brands: string[], topics: string[], evidence: Evidence, saveReason: string, nextAction: string): Candidate {
-  return { id, title, priority, type, summary, rationale, evidence, expected_impact: expectedImpact, effort, related_observation_ids: evidence.conversation_ids, related_urls: evidence.cited_urls, related_brands: unique(brands), related_topics: unique(topics), confidence, should_save_to_recommendations: decision, save_reason: saveReason, caution: "今回の候補はRecora独自の観測であり、AIプラットフォーム公式評価ではありません。観測数が少ないため、追加観測で確認する必要があります。", suggested_next_action: nextAction };
+  const safeDecision = decision === "save" ? "review_required" : decision;
+  return { id, title, priority, type, summary, rationale, evidence, expected_impact: expectedImpact, effort, related_observation_ids: evidence.conversation_ids, related_urls: evidence.cited_urls, related_brands: unique(brands), related_topics: unique(topics), confidence, should_save_to_recommendations: safeDecision, save_reason: saveReason, caution: "今回の候補はRecora独自の観測であり、AIプラットフォーム公式評価ではありません。観測数が少ないため、追加観測で確認する必要があります。", suggested_next_action: nextAction };
 }
 
 function buildEvidence(conversations: ConversationRow[], mentions: MentionRow[], citations: CitationRow[], primary: BrandRow, competitors: BrandRow[]): Evidence {
   const primaryMentions = mentions.filter((m) => m.brand_id === primary.id || m.brand_name === primary.name);
   const targetBrandPresent = primaryMentions.some((m) => parseBool(m.mentioned) || toNum(m.mention_count) > 0) || conversations.some((c) => c.raw_answer.includes(primary.name));
-  return { observation_count: conversations.length, conversation_ids: conversations.map((c) => c.id), run_item_ids: unique(conversations.map((c) => c.run_item_id)), prompt_texts: unique(conversations.map((c) => c.prompt_text ?? c.prompt_text_snapshot)), response_excerpts: conversations.map((c) => excerpt(c.raw_answer, 280)), target_brand_present: targetBrandPresent, competitor_presence: competitors.map((brand) => { const rows = mentions.filter((m) => m.brand_id === brand.id || m.brand_name === brand.name); return { brand: brand.name, mentioned: rows.some((m) => parseBool(m.mentioned) || toNum(m.mention_count) > 0), mention_count: rows.reduce((sum, m) => sum + toNum(m.mention_count), 0) }; }), citation_statuses: unique(conversations.map((c) => c.citation_status ?? "unknown")), web_search_enabled_values: Array.from(new Set(conversations.map((c) => parseBool(c.web_search_enabled)))), cited_urls: unique(citations.map((c) => c.url)), cited_domains: unique(citations.map((c) => c.domain)), source_domain_types: unique(citations.map((c) => c.source_domain_type ?? c.source_type ?? "unknown")), brand_related_values: unique(citations.map((c) => c.brand_related ?? "unknown")), supports_claim_values: unique(citations.map((c) => c.supports_claim ?? "null")), measured_at_values: unique(conversations.map((c) => c.measured_at ?? "unknown")), evidence_label: `OpenAI実測${conversations.length}件（no-search/web-searchを含む）。Recora独自の観測であり、AIプラットフォーム公式評価ではありません。` };
+  const citationDetails = buildCitationDetails(citations, primary, competitors);
+  const webSearchConversationCount = conversations.filter((c) => parseBool(c.web_search_enabled)).length;
+  const hasUnknownSource = citationDetails.some((c) => c.source_domain_type === "unknown");
+  const hasUnknownSupportsClaim = citationDetails.some((c) => c.supports_claim === "unknown");
+  const targetDomainKnown = Boolean(primary.domain?.trim());
+  const ownedDomainMatchCount = citationDetails.filter((c) => c.source_domain_type === "owned").length;
+  return { observation_count: conversations.length, conversation_ids: conversations.map((c) => c.id), run_item_ids: unique(conversations.map((c) => c.run_item_id)), prompt_texts: unique(conversations.map((c) => c.prompt_text ?? c.prompt_text_snapshot)), response_excerpts: conversations.map((c) => excerpt(c.raw_answer, 280)), target_brand_present: targetBrandPresent, competitor_presence: competitors.map((brand) => { const rows = mentions.filter((m) => m.brand_id === brand.id || m.brand_name === brand.name); return { brand: brand.name, mentioned: rows.some((m) => parseBool(m.mentioned) || toNum(m.mention_count) > 0), mention_count: rows.reduce((sum, m) => sum + toNum(m.mention_count), 0) }; }), citation_statuses: unique(conversations.map((c) => c.citation_status ?? "unknown")), web_search_enabled_values: Array.from(new Set(conversations.map((c) => parseBool(c.web_search_enabled)))), cited_urls: unique(citationDetails.map((c) => c.url)), cited_domains: unique(citationDetails.map((c) => c.domain)), citation_details: citationDetails, source_domain_types: uniqueSourceTypes(citationDetails.map((c) => c.source_domain_type)), brand_related_values: unique(citationDetails.map((c) => c.brand_related)), supports_claim_values: uniqueSupportsClaims(citationDetails.map((c) => c.supports_claim)), measured_at_values: unique(conversations.map((c) => c.measured_at ?? "unknown")), data_source: "openai_inspection_only", observation_scope: `OpenAI実測${conversations.length}件、うちWeb検索あり${webSearchConversationCount}件`, owned_domain_match_count: ownedDomainMatchCount, target_domain_known: targetDomainKnown, source_classification_note: hasUnknownSource ? "引用元のカテゴリ分類が未確定のURLがあります。EC・海外・別カテゴリへの偏りは断定せず、追加確認が必要です。" : "URLごとにowned / competitor / ec / manufacturer / media / foreign_brand / unknownへ簡易分類しています。", supports_claim_note: hasUnknownSupportsClaim ? "supports_claim がnullまたは未設定の引用はunknownに正規化し、主張支持は未検証として扱っています。" : "supports_claim は取得値に基づいて正規化しています。", existing_recommendations_count: 0, db_write_status: "not_written", evidence_label: `OpenAI実測${conversations.length}件（no-search/web-searchを含む）。Recora独自の観測であり、AIプラットフォーム公式評価ではありません。` };
+}
+
+function scopeEvidence(base: Evidence, citationDetails: CitationEvidence[], notes: Partial<Pick<Evidence, "source_classification_note" | "supports_claim_note">> = {}): Evidence {
+  return { ...base, citation_details: citationDetails, cited_urls: unique(citationDetails.map((c) => c.url)), cited_domains: unique(citationDetails.map((c) => c.domain)), source_domain_types: uniqueSourceTypes(citationDetails.map((c) => c.source_domain_type)), brand_related_values: unique(citationDetails.map((c) => c.brand_related)), supports_claim_values: uniqueSupportsClaims(citationDetails.map((c) => c.supports_claim)), source_classification_note: notes.source_classification_note ?? base.source_classification_note, supports_claim_note: notes.supports_claim_note ?? base.supports_claim_note };
+}
+
+function buildCitationDetails(citations: CitationRow[], primary: BrandRow, competitors: BrandRow[]): CitationEvidence[] {
+  return citations.map((citation) => ({ url: citation.url, domain: normalizeDomain(citation.domain || citation.url), source_domain_type: classifySourceDomain(citation, primary, competitors), brand_related: citation.brand_related ?? "unknown", supports_claim: normalizeSupportsClaim(citation.supports_claim), cited_text: citation.cited_text }));
 }
 
 function getRelatedTopics(context: Context) {
@@ -110,6 +147,7 @@ async function writeOutputs(context: Context, candidates: Candidate[], before: C
     data_scope: {
       seed_conversation_count: context.seedConversations.length,
       openai_conversation_count: context.openaiConversations.length,
+      openai_web_search_conversation_count: context.openaiConversations.filter((c) => parseBool(c.web_search_enabled)).length,
       openai_citation_count: context.openaiCitations.length,
       web_search_citation_count: context.webSearchCitations.length
     },
@@ -120,12 +158,13 @@ async function writeOutputs(context: Context, candidates: Candidate[], before: C
   await fs.writeFile(OUTPUT_MD, renderMarkdown(payload), "utf8");
 }
 
-function renderMarkdown(payload: { generated_at: string; project_slug: string; project_name: string; note: string; data_scope: Record<string, number>; db_write_check: { unchanged: boolean }; candidates: Candidate[] }) {
-  const lines = ["# Recora 改善提案候補", "", `- 生成日時: ${payload.generated_at}`, `- プロジェクト: ${payload.project_name} (${payload.project_slug})`, `- メモ: ${payload.note}`, `- DB書き込み: ${payload.db_write_check.unchanged ? "なし（件数変化なし）" : "要確認（件数に変化あり）"}`, "", "## 対象データ", ""];
+function renderMarkdown(payload: { generated_at: string; project_slug: string; project_name: string; note: string; data_scope: Record<string, number>; db_write_check: { before: CountSnapshot; after: CountSnapshot; unchanged: boolean }; candidates: Candidate[] }) {
+  const existingRecommendationsCount = payload.db_write_check.before.recommendations ?? 0;
+  const lines = ["# Recora 改善提案候補", "", `- 生成日時: ${payload.generated_at}`, `- プロジェクト: ${payload.project_name} (${payload.project_slug})`, `- メモ: ${payload.note}`, `- 観測範囲: OpenAI実測${payload.data_scope.openai_conversation_count ?? 0}件、うちweb-searchあり${payload.data_scope.openai_web_search_conversation_count ?? 0}件`, `- 既存recommendations件数: ${existingRecommendationsCount}件（seed/既存データ。今回の生成では保存していません）`, `- 今回生成した候補: 保存前レビュー対象`, `- DB書き込み: ${payload.db_write_check.unchanged ? "なし（件数変化なし）" : "要確認（件数に変化あり）"}`, `- 注意: AIプラットフォーム公式評価ではなくRecora独自観測です`, "", "## 対象データ", ""];
   for (const [key, value] of Object.entries(payload.data_scope)) lines.push(`- ${key}: ${value}`);
   lines.push("", "## 候補一覧", "");
   for (const c of payload.candidates) {
-    lines.push(`### ${c.title}`, "", `- 優先度: ${c.priority}`, `- confidence: ${c.confidence}`, `- 保存判定: ${c.should_save_to_recommendations}`, `- 根拠: ${c.rationale}`, `- 観測件数: ${c.evidence.observation_count}`, `- 引用ドメイン: ${c.evidence.cited_domains.length ? c.evidence.cited_domains.join(", ") : "なし"}`, `- 注意書き: ${c.caution}`, `- 次の推奨アクション: ${c.suggested_next_action}`, "");
+    lines.push(`### ${c.title}`, "", `- ID: ${c.id}`, `- 優先度: ${c.priority}`, `- confidence: ${c.confidence}`, `- 保存判定: ${c.should_save_to_recommendations}`, `- 要約: ${c.summary}`, `- 根拠: ${c.rationale}`, `- 観測範囲: ${c.evidence.observation_scope}`, `- データソース: ${c.evidence.data_source}`, `- DB書き込み状態: ${c.evidence.db_write_status}`, `- 既存recommendations件数: ${c.evidence.existing_recommendations_count}`, `- 自社公式ドメイン定義あり: ${c.evidence.target_domain_known}`, `- 自社ドメイン引用一致数: ${c.evidence.owned_domain_match_count}`, `- source_domain_types: ${c.evidence.source_domain_types.length ? c.evidence.source_domain_types.join(", ") : "なし"}`, `- source_classification_note: ${c.evidence.source_classification_note}`, `- supports_claim_values: ${c.evidence.supports_claim_values.length ? c.evidence.supports_claim_values.join(", ") : "なし"}`, `- supports_claim_note: ${c.evidence.supports_claim_note}`, `- 引用ドメイン: ${c.evidence.cited_domains.length ? c.evidence.cited_domains.join(", ") : "なし"}`, `- 引用URL: ${c.related_urls.length ? c.related_urls.join(", ") : "なし"}`, `- 保存理由: ${c.save_reason}`, `- 注意書き: ${c.caution}`, `- 次の推奨アクション: ${c.suggested_next_action}`, "");
   }
   return lines.join("\n") + "\n";
 }
@@ -188,12 +227,42 @@ function countBy<T>(items: T[], getKey: (item: T) => string) {
     return acc;
   }, {});
 }
+function classifySourceDomain(citation: CitationRow, primary: BrandRow, competitors: BrandRow[]): SourceDomainType {
+  const existing = parseSourceDomainType(citation.source_domain_type ?? citation.source_type);
+  if (existing && existing !== "unknown") return existing;
+  const domain = normalizeDomain(citation.domain || citation.url);
+  const primaryDomain = primary.domain ? normalizeDomain(primary.domain) : "";
+  if (primaryDomain && domainMatches(domain, primaryDomain)) return "owned";
+  const competitorDomains = competitors.map((brand) => brand.domain).filter((value): value is string => Boolean(value)).map(normalizeDomain);
+  if (competitorDomains.some((competitorDomain) => domainMatches(domain, competitorDomain))) return "competitor";
+  const ecHints = ["amazon.", "rakuten.co.jp", "shopping.yahoo.co.jp", "store.shopping.yahoo.co.jp", "lohaco.jp", "monotaro.com", "askul.co.jp"];
+  if (ecHints.some((hint) => domain.includes(hint))) return "ec";
+  const mediaHints = ["floorinsite", "dezeen", "archdaily", "magazine", "journal", "news", "blog"];
+  if (mediaHints.some((hint) => domain.includes(hint))) return "media";
+  const foreignBrandHints = ["lithosdesign", "taipingcarpets", "cole-and-son", "rafaelinteriors", "idoitalia", "bisazza", "porcelanosa", "mutina", "marazzi", "florim", "fiandre"];
+  if (foreignBrandHints.some((hint) => domain.includes(hint))) return "foreign_brand";
+  const manufacturerHints = ["lixil", "sangetsu", "aica", "tile", "tiles", "ceramic", "porcelain", "stone", "kenzai"];
+  if (manufacturerHints.some((hint) => domain.includes(hint))) return "manufacturer";
+  return "unknown";
+}
+function parseSourceDomainType(value: string | null | undefined): SourceDomainType | null {
+  if (value === "owned" || value === "competitor" || value === "ec" || value === "manufacturer" || value === "media" || value === "foreign_brand" || value === "unknown") return value;
+  return null;
+}
+function normalizeSupportsClaim(value: string | null | undefined): NormalizedSupportsClaim {
+  if (value === "true") return "true";
+  if (value === "false") return "false";
+  return "unknown";
+}
+function uniqueSourceTypes(values: SourceDomainType[]) { return Array.from(new Set(values)); }
+function uniqueSupportsClaims(values: NormalizedSupportsClaim[]) { return Array.from(new Set(values)); }
 function sameCounts(a: CountSnapshot, b: CountSnapshot) { return TABLES.every((table) => a[table] === b[table]); }
 function unique(values: Array<string | null | undefined>) { return Array.from(new Set(values.filter((v): v is string => Boolean(v)))); }
 function excerpt(value: string, length: number) { return value.replace(/\s+/g, " ").trim().slice(0, length); }
 function parseBool(value: string | null | undefined) { return value === "true"; }
 function toNum(value: string | null | undefined) { const n = Number(value ?? 0); return Number.isFinite(n) ? n : 0; }
 function normalizeDomain(value: string) { return value.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase(); }
+function domainMatches(domain: string, target: string) { return domain === target || domain.endsWith("." + target); }
 function lit(value: string) { return "'" + value.replace(/'/g, "''") + "'"; }
 function uuid(value: string) { return lit(value) + "::uuid"; }
 function uuidList(values: string[]) { return values.map(uuid).join(", "); }
