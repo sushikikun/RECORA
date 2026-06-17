@@ -1,4 +1,5 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import { unstable_noStore as noStore } from "next/cache";
 
 import { createRecoraSupabaseClient } from "@/lib/supabase/server";
 import type {
@@ -186,6 +187,8 @@ export async function getRecoraDashboardCounts(
 export async function getRecoraDashboardData(
   projectSlug = getDefaultRecoraProjectSlug()
 ): Promise<RecoraDashboardDbData> {
+  noStore();
+
   const supabase = createRecoraSupabaseClient();
   const project = await getRecoraProject(projectSlug, supabase);
 

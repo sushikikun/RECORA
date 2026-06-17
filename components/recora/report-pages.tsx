@@ -360,6 +360,7 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
   const topRecommendationImpact = Math.round(data.recommendations[0]?.impact_score ?? 0);
   const latestRun = data.latestRun;
   const mentionCount = projectSnapshot?.ai_mention_count ?? primarySnapshot?.ai_mention_count ?? data.counts.aiConversations;
+  const citationCount = Math.round(Number(projectSnapshot?.citation_count ?? data.counts.citations ?? 0));
 
   const kpiCards: DashboardKpiCardData[] = dashboardKpiCards.map((card, index) => {
     if (index === 0) {
@@ -369,7 +370,7 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
       return { ...card, value: String(mentionCount), helper: "AI回答ログから集計", delta: mentionCount, deltaLabel: String(mentionCount), sparkline: buildSparkline(mentionCount) };
     }
     if (index === 2) {
-      return { ...card, value: String(data.counts.citations), helper: "参照元データから集計", delta: data.counts.citations, deltaLabel: String(data.counts.citations), sparkline: buildSparkline(data.counts.citations) };
+      return { ...card, value: String(citationCount), helper: "集計済み指標から表示", delta: citationCount, deltaLabel: String(citationCount), sparkline: buildSparkline(citationCount) };
     }
     if (index === 3) {
       return { ...card, value: absoluteGap + "pt", helper: "首位ブランドとの差分", delta: competitiveGap ?? -absoluteGap, deltaLabel: competitiveGap === null ? absoluteGap + "pt" : (competitiveGap > 0 ? "+" : "") + Math.round(competitiveGap) + "pt", sparkline: buildSparkline(absoluteGap) };
