@@ -226,6 +226,17 @@ export type RecoraCitationRow = {
   updated_at: string;
 };
 
+export type RecoraSourceDomainRow = {
+  id: string;
+  project_id: string;
+  domain: string;
+  source_type: RecoraSourceType;
+  owner_brand_id: string | null;
+  trust_label: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type RecoraConversationsDbData = {
   project: RecoraProjectRow | null;
   latestRun: RecoraMeasurementRunRow | null;
@@ -237,6 +248,13 @@ export type RecoraConversationsDbData = {
   aiModels: RecoraAiModelRow[];
   conversations: RecoraAiConversationRow[];
   brandMentions: RecoraBrandMentionRow[];
+  citations: RecoraCitationRow[];
+};
+
+export type RecoraSourcesDbData = {
+  project: RecoraProjectRow | null;
+  latestRun: RecoraMeasurementRunRow | null;
+  sourceDomains: RecoraSourceDomainRow[];
   citations: RecoraCitationRow[];
 };
 

@@ -41,7 +41,7 @@ import {
   weeklyTrends
 } from "@/lib/recora/sample-data";
 import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-config";
-import type { RecoraConversationsDbData, RecoraDashboardDbData, RecoraRecommendationRow } from "@/lib/recora/db";
+import type { RecoraConversationsDbData, RecoraDashboardDbData, RecoraRecommendationRow, RecoraSourcesDbData } from "@/lib/recora/db";
 import {
   AlertBanner,
   DashboardCard,
@@ -1200,34 +1200,274 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
   );
 }
 
-export function SourcesPage() {
+export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSourcesDbData | null }) {
+  const sourceDisplay = createSourcesDisplayData(sourcesData);
+
   return (
     <>
       <PageHeader
-        eyebrow="分析"
-        title="参照元分析"
-        description="AI回答で参照されたドメインを集計し、自社サイト、競合、第三者メディアに分けて確認します。"
+        eyebrow={"\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0"}
+        title={"\u53c2\u7167\u5143\u5206\u6790"}
+        description={"AI\u56de\u7b54\u3067\u53c2\u7167\u3055\u308c\u305f\u30c9\u30e1\u30a4\u30f3\u3068URL\u3092\u3001\u81ea\u793e\u30fb\u7af6\u5408\u30fb\u7b2c\u4e09\u8005\u53c2\u7167\u5143\u306b\u5206\u3051\u3066\u78ba\u8a8d\u3057\u307e\u3059\u3002"}
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
       <DetailTabs items={reportDetailTabs.sources} />
 
       <div className="grid gap-4 lg:grid-cols-4">
-        <MetricTile label="参照ドメイン" value={String(sources.length)} helper="ドメイン単位で集計" />
-        <MetricTile label="自社参照シェア" value="31%" helper="recora.ai" delta={5} />
-        <MetricTile label="競合参照シェア" value="51%" helper="競合ドメイン合計" tone="amber" />
-        <MetricTile label="第三者メディア" value="3" helper="レビュー / 業界 / 参照" tone="slate" />
+        <MetricTile
+          label={"\u53c2\u7167\u5143\u30c9\u30e1\u30a4\u30f3"}
+          value={String(sourceDisplay.uniqueDomainCount)}
+          helper={String(sourceDisplay.totalCitationRows) + "\u4ef6\u306e\u53c2\u7167URL"}
+        />
+        <MetricTile
+          label={"\u81ea\u793e\u53c2\u7167\u30b7\u30a7\u30a2"}
+          value={sourceDisplay.ownedCitationShare + "%"}
+          helper={"\u81ea\u793e\u30c9\u30e1\u30a4\u30f3\u304c\u53c2\u7167\u3055\u308c\u305f\u6bd4\u7387"}
+        />
+        <MetricTile
+          label={"\u7af6\u5408\u53c2\u7167\u30b7\u30a7\u30a2"}
+          value={sourceDisplay.competitorCitationShare + "%"}
+          helper={"\u7af6\u5408\u30c9\u30e1\u30a4\u30f3\u304c\u53c2\u7167\u3055\u308c\u305f\u6bd4\u7387"}
+          tone="amber"
+        />
+        <MetricTile
+          label={"\u7b2c\u4e09\u8005\u53c2\u7167\u5143"}
+          value={String(sourceDisplay.thirdPartyDomainCount)}
+          helper={"\u30e1\u30c7\u30a3\u30a2\u30fb\u30ec\u30d3\u30e5\u30fc\u7cfb\u306e\u30c9\u30e1\u30a4\u30f3"}
+          tone="slate"
+        />
       </div>
 
-      <DataCard className="mt-5" title="参照元ドメイン" description="参照シェア、出現数、信頼スコア、改善アクションをまとめています。">
-        <SourcesTable />
+      <DataCard
+        className="mt-5"
+        title={"\u53c2\u7167\u5143\u30c9\u30e1\u30a4\u30f3"}
+        description={"\u30c9\u30e1\u30a4\u30f3\u5225\u306e\u53c2\u7167\u56de\u6570\u3001\u53c2\u7167\u30b7\u30a7\u30a2\u3001\u30ab\u30c6\u30b4\u30ea\u3001\u4e3b\u306aURL\u3092\u307e\u3068\u3081\u3066\u3044\u307e\u3059\u3002"}
+      >
+        <SourcesTable rows={sourceDisplay.sourceRows} />
       </DataCard>
 
-      <DataCard className="mt-5" title="参照されたページ" description="AI回答から抽出された参照ページのサンプルです。">
-        <CitationsTable />
+      <DataCard
+        className="mt-5"
+        title={"\u53c2\u7167\u3055\u308c\u305fURL"}
+        description={"AI\u56de\u7b54\u3067\u53c2\u7167\u3055\u308c\u305fURL\u3092\u4e00\u89a7\u5316\u3057\u3066\u3044\u307e\u3059\u3002OpenAI web_search\u7531\u6765\u306eURL\u3082\u540c\u3058\u5f62\u3067\u6271\u3048\u308b\u69cb\u6210\u3067\u3059\u3002"}
+      >
+        <CitationsTable rows={sourceDisplay.citationRows} />
       </DataCard>
     </>
   );
+}
+
+type SourceDisplayRow = {
+  domain: string;
+  category: string;
+  sourceType: string;
+  appearances: number;
+  citationShare: number;
+  trustScore: number;
+  trustLabel: string;
+  urls: string[];
+  recommendedAction: string;
+};
+
+type CitationDisplayRow = {
+  id: string;
+  title: string;
+  url: string;
+  domain: string;
+  sourceType: string;
+  occurrences: number;
+  supportsClaimLabel: string;
+  citedFor: string;
+};
+
+type SourcesDisplayData = {
+  sourceRows: SourceDisplayRow[];
+  citationRows: CitationDisplayRow[];
+  totalCitationRows: number;
+  uniqueDomainCount: number;
+  ownedCitationShare: number;
+  competitorCitationShare: number;
+  thirdPartyDomainCount: number;
+};
+
+function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDisplayData {
+  if (!data?.project) {
+    return createSampleSourcesDisplayData();
+  }
+
+  const sourceDomainById = new Map(data.sourceDomains.map((item) => [item.id, item]));
+  const sourceDomainByDomain = new Map(data.sourceDomains.map((item) => [item.domain, item]));
+  const groupedSources = new Map<string, SourceDisplayRow & { supportedCount: number; citationRows: number }>();
+  let totalAppearances = 0;
+  let ownedAppearances = 0;
+  let competitorAppearances = 0;
+
+  const citationRows = data.citations.map((citation) => {
+    const sourceDomain = citation.source_domain_id
+      ? sourceDomainById.get(citation.source_domain_id)
+      : sourceDomainByDomain.get(citation.domain);
+    const sourceType = sourceDomain?.source_type ?? citation.source_type;
+    const domain = sourceDomain?.domain ?? citation.domain;
+    const appearances = Math.max(1, citation.occurrence_count ?? 1);
+    totalAppearances += appearances;
+
+    if (sourceType === "owned") ownedAppearances += appearances;
+    if (sourceType === "competitor") competitorAppearances += appearances;
+
+    const sourceRow = groupedSources.get(domain) ?? {
+      domain,
+      category: getSourceTypeLabel(sourceType),
+      sourceType,
+      appearances: 0,
+      citationShare: 0,
+      trustScore: 0,
+      trustLabel: sourceDomain?.trust_label ?? getSourceTypeLabel(sourceType),
+      urls: [],
+      recommendedAction: getSourceRecommendedAction(sourceType),
+      supportedCount: 0,
+      citationRows: 0
+    };
+
+    sourceRow.appearances += appearances;
+    sourceRow.citationRows += 1;
+    if (citation.supports_claim === true) sourceRow.supportedCount += 1;
+    if (citation.url && !sourceRow.urls.includes(citation.url)) sourceRow.urls.push(citation.url);
+    groupedSources.set(domain, sourceRow);
+
+    return {
+      id: citation.id,
+      title: citation.title ?? getCitationTitle(citation.url, domain),
+      url: citation.url ?? domain,
+      domain,
+      sourceType: getSourceTypeLabel(sourceType),
+      occurrences: appearances,
+      supportsClaimLabel: getSupportsClaimLabel(citation.supports_claim),
+      citedFor: getCitationContext(citation.supports_claim)
+    };
+  });
+
+  const sourceRows = Array.from(groupedSources.values())
+    .map((source) => {
+      const supportRate = source.citationRows === 0 ? 0 : source.supportedCount / source.citationRows;
+      return {
+        ...source,
+        citationShare: totalAppearances === 0 ? 0 : Math.round((source.appearances / totalAppearances) * 100),
+        trustScore: getSourceTrustScore(source.sourceType, supportRate)
+      };
+    })
+    .sort((a, b) => b.appearances - a.appearances);
+
+  const thirdPartyDomainCount = sourceRows.filter((source) =>
+    ["media", "review", "technical", "unknown"].includes(source.sourceType)
+  ).length;
+
+  return {
+    sourceRows,
+    citationRows,
+    totalCitationRows: data.citations.length,
+    uniqueDomainCount: sourceRows.length,
+    ownedCitationShare: totalAppearances === 0 ? 0 : Math.round((ownedAppearances / totalAppearances) * 100),
+    competitorCitationShare: totalAppearances === 0 ? 0 : Math.round((competitorAppearances / totalAppearances) * 100),
+    thirdPartyDomainCount
+  };
+}
+
+function createSampleSourcesDisplayData(): SourcesDisplayData {
+  const citationRows = citations.map((citation) => ({
+    id: citation.id,
+    title: citation.title,
+    url: citation.url,
+    domain: citation.domain,
+    sourceType: citation.sourceType,
+    occurrences: citation.occurrences,
+    supportsClaimLabel: "\u30b5\u30f3\u30d7\u30eb",
+    citedFor: citation.citedFor
+  }));
+
+  const sourceRows = sources.map((source) => ({
+    domain: source.domain,
+    category: source.type,
+    sourceType: source.type,
+    appearances: source.appearances,
+    citationShare: source.citationShare,
+    trustScore: source.trustScore,
+    trustLabel: "\u30b9\u30b3\u30a2 " + source.trustScore,
+    urls: citationRows.filter((citation) => citation.domain === source.domain).map((citation) => citation.url),
+    recommendedAction: source.recommendedAction
+  }));
+
+  return {
+    sourceRows,
+    citationRows,
+    totalCitationRows: citationRows.length,
+    uniqueDomainCount: sourceRows.length,
+    ownedCitationShare: 31,
+    competitorCitationShare: 51,
+    thirdPartyDomainCount: 3
+  };
+}
+
+function getSourceTypeLabel(sourceType: string) {
+  const labels: Record<string, string> = {
+    owned: "\u81ea\u793e",
+    competitor: "\u7af6\u5408",
+    media: "\u696d\u754c\u30e1\u30c7\u30a3\u30a2",
+    review: "\u30ec\u30d3\u30e5\u30fc",
+    technical: "\u6280\u8853\u53c2\u7167",
+    unknown: "\u672a\u5206\u985e"
+  };
+
+  return labels[sourceType] ?? "\u672a\u5206\u985e";
+}
+
+function getSourceRecommendedAction(sourceType: string) {
+  const actions: Record<string, string> = {
+    owned: "\u81ea\u793e\u30da\u30fc\u30b8\u306e\u5185\u5bb9\u3001\u66f4\u65b0\u65e5\u3001\u69cb\u9020\u5316\u30c7\u30fc\u30bf\u3092\u78ba\u8a8d\u3057\u3001\u5f15\u7528\u3055\u308c\u3084\u3059\u3044\u6839\u62e0\u3092\u5897\u3084\u3057\u307e\u3059\u3002",
+    competitor: "\u7af6\u5408\u304c\u53c2\u7167\u3055\u308c\u308b\u7406\u7531\u3092\u78ba\u8a8d\u3057\u3001\u6bd4\u8f03\u30da\u30fc\u30b8\u3084\u5c0e\u5165\u4e8b\u4f8b\u3067\u88dc\u5f37\u3057\u307e\u3059\u3002",
+    media: "\u7b2c\u4e09\u8005\u8a18\u4e8b\u3067\u306e\u7d39\u4ecb\u5185\u5bb9\u3068\u81ea\u793e\u306e\u8aac\u660e\u306b\u5dee\u304c\u306a\u3044\u304b\u78ba\u8a8d\u3057\u307e\u3059\u3002",
+    review: "\u30ec\u30d3\u30e5\u30fc\u7cfb\u53c2\u7167\u5143\u306e\u8a55\u4fa1\u8ef8\u306b\u5408\u308f\u305b\u3066\u3001\u6bd4\u8f03\u60c5\u5831\u3092\u88dc\u3044\u307e\u3059\u3002",
+    technical: "\u6280\u8853\u60c5\u5831\u3084FAQ\u306e\u69cb\u9020\u3092\u6574\u3048\u3001AI\u304c\u6839\u62e0\u3068\u3057\u3066\u6271\u3044\u3084\u3059\u304f\u3057\u307e\u3059\u3002",
+    unknown: "\u53c2\u7167\u5143\u306e\u6240\u6709\u8005\u3068\u7528\u9014\u3092\u78ba\u8a8d\u3057\u3001\u30ab\u30c6\u30b4\u30ea\u3092\u5206\u985e\u3057\u307e\u3059\u3002"
+  };
+
+  return actions[sourceType] ?? actions.unknown;
+}
+
+function getSourceTrustScore(sourceType: string, supportRate: number) {
+  const baseScores: Record<string, number> = {
+    owned: 78,
+    competitor: 72,
+    media: 70,
+    review: 74,
+    technical: 76,
+    unknown: 60
+  };
+  const baseScore = baseScores[sourceType] ?? baseScores.unknown;
+  return Math.max(40, Math.min(95, baseScore + Math.round((supportRate - 0.5) * 12)));
+}
+
+function getCitationTitle(url: string | null, domain: string) {
+  if (!url) return domain;
+
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.pathname === "/" ? parsedUrl.hostname : parsedUrl.pathname;
+  } catch {
+    return url;
+  }
+}
+
+function getSupportsClaimLabel(value: boolean | null) {
+  if (value === true) return "\u78ba\u8a8d\u6e08\u307f";
+  if (value === false) return "\u8981\u78ba\u8a8d";
+  return "\u672a\u691c\u8a3c";
+}
+
+function getCitationContext(value: boolean | null) {
+  if (value === true) return "AI\u56de\u7b54\u306e\u6839\u62e0\u3068\u3057\u3066\u53c2\u7167\u3055\u308c\u3066\u3044\u307e\u3059\u3002";
+  if (value === false) return "\u53c2\u7167\u306f\u3042\u308a\u307e\u3059\u304c\u3001\u4e3b\u5f35\u3068\u306e\u4e00\u81f4\u78ba\u8a8d\u304c\u5fc5\u8981\u3067\u3059\u3002";
+  return "URL\u306f\u53d6\u5f97\u6e08\u307f\u3067\u3059\u304c\u3001\u4e3b\u5f35\u306e\u652f\u6301\u306f\u672a\u691c\u8a3c\u3067\u3059\u3002";
 }
 
 export function TrendsPage() {
@@ -2448,79 +2688,104 @@ function ModelVisibilityTable({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function SourcesTable() {
+function SourcesTable({ rows = createSampleSourcesDisplayData().sourceRows }: { rows?: SourceDisplayRow[] }) {
   return (
-    <Table>
+    <Table className="min-w-[1040px]">
       <TableHeader>
         <TableRow>
-          <TableHead>ドメイン</TableHead>
-          <TableHead>種別</TableHead>
-          <TableHead>出現数</TableHead>
-          <TableHead>参照シェア</TableHead>
-          <TableHead>信頼度</TableHead>
-          <TableHead>参照トピック</TableHead>
-          <TableHead>推奨アクション</TableHead>
+          <TableHead className="min-w-[190px]">{"\u30c9\u30e1\u30a4\u30f3"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"\u30ab\u30c6\u30b4\u30ea"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"\u53c2\u7167\u56de\u6570"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"\u53c2\u7167\u30b7\u30a7\u30a2"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"\u4fe1\u983c\u30e9\u30d9\u30eb"}</TableHead>
+          <TableHead className="min-w-[260px]">{"\u4e3b\u306aURL"}</TableHead>
+          <TableHead className="min-w-[280px]">{"\u78ba\u8a8d\u30dd\u30a4\u30f3\u30c8"}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {sources.map((source) => (
+        {rows.length > 0 ? rows.map((source) => (
           <TableRow key={source.domain}>
             <TableCell className="font-bold text-slate-950">{source.domain}</TableCell>
             <TableCell>
               <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
-                {source.type}
+                {source.category}
               </Badge>
             </TableCell>
-            <TableCell>{source.appearances}</TableCell>
+            <TableCell className="whitespace-nowrap font-semibold">{source.appearances}</TableCell>
             <TableCell><MetricWithBar value={source.citationShare} /></TableCell>
-            <TableCell><MetricWithBar value={source.trustScore} /></TableCell>
-            <TableCell className="min-w-[220px]">
-              <div className="flex flex-wrap gap-1.5">
-                {source.citedTopics.map((topic) => (
-                  <Badge key={topic} variant="muted" className="font-medium">
-                    {topic}
-                  </Badge>
+            <TableCell>
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-slate-700">{source.trustLabel}</div>
+                <MetricWithBar value={source.trustScore} />
+              </div>
+            </TableCell>
+            <TableCell className="min-w-[260px]">
+              <div className="space-y-1.5">
+                {(source.urls.length > 0 ? source.urls : [source.domain]).slice(0, 3).map((url) => (
+                  <div key={url} className="flex min-w-0 items-center gap-1 text-xs text-slate-500" title={url}>
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{url}</span>
+                  </div>
                 ))}
               </div>
             </TableCell>
-            <TableCell className="min-w-[260px] text-sm leading-6 text-slate-600">
+            <TableCell className="min-w-[280px] text-sm leading-6 text-slate-600">
               {source.recommendedAction}
             </TableCell>
           </TableRow>
-        ))}
+        )) : (
+          <TableRow>
+            <TableCell colSpan={7} className="text-sm text-slate-500">
+              {"\u53c2\u7167\u5143\u30c7\u30fc\u30bf\u306f\u307e\u3060\u3042\u308a\u307e\u305b\u3093\u3002"}
+            </TableCell>
+          </TableRow>
+        )}
       </TableBody>
     </Table>
   );
 }
 
-function CitationsTable() {
+function CitationsTable({ rows = createSampleSourcesDisplayData().citationRows }: { rows?: CitationDisplayRow[] }) {
   return (
-    <Table>
+    <Table className="min-w-[940px]">
       <TableHeader>
         <TableRow>
-          <TableHead>タイトル</TableHead>
-          <TableHead>ドメイン</TableHead>
-          <TableHead>種別</TableHead>
-          <TableHead>出現数</TableHead>
-          <TableHead>参照理由</TableHead>
+          <TableHead className="min-w-[320px]">{"\u30bf\u30a4\u30c8\u30eb\u30fbURL"}</TableHead>
+          <TableHead className="min-w-[180px]">{"\u30c9\u30e1\u30a4\u30f3"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"\u30ab\u30c6\u30b4\u30ea"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"\u53c2\u7167\u56de\u6570"}</TableHead>
+          <TableHead className="min-w-[260px]">{"\u6839\u62e0\u78ba\u8a8d"}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {citations.map((citation) => (
+        {rows.length > 0 ? rows.map((citation) => (
           <TableRow key={citation.id}>
-            <TableCell className="min-w-[280px]">
+            <TableCell className="min-w-[320px]">
               <div className="font-bold text-slate-950">{citation.title}</div>
-              <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                <ExternalLink className="h-3 w-3" />
-                {citation.url}
+              <div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-slate-500" title={citation.url}>
+                <ExternalLink className="h-3 w-3 shrink-0" />
+                <span className="truncate">{citation.url}</span>
               </div>
             </TableCell>
-            <TableCell>{citation.domain}</TableCell>
+            <TableCell className="font-semibold text-slate-700">{citation.domain}</TableCell>
             <TableCell>{citation.sourceType}</TableCell>
-            <TableCell>{citation.occurrences}</TableCell>
-            <TableCell className="text-sm leading-6 text-slate-600">{citation.citedFor}</TableCell>
+            <TableCell className="font-semibold">{citation.occurrences}</TableCell>
+            <TableCell className="text-sm leading-6 text-slate-600">
+              <div className="mb-1">
+                <Badge variant="muted" className="font-medium">
+                  {citation.supportsClaimLabel}
+                </Badge>
+              </div>
+              {citation.citedFor}
+            </TableCell>
           </TableRow>
-        ))}
+        )) : (
+          <TableRow>
+            <TableCell colSpan={5} className="text-sm text-slate-500">
+              {"\u53c2\u7167URL\u306f\u307e\u3060\u3042\u308a\u307e\u305b\u3093\u3002"}
+            </TableCell>
+          </TableRow>
+        )}
       </TableBody>
     </Table>
   );
