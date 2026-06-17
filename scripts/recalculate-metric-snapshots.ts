@@ -130,6 +130,7 @@ type ProjectMetrics = {
   target_brand_visibility_rate: number;
   target_brand_mention_count: number;
   target_brand_recommended_count: number;
+  total_citation_count: number;
   citation_coverage: number | null;
   unique_cited_domains: number;
   measurement_sample_size: number;
@@ -192,12 +193,17 @@ async function main() {
     });
     const schemaCapabilities = getSchemaCapabilities();
     const existingAggregate = await findExistingAggregateRun(db, project.id, sourceRun.id, options.searchMode);
+    const plannedSnapshotActions = buildPlannedSnapshotActions(plannedSnapshots, existingAggregate);
+    const writableSnapshots = existingAggregate
+      ? plannedSnapshots.filter((snapshot) => snapshot.scope_type === "project")
+      : plannedSnapshots;
     const databaseWriteAllowed = options.apply;
     const applyWarning = existingAggregate
-      ? "An aggregate run for this source_run_id and search_mode already exists. Apply would not insert a duplicate."
+      ? "An aggregate run for this source_run_id and search_mode already exists. Apply would update the existing aggregate project snapshot instead of inserting a duplicate."
       : null;
     let aggregateRunId: string | null = null;
-    let insertedSnapshots = 0;
+    let aggregateRunCreated = false;
+    let writtenSnapshots = 0;
 
     if (databaseWriteAllowed) {
       await db.query("begin");
@@ -206,10 +212,11 @@ async function main() {
           aggregateRunId = existingAggregate.id;
         } else {
           aggregateRunId = await insertAggregateRun(db, plannedAggregateRun);
-          for (const snapshot of plannedSnapshots) {
-            await insertMetricSnapshot(db, aggregateRunId, snapshot);
-            insertedSnapshots += 1;
-          }
+          aggregateRunCreated = true;
+        }
+        for (const snapshot of writableSnapshots) {
+          await insertMetricSnapshot(db, aggregateRunId, snapshot);
+          writtenSnapshots += 1;
         }
         await db.query("commit");
       } catch (error) {
@@ -233,12 +240,15 @@ async function main() {
       plannedAggregateRun,
       plannedAggregateRunMetadata: plannedAggregateRun.metadata,
       existingAggregate,
-      plannedAggregateRunCreated: aggregateRunId && insertedSnapshots > 0,
+      plannedAggregateRunCreated: aggregateRunCreated,
       aggregateRunId,
       plannedProjectSnapshots: plannedSnapshots.filter((snapshot) => snapshot.scope_type === "project").length,
       plannedBrandSnapshots: plannedSnapshots.filter((snapshot) => snapshot.scope_type === "brand").length,
       plannedSnapshotCount: plannedSnapshots.length,
-      insertedSnapshotCount: insertedSnapshots,
+      plannedSnapshotActions,
+      insertedSnapshotCount: aggregateRunCreated ? writtenSnapshots : 0,
+      updatedSnapshotCount: existingAggregate && databaseWriteAllowed ? writtenSnapshots : 0,
+      writtenSnapshotCount: writtenSnapshots,
       computedProjectMetrics,
       computedBrandMetrics,
       plannedMetricSnapshotMetadata: plannedSnapshots.map((snapshot) => ({
@@ -249,7 +259,7 @@ async function main() {
       })),
       plannedSnapshots,
       databaseWriteAllowed,
-      databaseWritePerformed: insertedSnapshots > 0,
+      databaseWritePerformed: writtenSnapshots > 0,
       applyWarning,
       recommendationsBefore: before.recommendations,
       recommendationsAfter: after.recommendations,
@@ -554,6 +564,7 @@ function computeProjectMetrics(
     target_brand_visibility_rate: targetMetric?.visibility_rate ?? 0,
     target_brand_mention_count: targetMetric?.mention_count ?? 0,
     target_brand_recommended_count: targetMetric?.recommended_count ?? 0,
+    total_citation_count: citations.length,
     citation_coverage: webSearchConversations > 0 ? percent(citedWebSearchConversationCount, webSearchConversations) : null,
     unique_cited_domains: unique(citations.map((citation) => citation.domain).filter(Boolean)).length,
     measurement_sample_size: conversations.length,
@@ -583,7 +594,7 @@ function buildPlannedSnapshots(input: {
     brand_id: targetBrand?.id ?? null,
     ai_visibility: projectMetrics.target_brand_visibility_rate,
     ai_mention_count: projectMetrics.target_brand_mention_count,
-    citation_count: projectMetrics.unique_cited_domains > 0 ? brandMetrics.reduce((sum, metric) => sum + metric.citation_count, 0) : 0,
+    citation_count: projectMetrics.total_citation_count,
     share_of_voice: targetMetric?.share_of_voice ?? 0,
     competitive_gap: projectMetrics.competitive_gap,
     average_position: targetMetric?.average_estimated_answer_rank ?? null,
@@ -667,6 +678,14 @@ function buildMetricSnapshotMetadata(input: {
   brandMetric: BrandMetric | null;
 }): Record<string, JsonValue | undefined> {
   const { sourceRun, searchMode, sampleSize, confidenceNote, scopeType, scopeId, brandId, projectMetrics, brandMetric } = input;
+  const projectCitationMetadata =
+    scopeType === "project"
+      ? {
+          total_citation_count: projectMetrics.total_citation_count,
+          unique_cited_domains: projectMetrics.unique_cited_domains,
+          citation_coverage: projectMetrics.citation_coverage
+        }
+      : {};
   return {
     source_run_id: sourceRun.id,
     aggregate_run_kind: "aggregate",
@@ -678,11 +697,33 @@ function buildMetricSnapshotMetadata(input: {
     scope_type: scopeType,
     scope_id: scopeId,
     brand_id: brandId,
+    ...projectCitationMetadata,
     no_search_breakdown: buildSearchModeBreakdown(projectMetrics, brandMetric, "no-search"),
     web_search_breakdown: buildSearchModeBreakdown(projectMetrics, brandMetric, "web-search"),
     confidence_note: confidenceNote,
     recora_metric_notice: RECORA_NOTE
   };
+}
+
+function buildPlannedSnapshotActions(plannedSnapshots: PlannedSnapshot[], existingAggregate: ExistingAggregateRun | null) {
+  return plannedSnapshots.map((snapshot) => {
+    const action = existingAggregate
+      ? snapshot.scope_type === "project"
+        ? "would_update_project_snapshot"
+        : "would_leave_existing_brand_snapshot_unchanged"
+      : snapshot.scope_type === "project"
+        ? "would_insert_project_snapshot"
+        : "would_insert_brand_snapshot";
+
+    return {
+      scope_type: snapshot.scope_type,
+      scope_id: snapshot.scope_id,
+      brand_id: snapshot.brand_id,
+      action,
+      citation_count: snapshot.citation_count,
+      existing_aggregate_run_id: existingAggregate?.id ?? null
+    };
+  });
 }
 
 function buildSearchModeBreakdown(projectMetrics: ProjectMetrics, brandMetric: BrandMetric | null, mode: "no-search" | "web-search") {
