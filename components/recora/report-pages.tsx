@@ -41,7 +41,7 @@ import {
   weeklyTrends
 } from "@/lib/recora/sample-data";
 import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-config";
-import type { RecoraDashboardDbData, RecoraRecommendationRow } from "@/lib/recora/db";
+import type { RecoraConversationsDbData, RecoraDashboardDbData, RecoraRecommendationRow } from "@/lib/recora/db";
 import {
   AlertBanner,
   DashboardCard,
@@ -995,19 +995,135 @@ export function LeaderboardPage() {
   );
 }
 
-export function ConversationsPage() {
+type ConversationDisplayRow = {
+  id: string;
+  topicName: string;
+  personaName: string;
+  promptText: string;
+  modelName: string;
+  date: string;
+  recoraMentioned: boolean;
+  recoraRank: number | null;
+  sentiment: "positive" | "neutral" | "negative";
+  mentionedBrands: string[];
+  citedDomains: string[];
+  answerSummary: string;
+};
+
+function createConversationDisplayRows(data?: RecoraConversationsDbData | null): ConversationDisplayRow[] {
+  if (!data?.project || data.conversations.length === 0) {
+    return createSampleConversationDisplayRows();
+  }
+
+  const primaryBrand = data.brands.find((item) => item.brand_type === "primary");
+  const brandById = new Map(data.brands.map((item) => [item.id, item.name]));
+  const runItemById = new Map(data.runItems.map((item) => [item.id, item]));
+  const promptById = new Map(data.prompts.map((item) => [item.id, item]));
+  const personaById = new Map(data.personas.map((item) => [item.id, item]));
+  const topicById = new Map(data.topics.map((item) => [item.id, item]));
+  const modelById = new Map(data.aiModels.map((item) => [item.id, item]));
+  const mentionsByConversationId = groupBy(data.brandMentions, (item) => item.conversation_id);
+  const citationsByConversationId = groupBy(data.citations, (item) => item.conversation_id);
+
+  return data.conversations.map((conversation) => {
+    const runItem = runItemById.get(conversation.run_item_id);
+    const prompt = runItem ? promptById.get(runItem.prompt_id) : undefined;
+    const persona = runItem ? personaById.get(runItem.persona_id) : undefined;
+    const topic = prompt ? topicById.get(prompt.topic_id) : undefined;
+    const model = runItem ? modelById.get(runItem.model_id) : undefined;
+    const mentions = [...(mentionsByConversationId.get(conversation.id) ?? [])].sort(
+      (a, b) => (a.position ?? 999) - (b.position ?? 999)
+    );
+    const primaryMention = mentions.find((item) => item.brand_id === primaryBrand?.id);
+    const domains = uniqueStrings((citationsByConversationId.get(conversation.id) ?? []).map((item) => item.domain));
+    const mentionedBrands = mentions
+      .filter((item) => item.mentioned)
+      .map((item) => brandById.get(item.brand_id) ?? "\u4e0d\u660e")
+      .filter((name, index, list) => list.indexOf(name) === index);
+
+    return {
+      id: conversation.id,
+      topicName: topic?.name ?? prompt?.intent ?? "\u30c8\u30d4\u30c3\u30af\u672a\u8a2d\u5b9a",
+      personaName: persona?.name ?? "\u30da\u30eb\u30bd\u30ca\u672a\u8a2d\u5b9a",
+      promptText: prompt?.text ?? conversation.prompt_text_snapshot,
+      modelName: model?.display_name ?? conversation.model_snapshot,
+      date: formatConversationDate(conversation.captured_at),
+      recoraMentioned: Boolean(primaryMention?.mentioned),
+      recoraRank: primaryMention?.position ?? null,
+      sentiment: normalizeConversationSentiment(primaryMention?.sentiment ?? mentions[0]?.sentiment),
+      mentionedBrands,
+      citedDomains: domains,
+      answerSummary: conversation.answer_summary ?? conversation.raw_answer.slice(0, 180)
+    };
+  });
+}
+
+function createSampleConversationDisplayRows(): ConversationDisplayRow[] {
+  return conversations.map((conversation) => {
+    const prompt = prompts.find((item) => item.id === conversation.promptId);
+    return {
+      id: conversation.id,
+      topicName: getTopicName(conversation.topicId),
+      personaName: getPersonaName(conversation.personaId),
+      promptText: prompt?.text ?? conversation.promptId,
+      modelName: getModelName(conversation.modelId),
+      date: conversation.date,
+      recoraMentioned: conversation.recoraMentioned,
+      recoraRank: conversation.recoraRank,
+      sentiment: conversation.sentiment,
+      mentionedBrands: conversation.mentionedBrands,
+      citedDomains: conversation.citedDomains,
+      answerSummary: conversation.answerSummary
+    };
+  });
+}
+
+function groupBy<T>(items: T[], getKey: (item: T) => string) {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const key = getKey(item);
+    const values = map.get(key) ?? [];
+    values.push(item);
+    map.set(key, values);
+  }
+  return map;
+}
+
+function uniqueStrings(values: string[]) {
+  return values.filter((value, index, list) => list.indexOf(value) === index);
+}
+
+function normalizeConversationSentiment(value: string | null | undefined): "positive" | "neutral" | "negative" {
+  if (value === "positive" || value === "negative") return value;
+  return "neutral";
+}
+
+function formatConversationDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "Asia/Tokyo"
+  }).format(date);
+}
+
+export function ConversationsPage({ conversationsData = null }: { conversationsData?: RecoraConversationsDbData | null }) {
+  const conversationRows = createConversationDisplayRows(conversationsData);
+
   return (
     <>
       <PageHeader
-        eyebrow="分析"
-        title="AI回答ログ"
-        description="ペルソナ、トピック、プロンプト、AIモデルの組み合わせごとにAI回答を確認します。"
+        eyebrow={"\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0"}
+        title={"AI\u56de\u7b54\u30ed\u30b0"}
+        description={"\u30da\u30eb\u30bd\u30ca\u3001\u30c8\u30d4\u30c3\u30af\u3001\u30d7\u30ed\u30f3\u30d7\u30c8\u3001AI\u30e2\u30c7\u30eb\u3054\u3068\u306b\u53d6\u5f97\u3057\u305fAI\u56de\u7b54\u3092\u78ba\u8a8d\u3057\u307e\u3059\u3002"}
         meta={<ReportFilters compact />}
         actions={
           <>
             <Button variant="outline">
               <Filter className="h-4 w-4" />
-              絞り込み
+              {"\u7d5e\u308a\u8fbc\u307f"}
             </Button>
             <HeaderActions />
           </>
@@ -1015,40 +1131,51 @@ export function ConversationsPage() {
       />
       <DetailTabs items={reportDetailTabs.conversations} />
 
-      <DataCard title="AI回答ログ" description="回答要約、Recoraの表示有無、表示順位、参照ドメインを一覧化しています。">
-        <Table>
+      <DataCard
+        title={"AI\u56de\u7b54\u30ed\u30b0"}
+        description={String(conversationRows.length) + "\u4ef6\u306eAI\u56de\u7b54\u306b\u3064\u3044\u3066\u3001\u81ea\u793e\u30d6\u30e9\u30f3\u30c9\u306e\u8868\u793a\u72b6\u6cc1\u3001\u8a00\u53ca\u30d6\u30e9\u30f3\u30c9\u3001\u53c2\u7167\u5143\u30c9\u30e1\u30a4\u30f3\u3092\u4e00\u89a7\u5316\u3057\u3066\u3044\u307e\u3059\u3002"}
+      >
+        <Table className="min-w-[1080px]">
           <TableHeader>
             <TableRow>
-              <TableHead>プロンプト文脈</TableHead>
-              <TableHead>AIモデル</TableHead>
-              <TableHead>Recora</TableHead>
-              <TableHead>評価</TableHead>
-              <TableHead>参照ドメイン</TableHead>
-              <TableHead>回答要約</TableHead>
+              <TableHead className="min-w-[300px]">{"\u30d7\u30ed\u30f3\u30d7\u30c8\u6587\u8108"}</TableHead>
+              <TableHead className="min-w-[140px]">{"AI\u30e2\u30c7\u30eb"}</TableHead>
+              <TableHead className="min-w-[190px]">{"\u81ea\u793e\u30d6\u30e9\u30f3\u30c9"}</TableHead>
+              <TableHead className="min-w-[110px]">{"\u8a55\u4fa1"}</TableHead>
+              <TableHead className="min-w-[190px]">{"\u53c2\u7167\u5143\u30c9\u30e1\u30a4\u30f3"}</TableHead>
+              <TableHead className="min-w-[320px]">{"\u56de\u7b54\u8981\u7d04"}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {conversations.map((conversation) => (
+            {conversationRows.map((conversation) => (
               <TableRow key={conversation.id}>
-                <TableCell className="min-w-[220px]">
-                  <div className="font-bold text-slate-950">{getTopicName(conversation.topicId)}</div>
-                  <div className="mt-1 text-xs text-slate-500">{getPersonaName(conversation.personaId)}</div>
+                <TableCell className="min-w-[300px]">
+                  <div className="font-bold text-slate-950">{conversation.topicName}</div>
+                  <div className="mt-1 text-xs text-slate-500">{conversation.personaName}</div>
+                  <div className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">{conversation.promptText}</div>
                   <div className="mt-2 text-xs font-semibold text-slate-400">{conversation.date}</div>
                 </TableCell>
-                <TableCell className="font-semibold">{getModelName(conversation.modelId)}</TableCell>
+                <TableCell className="whitespace-nowrap font-semibold">{conversation.modelName}</TableCell>
                 <TableCell>
-                  {conversation.recoraMentioned ? (
-                    <Badge className="bg-blue-600 text-white">順位 {conversation.recoraRank}</Badge>
-                  ) : (
-                    <Badge variant="outline" className="border-rose-200 bg-rose-50 text-rose-700">
-                      未表示
-                    </Badge>
-                  )}
+                  <div className="space-y-2">
+                    {conversation.recoraMentioned ? (
+                      <Badge className="bg-blue-600 text-white">{"\u9806\u4f4d "}{conversation.recoraRank ?? "-"}</Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-rose-200 bg-rose-50 text-rose-700">
+                        {"\u672a\u8868\u793a"}
+                      </Badge>
+                    )}
+                    {conversation.mentionedBrands.length > 0 ? (
+                      <div className="text-xs leading-5 text-slate-500">
+                        {"\u8a00\u53ca: "}{conversation.mentionedBrands.join(" / ")}
+                      </div>
+                    ) : null}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <SentimentPill value={conversation.sentiment} />
                 </TableCell>
-                <TableCell className="min-w-[180px]">
+                <TableCell className="min-w-[190px]">
                   <div className="flex flex-wrap gap-1.5">
                     {conversation.citedDomains.map((domain) => (
                       <Badge key={domain} variant="muted" className="font-medium">
@@ -1066,7 +1193,7 @@ export function ConversationsPage() {
         </Table>
       </DataCard>
 
-      <DataCard className="mt-5" title="調査カバレッジ" description="サンプルプロンプトの分析対象と現在のAI表示率です。">
+      <DataCard className="mt-5" title={"\u8abf\u67fb\u30ab\u30d0\u30ec\u30c3\u30b8"} description={"\u30b5\u30f3\u30d7\u30eb\u30d7\u30ed\u30f3\u30d7\u30c8\u306e\u8abf\u67fb\u5bfe\u8c61\u3068\u73fe\u5728\u306eAI\u8868\u793a\u7387\u3067\u3059\u3002"}>
         <PromptCoverageTable />
       </DataCard>
     </>
