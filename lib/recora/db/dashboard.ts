@@ -129,7 +129,32 @@ export async function getRecoraRecommendations(
     .order("created_at", { ascending: false });
 
   throwIfSupabaseError("recommendations", error);
-  return (data ?? []) as RecoraRecommendationRow[];
+  return ((data ?? []) as RecoraRecommendationRow[]).filter(isCustomerVisibleRecommendation);
+}
+
+function isCustomerVisibleRecommendation(item: RecoraRecommendationRow) {
+  const metadata = getMetadataRecord(item.metadata);
+  const source = getMetadataString(metadata, "source");
+  const reviewStatus = getMetadataString(metadata, "review_status");
+  const saveDecision = getMetadataString(metadata, "should_save_to_recommendations");
+
+  if (reviewStatus === "review_required") return false;
+  if (reviewStatus === "candidate_only" || saveDecision === "candidate_only") return false;
+
+  if (source === "candidate_generator") {
+    return reviewStatus === "approved" || reviewStatus === "reviewed";
+  }
+
+  return true;
+}
+
+function getMetadataRecord(value: RecoraRecommendationRow["metadata"]): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function getMetadataString(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  return typeof value === "string" ? value : null;
 }
 
 export async function getRecoraDashboardCounts(
