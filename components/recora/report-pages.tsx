@@ -41,6 +41,7 @@ import {
   weeklyTrends
 } from "@/lib/recora/sample-data";
 import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-config";
+import type { RecoraDashboardDbData, RecoraRecommendationRow } from "@/lib/recora/db";
 import {
   AlertBanner,
   DashboardCard,
@@ -296,26 +297,185 @@ const dashboardQuickLinks = [
   }
 ];
 
-export function DashboardHomePage() {
+
+type DashboardPriority = "High" | "Medium" | "Low";
+type DashboardKpiCardData = (typeof dashboardKpiCards)[number];
+type DashboardTask = {
+  priority: DashboardPriority;
+  task: string;
+  impact: string;
+  category: string;
+  action: string;
+  due: string;
+};
+type DashboardRankingRow = {
+  brandId: string;
+  name: string;
+  visibility: number;
+  citationShare: number;
+  sentiment: number;
+  winRate: number;
+  isPrimary: boolean;
+};
+type DashboardHomeViewModel = {
+  projectName: string;
+  period: string;
+  comparisonPeriod: string;
+  lastUpdated: string;
+  primaryBrandName: string;
+  competitorCount: number;
+  aiConversationCount: number;
+  brandVisibilityValue: string;
+  competitiveGapDelta: number;
+  kpiCards: DashboardKpiCardData[];
+  rankingRows: DashboardRankingRow[];
+  priorityTasks: DashboardTask[];
+};
+
+function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): DashboardHomeViewModel {
+  if (!data?.project) {
+    return createSampleDashboardHomeViewModel();
+  }
+
+  const primaryBrand = data.brands.find((item) => item.brand_type === "primary");
+  const competitorCount = data.brands.filter((item) => item.brand_type === "competitor").length;
+  const brandById = new Map(data.brands.map((item) => [item.id, item]));
+  const brandSnapshots = data.metricSnapshots.filter((snapshot) => snapshot.scope_type === "brand" && snapshot.brand_id);
+  const projectSnapshot = data.metricSnapshots.find((snapshot) => snapshot.scope_type === "project") ?? brandSnapshots.find((snapshot) => snapshot.brand_id === primaryBrand?.id) ?? null;
+  const primarySnapshot = brandSnapshots.find((snapshot) => snapshot.brand_id === primaryBrand?.id) ?? projectSnapshot;
+  const sortedBrandSnapshots = [...brandSnapshots].sort((a, b) => b.ai_visibility - a.ai_visibility);
+  const topCompetitorSnapshot = sortedBrandSnapshots.find((snapshot) => snapshot.brand_id !== primaryBrand?.id);
+  const brandVisibilityNumber = Math.round(primarySnapshot?.ai_visibility ?? projectSnapshot?.ai_visibility ?? 0);
+  const competitiveGap = projectSnapshot?.competitive_gap ?? primarySnapshot?.competitive_gap ?? null;
+  const absoluteGap = Math.abs(Math.round(competitiveGap ?? Math.max(0, (topCompetitorSnapshot?.ai_visibility ?? 0) - brandVisibilityNumber)));
+  const topRecommendationImpact = Math.round(data.recommendations[0]?.impact_score ?? 0);
+  const latestRun = data.latestRun;
+  const mentionCount = projectSnapshot?.ai_mention_count ?? primarySnapshot?.ai_mention_count ?? data.counts.aiConversations;
+
+  const kpiCards: DashboardKpiCardData[] = dashboardKpiCards.map((card, index) => {
+    if (index === 0) {
+      return { ...card, value: formatPercent(brandVisibilityNumber), helper: (primaryBrand?.name ?? brand.name) + "のAI表示率", delta: competitiveGap ?? card.delta, deltaLabel: competitiveGap === null ? card.deltaLabel : (competitiveGap > 0 ? "+" : "") + Math.round(competitiveGap) + "pt", sparkline: buildSparkline(brandVisibilityNumber) };
+    }
+    if (index === 1) {
+      return { ...card, value: String(mentionCount), helper: "AI回答ログから集計", delta: mentionCount, deltaLabel: String(mentionCount), sparkline: buildSparkline(mentionCount) };
+    }
+    if (index === 2) {
+      return { ...card, value: String(data.counts.citations), helper: "参照元データから集計", delta: data.counts.citations, deltaLabel: String(data.counts.citations), sparkline: buildSparkline(data.counts.citations) };
+    }
+    if (index === 3) {
+      return { ...card, value: absoluteGap + "pt", helper: "首位ブランドとの差分", delta: competitiveGap ?? -absoluteGap, deltaLabel: competitiveGap === null ? absoluteGap + "pt" : (competitiveGap > 0 ? "+" : "") + Math.round(competitiveGap) + "pt", sparkline: buildSparkline(absoluteGap) };
+    }
+    return { ...card, value: topRecommendationImpact > 0 ? String(topRecommendationImpact) : String(data.recommendations.length), helper: "優先提案から算出", delta: data.recommendations.length, deltaLabel: String(data.recommendations.length), sparkline: buildSparkline(topRecommendationImpact || data.recommendations.length) };
+  });
+
+  const rankingRows = sortedBrandSnapshots.map((snapshot) => {
+    const snapshotBrand = snapshot.brand_id ? brandById.get(snapshot.brand_id) : undefined;
+    const position = snapshot.average_position ?? 4;
+    return {
+      brandId: snapshot.brand_id ?? snapshot.id,
+      name: snapshotBrand?.name ?? "Unknown",
+      visibility: Math.round(snapshot.ai_visibility),
+      citationShare: Math.round(snapshot.share_of_voice),
+      sentiment: Math.round(Math.min(100, Math.max(0, snapshot.ai_visibility + 8))),
+      winRate: Math.round(Math.min(100, Math.max(0, 100 - position * 14))),
+      isPrimary: snapshotBrand?.brand_type === "primary"
+    };
+  });
+
+  const tasksFromDb = data.recommendations.slice(0, 3).map((item, index) => toDashboardTask(item, index));
+
+  return {
+    projectName: data.project.name,
+    period: latestRun ? latestRun.period_start + " - " + latestRun.period_end : data.project.default_period ?? sampleProject.period,
+    comparisonPeriod: latestRun?.comparison_start && latestRun.comparison_end ? latestRun.comparison_start + " - " + latestRun.comparison_end : "-",
+    lastUpdated: formatDateTime(latestRun?.completed_at ?? data.project.updated_at),
+    primaryBrandName: primaryBrand?.name ?? brand.name,
+    competitorCount,
+    aiConversationCount: data.counts.aiConversations,
+    brandVisibilityValue: formatPercent(brandVisibilityNumber),
+    competitiveGapDelta: competitiveGap ?? -absoluteGap,
+    kpiCards,
+    rankingRows: rankingRows.length > 0 ? rankingRows : createSampleRankingRows(),
+    priorityTasks: tasksFromDb.length > 0 ? tasksFromDb : priorityTasks
+  };
+}
+
+function createSampleDashboardHomeViewModel(): DashboardHomeViewModel {
+  return {
+    projectName: sampleProject.name,
+    period: "2026/06/10 - 2026/06/16",
+    comparisonPeriod: "2026/06/03 - 2026/06/09",
+    lastUpdated: sampleProject.lastRunAt,
+    primaryBrandName: brand.name,
+    competitorCount: competitors.length,
+    aiConversationCount: conversations.length,
+    brandVisibilityValue: "8.7%",
+    competitiveGapDelta: -2.1,
+    kpiCards: dashboardKpiCards,
+    rankingRows: createSampleRankingRows(),
+    priorityTasks
+  };
+}
+
+function createSampleRankingRows(): DashboardRankingRow[] {
+  return visibilityMetrics.byBrand.map((row) => ({ brandId: row.brandId, name: row.name, visibility: row.visibility, citationShare: row.citationShare, sentiment: row.sentiment, winRate: row.winRate, isPrimary: row.brandId === "recora" }));
+}
+
+function toDashboardTask(item: RecoraRecommendationRow, index: number): DashboardTask {
+  return {
+    priority: toDashboardPriority(item.priority),
+    task: item.title,
+    impact: Math.round(item.impact_score) + "pt",
+    category: recommendationTypeLabel(item.type),
+    action: item.reason ?? item.target_url ?? "???????",
+    due: priorityTasks[index]?.due ?? "-"
+  };
+}
+
+function toDashboardPriority(value: RecoraRecommendationRow["priority"]): DashboardPriority {
+  if (value === "high") return "High";
+  if (value === "low") return "Low";
+  return "Medium";
+}
+
+function recommendationTypeLabel(value: RecoraRecommendationRow["type"]) {
+  const labels: Record<RecoraRecommendationRow["type"], string> = { content: "\u30b3\u30f3\u30c6\u30f3\u30c4", source: "\u53c2\u7167\u5143", technical: "\u6280\u8853\u8a3a\u65ad", prompt: "\u30d7\u30ed\u30f3\u30d7\u30c8", risk: "\u30ea\u30b9\u30af", competitive: "\u7af6\u5408" };
+  return labels[value];
+}
+
+function buildSparkline(value: number) {
+  const safeValue = Math.max(1, Math.round(value));
+  return [safeValue * 0.62, safeValue * 0.72, safeValue * 0.68, safeValue * 0.82, safeValue * 0.9, safeValue].map(Math.round);
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return sampleProject.lastRunAt;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Tokyo" }).format(date);
+}
+export function DashboardHomePage({ dashboardData = null }: { dashboardData?: RecoraDashboardDbData | null }) {
+  const dashboardView = createDashboardHomeViewModel(dashboardData);
+
   return (
     <>
       <PageHeader
         eyebrow="Recora ダッシュボード"
         title="ダッシュボード"
         description="AI検索での現状、競合との差、次に取るべき改善アクションをひと目で確認します。"
-        meta={<ReportFilters />}
+        meta={<ReportFilters dashboardView={dashboardView} />}
         actions={<HeaderActions />}
       />
 
       <DashboardAlertStrip />
 
-      <DashboardKpiGrid />
+      <DashboardKpiGrid cards={dashboardView.kpiCards} />
 
       <div className="mt-5 grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="grid min-w-0 gap-5">
           <div className="grid min-w-0 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-            <VisibilityTrendCard />
-            <CompetitiveRankingCard />
+            <VisibilityTrendCard dashboardView={dashboardView} />
+            <CompetitiveRankingCard rows={dashboardView.rankingRows} />
           </div>
           <div className="grid min-w-0 gap-5 xl:grid-cols-2">
             <ModelPerformanceCard />
@@ -323,7 +483,7 @@ export function DashboardHomePage() {
           </div>
         </div>
         <div className="grid min-w-0 gap-5 content-start">
-          <NextActionsCard />
+          <NextActionsCard tasks={dashboardView.priorityTasks} />
           <QuickLinksCard />
         </div>
       </div>
@@ -335,7 +495,7 @@ export function DashboardHomePage() {
 
       <div className="mt-5 grid min-w-0 gap-5 2xl:grid-cols-[340px_minmax(0,1fr)]">
         <ImprovementPanel />
-        <PriorityTasksCard />
+        <PriorityTasksCard tasks={dashboardView.priorityTasks} />
       </div>
 
       <div className="mt-5 grid min-w-0 gap-5 2xl:grid-cols-3">
@@ -350,7 +510,7 @@ export function DashboardHomePage() {
           title="レポートサマリー"
           description="ブランド、ペルソナ、トピック、AIモデルの分析対象"
         >
-          <ReportSummaryBlock />
+          <ReportSummaryBlock dashboardView={dashboardView} />
         </DataCard>
       </div>
 
@@ -415,10 +575,10 @@ function DashboardAlertStrip() {
   );
 }
 
-function DashboardKpiGrid() {
+function DashboardKpiGrid({ cards = dashboardKpiCards }: { cards?: DashboardKpiCardData[] }) {
   return (
     <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
-      {dashboardKpiCards.map((card) => (
+      {cards.map((card) => (
         <MetricCard
           key={card.label}
           label={card.label}
@@ -434,7 +594,7 @@ function DashboardKpiGrid() {
   );
 }
 
-function VisibilityTrendCard() {
+function VisibilityTrendCard({ dashboardView }: { dashboardView?: DashboardHomeViewModel }) {
   return (
     <DataCard
       title="AI表示率の推移"
@@ -450,10 +610,10 @@ function VisibilityTrendCard() {
           <div className="flex min-w-0 items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-semibold text-slate-500">RecoraのAI表示率</p>
-              <p className="mt-1 text-2xl font-bold text-slate-950">8.7%</p>
+              <p className="mt-1 text-2xl font-bold text-slate-950">{dashboardView?.brandVisibilityValue ?? "8.7%"}</p>
             </div>
             <Badge variant="outline" className="whitespace-nowrap rounded-sm border-rose-200 bg-rose-50 text-rose-700">
-              -2.1pt
+              {dashboardView ? (dashboardView.competitiveGapDelta > 0 ? "+" : "") + Math.round(dashboardView.competitiveGapDelta) + "pt" : "-2.1pt"}
             </Badge>
           </div>
           <div className="mt-4">
@@ -476,7 +636,7 @@ function VisibilityTrendCard() {
   );
 }
 
-function NextActionsCard() {
+function NextActionsCard({ tasks = priorityTasks }: { tasks?: DashboardTask[] }) {
   return (
     <DataCard
       title="次にやる3つ"
@@ -488,7 +648,7 @@ function NextActionsCard() {
       }
     >
       <div className="space-y-3">
-        {priorityTasks.slice(0, 3).map((task, index) => (
+        {tasks.slice(0, 3).map((task, index) => (
           <div key={task.task} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
             <div className="flex min-w-0 items-start gap-3">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
@@ -1694,12 +1854,12 @@ function HeaderActions() {
   );
 }
 
-function ReportFilters({ compact = false }: { compact?: boolean }) {
+function ReportFilters({ compact = false, dashboardView }: { compact?: boolean; dashboardView?: DashboardHomeViewModel }) {
   return (
     <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-[0_8px_28px_rgba(15,23,42,0.04)] md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_0.7fr_auto]">
-      <FilterBox label="プロジェクト" value={sampleProject.name} />
-      <FilterBox label="期間" value="2026/06/10 - 2026/06/16" />
-      <FilterBox label="比較期間" value="2026/06/03 - 2026/06/09" />
+      <FilterBox label="プロジェクト" value={dashboardView?.projectName ?? sampleProject.name} />
+      <FilterBox label="期間" value={dashboardView?.period ?? "2026/06/10 - 2026/06/16"} />
+      <FilterBox label="比較期間" value={dashboardView?.comparisonPeriod ?? "2026/06/03 - 2026/06/09"} />
       <FilterBox label="地域" value="日本語（日本）" />
       <div className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
         <RefreshCw className="h-3.5 w-3.5 text-blue-600" />
@@ -1778,14 +1938,14 @@ function BrandVisibilityCard() {
   );
 }
 
-function CompetitiveRankingCard() {
+function CompetitiveRankingCard({ rows }: { rows?: DashboardRankingRow[] }) {
   return (
     <DashboardCard
       title="競合ランキング（AI表示率）"
       description="Recoraと競合のAI表示率を比較します。"
       action={<Link href={`${reportBase}/leaderboard`} className="text-xs font-bold text-blue-700">競合比較へ</Link>}
     >
-      <RankingTable compact />
+      <RankingTable compact rows={rows} />
     </DashboardCard>
   );
 }
@@ -1917,7 +2077,7 @@ function ImprovementPanel() {
   );
 }
 
-function PriorityTasksCard() {
+function PriorityTasksCard({ tasks = priorityTasks }: { tasks?: DashboardTask[] }) {
   return (
     <DashboardCard title="改善提案（優先タスク）" description="すぐに着手すべき改善タスクです。">
       <Table className="min-w-[980px]">
@@ -1932,7 +2092,7 @@ function PriorityTasksCard() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {priorityTasks.map((task) => (
+          {tasks.map((task) => (
             <TableRow key={task.task}>
               <TableCell><PriorityPill value={task.priority} /></TableCell>
               <TableCell className="min-w-[240px] font-bold text-slate-950">{task.task}</TableCell>
@@ -2096,7 +2256,8 @@ function SourceSharePanel() {
   );
 }
 
-function RankingTable({ compact = false }: { compact?: boolean }) {
+function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: DashboardRankingRow[] }) {
+  const rankingRows = rows ?? createSampleRankingRows();
   return (
     <Table>
       <TableHeader>
@@ -2110,8 +2271,8 @@ function RankingTable({ compact = false }: { compact?: boolean }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {visibilityMetrics.byBrand.map((row, index) => (
-          <TableRow key={row.brandId} className={row.brandId === "recora" ? "bg-blue-50/55" : undefined}>
+        {rankingRows.map((row, index) => (
+          <TableRow key={row.brandId} className={row.isPrimary ? "bg-blue-50/55" : undefined}>
             <TableCell className="font-bold">
               <span className="inline-flex items-center gap-1">
                 {index < 3 ? <Crown className="h-3.5 w-3.5 text-orange-500" /> : null}
@@ -2470,12 +2631,12 @@ function ModelsTable() {
   );
 }
 
-function ReportSummaryBlock() {
+function ReportSummaryBlock({ dashboardView }: { dashboardView?: DashboardHomeViewModel }) {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-4">
         <ScopeRow label="ブランド" value={brand.name} />
-        <ScopeRow label="競合" value={String(competitors.length)} />
+        <ScopeRow label="競合" value={String(dashboardView?.competitorCount ?? competitors.length)} />
         <ScopeRow label="ペルソナ" value={String(personas.length)} />
         <ScopeRow label="AIモデル" value={String(models.length)} />
       </div>
