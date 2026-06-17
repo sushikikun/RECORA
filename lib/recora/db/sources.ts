@@ -7,6 +7,7 @@ import {
   getRecoraProject
 } from "./dashboard";
 import type {
+  RecoraAiConversationRow,
   RecoraCitationRow,
   RecoraSourcesDbData,
   RecoraSourceDomainRow
@@ -15,7 +16,9 @@ import type {
 const SOURCE_DOMAIN_COLUMNS =
   "id, project_id, domain, source_type, owner_brand_id, trust_label, created_at, updated_at";
 const CITATION_COLUMNS =
-  "id, conversation_id, brand_id, source_domain_id, url, domain, title, source_type, supports_claim, occurrence_count, created_at, updated_at";
+  "id, conversation_id, brand_id, source_domain_id, url, domain, title, source_type, supports_claim, occurrence_count, created_at, updated_at, canonical_url, start_index, end_index, cited_text, brand_related";
+const AI_CONVERSATION_COLUMNS =
+  "id, run_item_id, raw_answer, answer_summary, answer_hash, prompt_text_snapshot, model_snapshot, captured_at, created_at, updated_at, provider, model_requested, model_returned, response_id, web_search_enabled, citation_status, measured_at, response_time_ms";
 
 type RecoraSupabaseClient = SupabaseClient;
 
@@ -40,13 +43,15 @@ export async function getRecoraSourcesData(
   }
 
   const runItemIds = await getRunItemIdsForRuns(runIds, supabase);
-  const conversationIds = await getConversationIds(runItemIds, supabase);
+  const conversations = await getAiConversations(runItemIds, supabase);
+  const conversationIds = conversations.map((conversation) => conversation.id);
   const citations = await getCitations(conversationIds, supabase);
 
   return {
     project,
     latestRun,
     sourceDomains,
+    conversations,
     citations
   };
 }
@@ -56,6 +61,7 @@ function emptySourcesData(): RecoraSourcesDbData {
     project: null,
     latestRun: null,
     sourceDomains: [],
+    conversations: [],
     citations: []
   };
 }
@@ -94,16 +100,16 @@ async function getRunItemIdsForRuns(runIds: string[], supabase: RecoraSupabaseCl
   return ((data ?? []) as Array<{ id: string }>).map((item) => item.id);
 }
 
-async function getConversationIds(runItemIds: string[], supabase: RecoraSupabaseClient) {
+async function getAiConversations(runItemIds: string[], supabase: RecoraSupabaseClient) {
   if (runItemIds.length === 0) return [];
 
   const { data, error } = await supabase
     .from("ai_conversations")
-    .select("id")
+    .select(AI_CONVERSATION_COLUMNS)
     .in("run_item_id", runItemIds);
 
   throwIfSupabaseError("ai_conversations", error);
-  return ((data ?? []) as Array<{ id: string }>).map((conversation) => conversation.id);
+  return (data ?? []) as RecoraAiConversationRow[];
 }
 
 async function getCitations(conversationIds: string[], supabase: RecoraSupabaseClient) {

@@ -41,6 +41,8 @@ export type RecoraRecommendationType =
   | "risk"
   | "competitive";
 export type RecoraRecommendationState = "open" | "planned" | "done" | "dismissed";
+export type RecoraCitationStatus = "unknown" | "not_requested" | "unavailable" | "available" | "partial" | "error";
+export type RecoraBrandRelatedness = "unknown" | "target_brand" | "competitor" | "unknown_competitor" | "category" | "general" | "unrelated";
 
 export type RecoraProjectRow = {
   id: string;
@@ -195,6 +197,14 @@ export type RecoraAiConversationRow = {
   captured_at: string;
   created_at: string;
   updated_at: string;
+  provider: string | null;
+  model_requested: string | null;
+  model_returned: string | null;
+  response_id: string | null;
+  web_search_enabled: boolean;
+  citation_status: RecoraCitationStatus;
+  measured_at: string | null;
+  response_time_ms: number | null;
 };
 
 export type RecoraBrandMentionRow = {
@@ -224,6 +234,11 @@ export type RecoraCitationRow = {
   occurrence_count: number;
   created_at: string;
   updated_at: string;
+  canonical_url: string | null;
+  start_index: number | null;
+  end_index: number | null;
+  cited_text: string | null;
+  brand_related: RecoraBrandRelatedness;
 };
 
 export type RecoraSourceDomainRow = {
@@ -255,6 +270,7 @@ export type RecoraSourcesDbData = {
   project: RecoraProjectRow | null;
   latestRun: RecoraMeasurementRunRow | null;
   sourceDomains: RecoraSourceDomainRow[];
+  conversations: RecoraAiConversationRow[];
   citations: RecoraCitationRow[];
 };
 

@@ -1227,6 +1227,8 @@ export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: 
   );
 }
 
+type ObservationKind = "sample" | "openai";
+
 type ConversationDisplayRow = {
   id: string;
   topicName: string;
@@ -1240,6 +1242,13 @@ type ConversationDisplayRow = {
   mentionedBrands: string[];
   citedDomains: string[];
   answerSummary: string;
+  observationKind: ObservationKind;
+  observationLabel: string;
+  providerLabel: string;
+  modelReturnedLabel: string;
+  citationStatusLabel: string;
+  webSearchLabel: string;
+  measuredAtLabel: string;
 };
 
 function createConversationDisplayRows(data?: RecoraConversationsDbData | null): ConversationDisplayRow[] {
@@ -1258,6 +1267,7 @@ function createConversationDisplayRows(data?: RecoraConversationsDbData | null):
   const citationsByConversationId = groupBy(data.citations, (item) => item.conversation_id);
 
   return data.conversations.map((conversation) => {
+    const observationKind = getConversationObservationKind(conversation);
     const runItem = runItemById.get(conversation.run_item_id);
     const prompt = runItem ? promptById.get(runItem.prompt_id) : undefined;
     const persona = runItem ? personaById.get(runItem.persona_id) : undefined;
@@ -1278,14 +1288,21 @@ function createConversationDisplayRows(data?: RecoraConversationsDbData | null):
       topicName: topic?.name ?? prompt?.intent ?? "トピック未設定",
       personaName: persona?.name ?? "ペルソナ未設定",
       promptText: prompt?.text ?? conversation.prompt_text_snapshot,
-      modelName: model?.display_name ?? conversation.model_snapshot,
+      modelName: model?.display_name ?? conversation.model_returned ?? conversation.model_snapshot,
       date: formatConversationDate(conversation.captured_at),
       recoraMentioned: Boolean(primaryMention?.mentioned),
       recoraRank: primaryMention?.position ?? null,
       sentiment: normalizeConversationSentiment(primaryMention?.sentiment ?? mentions[0]?.sentiment),
       mentionedBrands,
       citedDomains: domains,
-      answerSummary: conversation.answer_summary ?? conversation.raw_answer.slice(0, 180)
+      answerSummary: conversation.answer_summary ?? conversation.raw_answer.slice(0, 180),
+      observationKind,
+      observationLabel: getObservationLabel(observationKind),
+      providerLabel: formatProviderLabel(conversation.provider),
+      modelReturnedLabel: conversation.model_returned ?? conversation.model_snapshot ?? "\u4e0d\u660e",
+      citationStatusLabel: formatCitationStatus(conversation.citation_status),
+      webSearchLabel: observationKind === "openai" ? formatWebSearchLabel(conversation.web_search_enabled) : "\u4e0d\u660e",
+      measuredAtLabel: formatDateTime(conversation.measured_at ?? conversation.captured_at)
     };
   });
 }
@@ -1305,7 +1322,14 @@ function createSampleConversationDisplayRows(): ConversationDisplayRow[] {
       sentiment: conversation.sentiment,
       mentionedBrands: conversation.mentionedBrands,
       citedDomains: conversation.citedDomains,
-      answerSummary: conversation.answerSummary
+      answerSummary: conversation.answerSummary,
+      observationKind: "sample" as const,
+      observationLabel: "サンプル",
+      providerLabel: "不明",
+      modelReturnedLabel: getModelName(conversation.modelId),
+      citationStatusLabel: "不明",
+      webSearchLabel: "不明",
+      measuredAtLabel: conversation.date
     };
   });
 }
@@ -1323,6 +1347,66 @@ function groupBy<T>(items: T[], getKey: (item: T) => string) {
 
 function uniqueStrings(values: string[]) {
   return values.filter((value, index, list) => list.indexOf(value) === index);
+}
+
+function getConversationObservationKind(conversation: { provider: string | null; response_id: string | null }): ObservationKind {
+  return conversation.provider === "openai" || Boolean(conversation.response_id) ? "openai" : "sample";
+}
+
+function getObservationLabel(kind: ObservationKind) {
+  return kind === "openai" ? "OpenAI実測" : "サンプル";
+}
+
+function formatProviderLabel(value: string | null | undefined) {
+  if (!value) return "不明";
+  return value === "openai" ? "OpenAI" : value;
+}
+
+function formatCitationStatus(value: string | null | undefined) {
+  const labels: Record<string, string> = {
+    unknown: "不明",
+    not_requested: "引用取得なし",
+    unavailable: "引用なし",
+    available: "引用あり",
+    partial: "一部引用あり",
+    error: "引用取得エラー"
+  };
+  return value ? labels[value] ?? value : "不明";
+}
+
+function formatWebSearchLabel(value: boolean | null | undefined) {
+  if (value === true) return "Web検索あり";
+  if (value === false) return "Web検索なし";
+  return "不明";
+}
+
+function formatBrandRelatedness(value: string | null | undefined) {
+  const labels: Record<string, string> = {
+    unknown: "不明",
+    target_brand: "自社関連",
+    competitor: "競合関連",
+    unknown_competitor: "新規競合候補",
+    category: "カテゴリ関連",
+    general: "一般参照",
+    unrelated: "関連なし"
+  };
+  return value ? labels[value] ?? value : "不明";
+}
+
+function ObservationKindBadge({ kind, label }: { kind: ObservationKind; label: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "whitespace-nowrap rounded-sm text-xs",
+        kind === "openai"
+          ? "border-blue-200 bg-blue-50 text-blue-700"
+          : "border-slate-200 bg-slate-50 text-slate-600"
+      )}
+    >
+      {label}
+    </Badge>
+  );
 }
 
 function normalizeConversationSentiment(value: string | null | undefined): "positive" | "neutral" | "negative" {
@@ -1386,8 +1470,18 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
                   <div className="mt-1 text-xs text-slate-500">{conversation.personaName}</div>
                   <div className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">{conversation.promptText}</div>
                   <div className="mt-2 text-xs font-semibold text-slate-400">{conversation.date}</div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <ObservationKindBadge kind={conversation.observationKind} label={conversation.observationLabel} />
+                    <Badge variant="outline" className={cn("whitespace-nowrap rounded-sm text-xs", conversation.webSearchLabel === "Web検索あり" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600")}>
+                      {conversation.webSearchLabel}
+                    </Badge>
+                  </div>
                 </TableCell>
-                <TableCell className="whitespace-nowrap font-semibold">{conversation.modelName}</TableCell>
+                <TableCell className="min-w-[160px]">
+                  <div className="whitespace-nowrap font-semibold text-slate-950">{conversation.modelName}</div>
+                  <div className="mt-1 text-xs leading-5 text-slate-500">{conversation.providerLabel}</div>
+                  <div className="text-xs leading-5 text-slate-500">{conversation.modelReturnedLabel}</div>
+                </TableCell>
                 <TableCell>
                   <div className="space-y-2">
                     {conversation.recoraMentioned ? (
@@ -1418,6 +1512,10 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
                 </TableCell>
                 <TableCell className="min-w-[320px] text-sm leading-6 text-slate-600">
                   {conversation.answerSummary}
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+                    <Badge variant="muted" className="font-medium">{conversation.citationStatusLabel}</Badge>
+                    <span className="font-semibold text-slate-400">実測: {conversation.measuredAtLabel}</span>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -1500,6 +1598,7 @@ type SourceDisplayRow = {
   trustLabel: string;
   urls: string[];
   recommendedAction: string;
+  observationLabels: string[];
 };
 
 type CitationDisplayRow = {
@@ -1511,6 +1610,12 @@ type CitationDisplayRow = {
   occurrences: number;
   supportsClaimLabel: string;
   citedFor: string;
+  observationKind: ObservationKind;
+  observationLabel: string;
+  providerLabel: string;
+  citationStatusLabel: string;
+  webSearchLabel: string;
+  brandRelatedLabel: string;
 };
 
 type SourcesDisplayData = {
@@ -1530,6 +1635,7 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
 
   const sourceDomainById = new Map(data.sourceDomains.map((item) => [item.id, item]));
   const sourceDomainByDomain = new Map(data.sourceDomains.map((item) => [item.domain, item]));
+  const conversationById = new Map(data.conversations.map((item) => [item.id, item]));
   const groupedSources = new Map<string, SourceDisplayRow & { supportedCount: number; citationRows: number }>();
   let totalAppearances = 0;
   let ownedAppearances = 0;
@@ -1541,6 +1647,9 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
       : sourceDomainByDomain.get(citation.domain);
     const sourceType = sourceDomain?.source_type ?? citation.source_type;
     const domain = sourceDomain?.domain ?? citation.domain;
+    const conversation = conversationById.get(citation.conversation_id);
+    const observationKind = getConversationObservationKind(conversation ?? { provider: null, response_id: null });
+    const observationLabel = getObservationLabel(observationKind);
     const appearances = Math.max(1, citation.occurrence_count ?? 1);
     totalAppearances += appearances;
 
@@ -1557,6 +1666,7 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
       trustLabel: sourceDomain?.trust_label ?? getSourceTypeLabel(sourceType),
       urls: [],
       recommendedAction: getSourceRecommendedAction(sourceType),
+      observationLabels: [],
       supportedCount: 0,
       citationRows: 0
     };
@@ -1564,6 +1674,7 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
     sourceRow.appearances += appearances;
     sourceRow.citationRows += 1;
     if (citation.supports_claim === true) sourceRow.supportedCount += 1;
+    if (!sourceRow.observationLabels.includes(observationLabel)) sourceRow.observationLabels.push(observationLabel);
     if (citation.url && !sourceRow.urls.includes(citation.url)) sourceRow.urls.push(citation.url);
     groupedSources.set(domain, sourceRow);
 
@@ -1575,7 +1686,13 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
       sourceType: getSourceTypeLabel(sourceType),
       occurrences: appearances,
       supportsClaimLabel: getSupportsClaimLabel(citation.supports_claim),
-      citedFor: getCitationContext(citation.supports_claim)
+      citedFor: getCitationContext(citation.supports_claim),
+      observationKind,
+      observationLabel,
+      providerLabel: formatProviderLabel(conversation?.provider),
+      citationStatusLabel: formatCitationStatus(conversation?.citation_status),
+      webSearchLabel: observationKind === "openai" ? formatWebSearchLabel(conversation?.web_search_enabled) : "\u4e0d\u660e",
+      brandRelatedLabel: formatBrandRelatedness(citation.brand_related)
     };
   });
 
@@ -1614,7 +1731,13 @@ function createSampleSourcesDisplayData(): SourcesDisplayData {
     sourceType: citation.sourceType,
     occurrences: citation.occurrences,
     supportsClaimLabel: "サンプル",
-    citedFor: citation.citedFor
+    citedFor: citation.citedFor,
+    observationKind: "sample" as const,
+    observationLabel: "サンプル",
+    providerLabel: "不明",
+    citationStatusLabel: "不明",
+    webSearchLabel: "不明",
+    brandRelatedLabel: "不明"
   }));
 
   const sourceRows = sources.map((source) => ({
@@ -1626,7 +1749,8 @@ function createSampleSourcesDisplayData(): SourcesDisplayData {
     trustScore: source.trustScore,
     trustLabel: "スコア " + source.trustScore,
     urls: citationRows.filter((citation) => citation.domain === source.domain).map((citation) => citation.url),
-    recommendedAction: source.recommendedAction
+    recommendedAction: source.recommendedAction,
+    observationLabels: ["サンプル"]
   }));
 
   return {
@@ -2956,7 +3080,14 @@ function SourcesTable({ rows = createSampleSourcesDisplayData().sourceRows }: { 
       <TableBody>
         {rows.length > 0 ? rows.map((source) => (
           <TableRow key={source.domain}>
-            <TableCell className="font-bold text-slate-950">{source.domain}</TableCell>
+            <TableCell className="font-bold text-slate-950">
+              <div>{source.domain}</div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {source.observationLabels.map((label) => (
+                  <ObservationKindBadge key={label} kind={label === "OpenAI実測" ? "openai" : "sample"} label={label} />
+                ))}
+              </div>
+            </TableCell>
             <TableCell>
               <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
                 {source.category}
@@ -3017,16 +3148,29 @@ function CitationsTable({ rows = createSampleSourcesDisplayData().citationRows }
                 <ExternalLink className="h-3 w-3 shrink-0" />
                 <span className="truncate">{citation.url}</span>
               </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <ObservationKindBadge kind={citation.observationKind} label={citation.observationLabel} />
+                <Badge variant="outline" className={cn("whitespace-nowrap rounded-sm text-xs", citation.webSearchLabel === "Web検索あり" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600")}>
+                  {citation.webSearchLabel}
+                </Badge>
+              </div>
             </TableCell>
             <TableCell className="font-semibold text-slate-700">{citation.domain}</TableCell>
             <TableCell>{citation.sourceType}</TableCell>
             <TableCell className="font-semibold">{citation.occurrences}</TableCell>
             <TableCell className="text-sm leading-6 text-slate-600">
-              <div className="mb-1">
+              <div className="mb-2 flex flex-wrap gap-1.5">
                 <Badge variant="muted" className="font-medium">
                   {citation.supportsClaimLabel}
                 </Badge>
+                <Badge variant="muted" className="font-medium">
+                  {citation.citationStatusLabel}
+                </Badge>
+                <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-slate-50 text-slate-600">
+                  {citation.brandRelatedLabel}
+                </Badge>
               </div>
+              <div className="text-xs font-semibold text-slate-400">{citation.providerLabel}</div>
               {citation.citedFor}
             </TableCell>
           </TableRow>
