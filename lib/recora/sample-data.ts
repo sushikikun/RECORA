@@ -26,7 +26,7 @@ export type TopicId =
 export type Priority = "High" | "Medium" | "Low";
 
 export const sampleProject = {
-  id: "recora-growth-q2",
+  id: "recora-kenzai-q2",
   name: "Recora AI検索分析レポート",
   workspace: "Recora Growth",
   period: "2026年6月",
