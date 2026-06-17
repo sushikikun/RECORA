@@ -1,4 +1,4 @@
-﻿-- Recora v0.1 AI output evidence fields.
+-- Recora v0.1 AI output evidence fields.
 --
 -- This migration extends the raw evidence tables so Recora can store observed
 -- AI provider outputs, including OpenAI Responses with and without web search.
