@@ -69,40 +69,40 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#f6f9fb] text-slate-950">
+    <div className="min-h-screen bg-[#F6FAF9] text-[#0F172A]">
       <div className="grid min-h-screen lg:grid-cols-[256px_minmax(0,1fr)]">
-        <aside className="border-b border-slate-200 bg-white text-slate-900 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+        <aside className="border-b border-[#DDE8E5] bg-white text-[#0F172A] lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
           <div className="flex h-full flex-col bg-white">
-            <div className="px-4 py-5">
+            <div className="px-5 py-6">
               <Link href="/dashboard" className="flex items-center gap-3 px-1">
                 <LogoMark />
                 <span>
-                  <span className="block text-xl font-bold tracking-normal">Recora</span>
-                  <span className="block text-xs font-medium text-slate-500">レコラ</span>
+                  <span className="block text-xl font-bold tracking-tight">Recora</span>
+                  <span className="block text-xs font-medium text-[#64748B]">レコラ</span>
                 </span>
               </Link>
 
-              <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50/80 p-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-                  <PanelTop className="h-3.5 w-3.5 text-teal-600" />
+              <div className="mt-6 rounded-[18px] border border-[#DDE8E5] bg-[#F6FAF9] p-4 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[#64748B]">
+                  <PanelTop className="h-3.5 w-3.5 text-[#00796B]" />
                   現在のプロジェクト
                 </div>
                 <Link
                   href={`/dashboard/reports/${reportId}/overview`}
-                  className="mt-2 block text-sm font-bold leading-5 text-slate-950 hover:text-teal-700"
+                  className="mt-2 block text-sm font-bold leading-5 text-[#0F172A] hover:text-[#00796B]"
                 >
                   {sampleProject.name}
                 </Link>
-                <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                <div className="mt-3 flex items-center justify-between text-xs text-[#64748B]">
                   <span>{sampleProject.period}</span>
-                  <span className="rounded-sm bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
+                  <span className="rounded-full bg-[#E6F4F1] px-2.5 py-1 font-semibold text-[#00796B]">
                     サンプル
                   </span>
                 </div>
               </div>
             </div>
 
-            <nav className="relative flex-1 space-y-3 overflow-y-auto px-3 pb-7">
+            <nav className="relative flex-1 space-y-3 overflow-y-auto px-4 pb-7">
               {navGroups.map((group) => (
                 <NavGroup
                   key={group.label}
@@ -116,15 +116,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               <div className="pointer-events-none sticky bottom-0 h-7 bg-gradient-to-t from-white to-transparent" />
             </nav>
 
-            <div className="border-t border-slate-200 p-4">
-              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+            <div className="border-t border-[#DDE8E5] p-4">
+              <div className="rounded-[18px] border border-[#DDE8E5] bg-[#F6FAF9] p-4 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]">
                 <div className="flex items-center gap-2">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-50 text-teal-700">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#E6F4F1] text-[#00796B]">
                     <Sparkles className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-slate-950">山田 太郎</p>
-                    <p className="truncate text-xs text-slate-500">sample@recora.ai</p>
+                    <p className="truncate text-sm font-bold text-[#0F172A]">山田 太郎</p>
+                    <p className="truncate text-xs text-[#64748B]">sample@recora.ai</p>
                   </div>
                 </div>
               </div>
@@ -132,8 +132,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
 
-        <main className="min-w-0 bg-[#f6f9fb]">
-          <div className="mx-auto w-full max-w-[1480px] px-4 py-6 sm:px-5 lg:px-6 xl:px-8">
+        <main className="min-w-0 bg-[#F6FAF9]">
+          <div className="mx-auto w-full max-w-[1480px] px-4 py-7 sm:px-5 lg:px-7 xl:px-8">
             {children}
           </div>
         </main>
@@ -144,11 +144,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
 function LogoMark() {
   return (
-    <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-700 text-sm font-black text-white shadow-[0_12px_28px_rgba(15,118,110,0.22)]">
+    <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] bg-[#00796B] text-sm font-black text-white shadow-[0_12px_28px_rgba(0,121,107,0.22)]">
       <span className="absolute bottom-2 left-2 flex items-end gap-0.5" aria-hidden="true">
-        <span className="h-2 w-1 rounded-sm bg-teal-100/90" />
-        <span className="h-3 w-1 rounded-sm bg-teal-100/90" />
-        <span className="h-4 w-1 rounded-sm bg-teal-100/90" />
+        <span className="h-2 w-1 rounded-sm bg-white/80" />
+        <span className="h-3 w-1 rounded-sm bg-white/80" />
+        <span className="h-4 w-1 rounded-sm bg-white/80" />
       </span>
       <span className="relative ml-2">R</span>
     </span>
@@ -195,8 +195,8 @@ function NavGroup({
         aria-controls={`recora-sidebar-${group.label}`}
         onClick={() => onToggle(group.label)}
         className={cn(
-          "flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/70",
-          isActiveSection && "bg-teal-50 text-teal-700"
+          "flex w-full items-center justify-between rounded-xl px-3 py-1.5 text-left text-[11px] font-bold uppercase tracking-wider text-[#64748B] transition-colors hover:bg-[#E6F4F1] hover:text-[#005C50] focus:outline-none focus:ring-2 focus:ring-[#00796B]/70",
+          isActiveSection && "bg-[#E6F4F1] text-[#005C50]"
         )}
       >
         <span>{group.label}</span>
@@ -224,9 +224,9 @@ function NavLink({ item, pathname, nested = false }: { item: RecoraNavItem; path
       href={item.href}
       title={item.description ?? item.label}
       className={cn(
-        "group flex min-h-10 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-teal-50 hover:text-teal-800",
-        nested && "ml-2 border-l border-slate-200 pl-3",
-        isActive && "bg-teal-50 text-teal-800 shadow-[inset_3px_0_0_#0f766e]"
+        "group flex min-h-10 items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-bold text-[#64748B] transition-colors hover:bg-[#E6F4F1] hover:text-[#005C50]",
+        nested && "ml-2 border-l border-[#DDE8E5] pl-3",
+        isActive && "bg-[#E6F4F1] text-[#005C50] shadow-[inset_3px_0_0_#00796B]"
       )}
     >
       <Icon className="h-4 w-4 shrink-0" />
@@ -235,8 +235,8 @@ function NavLink({ item, pathname, nested = false }: { item: RecoraNavItem; path
         {item.status === "preparing" ? (
           <span
             className={cn(
-              "mt-0.5 inline-flex rounded-sm bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500",
-              isActive && "bg-white text-teal-700"
+              "mt-0.5 inline-flex rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-[#64748B]",
+              isActive && "bg-white text-[#00796B]"
             )}
           >
             準備中

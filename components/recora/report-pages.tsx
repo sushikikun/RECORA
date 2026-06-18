@@ -74,7 +74,7 @@ function DetailTabs({ items, active = 0 }: { items: readonly string[]; active?: 
             key={item}
             className={cn(
               "rounded-md px-3 py-2 text-xs font-bold text-slate-500",
-              index === active ? "bg-teal-700 text-white shadow-sm" : "hover:bg-teal-50 hover:text-teal-800"
+              index === active ? "bg-[#00796B] text-white shadow-sm" : "hover:bg-[#E6F4F1] hover:text-[#005C50]"
             )}
           >
             {item}
@@ -85,69 +85,68 @@ function DetailTabs({ items, active = 0 }: { items: readonly string[]; active?: 
   );
 }
 
-const kpiCards = [
+const reportLandingKpiCards = [
   {
     label: "AI表示率",
-    value: "8.7%",
-    helper: "AI検索での表示率",
-    delta: -2.1,
-    deltaLabel: "前週比 -2.1pt",
-    tone: "rose" as const,
-    sparkline: [11, 10, 9, 10, 8, 9, 8.7, 8.7]
+    value: formatPercent(visibilityMetrics.overall.brandVisibility),
+    helper: "サンプルレポートの全体表示率",
+    delta: visibilityMetrics.overall.movement,
+    deltaLabel: formatSignedPt(visibilityMetrics.overall.movement),
+    tone: "green" as const,
+    sparkline: visibilityMetrics.byTopic.map((item) => item.visibility)
   },
   {
     label: "AI言及数",
-    value: "156",
-    helper: "回答内のブランド言及",
-    delta: 18,
-    deltaLabel: "前週比 +18",
+    value: String(sampleProject.conversationCount),
+    helper: "サンプル回答ログの件数",
+    delta: sampleProject.conversationCount,
+    deltaLabel: String(sampleProject.conversationCount),
     tone: "blue" as const,
-    sparkline: [92, 108, 121, 116, 132, 141, 148, 156]
+    sparkline: buildSparkline(sampleProject.conversationCount)
   },
   {
     label: "参照回数",
-    value: "87",
-    helper: "Recora関連の参照",
-    delta: 11,
-    deltaLabel: "前週比 +11",
+    value: String(sampleProject.citationCount),
+    helper: "サンプル参照元の集計",
+    delta: sampleProject.citationCount,
+    deltaLabel: String(sampleProject.citationCount),
     tone: "blue" as const,
-    sparkline: [48, 54, 61, 58, 69, 72, 78, 87]
+    sparkline: buildSparkline(sampleProject.citationCount)
   },
   {
-    label: "推定トラフィック影響",
-    value: "3.2K",
-    helper: "AI回答経由の推定影響",
-    delta: -8.7,
-    deltaLabel: "前週比 -8.7%",
-    tone: "rose" as const,
+    label: "参照カバレッジ",
+    value: formatPercent(visibilityMetrics.overall.citationCoverage),
+    helper: "サンプル参照率",
+    delta: visibilityMetrics.overall.citationCoverage,
+    deltaLabel: formatPercent(visibilityMetrics.overall.citationCoverage),
+    tone: "amber" as const,
     chartType: "bars" as const,
-    sparkline: [18, 28, 24, 31, 26, 38, 30, 34, 22, 29]
+    sparkline: visibilityMetrics.byModel.map((item) => item.citationRate)
   },
   {
     label: "平均掲載順位",
-    value: "6.4 /10",
+    value: visibilityMetrics.overall.averageRank.toFixed(1),
     helper: "表示時の平均順位",
-    delta: 0.8,
-    deltaLabel: "前週比 +0.8",
+    delta: visibilityMetrics.overall.averageRank,
+    deltaLabel: visibilityMetrics.overall.averageRank.toFixed(1),
     tone: "purple" as const,
-    sparkline: [4.8, 5.1, 5.6, 5.4, 6.1, 6, 6.4, 6.4]
+    sparkline: visibilityMetrics.byModel.map((item) => item.rank)
   }
 ];
 
 const brandDonutItems = [
-  { label: brand.name, value: 9, color: "#2563eb" },
-  { label: "Trailbase", value: 22, color: "#22c55e" },
-  { label: "SignalNest", value: 19, color: "#7c3aed" },
-  { label: "MentionMap", value: 15, color: "#f97316" },
-  { label: "RankLens", value: 11, color: "#14b8a6" },
-  { label: "その他", value: 24, color: "#cbd5e1" }
+  { label: brand.name, value: 24, color: "#00796B" },
+  { label: "Trailbase", value: 36, color: "#B7791F" },
+  { label: "SignalNest", value: 18, color: "#64748B" },
+  { label: "MentionMap", value: 12, color: "#008F72" },
+  { label: "RankLens", value: 10, color: "#C2415B" }
 ];
 
 const sourceDonutItems = [
-  { label: "公式サイト", value: 34, color: "#2563eb" },
-  { label: "ニュース・メディア", value: 23, color: "#22c55e" },
-  { label: "レビュー・ブログ", value: 18, color: "#14b8a6" },
-  { label: "Q&A・フォーラム", value: 12, color: "#7c3aed" },
+  { label: "公式サイト", value: 34, color: "#00796B" },
+  { label: "ニュース・メディア", value: 23, color: "#008F72" },
+  { label: "レビュー・ブログ", value: 18, color: "#64748B" },
+  { label: "Q&A・フォーラム", value: 12, color: "#B7791F" },
   { label: "PDF・資料", value: 8, color: "#64748b" },
   { label: "その他", value: 5, color: "#cbd5e1" }
 ];
@@ -181,78 +180,31 @@ const roadmapSteps = [
   }
 ];
 
-const priorityTasks = [
-  {
-    priority: "High" as const,
-    task: "製品・サービスカテゴリの説明を強化",
-    impact: "+2.1pt",
-    category: "製品比較・カテゴリ",
-    action: "製品ページにFAQと比較表を追加",
-    due: "2026/06/21"
-  },
-  {
-    priority: "High" as const,
-    task: "選定基準の根拠ページを作成",
-    impact: "+1.8pt",
-    category: "選定基準",
-    action: "評価軸、重み、証拠を1ページ化",
-    due: "2026/06/24"
-  },
-  {
-    priority: "Medium" as const,
-    task: "参照されやすい外部メディアとの接点を増やす",
-    impact: "+0.9pt",
-    category: "参照元",
-    action: "第三者レビュー・寄稿候補を整理",
-    due: "2026/06/28"
-  }
-];
-
-const dashboardKpiCards = [
+const dashboardKpiCardTemplates = [
   {
     label: "AI表示率",
-    value: "8.7%",
     helper: "AI回答でRecoraが表示された割合",
-    delta: -2.1,
-    deltaLabel: "前週比 -2.1pt",
-    tone: "rose" as const,
-    sparkline: weeklyTrends.map((week) => week.recora)
+    tone: "blue" as const
   },
   {
     label: "AI言及数",
-    value: "156",
     helper: "対象プロンプト内のブランド言及",
-    delta: 18,
-    deltaLabel: "前週比 +18",
-    tone: "blue" as const,
-    sparkline: [92, 108, 121, 116, 132, 141, 148, 156]
+    tone: "blue" as const
   },
   {
     label: "参照回数",
-    value: "87",
     helper: "AI回答に参照された回数",
-    delta: 11,
-    deltaLabel: "前週比 +11",
-    tone: "blue" as const,
-    sparkline: [48, 54, 61, 58, 69, 72, 78, 87]
+    tone: "blue" as const
   },
   {
     label: "競合差分",
-    value: "14pt",
     helper: "首位ブランドとのAI表示率の差",
-    delta: -1.4,
-    deltaLabel: "前週比 +1.4pt悪化",
-    tone: "amber" as const,
-    sparkline: [18, 17, 16, 16, 15, 14, 14]
+    tone: "amber" as const
   },
   {
     label: "改善優先度",
-    value: "+5.3pt",
-    helper: "優先タスク完了時の想定改善幅",
-    delta: 2.1,
-    deltaLabel: "前週比 +2.1pt",
-    tone: "green" as const,
-    sparkline: [2.2, 2.8, 3.1, 3.7, 4.4, 4.9, 5.3]
+    helper: "優先提案から算出",
+    tone: "green" as const
   }
 ];
 
@@ -300,13 +252,25 @@ const dashboardQuickLinks = [
 
 
 type DashboardPriority = "High" | "Medium" | "Low";
-type DashboardKpiCardData = (typeof dashboardKpiCards)[number];
+type DashboardKpiTone = "blue" | "green" | "amber" | "rose" | "slate" | "purple";
+type DashboardKpiCardData = {
+  label: string;
+  value: string;
+  helper?: string;
+  delta?: number;
+  deltaLabel?: string;
+  sparkline?: number[];
+  tone?: DashboardKpiTone;
+  chartType?: "line" | "bars";
+};
 type DashboardTask = {
   priority: DashboardPriority;
   task: string;
   impact: string;
   category: string;
   action: string;
+  reason: string;
+  expectedImpact: string;
   due: string;
 };
 type DashboardRankingRow = {
@@ -327,6 +291,7 @@ type DashboardRankingRow = {
   representativePrompt?: string;
 };
 type DashboardHomeViewModel = {
+  hasDbData: boolean;
   projectName: string;
   period: string;
   comparisonPeriod: string;
@@ -335,6 +300,9 @@ type DashboardHomeViewModel = {
   competitorCount: number;
   aiConversationCount: number;
   brandVisibilityValue: string;
+  brandVisibilityNumber: number;
+  aiMentionCount: number;
+  citationCount: number;
   competitiveGapDelta: number;
   kpiCards: DashboardKpiCardData[];
   rankingRows: DashboardRankingRow[];
@@ -343,7 +311,7 @@ type DashboardHomeViewModel = {
 
 function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): DashboardHomeViewModel {
   if (!data?.project) {
-    return createSampleDashboardHomeViewModel();
+    return createEmptyDashboardHomeViewModel();
   }
 
   const primaryBrand = data.brands.find((item) => item.brand_type === "primary");
@@ -361,10 +329,12 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
   const latestRun = data.latestRun;
   const mentionCount = projectSnapshot?.ai_mention_count ?? primarySnapshot?.ai_mention_count ?? data.counts.aiConversations;
   const citationCount = Math.round(Number(projectSnapshot?.citation_count ?? data.counts.citations ?? 0));
+  const displayCompetitiveGap = competitiveGap ?? -absoluteGap;
+  const displayImprovementPriority = topRecommendationImpact > 0 ? topRecommendationImpact : data.recommendations.length;
 
-  const kpiCards: DashboardKpiCardData[] = dashboardKpiCards.map((card, index) => {
+  const kpiCards: DashboardKpiCardData[] = dashboardKpiCardTemplates.map((card, index) => {
     if (index === 0) {
-      return { ...card, value: formatPercent(brandVisibilityNumber), helper: (primaryBrand?.name ?? brand.name) + "のAI表示率", delta: competitiveGap ?? card.delta, deltaLabel: competitiveGap === null ? card.deltaLabel : (competitiveGap > 0 ? "+" : "") + Math.round(competitiveGap) + "pt", sparkline: buildSparkline(brandVisibilityNumber) };
+      return { ...card, value: formatPercent(brandVisibilityNumber), helper: (primaryBrand?.name ?? brand.name) + "のAI表示率", delta: competitiveGap ?? undefined, deltaLabel: competitiveGap === null ? undefined : formatSignedPt(competitiveGap), sparkline: buildSparkline(brandVisibilityNumber) };
     }
     if (index === 1) {
       return { ...card, value: String(mentionCount), helper: "AI回答ログから集計", delta: mentionCount, deltaLabel: String(mentionCount), sparkline: buildSparkline(mentionCount) };
@@ -373,14 +343,16 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
       return { ...card, value: String(citationCount), helper: "集計済み指標から表示", delta: citationCount, deltaLabel: String(citationCount), sparkline: buildSparkline(citationCount) };
     }
     if (index === 3) {
-      return { ...card, value: absoluteGap + "pt", helper: "首位ブランドとの差分", delta: competitiveGap ?? -absoluteGap, deltaLabel: competitiveGap === null ? absoluteGap + "pt" : (competitiveGap > 0 ? "+" : "") + Math.round(competitiveGap) + "pt", sparkline: buildSparkline(absoluteGap) };
+      return { ...card, value: formatSignedPt(displayCompetitiveGap), helper: "首位ブランドとの差分", delta: displayCompetitiveGap, deltaLabel: formatSignedPt(displayCompetitiveGap), sparkline: buildSparkline(Math.abs(displayCompetitiveGap)) };
     }
-    return { ...card, value: topRecommendationImpact > 0 ? String(topRecommendationImpact) : String(data.recommendations.length), helper: "優先提案から算出", delta: data.recommendations.length, deltaLabel: String(data.recommendations.length), sparkline: buildSparkline(topRecommendationImpact || data.recommendations.length) };
+    return { ...card, value: String(displayImprovementPriority), helper: "優先提案から算出", delta: data.recommendations.length, deltaLabel: String(data.recommendations.length), sparkline: buildSparkline(displayImprovementPriority) };
   });
 
+  const leaderVisibility = Math.round(sortedBrandSnapshots[0]?.ai_visibility ?? brandVisibilityNumber);
   const rankingRows = sortedBrandSnapshots.map((snapshot) => {
     const snapshotBrand = snapshot.brand_id ? brandById.get(snapshot.brand_id) : undefined;
     const position = snapshot.average_position ?? 4;
+    const isPrimary = snapshotBrand?.brand_type === "primary";
     return {
       brandId: snapshot.brand_id ?? snapshot.id,
       name: snapshotBrand?.name ?? "Unknown",
@@ -388,14 +360,16 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
       citationShare: Math.round(snapshot.share_of_voice),
       sentiment: Math.round(Math.min(100, Math.max(0, snapshot.ai_visibility + 8))),
       winRate: Math.round(Math.min(100, Math.max(0, 100 - position * 14))),
-      isPrimary: snapshotBrand?.brand_type === "primary"
+      competitiveGap: isPrimary ? displayCompetitiveGap : round1(snapshot.ai_visibility - leaderVisibility),
+      isPrimary
     };
   });
 
-  const tasksFromDb = data.recommendations.slice(0, 3).map((item, index) => toDashboardTask(item, index));
+  const tasksFromDb = data.recommendations.slice(0, 3).map((item) => toDashboardTask(item));
 
   return {
     projectName: data.project.name,
+    hasDbData: true,
     period: latestRun ? latestRun.period_start + " - " + latestRun.period_end : data.project.default_period ?? sampleProject.period,
     comparisonPeriod: latestRun?.comparison_start && latestRun.comparison_end ? latestRun.comparison_start + " - " + latestRun.comparison_end : "-",
     lastUpdated: formatDateTime(latestRun?.completed_at ?? data.project.updated_at),
@@ -403,28 +377,57 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
     competitorCount,
     aiConversationCount: data.counts.aiConversations,
     brandVisibilityValue: formatPercent(brandVisibilityNumber),
-    competitiveGapDelta: competitiveGap ?? -absoluteGap,
+    brandVisibilityNumber,
+    aiMentionCount: mentionCount,
+    citationCount,
+    competitiveGapDelta: displayCompetitiveGap,
     kpiCards,
-    rankingRows: rankingRows.length > 0 ? rankingRows : createSampleRankingRows(),
-    priorityTasks: tasksFromDb.length > 0 ? tasksFromDb : priorityTasks
+    rankingRows: rankingRows.length > 0 ? rankingRows : createZeroRankingRowsFromBrands(data.brands, primaryBrand?.id),
+    priorityTasks: tasksFromDb
   };
 }
 
-function createSampleDashboardHomeViewModel(): DashboardHomeViewModel {
+function createEmptyDashboardHomeViewModel(): DashboardHomeViewModel {
   return {
-    projectName: sampleProject.name,
-    period: "2026/06/10 - 2026/06/16",
-    comparisonPeriod: "2026/06/03 - 2026/06/09",
-    lastUpdated: sampleProject.lastRunAt,
+    hasDbData: false,
+    projectName: brand.name,
+    period: "-",
+    comparisonPeriod: "-",
+    lastUpdated: "-",
     primaryBrandName: brand.name,
-    competitorCount: competitors.length,
-    aiConversationCount: conversations.length,
-    brandVisibilityValue: "8.7%",
-    competitiveGapDelta: -2.1,
-    kpiCards: dashboardKpiCards,
-    rankingRows: createSampleRankingRows(),
-    priorityTasks
+    competitorCount: 0,
+    aiConversationCount: 0,
+    brandVisibilityValue: formatPercent(0),
+    brandVisibilityNumber: 0,
+    aiMentionCount: 0,
+    citationCount: 0,
+    competitiveGapDelta: 0,
+    kpiCards: dashboardKpiCardTemplates.map((card, index) => ({
+      ...card,
+      value: index === 0 ? "0%" : index === 3 ? "0pt" : "0",
+      sparkline: buildSparkline(0)
+    })),
+    rankingRows: [],
+    priorityTasks: []
   };
+}
+
+function createZeroRankingRowsFromBrands(brands: RecoraDashboardDbData["brands"], primaryBrandId?: string): DashboardRankingRow[] {
+  return brands.map((brandItem) => ({
+    brandId: brandItem.id,
+    name: brandItem.name,
+    visibility: 0,
+    citationShare: 0,
+    sentiment: 0,
+    winRate: 0,
+    isPrimary: brandItem.id === primaryBrandId || brandItem.brand_type === "primary",
+    brandTypeLabel: brandItem.brand_type === "primary" ? "自社" : "競合",
+    aiMentionCount: 0,
+    recommendationCount: 0,
+    citationCount: 0,
+    averagePosition: null,
+    competitiveGap: 0
+  }));
 }
 
 function createSampleRankingRows(): DashboardRankingRow[] {
@@ -644,8 +647,12 @@ function average(values: number[]) {
 
 function formatSignedPt(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
-  const rounded = Math.round(value);
+  const rounded = round1(value);
   return (rounded > 0 ? "+" : "") + rounded + "pt";
+}
+
+function round1(value: number) {
+  return Math.round(value * 10) / 10;
 }
 
 function truncateText(value: string, maxLength: number) {
@@ -653,14 +660,17 @@ function truncateText(value: string, maxLength: number) {
   return value.slice(0, maxLength) + "...";
 }
 
-function toDashboardTask(item: RecoraRecommendationRow, index: number): DashboardTask {
+function toDashboardTask(item: RecoraRecommendationRow): DashboardTask {
+  const impact = Math.round(item.impact_score) + "pt";
   return {
     priority: toDashboardPriority(item.priority),
     task: item.title,
-    impact: Math.round(item.impact_score) + "pt",
+    impact,
     category: recommendationTypeLabel(item.type),
-    action: item.reason ?? item.target_url ?? "???????",
-    due: priorityTasks[index]?.due ?? "-"
+    action: item.reason ?? item.target_url ?? "詳細な改善アクションを確認する",
+    reason: item.reason ?? "AI回答内での表示・参照に不足が見つかっています。",
+    expectedImpact: `AI表示率 ${impact} 改善見込み`,
+    due: "-"
   };
 }
 
@@ -676,7 +686,8 @@ function recommendationTypeLabel(value: RecoraRecommendationRow["type"]) {
 }
 
 function buildSparkline(value: number) {
-  const safeValue = Math.max(1, Math.round(value));
+  if (value <= 0) return [0, 0, 0, 0, 0, 0];
+  const safeValue = Math.round(value);
   return [safeValue * 0.62, safeValue * 0.72, safeValue * 0.68, safeValue * 0.82, safeValue * 0.9, safeValue].map(Math.round);
 }
 
@@ -699,19 +710,15 @@ export function DashboardHomePage({ dashboardData = null }: { dashboardData?: Re
         actions={<HeaderActions />}
       />
 
-      <DashboardAlertStrip />
+      <DashboardSnapshotHero dashboardView={dashboardView} />
 
       <DashboardKpiGrid cards={dashboardView.kpiCards} />
 
-      <div className="mt-5 grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="mt-5 grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="grid min-w-0 gap-5">
-          <div className="grid min-w-0 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className="grid min-w-0 gap-5 xl:grid-cols-[1.05fr_0.95fr]">
             <VisibilityTrendCard dashboardView={dashboardView} />
             <CompetitiveRankingCard rows={dashboardView.rankingRows} />
-          </div>
-          <div className="grid min-w-0 gap-5 xl:grid-cols-2">
-            <ModelPerformanceCard />
-            <SourceCitationCard />
           </div>
         </div>
         <div className="grid min-w-0 gap-5 content-start">
@@ -720,51 +727,134 @@ export function DashboardHomePage({ dashboardData = null }: { dashboardData?: Re
         </div>
       </div>
 
-      <div className="mt-5 grid min-w-0 gap-5 xl:grid-cols-2">
-        <RecentConversationsCard />
-        <RecentSourceChangesCard />
-      </div>
-
-      <div className="mt-5 grid min-w-0 gap-5 2xl:grid-cols-[340px_minmax(0,1fr)]">
-        <ImprovementPanel />
+      <div className="mt-5 grid min-w-0 gap-5 2xl:grid-cols-[360px_minmax(0,1fr)]">
+        <ImprovementPanel tasks={dashboardView.priorityTasks} />
         <PriorityTasksCard tasks={dashboardView.priorityTasks} />
-      </div>
-
-      <div className="mt-5 grid min-w-0 gap-5 2xl:grid-cols-3">
-        <PromptCategoryCard />
-        <TopReferencedPagesCard />
-        <BrandVisibilityCard />
-      </div>
-
-      <div className="mt-5 grid min-w-0 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-        <RoadmapSection />
-        <DataCard
-          title="レポートサマリー"
-          description="ブランド、ペルソナ、トピック、AIモデルの分析対象"
-        >
-          <ReportSummaryBlock dashboardView={dashboardView} />
-        </DataCard>
-      </div>
-
-      <div className="mt-5">
-        <OverviewHeatmap />
       </div>
     </>
   );
 }
 
+function DashboardSnapshotHero({ dashboardView }: { dashboardView: DashboardHomeViewModel }) {
+  return (
+    <div className="mt-6 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+      <section className="min-w-0 overflow-hidden rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-[#005C50] p-6 text-white shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]">
+        <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(260px,1fr)] lg:items-end">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/12 px-3 py-1 text-xs font-bold text-[#E6F4F1]">
+              {dashboardView.hasDbData ? "最新aggregate snapshot" : "DBデータ未取得"}
+            </div>
+            <div className="mt-5 flex flex-wrap items-end gap-3">
+              <p className="text-6xl font-bold tracking-tight sm:text-7xl">{dashboardView.brandVisibilityValue}</p>
+              <span className="mb-2 inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#00796B]">
+                競合差分 {formatSignedPt(dashboardView.competitiveGapDelta)}
+              </span>
+            </div>
+            <p className="mt-4 max-w-xl text-sm leading-6 text-white/78">
+              {dashboardView.hasDbData
+                ? "最新の集計スナップショットから、AI表示率・AI言及数・参照回数・競合差分を表示しています。数値はDBのmetric_snapshotsと集計済みカウントに基づきます。"
+                : "DBから取得できた現在値のみを表示します。未取得時はサンプル値を出さず、空状態として表示します。"}
+            </p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <HeroStat label="AI言及数" value={String(dashboardView.aiMentionCount)} />
+              <HeroStat label="参照回数" value={String(dashboardView.citationCount)} />
+              <HeroStat label="競合数" value={String(dashboardView.competitorCount)} />
+            </div>
+          </div>
+
+          <div className="min-w-0 rounded-[18px] border border-white/12 bg-white/10 p-5">
+            <p className="text-sm font-bold text-white">KPI内訳</p>
+            <p className="mt-1 text-xs leading-5 text-white/65">
+              {dashboardView.hasDbData ? "DB由来の現在値のみを表示" : "DB未取得時は空状態"}
+            </p>
+            <div className="mt-5 grid gap-3">
+              <HeroBreakdownRow label="AI表示率" value={dashboardView.brandVisibilityValue} />
+              <HeroBreakdownRow label="AI言及数" value={String(dashboardView.aiMentionCount)} />
+              <HeroBreakdownRow label="参照回数" value={String(dashboardView.citationCount)} />
+              <HeroBreakdownRow label="競合差分" value={formatSignedPt(dashboardView.competitiveGapDelta)} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="min-w-0 rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold tracking-tight text-[#0F172A]">優先改善アクション</p>
+            <p className="mt-1 text-sm leading-6 text-[#64748B]">recommendations テーブル由来の提案</p>
+          </div>
+          <span className="rounded-full bg-[#E6F4F1] px-2.5 py-1 text-xs font-bold text-[#00796B]">
+            {dashboardView.priorityTasks.length}件
+          </span>
+        </div>
+        {dashboardView.priorityTasks[0] ? (
+          <ActionSummaryCard task={dashboardView.priorityTasks[0]} />
+        ) : (
+          <EmptyDashboardState message="現在表示できる改善提案はありません。" />
+        )}
+        <Link
+          href={`${reportBase}/action-plan`}
+          className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]"
+        >
+          アクションプランを見る
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </section>
+    </div>
+  );
+}
+
+function HeroStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[14px] border border-white/12 bg-white/10 px-4 py-3">
+      <p className="text-xs font-medium text-white/62">{label}</p>
+      <p className="mt-1 text-xl font-bold tracking-tight text-white">{value}</p>
+    </div>
+  );
+}
+
+function HeroBreakdownRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/10 px-3 py-2">
+      <p className="text-xs font-semibold text-white/65">{label}</p>
+      <p className="text-sm font-bold text-white">{value}</p>
+    </div>
+  );
+}
+
+function ActionSummaryCard({ task }: { task: DashboardTask }) {
+  return (
+    <div className="mt-5 rounded-[16px] border border-[#DDE8E5] bg-[#F6FAF9] p-4">
+      <p className="font-bold leading-5 text-[#0F172A]">{task.task}</p>
+      <p className="mt-2 text-sm leading-6 text-[#64748B]">{task.reason}</p>
+      <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+        <TaskFact label="期待インパクト" value={task.expectedImpact} />
+        <TaskFact label="次の作業" value={task.action} />
+      </div>
+    </div>
+  );
+}
+
+function EmptyDashboardState({ message }: { message: string }) {
+  return (
+    <div className="rounded-[16px] border border-dashed border-[#DDE8E5] bg-[#F6FAF9] p-5 text-sm leading-6 text-[#64748B]">
+      {message}
+    </div>
+  );
+}
+
 function DashboardAlertStrip() {
   return (
-    <div className="mt-5 grid min-w-0 gap-3 lg:grid-cols-3">
+    <div className="mt-5 grid min-w-0 gap-4 lg:grid-cols-3">
       {dashboardAlerts.map((alert) => (
         <Link
           key={alert.title}
           href={alert.href}
           className={cn(
-            "group min-w-0 rounded-lg border bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2",
+            "group min-w-0 rounded-[18px] border bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)] transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2",
             alert.tone === "rose" && "border-rose-200 bg-rose-50/60",
             alert.tone === "amber" && "border-amber-200 bg-amber-50/70",
-            alert.tone === "blue" && "border-teal-200 bg-teal-50/70"
+            alert.tone === "blue" && "border-[#DDE8E5] bg-[#E6F4F1]/80"
           )}
         >
           <div className="flex min-w-0 items-start justify-between gap-3">
@@ -774,7 +864,7 @@ function DashboardAlertStrip() {
                   "text-sm font-semibold",
                   alert.tone === "rose" && "text-rose-900",
                   alert.tone === "amber" && "text-amber-900",
-                  alert.tone === "blue" && "text-teal-950"
+                  alert.tone === "blue" && "text-[#005C50]"
                 )}
               >
                 {alert.title}
@@ -787,7 +877,7 @@ function DashboardAlertStrip() {
                 "mt-0.5 h-4 w-4 shrink-0 transition group-hover:translate-x-0.5",
                 alert.tone === "rose" && "text-rose-600",
                 alert.tone === "amber" && "text-amber-600",
-                alert.tone === "blue" && "text-teal-600"
+                alert.tone === "blue" && "text-[#00796B]"
               )}
             />
           </div>
@@ -796,7 +886,7 @@ function DashboardAlertStrip() {
               "mt-3 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold",
               alert.tone === "rose" && "bg-white text-rose-700",
               alert.tone === "amber" && "bg-white text-amber-700",
-              alert.tone === "blue" && "bg-white text-teal-700"
+              alert.tone === "blue" && "bg-white text-[#00796B]"
             )}
           >
             {alert.action}
@@ -807,9 +897,9 @@ function DashboardAlertStrip() {
   );
 }
 
-function DashboardKpiGrid({ cards = dashboardKpiCards }: { cards?: DashboardKpiCardData[] }) {
+function DashboardKpiGrid({ cards }: { cards: DashboardKpiCardData[] }) {
   return (
-    <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+    <div className="mt-5 grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
       {cards.map((card) => (
         <MetricCard
           key={card.label}
@@ -827,78 +917,98 @@ function DashboardKpiGrid({ cards = dashboardKpiCards }: { cards?: DashboardKpiC
 }
 
 function VisibilityTrendCard({ dashboardView }: { dashboardView?: DashboardHomeViewModel }) {
+  const view = dashboardView ?? createEmptyDashboardHomeViewModel();
+  const visibilitySparkline = buildSparkline(view.brandVisibilityNumber);
+
   return (
     <DataCard
-      title="AI表示率の推移"
-      description="自社のAI表示率、首位競合、検索需要の直近推移"
+      title="AI表示率"
+      description={view.hasDbData ? "最新aggregate snapshot由来の現在値です。" : "DBデータ未取得時の空表示です。"}
       action={
-        <Link href={`${reportBase}/trends`} className="text-xs font-semibold text-teal-700">
+        <Link href={`${reportBase}/trends`} className="text-xs font-semibold text-[#00796B]">
           詳細
         </Link>
       }
     >
-      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_180px]">
-        <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <div className="flex min-w-0 items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-slate-500">RecoraのAI表示率</p>
-              <p className="mt-1 text-2xl font-bold text-slate-950">{dashboardView?.brandVisibilityValue ?? "8.7%"}</p>
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_210px]">
+        <div className="min-w-0 rounded-[18px] border border-[#DDE8E5] bg-[#F6FAF9] p-5">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-[#64748B]">RecoraのAI表示率</p>
+              <p className="mt-1 text-4xl font-bold tracking-tight text-[#0F172A]">{view.brandVisibilityValue}</p>
             </div>
-            <Badge variant="outline" className="whitespace-nowrap rounded-sm border-rose-200 bg-rose-50 text-rose-700">
-              {dashboardView ? (dashboardView.competitiveGapDelta > 0 ? "+" : "") + Math.round(dashboardView.competitiveGapDelta) + "pt" : "-2.1pt"}
+            <Badge variant="outline" className="w-fit whitespace-nowrap rounded-full border-amber-200 bg-amber-50 px-2.5 py-1 text-[#B7791F]">
+              首位との差 {formatSignedPt(view.competitiveGapDelta)}
             </Badge>
           </div>
-          <div className="mt-4">
-            <TinyBarChart
-              values={weeklyTrends.map((week) => week.recora)}
-              labels={weeklyTrends.map((week) => week.week)}
-            />
-          </div>
-          <p className="mt-3 text-xs leading-5 text-slate-600">
-            価格比較と導入期間の質問で競合への言及が増えています。参照元の鮮度と比較ページの強化が優先です。
+          <CurrentValueBars values={visibilitySparkline} max={100} />
+          <p className="mt-4 text-sm leading-6 text-[#64748B]">
+            推移グラフに見せるための固定デモ値は使わず、DBから渡された現在値をもとに補助表示しています。
           </p>
         </div>
-        <div className="grid min-w-0 gap-3">
-          <DashboardScopeRow label="推定トラフィック影響" value="3.2K" tone="blue" />
-          <DashboardScopeRow label="平均掲載順位" value="6.4 / 10" tone="slate" />
-          <DashboardScopeRow label="分析済みAI回答" value={`${conversations.length}件`} tone="green" />
+        <div className="grid min-w-0 gap-3 content-start">
+          <DashboardScopeRow label="AI言及数" value={String(view.aiMentionCount)} tone="blue" />
+          <DashboardScopeRow label="参照回数" value={String(view.citationCount)} tone="green" />
+          <DashboardScopeRow label="分析済みAI回答" value={`${view.aiConversationCount}件`} tone="slate" />
         </div>
       </div>
     </DataCard>
   );
 }
 
-function NextActionsCard({ tasks = priorityTasks }: { tasks?: DashboardTask[] }) {
+function CurrentValueBars({ values, max }: { values: number[]; max: number }) {
+  return (
+    <div className="mt-5 flex h-44 items-end gap-2 rounded-[16px] border border-[#DDE8E5] bg-white p-4">
+      {values.map((value, index) => (
+        <div key={`${value}-${index}`} className="flex flex-1 flex-col items-center gap-2">
+          <div className="flex h-32 w-full items-end rounded-lg bg-[#E6F4F1]">
+            <div
+              className="w-full rounded-lg bg-[#00796B]"
+              style={{ height: value > 0 ? `${Math.max(6, Math.min((value / Math.max(1, max)) * 100, 100))}%` : "0%" }}
+            />
+          </div>
+          <span className="text-[10px] font-semibold text-[#64748B]">{index + 1}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NextActionsCard({ tasks = [] }: { tasks?: DashboardTask[] }) {
   return (
     <DataCard
       title="次にやる3つ"
       description="AI表示率の回復に直結する優先アクション"
       action={
-        <Link href={`${reportBase}/action-plan`} className="text-xs font-semibold text-teal-700">
+        <Link href={`${reportBase}/action-plan`} className="text-xs font-semibold text-[#00796B]">
           改善プランへ
         </Link>
       }
     >
       <div className="space-y-3">
-        {tasks.slice(0, 3).map((task, index) => (
-          <div key={task.task} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <div className="flex min-w-0 items-start gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-teal-700 text-xs font-bold text-white">
-                {index + 1}
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-950">{task.task}</p>
-                <p className="mt-1 text-xs leading-5 text-slate-600">{task.action}</p>
-                <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-semibold">
-                  <PriorityPill value={task.priority} />
-                  <Badge variant="outline" className="whitespace-nowrap rounded-sm border-emerald-200 bg-emerald-50 text-emerald-700">
-                    {task.impact}
-                  </Badge>
+        {tasks.length > 0 ? (
+          tasks.slice(0, 3).map((task, index) => (
+            <div key={task.task} className="rounded-[16px] border border-[#DDE8E5] bg-[#F6FAF9] p-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#00796B] text-xs font-bold text-white">
+                  {index + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[#0F172A]">{task.task}</p>
+                  <p className="mt-1 text-xs leading-5 text-[#64748B]">{task.reason}</p>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-semibold">
+                    <PriorityPill value={task.priority} />
+                    <Badge variant="outline" className="whitespace-nowrap rounded-full border-emerald-200 bg-emerald-50 text-[#008F72]">
+                      {task.expectedImpact}
+                    </Badge>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))
+        ) : (
+          <EmptyDashboardState message="現在表示できる改善提案はありません。" />
+        )}
       </div>
     </DataCard>
   );
@@ -912,13 +1022,13 @@ function QuickLinksCard() {
           <Link
             key={link.title}
             href={link.href}
-            className="group flex min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3 transition hover:border-teal-200 hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+            className="group flex min-w-0 items-center justify-between gap-3 rounded-[16px] border border-[#DDE8E5] bg-white px-4 py-3 transition hover:border-[#00796B]/25 hover:bg-[#E6F4F1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
           >
             <span className="min-w-0">
               <span className="block text-sm font-semibold text-slate-950">{link.title}</span>
               <span className="mt-1 block text-xs leading-5 text-slate-500">{link.description}</span>
             </span>
-            <ArrowRight className="h-4 w-4 shrink-0 text-teal-600 transition group-hover:translate-x-0.5" />
+            <ArrowRight className="h-4 w-4 shrink-0 text-[#00796B] transition group-hover:translate-x-0.5" />
           </Link>
         ))}
       </div>
@@ -932,7 +1042,7 @@ function RecentConversationsCard() {
       title="最近のAI回答ログ"
       description="直近で分析した回答とブランド表示状況"
       action={
-        <Link href={`${reportBase}/conversations`} className="text-xs font-semibold text-teal-700">
+        <Link href={`${reportBase}/conversations`} className="text-xs font-semibold text-[#00796B]">
           すべて見る
         </Link>
       }
@@ -981,7 +1091,7 @@ function RecentSourceChangesCard() {
       title="最近の参照元の変化"
       description="AI回答で参照されたドメインの動き"
       action={
-        <Link href={`${reportBase}/sources`} className="text-xs font-semibold text-teal-700">
+        <Link href={`${reportBase}/sources`} className="text-xs font-semibold text-[#00796B]">
           参照元分析へ
         </Link>
       }
@@ -1002,7 +1112,7 @@ function RecentSourceChangesCard() {
               <TableCell className="whitespace-nowrap font-medium">{source.domain}</TableCell>
               <TableCell className="whitespace-nowrap text-slate-600">{source.type}</TableCell>
               <TableCell className="whitespace-nowrap text-right font-semibold">{source.appearances}</TableCell>
-              <TableCell className="whitespace-nowrap text-right font-semibold text-teal-700">
+              <TableCell className="whitespace-nowrap text-right font-semibold text-[#00796B]">
                 {source.citationShare}%
               </TableCell>
               <TableCell className="max-w-[260px] truncate text-slate-600">{source.recommendedAction}</TableCell>
@@ -1016,14 +1126,14 @@ function RecentSourceChangesCard() {
 
 function DashboardScopeRow({ label, value, tone }: { label: string; value: string; tone: "blue" | "green" | "slate" }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <p className="text-xs font-semibold text-slate-500">{label}</p>
+    <div className="rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,.04)]">
+      <p className="text-xs font-semibold text-[#64748B]">{label}</p>
       <p
         className={cn(
-          "mt-1 text-lg font-bold",
-          tone === "blue" && "text-teal-700",
-          tone === "green" && "text-emerald-700",
-          tone === "slate" && "text-slate-950"
+          "mt-2 text-2xl font-bold tracking-tight",
+          tone === "blue" && "text-[#00796B]",
+          tone === "green" && "text-[#008F72]",
+          tone === "slate" && "text-[#0F172A]"
         )}
       >
         {value}
@@ -1080,7 +1190,7 @@ export function ReportsIndexPage() {
               </TableCell>
               <TableCell>{sampleProject.lastRunAt}</TableCell>
               <TableCell>
-                <Badge variant="outline" className="border-teal-200 bg-teal-50 text-teal-700">
+                <Badge variant="outline" className="border-[#00796B]/25 bg-[#E6F4F1] text-[#00796B]">
                   {sampleProject.status}
                 </Badge>
               </TableCell>
@@ -1137,7 +1247,7 @@ export function ReportLandingPage() {
             <div>
               <div className="flex items-center justify-between gap-3">
                 <p className="font-bold text-slate-950">{contentOpportunities[0].topic}</p>
-                <span className="font-bold text-teal-700">{contentOpportunities[0].opportunityScore}</span>
+                <span className="font-bold text-[#00796B]">{contentOpportunities[0].opportunityScore}</span>
               </div>
               <ProgressBar value={contentOpportunities[0].opportunityScore} className="mt-3" />
             </div>
@@ -1402,7 +1512,7 @@ function ObservationKindBadge({ kind, label }: { kind: ObservationKind; label: s
       className={cn(
         "whitespace-nowrap rounded-sm text-xs",
         kind === "openai"
-          ? "border-teal-200 bg-teal-50 text-teal-700"
+          ? "border-[#00796B]/25 bg-[#E6F4F1] text-[#00796B]"
           : "border-slate-200 bg-slate-50 text-slate-600"
       )}
     >
@@ -1487,7 +1597,7 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
                 <TableCell>
                   <div className="space-y-2">
                     {conversation.recoraMentioned ? (
-                      <Badge className="bg-teal-700 text-white">{"順位 "}{conversation.recoraRank ?? "-"}</Badge>
+                      <Badge className="bg-[#00796B] text-white">{"順位 "}{conversation.recoraRank ?? "-"}</Badge>
                     ) : (
                       <Badge variant="outline" className="border-rose-200 bg-rose-50 text-rose-700">
                         {"未表示"}
@@ -2283,9 +2393,9 @@ function PlaceholderPageShell({
         title="この画面の位置づけ"
         description="現在はサンプルデータで画面の役割を示しています。分析ロジック、外部連携、自動実行は追加していません。"
       >
-        <div className="flex flex-col gap-3 rounded-lg border border-teal-100 bg-teal-50/60 p-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-[16px] border border-[#DDE8E5] bg-[#E6F4F1]/60 p-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <Badge variant="outline" className="border-teal-200 bg-white text-teal-700">
+            <Badge variant="outline" className="border-[#00796B]/25 bg-white text-[#00796B]">
               設計済み
             </Badge>
             <p className="mt-3 text-sm leading-6 text-slate-700">{detail.outcome}</p>
@@ -2342,7 +2452,7 @@ function PlaceholderInfoCard({
       ? "border-orange-200 bg-orange-50 text-orange-700"
       : tone === "green"
         ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-        : "border-teal-200 bg-teal-50 text-teal-700";
+        : "border-[#00796B]/25 bg-[#E6F4F1] text-[#00796B]";
 
   return (
     <DataCard
@@ -2376,11 +2486,11 @@ function PlaceholderLink({ href, label, helper }: { href: string; label: string;
   return (
     <Link
       href={href}
-      className="group flex min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+      className="group flex min-w-0 items-center justify-between gap-3 rounded-[16px] border border-[#DDE8E5] bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:border-[#00796B]/25 hover:bg-[#E6F4F1] hover:text-[#005C50] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
     >
       <span className="min-w-0">
         <span className="block">{label}</span>
-        <span className="mt-1 block truncate text-xs font-semibold text-slate-500 group-hover:text-teal-700">
+        <span className="mt-1 block truncate text-xs font-semibold text-slate-500 group-hover:text-[#00796B]">
           {helper}
         </span>
       </span>
@@ -2581,15 +2691,15 @@ function HeaderActions() {
 
 function ReportFilters({ compact = false, dashboardView }: { compact?: boolean; dashboardView?: DashboardHomeViewModel }) {
   return (
-    <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-[0_8px_28px_rgba(15,23,42,0.04)] md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_0.7fr_auto]">
+    <div className="grid gap-3 rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)] md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_0.7fr_auto]">
       <FilterBox label="プロジェクト" value={dashboardView?.projectName ?? sampleProject.name} />
       <FilterBox label="期間" value={dashboardView?.period ?? "2026/06/10 - 2026/06/16"} />
       <FilterBox label="比較期間" value={dashboardView?.comparisonPeriod ?? "2026/06/03 - 2026/06/09"} />
       <FilterBox label="地域" value="日本語（日本）" />
-      <div className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
-        <RefreshCw className="h-3.5 w-3.5 text-teal-600" />
+      <div className="flex items-center gap-2 rounded-[14px] bg-[#F6FAF9] px-3 py-2 text-xs font-semibold text-[#64748B]">
+        <RefreshCw className="h-3.5 w-3.5 text-[#00796B]" />
         <span className="whitespace-nowrap">
-          {compact ? "最終更新" : `最終更新: ${sampleProject.lastRunAt}`}
+          {compact ? "最終更新" : `最終更新: ${dashboardView?.lastUpdated ?? sampleProject.lastRunAt}`}
         </span>
       </div>
     </div>
@@ -2598,9 +2708,9 @@ function ReportFilters({ compact = false, dashboardView }: { compact?: boolean; 
 
 function FilterBox({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-md border border-slate-200 bg-white px-3 py-2">
-      <p className="text-[11px] font-bold text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-sm font-bold text-slate-900">{value}</p>
+    <div className="min-w-0 rounded-[14px] border border-[#DDE8E5] bg-white px-3 py-2">
+      <p className="text-[11px] font-bold text-[#64748B]">{label}</p>
+      <p className="mt-1 truncate text-sm font-bold text-[#0F172A]">{value}</p>
     </div>
   );
 }
@@ -2608,7 +2718,7 @@ function FilterBox({ label, value }: { label: string; value: string }) {
 function KpiGrid() {
   return (
     <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
-      {kpiCards.map((card) => (
+      {reportLandingKpiCards.map((card) => (
         <MetricCard key={card.label} {...card} />
       ))}
     </div>
@@ -2656,21 +2766,58 @@ function BrandVisibilityCard() {
     <DashboardCard
       title="AI表示率"
       description="AI回答内でのブランド別シェアです。"
-      action={<Link href={`${reportBase}/overview`} className="text-xs font-bold text-teal-700">詳細を見る</Link>}
+      action={<Link href={`${reportBase}/overview`} className="text-xs font-bold text-[#00796B]">詳細を見る</Link>}
     >
-      <DonutChart items={brandDonutItems} centerLabel="あなたのブランド" centerValue="8.7%" />
+      <DonutChart items={brandDonutItems} centerLabel="あなたのブランド" centerValue="-" />
     </DashboardCard>
   );
 }
 
 function CompetitiveRankingCard({ rows }: { rows?: DashboardRankingRow[] }) {
+  const rankingRows = rows ?? createSampleRankingRows();
+
   return (
     <DashboardCard
       title="競合ランキング（AI表示率）"
       description="Recoraと競合のAI表示率を比較します。"
-      action={<Link href={`${reportBase}/leaderboard`} className="text-xs font-bold text-teal-700">競合比較へ</Link>}
+      action={<Link href={`${reportBase}/leaderboard`} className="text-xs font-bold text-[#00796B]">競合比較へ</Link>}
     >
-      <RankingTable compact rows={rows} />
+      <div className="space-y-3">
+        {rankingRows.slice(0, 5).map((row, index) => (
+          <div
+            key={row.brandId}
+            className={cn(
+              "rounded-[16px] border border-[#DDE8E5] bg-[#F6FAF9] p-4",
+              row.isPrimary && "border-[#00796B]/25 bg-[#E6F4F1]"
+            )}
+          >
+            <div className="flex min-w-0 items-center justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <span
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold",
+                    index === 0 ? "bg-[#005C50] text-white" : "bg-white text-[#64748B]"
+                  )}
+                >
+                  {index + 1}
+                </span>
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="truncate font-bold text-[#0F172A]">{row.name}</p>
+                    {row.isPrimary ? <Badge className="bg-[#00796B] text-white">自社</Badge> : null}
+                  </div>
+                  <p className="mt-1 text-xs font-medium text-[#64748B]">AI内シェア {row.citationShare}%</p>
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-2xl font-bold tracking-tight text-[#0F172A]">{row.visibility}%</p>
+                <DeltaBadge value={row.competitiveGap ?? 0} label={formatSignedPt(row.competitiveGap)} />
+              </div>
+            </div>
+            <ProgressBar value={row.visibility} className="mt-3" tone={row.isPrimary ? "blue" : "amber"} />
+          </div>
+        ))}
+      </div>
     </DashboardCard>
   );
 }
@@ -2680,7 +2827,7 @@ function PromptCategoryCard() {
     <DashboardCard
       title="プロンプトカテゴリ分析"
       description="トピック別のAI表示率、前週比、AI言及数です。"
-      action={<Link href="/dashboard/config/topics-prompts" className="text-xs font-bold text-teal-700">カテゴリ詳細へ</Link>}
+      action={<Link href="/dashboard/config/topics-prompts" className="text-xs font-bold text-[#00796B]">カテゴリ詳細へ</Link>}
     >
       <Table className="min-w-[560px]">
         <TableHeader>
@@ -2714,7 +2861,7 @@ function ModelPerformanceCard() {
     <DashboardCard
       title="AIモデル別パフォーマンス"
       description="AIモデルごとのAI表示率・参照率です。"
-      action={<Link href="/dashboard/config/models" className="text-xs font-bold text-teal-700">すべてのAIモデル</Link>}
+      action={<Link href="/dashboard/config/models" className="text-xs font-bold text-[#00796B]">すべてのAIモデル</Link>}
     >
       <ModelVisibilityTable compact />
     </DashboardCard>
@@ -2726,7 +2873,7 @@ function SourceCitationCard() {
     <DashboardCard
       title="参照元分析"
       description="AI回答が参照している参照元の内訳です。"
-      action={<Link href={`${reportBase}/sources`} className="text-xs font-bold text-teal-700">詳細を見る</Link>}
+      action={<Link href={`${reportBase}/sources`} className="text-xs font-bold text-[#00796B]">詳細を見る</Link>}
     >
       <DonutChart items={sourceDonutItems} centerLabel="参照元内訳" centerValue="100%" />
     </DashboardCard>
@@ -2738,7 +2885,7 @@ function TopReferencedPagesCard() {
     <DashboardCard
       title="参照されているページ TOP5"
       description="AI回答で参照されたRecora関連ページです。"
-      action={<Link href={`${reportBase}/sources`} className="text-xs font-bold text-teal-700">すべて見る</Link>}
+      action={<Link href={`${reportBase}/sources`} className="text-xs font-bold text-[#00796B]">すべて見る</Link>}
     >
       <Table className="min-w-[540px]">
         <TableHeader>
@@ -2762,38 +2909,35 @@ function TopReferencedPagesCard() {
   );
 }
 
-function ImprovementPanel() {
+function ImprovementPanel({ tasks }: { tasks: DashboardTask[] }) {
   return (
-    <aside className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.045)]">
+    <aside className="min-w-0 rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-bold text-slate-950">改善提案（優先度順）</h2>
-          <p className="mt-1 text-xs leading-5 text-slate-500">AI表示率低下の要因に近い順で並べています。</p>
+          <h2 className="text-base font-bold tracking-tight text-[#0F172A]">改善提案（優先度順）</h2>
+          <p className="mt-1 text-sm leading-6 text-[#64748B]">AI表示率低下の要因に近い順で並べています。</p>
         </div>
       </div>
       <div className="mt-4 space-y-3">
-        <PrioritySuggestionCard
-          priority="High"
-          title="製品・サービスカテゴリの強化"
-          description="カテゴリ説明のAI表示率が低く、競合に奪われています。"
-          href={`${reportBase}/content-opportunities`}
-        />
-        <PrioritySuggestionCard
-          priority="Medium"
-          title="AI参照コンテンツの最適化"
-          description="参照される根拠ページを補強すると、AI表示率向上が期待できます。"
-          href={`${reportBase}/sources`}
-        />
-        <PrioritySuggestionCard
-          priority="Medium"
-          title="比較プロンプトでの存在感向上"
-          description="比較・選定系プロンプトでRecoraの順位が下がっています。"
-          href={`${reportBase}/leaderboard`}
-        />
+        {tasks.length > 0 ? (
+          tasks.slice(0, 3).map((task) => (
+            <PrioritySuggestionCard
+              key={task.task}
+              priority={task.priority}
+              title={task.task}
+              description={task.action}
+              reason={task.reason}
+              impact={task.expectedImpact}
+              href={`${reportBase}/content-opportunities`}
+            />
+          ))
+        ) : (
+          <EmptyDashboardState message="現在表示できる改善提案はありません。" />
+        )}
       </div>
       <Link
         href={`${reportBase}/content-opportunities`}
-        className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-teal-700"
+        className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[#00796B]"
       >
         すべての提案を見る
         <ArrowRight className="h-4 w-4" />
@@ -2802,41 +2946,49 @@ function ImprovementPanel() {
   );
 }
 
-function PriorityTasksCard({ tasks = priorityTasks }: { tasks?: DashboardTask[] }) {
+function PriorityTasksCard({ tasks = [] }: { tasks?: DashboardTask[] }) {
   return (
     <DashboardCard title="改善提案（優先タスク）" description="すぐに着手すべき改善タスクです。">
-      <Table className="min-w-[980px]">
-        <TableHeader>
-          <TableRow>
-            <TableHead>優先度</TableHead>
-            <TableHead>改善タスク</TableHead>
-            <TableHead>影響度</TableHead>
-            <TableHead>関連カテゴリ</TableHead>
-            <TableHead>推奨アクション</TableHead>
-            <TableHead>期限</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+      {tasks.length > 0 ? (
+        <div className="grid gap-4 lg:grid-cols-3">
           {tasks.map((task) => (
-            <TableRow key={task.task}>
-              <TableCell><PriorityPill value={task.priority} /></TableCell>
-              <TableCell className="min-w-[240px] font-bold text-slate-950">{task.task}</TableCell>
-              <TableCell className="whitespace-nowrap font-bold text-emerald-700">{task.impact}</TableCell>
-              <TableCell className="min-w-36 whitespace-nowrap">{task.category}</TableCell>
-              <TableCell className="min-w-[240px] text-sm leading-6 text-slate-600">{task.action}</TableCell>
-              <TableCell>{task.due}</TableCell>
-            </TableRow>
+          <div key={task.task} className="rounded-[16px] border border-[#DDE8E5] bg-[#F6FAF9] p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <PriorityPill value={task.priority} />
+              <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-[#008F72]">
+                {task.impact}
+              </Badge>
+            </div>
+            <p className="mt-4 text-base font-bold leading-6 text-[#0F172A]">{task.task}</p>
+            <p className="mt-2 text-sm leading-6 text-[#64748B]">{task.reason}</p>
+            <div className="mt-4 space-y-2 text-sm">
+              <TaskFact label="推奨アクション" value={task.action} />
+              <TaskFact label="期待インパクト" value={task.expectedImpact} />
+              <TaskFact label="関連カテゴリ" value={task.category} />
+            </div>
+          </div>
           ))}
-        </TableBody>
-      </Table>
+        </div>
+      ) : (
+        <EmptyDashboardState message="現在表示できる改善タスクはありません。" />
+      )}
       <Link
         href={`${reportBase}/content-opportunities`}
-        className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-teal-700"
+        className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[#00796B]"
       >
         すべての改善タスクを見る
         <ArrowRight className="h-4 w-4" />
       </Link>
     </DashboardCard>
+  );
+}
+
+function TaskFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-white px-3 py-2">
+      <p className="text-[11px] font-bold text-[#64748B]">{label}</p>
+      <p className="mt-1 text-sm font-semibold leading-5 text-[#0F172A]">{value}</p>
+    </div>
   );
 }
 
@@ -2854,7 +3006,7 @@ function RoadmapSection() {
       </div>
       <Link
         href={`${reportBase}/content-opportunities`}
-        className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-teal-700"
+        className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-[#00796B]"
       >
         ロードマップの詳細を見る
         <ArrowRight className="h-4 w-4" />
@@ -3002,7 +3154,7 @@ function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: Das
       </TableHeader>
       <TableBody>
         {rankingRows.map((row, index) => (
-          <TableRow key={row.brandId} className={row.isPrimary ? "bg-teal-50/55" : undefined}>
+          <TableRow key={row.brandId} className={row.isPrimary ? "bg-[#E6F4F1]/55" : undefined}>
             <TableCell className="font-bold">
               <span className="inline-flex items-center gap-1 whitespace-nowrap">
                 {index < 3 ? <Crown className="h-3.5 w-3.5 text-orange-500" /> : null}
@@ -3012,7 +3164,7 @@ function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: Das
             <TableCell>
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="font-bold text-slate-950">{row.name}</span>
-                {row.isPrimary ? <Badge className="bg-teal-700 text-white">自社</Badge> : null}
+                {row.isPrimary ? <Badge className="bg-[#00796B] text-white">自社</Badge> : null}
               </div>
               {!compact && row.representativePrompt ? (
                 <p className="mt-1 max-w-[320px] truncate text-xs text-slate-500">{row.representativePrompt}</p>
@@ -3020,7 +3172,7 @@ function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: Das
             </TableCell>
             {!compact ? (
               <TableCell className="whitespace-nowrap">
-                <Badge variant="outline" className={cn("rounded-sm", row.isPrimary ? "border-teal-200 bg-teal-50 text-teal-700" : "border-slate-200 bg-slate-50 text-slate-600")}>
+                <Badge variant="outline" className={cn("rounded-sm", row.isPrimary ? "border-[#00796B]/25 bg-[#E6F4F1] text-[#00796B]" : "border-slate-200 bg-slate-50 text-slate-600")}>
                   {row.brandTypeLabel ?? (row.isPrimary ? "自社" : "競合")}
                 </Badge>
               </TableCell>
@@ -3277,7 +3429,7 @@ function ContentOpportunitiesTable() {
             <TableCell className="whitespace-nowrap">{formatPercent(item.competitorVisibility)}</TableCell>
             <TableCell className="min-w-[180px]">{item.missingSource}</TableCell>
             <TableCell className="whitespace-nowrap">{item.affectedPrompts}</TableCell>
-            <TableCell className="min-w-[220px] font-mono text-xs text-teal-700">{item.recommendedPage}</TableCell>
+            <TableCell className="min-w-[220px] font-mono text-xs text-[#00796B]">{item.recommendedPage}</TableCell>
             <TableCell className="min-w-[280px] text-sm leading-6 text-slate-600">{item.nextStep}</TableCell>
           </TableRow>
         ))}
@@ -3441,7 +3593,7 @@ function ReportSummaryBlock({ dashboardView }: { dashboardView?: DashboardHomeVi
         <TableBody>
           {[
             ["概要", "AI表示率は一部で改善中", "サイト技術診断領域が弱い", `${reportBase}/overview`],
-            ["競合ランキング", "Recoraは3位", "首位との差が14pt", `${reportBase}/leaderboard`],
+            ["競合ランキング", "順位と競合差分を確認", "首位との差を確認", `${reportBase}/leaderboard`],
             ["参照元分析", "自社参照は31%", "競合参照元がまだ強い", `${reportBase}/sources`],
             ["選定基準分析", "2項目で勝ち", "レポート品質と技術根拠が不足", `${reportBase}/buyer-criteria`]
           ].map(([area, state, risk, href]) => (
@@ -3450,7 +3602,7 @@ function ReportSummaryBlock({ dashboardView }: { dashboardView?: DashboardHomeVi
               <TableCell className="min-w-[180px]">{state}</TableCell>
               <TableCell className="min-w-[220px]">{risk}</TableCell>
               <TableCell>
-                <Link href={href} className="inline-flex items-center gap-1 text-sm font-bold text-teal-700 hover:text-teal-900">
+                <Link href={href} className="inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]">
                   開く
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Link>

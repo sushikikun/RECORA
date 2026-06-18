@@ -14,11 +14,11 @@ import { cn } from "@/lib/utils";
 type Tone = "blue" | "green" | "amber" | "rose" | "slate" | "purple";
 
 const toneClasses: Record<Tone, string> = {
-  blue: "bg-teal-50 text-teal-700",
-  green: "bg-emerald-50 text-emerald-700",
-  amber: "bg-orange-50 text-orange-700",
-  rose: "bg-rose-50 text-rose-700",
-  slate: "bg-slate-100 text-slate-700",
+  blue: "bg-[#E6F4F1] text-[#00796B]",
+  green: "bg-emerald-50 text-[#008F72]",
+  amber: "bg-amber-50 text-[#B7791F]",
+  rose: "bg-rose-50 text-[#C2415B]",
+  slate: "bg-slate-100 text-[#64748B]",
   purple: "bg-indigo-50 text-indigo-700"
 };
 
@@ -40,15 +40,15 @@ export function PageHeader({
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           {eyebrow ? (
-            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-teal-700">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[#00796B]">
               {eyebrow}
             </p>
           ) : null}
-          <h1 className="text-2xl font-bold tracking-normal text-slate-950 sm:text-[30px]">
+          <h1 className="text-3xl font-bold tracking-tight text-[#0F172A]">
             {title}
           </h1>
           {description ? (
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{description}</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#64748B]">{description}</p>
           ) : null}
         </div>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
@@ -76,22 +76,22 @@ export function DashboardCard({
   return (
     <Card
       className={cn(
-        "min-w-0 max-w-full rounded-lg border-slate-200/80 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.045)]",
+        "min-w-0 max-w-full rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]",
         className
       )}
     >
       {title || description || action ? (
-        <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 border-b border-[#DDE8E5]/80 px-6 py-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            {title ? <h2 className="text-[15px] font-bold text-slate-950">{title}</h2> : null}
+            {title ? <h2 className="text-base font-bold tracking-tight text-[#0F172A]">{title}</h2> : null}
             {description ? (
-              <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+              <p className="mt-1 text-sm leading-6 text-[#64748B]">{description}</p>
             ) : null}
           </div>
           {action ? <div className="shrink-0">{action}</div> : null}
         </div>
       ) : null}
-      <div className={cn("min-w-0", dense ? "p-3.5" : "p-4")}>{children}</div>
+      <div className={cn("min-w-0", dense ? "p-5" : "p-6")}>{children}</div>
     </Card>
   );
 }
@@ -120,23 +120,23 @@ export function MetricCard({
   return (
     <Card
       title={helper ? `${label}: ${helper}` : label}
-      className="min-w-0 rounded-lg border-slate-200/80 bg-white p-4 shadow-[0_10px_26px_rgba(15,23,42,0.045)]"
+      className="min-w-0 rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]"
     >
-      <div className="flex min-h-[104px] min-w-0 flex-col justify-between gap-3">
-        <p className="truncate whitespace-nowrap text-[13px] font-bold leading-5 text-slate-500">
+      <div className="flex min-h-[126px] min-w-0 flex-col justify-between gap-4">
+        <p className="truncate whitespace-nowrap text-sm font-medium leading-5 text-[#64748B]">
           {label}
         </p>
         <div className="flex min-w-0 items-end justify-between gap-3">
           <div className="min-w-0">
-            <p className="whitespace-nowrap text-[28px] font-bold tracking-normal text-slate-950">
+            <p className="whitespace-nowrap text-4xl font-bold tracking-tight text-[#0F172A]">
               {value}
             </p>
             <div className="mt-2 flex min-h-5 items-center gap-2">
-            {delta !== undefined ? <DeltaBadge value={delta} label={deltaLabel} /> : null}
+              {delta !== undefined ? <DeltaBadge value={delta} label={deltaLabel} /> : null}
             </div>
           </div>
           {sparkline ? (
-            <div className="w-20 shrink-0 sm:w-24 lg:w-20 2xl:w-24">
+            <div className="w-24 shrink-0 sm:w-28 lg:w-24 2xl:w-28">
               <MiniSparkline values={sparkline} tone={tone} type={chartType} />
             </div>
           ) : (
@@ -194,7 +194,7 @@ export function AlertBanner({
             <p className="mt-1 text-sm leading-6 text-slate-700">{description}</p>
           </div>
         </div>
-        <button className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-orange-200 bg-white px-3 text-sm font-bold text-teal-700 shadow-sm transition-colors hover:bg-teal-50">
+        <button className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-orange-200 bg-white px-3 text-sm font-bold text-[#00796B] shadow-sm transition-colors hover:bg-[#E6F4F1]">
           {actionLabel}
           <ArrowRight className="h-4 w-4" />
         </button>
@@ -213,10 +213,10 @@ export function MiniSparkline({
   type?: "line" | "bars";
 }) {
   const color = {
-    blue: "#0d9488",
-    green: "#10b981",
-    amber: "#f97316",
-    rose: "#ef4444",
+    blue: "#00796B",
+    green: "#008F72",
+    amber: "#B7791F",
+    rose: "#C2415B",
     slate: "#475569",
     purple: "#7c3aed"
   }[tone];
@@ -274,15 +274,15 @@ export function ProgressBar({
   tone?: "blue" | "green" | "amber" | "rose" | "slate";
 }) {
   const toneClass = {
-    blue: "bg-teal-600",
-    green: "bg-emerald-600",
-    amber: "bg-orange-500",
-    rose: "bg-rose-500",
+    blue: "bg-[#00796B]",
+    green: "bg-[#008F72]",
+    amber: "bg-[#B7791F]",
+    rose: "bg-[#C2415B]",
     slate: "bg-slate-600"
   }[tone];
 
   return (
-    <div className={cn("h-2 w-full overflow-hidden rounded-full bg-slate-100", className)}>
+    <div className={cn("h-2 w-full overflow-hidden rounded-full bg-[#E6F4F1]", className)}>
       <div
         className={cn("h-full rounded-full", toneClass)}
         style={{ width: `${Math.max(0, Math.min(value, 100))}%` }}
@@ -300,9 +300,9 @@ export function DeltaBadge({ value, label }: { value: number; label?: string }) 
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-sm px-2 py-0.5 text-xs font-bold",
-        isPositive && "bg-emerald-50 text-emerald-700",
-        isNegative && "bg-rose-50 text-rose-700",
-        !isPositive && !isNegative && "bg-slate-100 text-slate-600"
+        isPositive && "rounded-full bg-emerald-50 text-[#008F72]",
+        isNegative && "rounded-full bg-rose-50 text-[#C2415B]",
+        !isPositive && !isNegative && "rounded-full bg-slate-100 text-[#64748B]"
       )}
     >
       <Icon className="h-3.5 w-3.5" />
@@ -339,13 +339,13 @@ export function PriorityPill({ value }: { value: "High" | "Medium" | "Low" }) {
   const label = value === "High" ? "高" : value === "Medium" ? "中" : "低";
   const className =
     value === "High"
-      ? "border-rose-200 bg-rose-50 text-rose-700"
+      ? "border-rose-200 bg-rose-50 text-[#C2415B]"
       : value === "Medium"
-        ? "border-orange-200 bg-orange-50 text-orange-700"
-        : "border-slate-200 bg-slate-50 text-slate-600";
+        ? "border-amber-200 bg-amber-50 text-[#B7791F]"
+        : "border-slate-200 bg-slate-50 text-[#64748B]";
 
   return (
-    <Badge variant="outline" className={cn("whitespace-nowrap rounded-sm", className)}>
+    <Badge variant="outline" className={cn("whitespace-nowrap rounded-full", className)}>
       優先度: {label}
     </Badge>
   );
@@ -430,29 +430,39 @@ export function PrioritySuggestionCard({
   priority,
   title,
   description,
+  reason,
+  impact,
   href = "#"
 }: {
   priority: "High" | "Medium" | "Low";
   title: string;
   description: string;
+  reason?: string;
+  impact?: string;
   href?: string;
 }) {
   const priorityClass =
     priority === "High"
-      ? "border-rose-200 bg-rose-50 text-rose-700"
+      ? "border-rose-200 bg-rose-50 text-[#C2415B]"
       : priority === "Medium"
-        ? "border-orange-200 bg-orange-50 text-orange-700"
-        : "border-teal-200 bg-teal-50 text-teal-700";
+        ? "border-amber-200 bg-amber-50 text-[#B7791F]"
+        : "border-teal-200 bg-[#E6F4F1] text-[#00796B]";
   const label = priority === "High" ? "高" : priority === "Medium" ? "中" : "低";
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <span className={cn("inline-flex rounded-sm border px-2 py-0.5 text-xs font-bold", priorityClass)}>
+    <div className="rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]">
+      <span className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-bold", priorityClass)}>
         優先度: {label}
       </span>
-      <p className="mt-3 font-bold leading-5 text-slate-950">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
-      <Link href={href} className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-teal-700">
+      <p className="mt-4 font-bold leading-5 text-[#0F172A]">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-[#64748B]">{description}</p>
+      {reason || impact ? (
+        <div className="mt-4 grid gap-2 text-xs font-semibold text-[#64748B]">
+          {reason ? <p><span className="text-[#0F172A]">理由:</span> {reason}</p> : null}
+          {impact ? <p><span className="text-[#0F172A]">期待インパクト:</span> {impact}</p> : null}
+        </div>
+      ) : null}
+      <Link href={href} className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-[#00796B]">
         詳細を確認
         <ArrowRight className="h-4 w-4" />
       </Link>
@@ -472,13 +482,13 @@ export function RoadmapCard({
   effect: string;
 }) {
   return (
-    <div className="relative rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-700 text-sm font-bold text-white">
+    <div className="relative rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]">
+      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#00796B] text-sm font-bold text-white">
         {step}
       </span>
-      <p className="mt-3 font-bold text-slate-950">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
-      <span className="mt-4 inline-flex rounded-sm bg-teal-50 px-2 py-1 text-xs font-bold text-teal-700">
+      <p className="mt-3 font-bold text-[#0F172A]">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-[#64748B]">{description}</p>
+      <span className="mt-4 inline-flex rounded-full bg-[#E6F4F1] px-2.5 py-1 text-xs font-bold text-[#00796B]">
         {effect}
       </span>
     </div>
@@ -498,9 +508,9 @@ export function TinyBarChart({
     <div className="flex h-28 items-end gap-2">
       {values.map((value, index) => (
         <div key={`${value}-${index}`} className="flex flex-1 flex-col items-center gap-2">
-          <div className="flex h-20 w-full items-end rounded-md bg-slate-100">
+          <div className="flex h-20 w-full items-end rounded-md bg-[#E6F4F1]">
             <div
-              className="w-full rounded-md bg-teal-700"
+              className="w-full rounded-md bg-[#00796B]"
               style={{ height: `${Math.max(8, Math.min((value / max) * 100, 100))}%` }}
             />
           </div>

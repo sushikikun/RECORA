@@ -3,23 +3,23 @@
 @tailwind utilities;
 
 :root {
-  --background: 0 0% 100%;
+  --background: 160 29% 97%;
   --foreground: 222 47% 13%;
   --card: 0 0% 100%;
   --card-foreground: 222 47% 13%;
-  --primary: 173 80% 32%;
+  --primary: 174 100% 24%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 174 64% 40%;
+  --secondary: 174 100% 18%;
   --secondary-foreground: 0 0% 100%;
-  --muted: 210 40% 96%;
+  --muted: 166 35% 93%;
   --muted-foreground: 215 16% 39%;
-  --accent: 35 89% 58%;
+  --accent: 39 70% 42%;
   --accent-foreground: 222 47% 13%;
-  --destructive: 0 84% 60%;
+  --destructive: 346 51% 51%;
   --destructive-foreground: 0 0% 100%;
-  --border: 214 32% 88%;
-  --input: 214 32% 88%;
-  --ring: 173 80% 32%;
+  --border: 165 22% 89%;
+  --input: 165 22% 89%;
+  --ring: 174 100% 24%;
   --radius: 0.5rem;
 }
 
@@ -32,7 +32,7 @@ html {
 }
 
 body {
-  @apply bg-[#f6f9fb] text-foreground antialiased;
+  @apply bg-[#F6FAF9] text-foreground antialiased;
   font-family:
     system-ui,
     -apple-system,
