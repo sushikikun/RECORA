@@ -321,6 +321,9 @@ seed recommendations は通常表示から除外される。
 
 | Commit | 内容 |
 |---|---|
+| `e2b6efd` | `fix(recora): use latest aggregate for leaderboard` |
+| `551a71a` | `feat(recora): add measurement profiles` |
+| `ff9f749` | `docs(recora): document live-data display policy` |
 | `ab258ad` | `fix(recora): exclude seed data from live dashboard views` |
 | `fbb5e66` | `feat(recora): expand prompt library` |
 | `b2f780a` | `feat(recora): add topics and prompts management page` |
@@ -342,3 +345,119 @@ seed recommendations は通常表示から除外される。
 - Recora指標はRecora独自の観測指標であり、AIプラットフォーム公式評価ではない。
 - 観測数が少ない場合、1回または少数回の測定結果を強い結論として扱わない。
 - 表示対象がない場合はsample fallbackではなく空状態にする。
+
+## 9. 2026-06-18 測定プロファイルと標準測定チェックポイント
+
+Recora v0.1 では、測定対象promptを `prompt-limit` と priority / created_at 順に依存して選ぶ方式から、固定された測定プロファイルで明示的に選ぶ方式へ進めた。
+これにより、prompt libraryを拡張しても、小規模測定と標準測定の対象promptを再現可能に保てる。
+
+### 測定プロファイル
+
+| Profile | 表示名 | prompts | search mode | expected run_items | 用途 |
+|---|---|---:|---|---:|---|
+| `small-v01` | 小規模測定 | 1 | both | 2 | OpenAI API / DB保存 / 集計フローの疎通確認 |
+| `standard-v01` | 標準測定 | 10 | both | 20 | Recora v0.1の基本的なAI検索観測 |
+
+`standard-v01` は20観測になるため、毎回気軽に連打しない。
+`small-v01` は疎通確認用として扱う。
+
+### small-v01 実動作確認
+
+| Item | Value |
+|---|---:|
+| measurementRunId | `79743545-890c-4105-83e3-29cb22838312` |
+| aggregateRunId | `1bbe606b-3939-40f6-9cfe-802c10bc4a4f` |
+| run_items | 2 |
+| ai_conversations | 2 |
+| brand_mentions | 10 |
+| citations | 10 |
+| metric_snapshots | 47 -> 53 |
+| recommendations | 6 -> 6 |
+| failedItems | 0 |
+
+### standard-v01 標準測定成功
+
+| Item | Value |
+|---|---:|
+| measurementRunId | `23677594-080c-424e-bff0-dc931d106b33` |
+| aggregateRunId | `5f6e433f-dd09-4341-b2de-7240ff5ce042` |
+| run_items | 20 |
+| ai_conversations | 20 |
+| brand_mentions | 100 |
+| citations | 26 |
+| sourceDomainsUpserted | 12 |
+| metric_snapshots | 53 -> 59 |
+| recommendations | 6 -> 6 |
+| failedItems | 0 |
+| skippedDuplicates | 0 |
+
+### standard-v01 実行後の最新dashboard KPI
+
+最新dashboard KPIは、aggregate run `5f6e433f-dd09-4341-b2de-7240ff5ce042` のproject scope snapshot由来。
+
+| KPI | Value |
+|---|---:|
+| AI表示率 | 50% |
+| AI言及数 | 76 |
+| 参照回数 | 26 |
+| 競合差分 | +40pt |
+| 改善優先度 | 0 |
+
+改善優先度は、実データ由来の reviewed / approved recommendations がない場合は0になる。
+recommendations はまだ自動生成・自動保存しない。
+seed recommendations は通常表示しない。
+実データ由来の reviewed / approved recommendations がない場合、recommendations画面は空状態になる。
+
+### leaderboard 最新aggregate表示修正
+
+`/dashboard/reports/recora-kenzai-q2/leaderboard` は、`/dashboard` と同じ最新 `openai_measurement` aggregate runを基準に表示するよう修正済み。
+
+取得方針:
+
+- `measurement_runs.metadata.run_kind = aggregate`
+- `measurement_runs.metadata.data_source = openai_measurement`
+- `measurement_runs.status = completed`
+- 対象projectの最新aggregate runを1件だけ解決する
+- その `aggregateRunId` に紐づく `metric_snapshots.scope_type = brand` だけをleaderboardに使う
+- 古いaggregateや、ブランドごとの個別最新snapshotを混ぜない
+- `noStore()` を使って stale 表示を避ける
+- seed aggregate / seed snapshots は通常表示から除外する
+- sample fallback は復活させない
+
+最新 `aggregateRunId` は `5f6e433f-dd09-4341-b2de-7240ff5ce042`。
+
+最新leaderboard表示値:
+
+| Brand | AI表示率 |
+|---|---:|
+| レコラ建材 | 50% |
+| タイルワークス | 10% |
+| マテリアルラボ | 10% |
+| クラフト建材 | 0% |
+| 住空間タイル | 0% |
+
+### 現在のDB件数メモ
+
+| Table | Count |
+|---|---:|
+| `measurement_runs` | 20 |
+| `run_items` | 62 |
+| `ai_conversations` | 60 |
+| `brand_mentions` | 276 |
+| `citations` | 120 |
+| `source_domains` | 67 |
+| `metric_snapshots` | 59 |
+| `recommendations` | 6 |
+| `topics` | 6 |
+| `prompts` | 12 |
+| `personas` | 4 |
+
+### 運用上の追加注意
+
+- Recora指標はAIプラットフォーム公式評価ではなく、観測ベースの自社指標である。
+- 少数観測を強い結論として扱わない。
+- `standard-v01` は20観測なので、毎回気軽に連打しない。
+- `small-v01` は疎通確認用として扱う。
+- recommendationsはまだ自動生成・自動保存しない。
+- seed recommendationsは通常表示しない。
+- 実データ由来の reviewed / approved recommendations がない場合、recommendations画面は空状態になる。
