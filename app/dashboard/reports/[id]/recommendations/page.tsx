@@ -21,9 +21,9 @@ export default async function ReportRecommendationsPage({ params }: ReportRecomm
 async function getRecommendationsDataOrNull(projectSlug: string) {
   try {
     const data = await getRecoraRecommendationsData(projectSlug);
-    return data.project && data.recommendations.length > 0 ? data : null;
+    return data.project ? data : null;
   } catch (error) {
-    console.warn("Failed to load Recora recommendations data. Falling back to sample data.", error);
+    console.warn("Failed to load Recora recommendations data.", error);
     return null;
   }
 }

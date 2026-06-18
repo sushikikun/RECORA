@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataCard, MetricTile, PageHeader, ProgressBar } from "@/components/recora/ui";
 import { reportDetailTabs } from "@/lib/recora/nav-config";
-import { brand, sampleProject } from "@/lib/recora/sample-data";
 import type { RecoraRecommendationRow, RecoraRecommendationsDbData } from "@/lib/recora/db";
 import { cn } from "@/lib/utils";
 import {
@@ -50,43 +49,7 @@ type RecommendationsViewModel = {
   doneCount: number;
 };
 
-const reportBase = "/dashboard/reports/" + sampleProject.id;
-
-const sampleRecommendationItems = [
-  {
-    title: "製品・サービスカテゴリの説明を強化する",
-    priority: "High" as const,
-    typeLabel: "コンテンツ",
-    statusLabel: "未着手",
-    reason: "AI回答で自社の強みが十分に説明されないため、製品ページにFAQと選定基準を追加します。",
-    expectedImpact: "+2.1pt",
-    effortScore: 42,
-    relatedTopic: "製品比較",
-    action: "FAQと比較表を追加"
-  },
-  {
-    title: "AI参照コンテンツを最適化する",
-    priority: "High" as const,
-    typeLabel: "参照元",
-    statusLabel: "計画中",
-    reason: "参照されるページの構造と見出しが弱いため、AIが要約しやすい根拠を用意します。",
-    expectedImpact: "+1.8pt",
-    effortScore: 55,
-    relatedTopic: "参照元",
-    action: "事例と根拠ページを整理"
-  },
-  {
-    title: "比較プロンプトでの存在感を高める",
-    priority: "Medium" as const,
-    typeLabel: "競合",
-    statusLabel: "未着手",
-    reason: "競合と比較される質問で自社の表示が弱いため、比較軸と強みを明確にします。",
-    expectedImpact: "+0.9pt",
-    effortScore: 35,
-    relatedTopic: "競合差分",
-    action: "比較軸の説明を追加"
-  }
-];
+const reportBase = "/dashboard/reports/recora-kenzai-q2";
 
 export function RecommendationsDbPage({ recommendationsData = null }: { recommendationsData?: RecoraRecommendationsDbData | null }) {
   const view = createRecommendationsViewModel(recommendationsData);
@@ -98,7 +61,7 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
         eyebrow="改善"
         title="改善提案"
         description="AI表示率と競合差分から、優先して直す施策を整理します。数値はRecora独自の測定結果にもとづく参考指標です。"
-        meta={<ReportFilters compact />}
+        meta={<ReportFilters compact data={recommendationsData} />}
         actions={<HeaderActions />}
       />
       <DetailTabs items={reportDetailTabs.recommendations} />
@@ -113,9 +76,11 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         <DataCard title="優先度順の改善提案" description="断定ではなく、AI検索での観測結果から優先度を付けた施策候補です。">
           <div className="space-y-4">
-            {topItems.map((item) => (
+            {topItems.length > 0 ? topItems.map((item) => (
               <RecommendationActionCard key={item.id} item={item} />
-            ))}
+            )) : (
+              <EmptyStateBlock title="表示できるrecommendationsがありません" description="測定結果から改善提案が保存されると、ここに優先度順で表示されます。" />
+            )}
           </div>
         </DataCard>
 
@@ -125,7 +90,7 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
             <RecommendationStatusRow label="計画中" value={view.plannedCount} tone="amber" />
             <RecommendationStatusRow label="完了" value={view.doneCount} tone="green" />
             <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-3 text-xs leading-5 text-blue-800">
-              {"OpenAI実測からの自動生成はまだ行わず、保存済みのrecommendationsテーブルを表示しています。"}
+              {"表示対象として保存済みの改善提案だけを表示しています。"}
             </div>
             <div className="grid gap-2">
               <PlaceholderLink href={reportBase + "/action-plan"} label="改善プラン" helper="30/60/90日の実行計画に落とし込む" />
@@ -135,7 +100,7 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
         </DataCard>
       </div>
 
-      <DataCard className="mt-5" title="改善提案一覧" description="recommendationsテーブルの内容を、関連トピック・ブランドとあわせて表示します。">
+      <DataCard className="mt-5" title="改善提案一覧" description="保存済みの改善提案を、関連トピック・ブランドとあわせて表示します。">
         <div className="overflow-x-auto">
           <RecommendationsTable rows={view.items} />
         </div>
@@ -145,14 +110,14 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
 }
 
 function createRecommendationsViewModel(data?: RecoraRecommendationsDbData | null): RecommendationsViewModel {
-  const items = data?.project && data.recommendations.length > 0 ? createDbRecommendationItems(data) : createSampleRecommendationItems();
+  const items = data?.project ? createDbRecommendationItems(data) : [];
   const highPriorityCount = items.filter((item) => item.priority === "High").length;
   const averageImpact = Math.round(average(items.map((item) => item.impactScore)));
   const effortValues = items.map((item) => item.effortScore).filter((value) => value > 0);
   const averageEffort = Math.round(average(effortValues));
 
   return {
-    sourceLabel: data?.project && data.recommendations.length > 0 ? "DBデータ" : "サンプル",
+    sourceLabel: data?.project ? "保存済み提案" : "表示できるデータがありません",
     items,
     highPriorityCount,
     averageImpact,
@@ -200,28 +165,6 @@ function createDbRecommendationItems(data: RecoraRecommendationsDbData): Recomme
     });
 }
 
-function createSampleRecommendationItems(): RecommendationDisplayItem[] {
-  return sampleRecommendationItems.map((item, index) => ({
-    id: "sample-" + index,
-    title: item.title,
-    priority: item.priority,
-    priorityCode: item.priority === "High" ? "P0" : item.priority === "Medium" ? "P1" : "P2",
-    typeLabel: item.typeLabel,
-    statusLabel: item.statusLabel,
-    reason: item.reason,
-    expectedImpact: item.expectedImpact,
-    effortLabel: item.effortScore + " / 100",
-    effortScore: item.effortScore,
-    impactScore: Number(item.expectedImpact.replace(/[^0-9.]/g, "")) || 1,
-    relatedBrand: brand.name,
-    relatedTopic: item.relatedTopic,
-    relatedPrompt: item.action,
-    action: item.action,
-    targetUrl: null,
-    createdAt: sampleProject.lastRunAt
-  }));
-}
-
 function DetailTabs({ items, active = 0 }: { items: readonly string[]; active?: number }) {
   return (
     <div className="mb-5 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 shadow-[0_8px_28px_rgba(15,23,42,0.035)]">
@@ -257,12 +200,17 @@ function HeaderActions() {
   );
 }
 
-function ReportFilters({ compact = false }: { compact?: boolean }) {
+function ReportFilters({ compact = false, data }: { compact?: boolean; data?: RecoraRecommendationsDbData | null }) {
+  const latestRun = data?.latestRun;
+  const projectName = data?.project?.name ?? "Recora";
+  const period = latestRun ? latestRun.period_start + " - " + latestRun.period_end : data?.project?.default_period ?? "-";
+  const comparisonPeriod = latestRun?.comparison_start && latestRun.comparison_end ? latestRun.comparison_start + " - " + latestRun.comparison_end : "-";
+
   return (
     <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-[0_8px_28px_rgba(15,23,42,0.035)] md:grid-cols-2 xl:grid-cols-[1.1fr_1.1fr_1.1fr_0.8fr_auto]">
-      <FilterBox label="プロジェクト" value={sampleProject.name} />
-      <FilterBox label="期間" value={sampleProject.period} />
-      {!compact ? <FilterBox label="比較期間" value={"2026/06/03 - 2026/06/09"} /> : <FilterBox label="比較期間" value={"2026/06/03 - 2026/06/09"} />}
+      <FilterBox label="プロジェクト" value={projectName} />
+      <FilterBox label="期間" value={period} />
+      {!compact ? <FilterBox label="比較期間" value={comparisonPeriod} /> : <FilterBox label="比較期間" value={comparisonPeriod} />}
       <FilterBox label="地域" value={"\u65e5\u672c\u8a9e\uff08\u65e5\u672c\uff09"} />
       <div className="flex items-center justify-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
         <RefreshCw className="h-4 w-4 text-blue-600" />
@@ -339,6 +287,15 @@ function RecommendationMeta({ label, value }: { label: string; value: string }) 
   );
 }
 
+function EmptyStateBlock({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
+      <p className="text-sm font-bold text-slate-700">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+    </div>
+  );
+}
+
 function RecommendationStatusRow({ label, value, tone }: { label: string; value: number; tone: "rose" | "amber" | "green" }) {
   const toneClass = tone === "rose" ? "bg-rose-500" : tone === "amber" ? "bg-orange-500" : "bg-emerald-500";
   return (
@@ -368,7 +325,7 @@ function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map((row) => (
+        {rows.length > 0 ? rows.map((row) => (
           <TableRow key={row.id}>
             <TableCell className="min-w-[260px]">
               <div className="font-bold text-slate-950">{row.title}</div>
@@ -395,7 +352,13 @@ function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
               ) : row.action}
             </TableCell>
           </TableRow>
-        ))}
+        )) : (
+          <TableRow>
+            <TableCell colSpan={8} className="text-sm text-slate-500">
+              表示できるrecommendationsがありません。測定結果から改善提案が保存されるとここに表示されます。
+            </TableCell>
+          </TableRow>
+        )}
       </TableBody>
     </Table>
   );
@@ -477,7 +440,7 @@ function average(values: number[]) {
 }
 
 function formatDateTime(value: string | null | undefined) {
-  if (!value) return sampleProject.lastRunAt;
+  if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("ja-JP", {

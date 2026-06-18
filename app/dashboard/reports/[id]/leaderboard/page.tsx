@@ -21,9 +21,9 @@ export default async function ReportLeaderboardPage({ params }: ReportLeaderboar
 async function getLeaderboardDataOrNull(projectSlug: string) {
   try {
     const data = await getRecoraLeaderboardData(projectSlug);
-    return data.project && data.brands.length > 0 ? data : null;
+    return data.project ? data : null;
   } catch (error) {
-    console.warn("Failed to load Recora leaderboard data. Falling back to sample data.", error);
+    console.warn("Failed to load Recora leaderboard data.", error);
     return null;
   }
 }

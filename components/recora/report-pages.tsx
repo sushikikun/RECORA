@@ -63,7 +63,7 @@ import {
   formatPercent
 } from "@/components/recora/ui";
 
-const reportBase = `/dashboard/reports/${sampleProject.id}`;
+const reportBase = "/dashboard/reports/recora-kenzai-q2";
 
 function DetailTabs({ items, active = 0 }: { items: readonly string[]; active?: number }) {
   return (
@@ -370,7 +370,7 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
   return {
     projectName: data.project.name,
     hasDbData: true,
-    period: latestRun ? latestRun.period_start + " - " + latestRun.period_end : data.project.default_period ?? sampleProject.period,
+    period: latestRun ? latestRun.period_start + " - " + latestRun.period_end : data.project.default_period ?? "-",
     comparisonPeriod: latestRun?.comparison_start && latestRun.comparison_end ? latestRun.comparison_start + " - " + latestRun.comparison_end : "-",
     lastUpdated: formatDateTime(latestRun?.completed_at ?? data.project.updated_at),
     primaryBrandName: primaryBrand?.name ?? brand.name,
@@ -390,11 +390,11 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
 function createEmptyDashboardHomeViewModel(): DashboardHomeViewModel {
   return {
     hasDbData: false,
-    projectName: brand.name,
+    projectName: "Recora",
     period: "-",
     comparisonPeriod: "-",
     lastUpdated: "-",
-    primaryBrandName: brand.name,
+    primaryBrandName: "Recora",
     competitorCount: 0,
     aiConversationCount: 0,
     brandVisibilityValue: formatPercent(0),
@@ -430,16 +430,20 @@ function createZeroRankingRowsFromBrands(brands: RecoraDashboardDbData["brands"]
   }));
 }
 
-function createSampleRankingRows(): DashboardRankingRow[] {
-  return visibilityMetrics.byBrand.map((row) => ({ brandId: row.brandId, name: row.name, visibility: row.visibility, citationShare: row.citationShare, sentiment: row.sentiment, winRate: row.winRate, isPrimary: row.brandId === "recora" }));
-}
-
 type LeaderboardCompetitorCard = {
   id: string;
   name: string;
   position: string;
   note: string;
   movement: number;
+};
+
+type LeaderboardModelRow = {
+  id: string;
+  name: string;
+  visibility: number;
+  citationRate: number;
+  averagePosition: number | null;
 };
 
 type LeaderboardViewModel = {
@@ -450,6 +454,7 @@ type LeaderboardViewModel = {
   primaryCitationShare: string;
   rankingRows: DashboardRankingRow[];
   competitorCards: LeaderboardCompetitorCard[];
+  modelRows: LeaderboardModelRow[];
 };
 
 type BrandMentionAggregate = {
@@ -464,11 +469,17 @@ type BrandMentionAggregate = {
 
 function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): LeaderboardViewModel {
   if (!data?.project || data.brands.length === 0) {
-    return createSampleLeaderboardViewModel();
+    return createEmptyLeaderboardViewModel();
   }
 
   const primaryBrand = data.brands.find((item) => item.brand_type === "primary") ?? data.brands[0];
   const brandSnapshots = data.metricSnapshots.filter((snapshot) => snapshot.scope_type === "brand" && snapshot.brand_id);
+  const modelRows = createLeaderboardModelRows(data);
+
+  if (brandSnapshots.length === 0) {
+    return createEmptyLeaderboardViewModel(primaryBrand?.name, modelRows);
+  }
+
   const snapshotByBrandId = new Map(brandSnapshots.map((snapshot) => [snapshot.brand_id, snapshot]));
   const conversationById = new Map(data.conversations.map((item) => [item.id, item]));
   const runItemById = new Map(data.runItems.map((item) => [item.id, item]));
@@ -523,9 +534,10 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
   const primaryGap = Math.round(primarySnapshot?.competitive_gap ?? primaryVisibility - topCompetitorVisibility);
   const totalMentionRows = Math.max(1, data.brandMentions.filter((item) => item.mentioned).length);
 
-  const rankingRows = data.brands
-    .map((brandItem) => {
-      const snapshot = snapshotByBrandId.get(brandItem.id);
+  const rankingRows = brandSnapshots
+    .flatMap((snapshot) => {
+      const brandItem = snapshot.brand_id ? data.brands.find((item) => item.id === snapshot.brand_id) : undefined;
+      if (!brandItem) return [];
       const stat = mentionStats.get(brandItem.id);
       const mentionCount = Math.round(snapshot?.ai_mention_count ?? stat?.mentionCount ?? 0);
       const citationCountFromRows = citationCounts.get(brandItem.id) ?? 0;
@@ -539,7 +551,7 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
       const strongTopic = getTopMapKey(stat?.topicCounts) ?? brandItem.category ?? "-";
       const representativePrompt = truncateText(getTopMapKey(stat?.promptCounts) ?? "", 44);
 
-      return {
+      return [{
         brandId: brandItem.id,
         name: brandItem.name,
         visibility,
@@ -555,7 +567,7 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
         competitiveGap: brandItem.id === primaryBrand?.id ? primaryGap : Math.round(visibility - primaryVisibility),
         strongTopic,
         representativePrompt
-      } satisfies DashboardRankingRow;
+      } satisfies DashboardRankingRow];
     })
     .sort((a, b) => b.visibility - a.visibility || (b.citationCount ?? 0) - (a.citationCount ?? 0));
 
@@ -578,31 +590,35 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
     competitiveGapDelta: primaryGap,
     primaryCitationShare: formatPercent(primaryRow?.citationShare ?? Math.round(primarySnapshot?.share_of_voice ?? 0)),
     rankingRows,
-    competitorCards
+    competitorCards,
+    modelRows
   };
 }
 
-function createSampleLeaderboardViewModel(): LeaderboardViewModel {
-  const rankingRows = createSampleRankingRows();
-  const primaryRow = rankingRows.find((row) => row.isPrimary) ?? rankingRows[0];
-  const topCompetitor = rankingRows.find((row) => !row.isPrimary);
-  const gap = Math.round((primaryRow?.visibility ?? 0) - (topCompetitor?.visibility ?? 0));
-
+function createEmptyLeaderboardViewModel(primaryBrandName = "Recora", modelRows: LeaderboardModelRow[] = []): LeaderboardViewModel {
   return {
-    primaryBrandName: brand.name,
-    primaryVisibility: formatPercent(primaryRow?.visibility ?? 58),
-    competitiveGapValue: formatSignedPt(gap),
-    competitiveGapDelta: gap,
-    primaryCitationShare: formatPercent(primaryRow?.citationShare ?? 31),
-    rankingRows,
-    competitorCards: competitors.map((competitor) => ({
-      id: competitor.id,
-      name: competitor.name,
-      position: competitor.position,
-      note: competitor.note,
-      movement: competitor.movement
-    }))
+    primaryBrandName,
+    primaryVisibility: formatPercent(0),
+    competitiveGapValue: formatSignedPt(0),
+    competitiveGapDelta: 0,
+    primaryCitationShare: formatPercent(0),
+    rankingRows: [],
+    competitorCards: [],
+    modelRows
   };
+}
+
+function createLeaderboardModelRows(data: RecoraLeaderboardDbData): LeaderboardModelRow[] {
+  return data.metricSnapshots
+    .filter((snapshot) => snapshot.scope_type === "model")
+    .map((snapshot) => ({
+      id: snapshot.scope_id ?? snapshot.id,
+      name: snapshot.scope_id ? `AIモデル ${snapshot.scope_id}` : "AIモデル",
+      visibility: Math.round(snapshot.ai_visibility),
+      citationRate: Math.round(snapshot.share_of_voice),
+      averagePosition: snapshot.average_position
+    }))
+    .sort((a, b) => b.visibility - a.visibility);
 }
 
 function getBrandMentionAggregate(stats: Map<string, BrandMentionAggregate>, brandId: string) {
@@ -692,7 +708,7 @@ function buildSparkline(value: number) {
 }
 
 function formatDateTime(value: string | null | undefined) {
-  if (!value) return sampleProject.lastRunAt;
+  if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Tokyo" }).format(date);
@@ -742,7 +758,7 @@ function DashboardSnapshotHero({ dashboardView }: { dashboardView: DashboardHome
         <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(260px,1fr)] lg:items-end">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 rounded-full bg-white/12 px-3 py-1 text-xs font-bold text-[#E6F4F1]">
-              {dashboardView.hasDbData ? "最新aggregate snapshot" : "DBデータ未取得"}
+              {dashboardView.hasDbData ? "最新aggregate snapshot" : "表示できるデータがありません"}
             </div>
             <div className="mt-5 flex flex-wrap items-end gap-3">
               <p className="text-6xl font-bold tracking-tight sm:text-7xl">{dashboardView.brandVisibilityValue}</p>
@@ -752,8 +768,8 @@ function DashboardSnapshotHero({ dashboardView }: { dashboardView: DashboardHome
             </div>
             <p className="mt-4 max-w-xl text-sm leading-6 text-white/78">
               {dashboardView.hasDbData
-                ? "最新の集計スナップショットから、AI表示率・AI言及数・参照回数・競合差分を表示しています。数値はDBのmetric_snapshotsと集計済みカウントに基づきます。"
-                : "DBから取得できた現在値のみを表示します。未取得時はサンプル値を出さず、空状態として表示します。"}
+                ? "最新の集計スナップショットから、AI表示率・AI言及数・参照回数・競合差分を表示しています。数値は保存済みの測定結果に基づきます。"
+                : "測定を実行すると、ここにAI表示率・AI言及数・参照回数・競合差分が表示されます。"}
             </p>
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <HeroStat label="AI言及数" value={String(dashboardView.aiMentionCount)} />
@@ -765,7 +781,7 @@ function DashboardSnapshotHero({ dashboardView }: { dashboardView: DashboardHome
           <div className="min-w-0 rounded-[18px] border border-white/12 bg-white/10 p-5">
             <p className="text-sm font-bold text-white">KPI内訳</p>
             <p className="mt-1 text-xs leading-5 text-white/65">
-              {dashboardView.hasDbData ? "DB由来の現在値のみを表示" : "DB未取得時は空状態"}
+              {dashboardView.hasDbData ? "現在の測定結果のみを表示" : "測定結果がありません"}
             </p>
             <div className="mt-5 grid gap-3">
               <HeroBreakdownRow label="AI表示率" value={dashboardView.brandVisibilityValue} />
@@ -781,7 +797,7 @@ function DashboardSnapshotHero({ dashboardView }: { dashboardView: DashboardHome
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-bold tracking-tight text-[#0F172A]">優先改善アクション</p>
-            <p className="mt-1 text-sm leading-6 text-[#64748B]">recommendations テーブル由来の提案</p>
+            <p className="mt-1 text-sm leading-6 text-[#64748B]">保存済みの改善提案</p>
           </div>
           <span className="rounded-full bg-[#E6F4F1] px-2.5 py-1 text-xs font-bold text-[#00796B]">
             {dashboardView.priorityTasks.length}件
@@ -839,6 +855,15 @@ function EmptyDashboardState({ message }: { message: string }) {
   return (
     <div className="rounded-[16px] border border-dashed border-[#DDE8E5] bg-[#F6FAF9] p-5 text-sm leading-6 text-[#64748B]">
       {message}
+    </div>
+  );
+}
+
+function EmptyStateBlock({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="rounded-[16px] border border-dashed border-[#DDE8E5] bg-[#F6FAF9] p-6 text-center">
+      <p className="text-sm font-bold text-[#0F172A]">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-[#64748B]">{description}</p>
     </div>
   );
 }
@@ -923,7 +948,7 @@ function VisibilityTrendCard({ dashboardView }: { dashboardView?: DashboardHomeV
   return (
     <DataCard
       title="AI表示率"
-      description={view.hasDbData ? "最新aggregate snapshot由来の現在値です。" : "DBデータ未取得時の空表示です。"}
+      description={view.hasDbData ? "最新aggregate snapshot由来の現在値です。" : "表示できる測定結果がありません。"}
       action={
         <Link href={`${reportBase}/trends`} className="text-xs font-semibold text-[#00796B]">
           詳細
@@ -943,7 +968,7 @@ function VisibilityTrendCard({ dashboardView }: { dashboardView?: DashboardHomeV
           </div>
           <CurrentValueBars values={visibilitySparkline} max={100} />
           <p className="mt-4 text-sm leading-6 text-[#64748B]">
-            推移グラフに見せるための固定デモ値は使わず、DBから渡された現在値をもとに補助表示しています。
+            測定結果の現在値をもとに補助表示しています。
           </p>
         </div>
         <div className="grid min-w-0 gap-3 content-start">
@@ -1299,7 +1324,7 @@ export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: 
         eyebrow="競合"
         title="競合ランキング"
         description="AI回答内での自社と競合の表示状況を、AI表示率・AI言及数・参照回数・平均順位で比較します。数値はRecora独自の測定指標です。"
-        meta={<ReportFilters compact />}
+        meta={<ReportFilters compact {...createReportFilterProps(leaderboardData)} />}
         actions={<HeaderActions />}
       />
       <DetailTabs items={reportDetailTabs.leaderboard} />
@@ -1317,7 +1342,7 @@ export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: 
       <div className="mt-5 grid gap-5 xl:grid-cols-2">
         <DataCard title="競合メモ" description="AI回答内で競合が強く出ている領域と、推薦・参照の状況です。">
           <div className="space-y-3">
-            {leaderboardView.competitorCards.map((competitor) => (
+            {leaderboardView.competitorCards.length > 0 ? leaderboardView.competitorCards.map((competitor) => (
               <div key={competitor.id} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -1328,18 +1353,20 @@ export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: 
                 </div>
                 <p className="mt-3 text-sm leading-6 text-slate-600">{competitor.note}</p>
               </div>
-            ))}
+            )) : (
+              <EmptyStateBlock title="まだランキングデータがありません" description="測定を実行すると、競合ごとの表示状況がここに表示されます。" />
+            )}
           </div>
         </DataCard>
         <DataCard title="AIモデル別リーダーボード" description="AIモデルごとにRecoraのAI表示率が変わります。">
-          <ModelVisibilityTable />
+          <ModelVisibilityTable rows={leaderboardView.modelRows} />
         </DataCard>
       </div>
     </>
   );
 }
 
-type ObservationKind = "sample" | "openai";
+type ObservationKind = "openai" | "unknown";
 
 type ConversationDisplayRow = {
   id: string;
@@ -1365,7 +1392,7 @@ type ConversationDisplayRow = {
 
 function createConversationDisplayRows(data?: RecoraConversationsDbData | null): ConversationDisplayRow[] {
   if (!data?.project || data.conversations.length === 0) {
-    return createSampleConversationDisplayRows();
+    return [];
   }
 
   const primaryBrand = data.brands.find((item) => item.brand_type === "primary");
@@ -1419,33 +1446,6 @@ function createConversationDisplayRows(data?: RecoraConversationsDbData | null):
   });
 }
 
-function createSampleConversationDisplayRows(): ConversationDisplayRow[] {
-  return conversations.map((conversation) => {
-    const prompt = prompts.find((item) => item.id === conversation.promptId);
-    return {
-      id: conversation.id,
-      topicName: getTopicName(conversation.topicId),
-      personaName: getPersonaName(conversation.personaId),
-      promptText: prompt?.text ?? conversation.promptId,
-      modelName: getModelName(conversation.modelId),
-      date: conversation.date,
-      recoraMentioned: conversation.recoraMentioned,
-      recoraRank: conversation.recoraRank,
-      sentiment: conversation.sentiment,
-      mentionedBrands: conversation.mentionedBrands,
-      citedDomains: conversation.citedDomains,
-      answerSummary: conversation.answerSummary,
-      observationKind: "sample" as const,
-      observationLabel: "サンプル",
-      providerLabel: "不明",
-      modelReturnedLabel: getModelName(conversation.modelId),
-      citationStatusLabel: "不明",
-      webSearchLabel: "不明",
-      measuredAtLabel: conversation.date
-    };
-  });
-}
-
 function groupBy<T>(items: T[], getKey: (item: T) => string) {
   const map = new Map<string, T[]>();
   for (const item of items) {
@@ -1462,11 +1462,11 @@ function uniqueStrings(values: string[]) {
 }
 
 function getConversationObservationKind(conversation: { provider: string | null; response_id: string | null }): ObservationKind {
-  return conversation.provider === "openai" || Boolean(conversation.response_id) ? "openai" : "sample";
+  return conversation.provider === "openai" || Boolean(conversation.response_id) ? "openai" : "unknown";
 }
 
 function getObservationLabel(kind: ObservationKind) {
-  return kind === "openai" ? "OpenAI実測" : "サンプル";
+  return kind === "openai" ? "OpenAI実測" : "実測";
 }
 
 function formatProviderLabel(value: string | null | undefined) {
@@ -1546,7 +1546,7 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
         eyebrow={"モニタリング"}
         title={"AI回答ログ"}
         description={"ペルソナ、トピック、プロンプト、AIモデルごとに取得したAI回答を確認します。"}
-        meta={<ReportFilters compact />}
+        meta={<ReportFilters compact {...createReportFilterProps(conversationsData)} />}
         actions={
           <>
             <Button variant="outline">
@@ -1563,80 +1563,80 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
         title={"AI回答ログ"}
         description={String(conversationRows.length) + "件のAI回答について、ブランド言及、言及されたブランド、参照元を一覧化しています。"}
       >
-        <Table className="min-w-[1080px]">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="min-w-[300px]">{"プロンプト"}</TableHead>
-              <TableHead className="min-w-[140px]">{"AIモデル"}</TableHead>
-              <TableHead className="min-w-[190px]">{"ブランド言及"}</TableHead>
-              <TableHead className="min-w-[110px]">{"評価"}</TableHead>
-              <TableHead className="min-w-[190px]">{"参照元"}</TableHead>
-              <TableHead className="min-w-[320px]">{"回答要約"}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {conversationRows.map((conversation) => (
-              <TableRow key={conversation.id}>
-                <TableCell className="min-w-[300px]">
-                  <div className="font-bold text-slate-950">{conversation.topicName}</div>
-                  <div className="mt-1 text-xs text-slate-500">{conversation.personaName}</div>
-                  <div className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">{conversation.promptText}</div>
-                  <div className="mt-2 text-xs font-semibold text-slate-400">{conversation.date}</div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <ObservationKindBadge kind={conversation.observationKind} label={conversation.observationLabel} />
-                    <Badge variant="outline" className={cn("whitespace-nowrap rounded-sm text-xs", conversation.webSearchLabel === "Web検索あり" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600")}>
-                      {conversation.webSearchLabel}
-                    </Badge>
-                  </div>
-                </TableCell>
-                <TableCell className="min-w-[160px]">
-                  <div className="whitespace-nowrap font-semibold text-slate-950">{conversation.modelName}</div>
-                  <div className="mt-1 text-xs leading-5 text-slate-500">{conversation.providerLabel}</div>
-                  <div className="text-xs leading-5 text-slate-500">{conversation.modelReturnedLabel}</div>
-                </TableCell>
-                <TableCell>
-                  <div className="space-y-2">
-                    {conversation.recoraMentioned ? (
-                      <Badge className="bg-[#00796B] text-white">{"順位 "}{conversation.recoraRank ?? "-"}</Badge>
-                    ) : (
-                      <Badge variant="outline" className="border-rose-200 bg-rose-50 text-rose-700">
-                        {"未表示"}
-                      </Badge>
-                    )}
-                    {conversation.mentionedBrands.length > 0 ? (
-                      <div className="text-xs leading-5 text-slate-500">
-                        {"言及: "}{conversation.mentionedBrands.join(" / ")}
-                      </div>
-                    ) : null}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <SentimentPill value={conversation.sentiment} />
-                </TableCell>
-                <TableCell className="min-w-[190px]">
-                  <div className="flex flex-wrap gap-1.5">
-                    {conversation.citedDomains.map((domain) => (
-                      <Badge key={domain} variant="muted" className="font-medium">
-                        {domain}
-                      </Badge>
-                    ))}
-                  </div>
-                </TableCell>
-                <TableCell className="min-w-[320px] text-sm leading-6 text-slate-600">
-                  {conversation.answerSummary}
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
-                    <Badge variant="muted" className="font-medium">{conversation.citationStatusLabel}</Badge>
-                    <span className="font-semibold text-slate-400">実測: {conversation.measuredAtLabel}</span>
-                  </div>
-                </TableCell>
+        {conversationRows.length > 0 ? (
+          <Table className="min-w-[1080px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="min-w-[300px]">{"プロンプト"}</TableHead>
+                <TableHead className="min-w-[140px]">{"AIモデル"}</TableHead>
+                <TableHead className="min-w-[190px]">{"ブランド言及"}</TableHead>
+                <TableHead className="min-w-[110px]">{"評価"}</TableHead>
+                <TableHead className="min-w-[190px]">{"参照元"}</TableHead>
+                <TableHead className="min-w-[320px]">{"回答要約"}</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </DataCard>
-
-      <DataCard className="mt-5" title={"調査カバレッジ"} description={"サンプルプロンプトの調査対象と現在のAI表示率です。"}>
-        <PromptCoverageTable />
+            </TableHeader>
+            <TableBody>
+              {conversationRows.map((conversation) => (
+                <TableRow key={conversation.id}>
+                  <TableCell className="min-w-[300px]">
+                    <div className="font-bold text-slate-950">{conversation.topicName}</div>
+                    <div className="mt-1 text-xs text-slate-500">{conversation.personaName}</div>
+                    <div className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">{conversation.promptText}</div>
+                    <div className="mt-2 text-xs font-semibold text-slate-400">{conversation.date}</div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <ObservationKindBadge kind={conversation.observationKind} label={conversation.observationLabel} />
+                      <Badge variant="outline" className={cn("whitespace-nowrap rounded-sm text-xs", conversation.webSearchLabel === "Web検索あり" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600")}>
+                        {conversation.webSearchLabel}
+                      </Badge>
+                    </div>
+                  </TableCell>
+                  <TableCell className="min-w-[160px]">
+                    <div className="whitespace-nowrap font-semibold text-slate-950">{conversation.modelName}</div>
+                    <div className="mt-1 text-xs leading-5 text-slate-500">{conversation.providerLabel}</div>
+                    <div className="text-xs leading-5 text-slate-500">{conversation.modelReturnedLabel}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="space-y-2">
+                      {conversation.recoraMentioned ? (
+                        <Badge className="bg-[#00796B] text-white">{"順位 "}{conversation.recoraRank ?? "-"}</Badge>
+                      ) : (
+                        <Badge variant="outline" className="border-rose-200 bg-rose-50 text-rose-700">
+                          {"未表示"}
+                        </Badge>
+                      )}
+                      {conversation.mentionedBrands.length > 0 ? (
+                        <div className="text-xs leading-5 text-slate-500">
+                          {"言及: "}{conversation.mentionedBrands.join(" / ")}
+                        </div>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <SentimentPill value={conversation.sentiment} />
+                  </TableCell>
+                  <TableCell className="min-w-[190px]">
+                    <div className="flex flex-wrap gap-1.5">
+                      {conversation.citedDomains.map((domain) => (
+                        <Badge key={domain} variant="muted" className="font-medium">
+                          {domain}
+                        </Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell className="min-w-[320px] text-sm leading-6 text-slate-600">
+                    {conversation.answerSummary}
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+                      <Badge variant="muted" className="font-medium">{conversation.citationStatusLabel}</Badge>
+                      <span className="font-semibold text-slate-400">実測: {conversation.measuredAtLabel}</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <EmptyStateBlock title="まだAI回答ログがありません" description="測定を実行すると、取得したAI回答がここに表示されます。" />
+        )}
       </DataCard>
     </>
   );
@@ -1651,7 +1651,7 @@ export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSource
         eyebrow={"モニタリング"}
         title={"参照元分析"}
         description={"AI回答で参照されたドメインとURLを、自社・競合・第三者参照元に分けて確認します。"}
-        meta={<ReportFilters compact />}
+        meta={<ReportFilters compact {...createReportFilterProps(sourcesData)} />}
         actions={<HeaderActions />}
       />
       <DetailTabs items={reportDetailTabs.sources} />
@@ -1742,7 +1742,7 @@ type SourcesDisplayData = {
 
 function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDisplayData {
   if (!data?.project) {
-    return createSampleSourcesDisplayData();
+    return createEmptySourcesDisplayData();
   }
 
   const sourceDomainById = new Map(data.sourceDomains.map((item) => [item.id, item]));
@@ -1834,45 +1834,15 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
   };
 }
 
-function createSampleSourcesDisplayData(): SourcesDisplayData {
-  const citationRows = citations.map((citation) => ({
-    id: citation.id,
-    title: citation.title,
-    url: citation.url,
-    domain: citation.domain,
-    sourceType: citation.sourceType,
-    occurrences: citation.occurrences,
-    supportsClaimLabel: "サンプル",
-    citedFor: citation.citedFor,
-    observationKind: "sample" as const,
-    observationLabel: "サンプル",
-    providerLabel: "不明",
-    citationStatusLabel: "不明",
-    webSearchLabel: "不明",
-    brandRelatedLabel: "不明"
-  }));
-
-  const sourceRows = sources.map((source) => ({
-    domain: source.domain,
-    category: source.type,
-    sourceType: source.type,
-    appearances: source.appearances,
-    citationShare: source.citationShare,
-    trustScore: source.trustScore,
-    trustLabel: "スコア " + source.trustScore,
-    urls: citationRows.filter((citation) => citation.domain === source.domain).map((citation) => citation.url),
-    recommendedAction: source.recommendedAction,
-    observationLabels: ["サンプル"]
-  }));
-
+function createEmptySourcesDisplayData(): SourcesDisplayData {
   return {
-    sourceRows,
-    citationRows,
-    totalCitationRows: citationRows.length,
-    uniqueDomainCount: sourceRows.length,
-    ownedCitationShare: 31,
-    competitorCitationShare: 51,
-    thirdPartyDomainCount: 3
+    sourceRows: [],
+    citationRows: [],
+    totalCitationRows: 0,
+    uniqueDomainCount: 0,
+    ownedCitationShare: 0,
+    competitorCitationShare: 0,
+    thirdPartyDomainCount: 0
   };
 }
 
@@ -2689,17 +2659,58 @@ function HeaderActions() {
   );
 }
 
-function ReportFilters({ compact = false, dashboardView }: { compact?: boolean; dashboardView?: DashboardHomeViewModel }) {
+type ReportFilterSource = {
+  project?: { name: string; default_period: string | null; updated_at: string } | null;
+  latestRun?: {
+    period_start: string;
+    period_end: string;
+    comparison_start: string | null;
+    comparison_end: string | null;
+    completed_at: string | null;
+  } | null;
+};
+
+function createReportFilterProps(data?: ReportFilterSource | null) {
+  const latestRun = data?.latestRun;
+
+  return {
+    projectName: data?.project?.name ?? "Recora",
+    period: latestRun ? latestRun.period_start + " - " + latestRun.period_end : data?.project?.default_period ?? "-",
+    comparisonPeriod: latestRun?.comparison_start && latestRun.comparison_end ? latestRun.comparison_start + " - " + latestRun.comparison_end : "-",
+    lastUpdated: formatDateTime(latestRun?.completed_at ?? data?.project?.updated_at)
+  };
+}
+
+function ReportFilters({
+  compact = false,
+  dashboardView,
+  projectName,
+  period,
+  comparisonPeriod,
+  lastUpdated
+}: {
+  compact?: boolean;
+  dashboardView?: DashboardHomeViewModel;
+  projectName?: string;
+  period?: string;
+  comparisonPeriod?: string;
+  lastUpdated?: string;
+}) {
+  const displayProjectName = dashboardView?.projectName ?? projectName ?? "Recora";
+  const displayPeriod = dashboardView?.period ?? period ?? "-";
+  const displayComparisonPeriod = dashboardView?.comparisonPeriod ?? comparisonPeriod ?? "-";
+  const displayLastUpdated = dashboardView?.lastUpdated ?? lastUpdated ?? "-";
+
   return (
     <div className="grid gap-3 rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)] md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_0.7fr_auto]">
-      <FilterBox label="プロジェクト" value={dashboardView?.projectName ?? sampleProject.name} />
-      <FilterBox label="期間" value={dashboardView?.period ?? "2026/06/10 - 2026/06/16"} />
-      <FilterBox label="比較期間" value={dashboardView?.comparisonPeriod ?? "2026/06/03 - 2026/06/09"} />
+      <FilterBox label="プロジェクト" value={displayProjectName} />
+      <FilterBox label="期間" value={displayPeriod} />
+      <FilterBox label="比較期間" value={displayComparisonPeriod} />
       <FilterBox label="地域" value="日本語（日本）" />
       <div className="flex items-center gap-2 rounded-[14px] bg-[#F6FAF9] px-3 py-2 text-xs font-semibold text-[#64748B]">
         <RefreshCw className="h-3.5 w-3.5 text-[#00796B]" />
         <span className="whitespace-nowrap">
-          {compact ? "最終更新" : `最終更新: ${dashboardView?.lastUpdated ?? sampleProject.lastRunAt}`}
+          {compact ? "最終更新" : `最終更新: ${displayLastUpdated}`}
         </span>
       </div>
     </div>
@@ -2774,7 +2785,7 @@ function BrandVisibilityCard() {
 }
 
 function CompetitiveRankingCard({ rows }: { rows?: DashboardRankingRow[] }) {
-  const rankingRows = rows ?? createSampleRankingRows();
+  const rankingRows = rows ?? [];
 
   return (
     <DashboardCard
@@ -2783,7 +2794,7 @@ function CompetitiveRankingCard({ rows }: { rows?: DashboardRankingRow[] }) {
       action={<Link href={`${reportBase}/leaderboard`} className="text-xs font-bold text-[#00796B]">競合比較へ</Link>}
     >
       <div className="space-y-3">
-        {rankingRows.slice(0, 5).map((row, index) => (
+        {rankingRows.length > 0 ? rankingRows.slice(0, 5).map((row, index) => (
           <div
             key={row.brandId}
             className={cn(
@@ -2816,7 +2827,9 @@ function CompetitiveRankingCard({ rows }: { rows?: DashboardRankingRow[] }) {
             </div>
             <ProgressBar value={row.visibility} className="mt-3" tone={row.isPrimary ? "blue" : "amber"} />
           </div>
-        ))}
+        )) : (
+          <EmptyStateBlock title="まだランキングデータがありません" description="測定を実行すると、競合のAI表示率がここに表示されます。" />
+        )}
       </div>
     </DashboardCard>
   );
@@ -3134,7 +3147,7 @@ function SourceSharePanel() {
 }
 
 function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: DashboardRankingRow[] }) {
-  const rankingRows = rows ?? createSampleRankingRows();
+  const rankingRows = rows ?? [];
   return (
     <Table className={compact ? undefined : "min-w-[1180px]"}>
       <TableHeader>
@@ -3153,7 +3166,7 @@ function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: Das
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rankingRows.map((row, index) => (
+        {rankingRows.length > 0 ? rankingRows.map((row, index) => (
           <TableRow key={row.brandId} className={row.isPrimary ? "bg-[#E6F4F1]/55" : undefined}>
             <TableCell className="font-bold">
               <span className="inline-flex items-center gap-1 whitespace-nowrap">
@@ -3186,13 +3199,19 @@ function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: Das
             {!compact ? <TableCell className="whitespace-nowrap"><DeltaBadge value={row.competitiveGap ?? 0} label={formatSignedPt(row.competitiveGap)} /></TableCell> : null}
             {!compact ? <TableCell className="text-sm text-slate-600">{row.strongTopic ?? "-"}</TableCell> : null}
           </TableRow>
-        ))}
+        )) : (
+          <TableRow>
+            <TableCell colSpan={compact ? 3 : 11} className="text-sm text-slate-500">
+              まだランキングデータがありません。測定を実行するとここに結果が表示されます。
+            </TableCell>
+          </TableRow>
+        )}
       </TableBody>
     </Table>
   );
 }
 
-function ModelVisibilityTable({ compact = false }: { compact?: boolean }) {
+function ModelVisibilityTable({ compact = false, rows = [] }: { compact?: boolean; rows?: LeaderboardModelRow[] }) {
   return (
     <Table>
       <TableHeader>
@@ -3204,20 +3223,26 @@ function ModelVisibilityTable({ compact = false }: { compact?: boolean }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {visibilityMetrics.byModel.map((model) => (
-          <TableRow key={model.modelId}>
-            <TableCell className="font-bold">{getModelName(model.modelId)}</TableCell>
+        {rows.length > 0 ? rows.map((model) => (
+          <TableRow key={model.id}>
+            <TableCell className="font-bold">{model.name}</TableCell>
             <TableCell><MetricWithBar value={model.visibility} /></TableCell>
             <TableCell><MetricWithBar value={model.citationRate} /></TableCell>
-            {!compact ? <TableCell>{model.rank.toFixed(1)}</TableCell> : null}
+            {!compact ? <TableCell>{model.averagePosition === null ? "-" : model.averagePosition.toFixed(1)}</TableCell> : null}
           </TableRow>
-        ))}
+        )) : (
+          <TableRow>
+            <TableCell colSpan={compact ? 3 : 4} className="text-sm text-slate-500">
+              表示できるデータがありません。
+            </TableCell>
+          </TableRow>
+        )}
       </TableBody>
     </Table>
   );
 }
 
-function SourcesTable({ rows = createSampleSourcesDisplayData().sourceRows }: { rows?: SourceDisplayRow[] }) {
+function SourcesTable({ rows = [] }: { rows?: SourceDisplayRow[] }) {
   return (
     <Table className="min-w-[1040px]">
       <TableHeader>
@@ -3238,7 +3263,7 @@ function SourcesTable({ rows = createSampleSourcesDisplayData().sourceRows }: { 
               <div>{source.domain}</div>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {source.observationLabels.map((label) => (
-                  <ObservationKindBadge key={label} kind={label === "OpenAI実測" ? "openai" : "sample"} label={label} />
+                  <ObservationKindBadge key={label} kind={label === "OpenAI実測" ? "openai" : "unknown"} label={label} />
                 ))}
               </div>
             </TableCell>
@@ -3272,7 +3297,7 @@ function SourcesTable({ rows = createSampleSourcesDisplayData().sourceRows }: { 
         )) : (
           <TableRow>
             <TableCell colSpan={7} className="text-sm text-slate-500">
-              {"参照元データはまだありません。"}
+              {"まだ参照元データがありません。測定を実行するとここに結果が表示されます。"}
             </TableCell>
           </TableRow>
         )}
@@ -3281,7 +3306,7 @@ function SourcesTable({ rows = createSampleSourcesDisplayData().sourceRows }: { 
   );
 }
 
-function CitationsTable({ rows = createSampleSourcesDisplayData().citationRows }: { rows?: CitationDisplayRow[] }) {
+function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
   return (
     <Table className="min-w-[940px]">
       <TableHeader>
@@ -3331,7 +3356,7 @@ function CitationsTable({ rows = createSampleSourcesDisplayData().citationRows }
         )) : (
           <TableRow>
             <TableCell colSpan={5} className="text-sm text-slate-500">
-              {"参照URLはまだありません。"}
+              {"まだ参照元データがありません。測定を実行すると参照URLが表示されます。"}
             </TableCell>
           </TableRow>
         )}

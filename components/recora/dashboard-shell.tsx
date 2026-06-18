@@ -7,9 +7,8 @@ import { ChevronDown, ChevronRight, PanelTop, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { RecoraNavGroup, RecoraNavItem, RecoraNavSection } from "@/lib/recora/nav-config";
 import { buildRecoraNavGroups } from "@/lib/recora/nav-config";
-import { sampleProject } from "@/lib/recora/sample-data";
 
-const defaultReportId = sampleProject.id;
+const defaultReportId = "recora-kenzai-q2";
 const alwaysVisibleSection: RecoraNavSection = "ダッシュボード";
 
 function getReportId(pathname: string) {
@@ -91,13 +90,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   href={`/dashboard/reports/${reportId}/overview`}
                   className="mt-2 block text-sm font-bold leading-5 text-[#0F172A] hover:text-[#00796B]"
                 >
-                  {sampleProject.name}
+                  Recora
                 </Link>
-                <div className="mt-3 flex items-center justify-between text-xs text-[#64748B]">
-                  <span>{sampleProject.period}</span>
-                  <span className="rounded-full bg-[#E6F4F1] px-2.5 py-1 font-semibold text-[#00796B]">
-                    サンプル
-                  </span>
+                <div className="mt-3 text-xs font-semibold text-[#64748B]">
+                  現在のレポート
                 </div>
               </div>
             </div>
@@ -123,8 +119,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                     <Sparkles className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-[#0F172A]">山田 太郎</p>
-                    <p className="truncate text-xs text-[#64748B]">sample@recora.ai</p>
+                    <p className="truncate text-sm font-bold text-[#0F172A]">Recora Workspace</p>
+                    <p className="truncate text-xs text-[#64748B]">プロダクト管理</p>
                   </div>
                 </div>
               </div>

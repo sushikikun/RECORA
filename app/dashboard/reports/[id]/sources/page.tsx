@@ -23,7 +23,7 @@ async function getSourcesDataOrNull(projectSlug: string) {
     const data = await getRecoraSourcesData(projectSlug);
     return data.project ? data : null;
   } catch (error) {
-    console.warn("Failed to load Recora sources data. Falling back to sample data.", error);
+    console.warn("Failed to load Recora sources data.", error);
     return null;
   }
 }

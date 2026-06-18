@@ -27,7 +27,7 @@ export function RunHistoryList({ projectSlug, runsData, loadError = false }: Run
     <DataCard
       className="mt-5"
       title="測定履歴"
-      description="過去の測定run、集計run、サンプルrunを確認できます。"
+      description="過去の測定runと集計runを確認できます。"
       action={
         <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
           {loadError ? "取得失敗" : `${runs.length}件`}
@@ -119,7 +119,7 @@ function RunKindBadge({ kind }: { kind: RecoraRunHistoryKind }) {
   const label = {
     measurement: "OpenAI測定",
     aggregate: "集計run",
-    sample: "サンプル",
+    sample: "初期データ",
     unknown: "不明"
   }[kind];
   const className = {

@@ -21,9 +21,9 @@ export default async function ReportConversationsPage({ params }: ReportConversa
 async function getConversationsDataOrNull(projectSlug: string) {
   try {
     const data = await getRecoraConversationsData(projectSlug);
-    return data.project && data.conversations.length > 0 ? data : null;
+    return data.project ? data : null;
   } catch (error) {
-    console.warn("Failed to load Recora conversations data. Falling back to sample data.", error);
+    console.warn("Failed to load Recora conversations data.", error);
     return null;
   }
 }

@@ -14,7 +14,7 @@ async function getDashboardDataOrNull() {
     const data = await getRecoraDashboardData();
     return data.project ? data : null;
   } catch (error) {
-    console.warn("Failed to load Recora dashboard data. Falling back to sample data.", error);
+    console.warn("Failed to load Recora dashboard data.", error);
     return null;
   }
 }
