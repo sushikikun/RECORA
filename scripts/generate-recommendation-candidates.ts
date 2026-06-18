@@ -19,7 +19,7 @@ const TABLES = [
   "recommendations"
 ] as const;
 const RECORA_METRIC_NOTICE =
-  "Recora独自の観測であり、AIプラットフォーム公式評価ではありません。20観測の結果を強い結論として扱わず、人間レビューで確認してください。";
+  "Recora独自の観測であり、AIプラットフォーム公式評価ではありません。20観測の結果を強い結論として扱わず、確認材料としてご利用ください。";
 const SOURCE_CLASSIFICATION_NOTE =
   "URL分類はRecora内の簡易分類です。source_domain_types は確定分類ではないため、実URLの内容確認が必要です。";
 const SUPPORTS_CLAIM_NOTE =
@@ -35,11 +35,31 @@ const CASE_STUDY_CLUE_PHRASES = [
   "明確な情報はありません",
   "不明です"
 ] as const;
+const QUALITY_SCORE_LABEL = "根拠スコア";
+const QUALITY_SCORE_MAX = 100;
+const DISPLAY_DECISION_SHOW = "show";
+const FORBIDDEN_CUSTOMER_PHRASES = [
+  "AIに評価されていない",
+  "競合に負けています",
+  "公式に低評価",
+  "必ず改善します",
+  "この施策で引用されます",
+  "AIプラットフォーム公式評価"
+] as const;
 
 type Row = Record<string, string | null>;
 type Priority = "P1" | "P2";
-type Confidence = "medium" | "low";
+type Confidence = "high" | "medium" | "low";
 type SaveDecision = "review_required";
+type DisplayDecision = "show";
+type DisplayCategory = "改善提案" | "引用確認事項" | "サンプル不足" | "確認事項";
+type QualityScoreBreakdownItem = {
+  key: string;
+  label: string;
+  points: number;
+  max_points: number;
+  note: string;
+};
 type CandidateType =
   | "brand_visibility_gap"
   | "citation_evidence_review"
@@ -265,6 +285,16 @@ type Candidate = {
   related_brands: string[];
   related_topics: string[];
   confidence: Confidence;
+  confidence_label: string;
+  quality_score: number;
+  quality_score_label: typeof QUALITY_SCORE_LABEL;
+  quality_score_max: typeof QUALITY_SCORE_MAX;
+  quality_score_breakdown: QualityScoreBreakdownItem[];
+  display_category: DisplayCategory;
+  display_decision: DisplayDecision;
+  customer_facing_caution: string;
+  score_explanation: string;
+  recora_metric_notice: string;
   should_save_to_recommendations: SaveDecision;
   save_reason: string;
   caution: string;
@@ -360,8 +390,11 @@ async function main() {
         id: candidate.id,
         type: candidate.type,
         priority: candidate.priority,
+        qualityScore: candidate.quality_score,
+        displayCategory: candidate.display_category,
+        displayDecision: candidate.display_decision,
         confidence: candidate.confidence,
-        decision: candidate.should_save_to_recommendations
+        confidenceLabel: candidate.confidence_label
       })),
       output: payload.output,
       dbWriteStatus: payload.db_write_status,
@@ -593,8 +626,8 @@ function buildBrandVisibilityGapCandidate(context: Context, absentObservations: 
     effort: "中",
     brands: [context.primaryBrand.name],
     topics: evidence.topics,
-    saveReason: "保存前レビューが必要です。20観測のみのため、表示不足の傾向として扱います。",
-    nextAction: "未表示になったprompt、search mode、回答本文を人間が確認し、対応する比較・選定基準・FAQ・事例ページの不足を棚卸ししてください。"
+    saveReason: "画面表示対象です。20観測のみのため、表示不足の傾向として扱います。",
+    nextAction: "未表示になったprompt、search mode、回答本文を確認し、対応する比較・選定基準・FAQ・事例ページの不足を棚卸ししてください。"
   });
 }
 
@@ -636,7 +669,7 @@ function buildCitationEvidenceReviewCandidate(
     effort: "中",
     brands: [context.primaryBrand.name, ...context.competitorBrands.map((brand) => brand.name)],
     topics: evidence.topics,
-    saveReason: "supports_claim未検証のため、review_requiredに留めます。",
+    saveReason: "supports_claim未検証のため、引用確認事項として表示します。",
     nextAction: "引用URLを開いて、回答内の主張を実際に支えているか、公式・業界メディア・競合・一般情報のどれに偏っているかを確認してください。"
   });
 }
@@ -699,13 +732,13 @@ function buildSpecificGapCandidate(context: Context): Candidate | null {
     priority: "P2",
     confidence: "low",
     summary: label.summary,
-    rationale: "事例・実績確認promptの回答excerptに、情報確認が必要であることを示す表現が含まれていました。事例ページ不足とは断定せず、人間レビューで実回答とサイト上の根拠を照合する候補として扱います。",
+    rationale: "事例・実績確認promptの回答excerptに、情報確認が必要であることを示す表現が含まれていました。事例ページ不足とは断定せず、実回答とサイト上の根拠を照合する確認材料として扱います。",
     evidence,
     expectedImpact: "比較・事例・施工条件の説明改善により、今後の観測で根拠付き表示を増やせる可能性",
     effort: "中",
     brands: [context.primaryBrand.name],
     topics: evidence.topics,
-    saveReason: "回答excerptの兆候に基づく低確度候補のため、review_requiredに留めます。",
+    saveReason: "回答excerptの兆候に基づく低確度候補のため、サンプル不足として表示します。",
     nextAction: label.nextAction
   });
 }
@@ -747,6 +780,18 @@ function candidate(input: {
   saveReason: string;
   nextAction: string;
 }): Candidate {
+  const scoring = buildQualityScore({
+    context: input.context,
+    type: input.type,
+    confidence: input.confidence,
+    title: input.title,
+    summary: input.summary,
+    rationale: input.rationale,
+    expectedImpact: input.expectedImpact,
+    nextAction: input.nextAction,
+    evidence: input.evidence
+  });
+
   return {
     id: buildCandidateId(input.context.measurementRun.id, input.type),
     title: input.title,
@@ -762,11 +807,321 @@ function candidate(input: {
     related_brands: unique(input.brands),
     related_topics: unique(input.topics),
     confidence: input.confidence,
+    confidence_label: scoring.confidenceLabel,
+    quality_score: scoring.score,
+    quality_score_label: QUALITY_SCORE_LABEL,
+    quality_score_max: QUALITY_SCORE_MAX,
+    quality_score_breakdown: scoring.breakdown,
+    display_category: scoring.displayCategory,
+    display_decision: DISPLAY_DECISION_SHOW,
+    customer_facing_caution: scoring.customerFacingCaution,
+    score_explanation: scoring.explanation,
+    recora_metric_notice: RECORA_METRIC_NOTICE,
     should_save_to_recommendations: "review_required",
     save_reason: input.saveReason,
     caution: RECORA_METRIC_NOTICE,
     suggested_next_action: input.nextAction
   };
+}
+
+function buildQualityScore(input: {
+  context: Context;
+  type: CandidateType;
+  confidence: Confidence;
+  title: string;
+  summary: string;
+  rationale: string;
+  expectedImpact: string;
+  nextAction: string;
+  evidence: CandidateEvidence;
+}) {
+  const breakdown: QualityScoreBreakdownItem[] = [];
+  const failedRunItems = input.context.runItems.filter((item) => item.status === "failed").length;
+  const latestStandardV01 = input.context.measurementProfileId === "standard-v01"
+    && input.evidence.prompt_count === 10
+    && input.evidence.observation_count === 20;
+  const openaiAggregate = input.evidence.data_source === "openai_measurement" && Boolean(input.evidence.aggregate_run_id);
+  const cleanSourceScope = input.context.measurementRun.id !== SEED_MEASUREMENT_RUN_ID && input.context.excludedExampleCitationCount === 0;
+  const displayCategory = getDisplayCategory(input.type);
+  const customerFacingCaution = buildCustomerFacingCaution(input.type);
+  const unsafeCustomerText = hasUnsafeCustomerText([
+    input.title,
+    input.summary,
+    input.rationale,
+    input.expectedImpact,
+    input.nextAction,
+    customerFacingCaution
+  ]);
+
+  addBreakdown(breakdown, "profile_reproducibility", "standard-v01の再現性", latestStandardV01 ? 8 : 0, 8, latestStandardV01
+    ? "standard-v01 / 10 prompts / 20 observations"
+    : "standard-v01の期待条件ではありません");
+  addBreakdown(breakdown, "openai_measurement_scope", "OpenAI実測aggregate", openaiAggregate ? 6 : 0, 6, openaiAggregate
+    ? "openai_measurementかつaggregateRunIdあり"
+    : "openai_measurementまたはaggregateRunIdを確認できません");
+  addBreakdown(breakdown, "failed_run_items", "failed run itemなし", failedRunItems === 0 ? 6 : 0, 6, failedRunItems === 0
+    ? "failed run itemなし"
+    : `${failedRunItems} failed run items`);
+  addBreakdown(breakdown, "clean_source_scope", "seed/sample/.example混入なし", cleanSourceScope ? 5 : 0, 5, cleanSourceScope
+    ? "seed/sample/.example混入なし"
+    : "seed/sample/.example混入の可能性あり");
+  addBreakdown(breakdown, "safe_customer_language", "顧客向け文言の安全性", unsafeCustomerText ? 0 : 5, 5, unsafeCustomerText
+    ? "禁止表現を含む可能性あり"
+    : "断定を避け、Recora独自観測の注意書きあり");
+
+  if (input.type === "brand_visibility_gap") {
+    addBrandVisibilityScore(input.evidence, breakdown);
+  } else if (input.type === "citation_evidence_review") {
+    addCitationEvidenceScore(input.evidence, breakdown);
+  } else if (input.type === "case_study_evidence_gap") {
+    addCaseStudyScore(input.evidence, breakdown);
+  }
+
+  const rawScore = sumBreakdown(breakdown);
+  const caps: Array<{ value: number; note: string }> = [];
+  let adjustedScore = rawScore;
+  if (!latestStandardV01) {
+    adjustedScore -= 30;
+    caps.push({ value: 40, note: "latest standard-v01以外のため最大40" });
+  }
+  if (!cleanSourceScope) {
+    adjustedScore -= 20;
+    caps.push({ value: 60, note: "seed/sample/.example混入の可能性があるため最大60" });
+  }
+  if (failedRunItems > 0) {
+    adjustedScore -= Math.min(10, failedRunItems * 2);
+  }
+  if (unsafeCustomerText) {
+    caps.push({ value: 70, note: "禁止表現を含む可能性があるため最大70" });
+  }
+  if ((input.type === "brand_visibility_gap" || input.type === "case_study_evidence_gap") && input.evidence.citations_used_as_primary_evidence) {
+    caps.push({ value: 60, note: "brand/case候補でcitationsを主証拠にしているため最大60" });
+  }
+  if (treatsUnknownSupportsClaimAsVerified(input)) {
+    caps.push({ value: 50, note: "supports_claim unknownを支持確認済みとして扱っている可能性があるため最大50" });
+  }
+  const typeCap = getTypeCap(input.type, input.evidence);
+  if (typeCap) caps.push(typeCap);
+  const cap = caps.length > 0 ? Math.min(...caps.map((item) => item.value)) : QUALITY_SCORE_MAX;
+  const score = clampScore(Math.min(adjustedScore, cap));
+
+  return {
+    score,
+    breakdown: caps.length > 0
+      ? [...breakdown, ...caps.map((item) => ({
+          key: "score_cap",
+          label: "上限制御",
+          points: 0,
+          max_points: item.value,
+          note: item.note
+        } satisfies QualityScoreBreakdownItem))]
+      : breakdown,
+    confidenceLabel: getConfidenceLabel(input.confidence),
+    displayCategory,
+    customerFacingCaution,
+    explanation: buildScoreExplanation(score, input.type, displayCategory)
+  };
+}
+
+function addBrandVisibilityScore(evidence: CandidateEvidence, breakdown: QualityScoreBreakdownItem[]) {
+  const absentRows = evidence.observation_rows.length;
+  const absentRate = evidence.observation_count > 0 ? absentRows / evidence.observation_count : 0;
+  const uniquePromptCount = evidence.prompt_texts.length;
+  const hasBothSearchModes = evidence.search_modes.includes("no-search") && evidence.search_modes.includes("web-search");
+  const hasResponseExcerpt = evidence.observation_rows.some((row) => Boolean(row.response_excerpt));
+
+  addBreakdown(breakdown, "absent_observation_rows", "対象ブランド未表示の観測行数", scoreByRanges(absentRows, [
+    [1, 1, 3],
+    [2, 4, 8],
+    [5, 9, 14],
+    [10, Infinity, 20]
+  ]), 20, `${absentRows} absent observation rows`);
+  addBreakdown(breakdown, "absent_rate", "未表示率", scoreByRate(absentRate, [
+    [0, 0.199999, 8],
+    [0.2, 0.499999, 16],
+    [0.5, 0.8, 20],
+    [0.800001, Infinity, 10]
+  ]), 20, `${Math.round(absentRate * 100)}%`);
+  addBreakdown(breakdown, "unique_prompt_count", "対象promptの広がり", scoreByRanges(uniquePromptCount, [
+    [2, 2, 3],
+    [3, 4, 6],
+    [5, Infinity, 10]
+  ]), 10, `${uniquePromptCount} unique prompts`);
+  addBreakdown(breakdown, "search_mode_reproducibility", "search modeでの再現", hasBothSearchModes ? 10 : 4, 10, hasBothSearchModes
+    ? "no-search / web-searchの両方で発生"
+    : "片方のsearch modeで発生");
+  addBreakdown(breakdown, "response_excerpt", "response excerptあり", hasResponseExcerpt ? 5 : 0, 5, hasResponseExcerpt
+    ? "回答excerptあり"
+    : "回答excerptなし");
+  addBreakdown(breakdown, "citation_not_primary", "citationを主証拠にしていない", evidence.citations_used_as_primary_evidence ? 0 : 5, 5, evidence.citations_used_as_primary_evidence
+    ? "引用URLを主証拠にしています"
+    : "引用URLを主証拠にしていません");
+}
+
+function addCitationEvidenceScore(evidence: CandidateEvidence, breakdown: QualityScoreBreakdownItem[]) {
+  const webSearchOnly = evidence.primary_evidence_scope === "web_search_citations"
+    && evidence.search_modes.length === 1
+    && evidence.search_modes[0] === "web-search";
+  const citationRows = evidence.citation_rows.length;
+  const webSearchObservationCount = evidence.observation_rows.filter((row) => row.search_mode === "web-search").length;
+  const supportsClaimVerifiedCount = evidence.citation_rows.filter((row) => row.supports_claim !== "unknown").length;
+  const supportsClaimVerifiedRate = citationRows > 0 ? supportsClaimVerifiedCount / citationRows : 0;
+  const brandSpecificCount = evidence.citation_rows.filter((row) => row.brand_related !== "general" && row.brand_related !== "unknown").length;
+  const brandSpecificRate = citationRows > 0 ? brandSpecificCount / citationRows : 0;
+
+  addBreakdown(breakdown, "web_search_citation_scope", "web-search citation限定", webSearchOnly ? 12 : 0, 12, webSearchOnly
+    ? "web-search citationsのみ対象"
+    : "web-search citations以外を含む可能性あり");
+  addBreakdown(breakdown, "citation_rows", "citation rows", scoreByRanges(citationRows, [
+    [1, 9, 6],
+    [10, 19, 12],
+    [20, Infinity, 16]
+  ]), 16, `${citationRows} citation rows`);
+  addBreakdown(breakdown, "unique_domain_count", "unique domain数", scoreByRanges(evidence.unique_domain_count, [
+    [1, 4, 3],
+    [5, 9, 6],
+    [10, Infinity, 10]
+  ]), 10, `${evidence.unique_domain_count} unique domains`);
+  addBreakdown(breakdown, "web_search_observations", "web-search observation数", scoreByRanges(webSearchObservationCount, [
+    [1, 1, 1],
+    [2, 3, 3],
+    [4, Infinity, 5]
+  ]), 5, `${webSearchObservationCount} web-search observations`);
+  addBreakdown(breakdown, "supports_claim_verified_rate", "supports_claim確認率", scoreByRate(supportsClaimVerifiedRate, [
+    [0, 0, 0],
+    [0.000001, 0.299999, 3],
+    [0.3, 0.799999, 6],
+    [0.8, Infinity, 12]
+  ]), 12, `${Math.round(supportsClaimVerifiedRate * 100)}% verified`);
+  addBreakdown(breakdown, "brand_related_clarity", "brand_relatedの明確さ", brandSpecificRate >= 0.5 ? 5 : 3, 5, brandSpecificRate >= 0.5
+    ? "brand-specificが50%以上"
+    : "general/unknown中心");
+}
+
+function addCaseStudyScore(evidence: CandidateEvidence, breakdown: QualityScoreBreakdownItem[]) {
+  const observationRows = evidence.observation_rows.length;
+  const matchedClues = evidence.matched_clues.length;
+  const uniquePromptCount = evidence.prompt_texts.length;
+  const hasBothSearchModes = evidence.search_modes.includes("no-search") && evidence.search_modes.includes("web-search");
+  const hasResponseExcerpt = evidence.observation_rows.some((row) => Boolean(row.response_excerpt));
+  const hasLowConfidenceNote = Boolean(evidence.evidence_strength_note);
+
+  addBreakdown(breakdown, "case_study_prompt_scope", "事例確認prompt scope", evidence.primary_evidence_scope === "case_study_prompt_responses" ? 10 : 0, 10, evidence.primary_evidence_scope);
+  addBreakdown(breakdown, "case_observation_rows", "事例確認の観測行数", scoreByRanges(observationRows, [
+    [1, 1, 5],
+    [2, 3, 12],
+    [4, Infinity, 18]
+  ]), 18, `${observationRows} observation rows`);
+  addBreakdown(breakdown, "matched_clues", "不足兆候のmatched clues", scoreByRanges(matchedClues, [
+    [1, 1, 8],
+    [2, 3, 12],
+    [4, Infinity, 15]
+  ]), 15, `${matchedClues} matched clues`);
+  addBreakdown(breakdown, "case_unique_prompt_count", "対象prompt数", uniquePromptCount >= 2 ? 5 : 2, 5, `${uniquePromptCount} unique prompts`);
+  addBreakdown(breakdown, "case_search_mode", "search mode", hasBothSearchModes ? 8 : 3, 8, hasBothSearchModes
+    ? "no-search / web-searchの両方"
+    : "片方のsearch mode");
+  addBreakdown(breakdown, "case_response_excerpt", "response excerptあり", hasResponseExcerpt ? 4 : 0, 4, hasResponseExcerpt
+    ? "回答excerptあり"
+    : "回答excerptなし");
+  addBreakdown(breakdown, "low_confidence_note", "断定回避・低確度note", hasLowConfidenceNote ? 5 : 0, 5, hasLowConfidenceNote
+    ? "低確度noteあり"
+    : "低確度noteなし");
+}
+
+function getTypeCap(type: CandidateType, evidence: CandidateEvidence) {
+  if (type === "brand_visibility_gap") return { value: 85, note: "単一standard-v01 runのためbrand候補は最大85" };
+  if (type === "case_study_evidence_gap") {
+    const caps = [];
+    if (evidence.observation_rows.length === 1) caps.push({ value: 45, note: "1 observationのためcase study候補は最大45" });
+    if (evidence.prompt_texts.length === 1) caps.push({ value: 55, note: "1 promptのためcase study候補は最大55" });
+    if (caps.length > 0) return caps.reduce((min, item) => item.value < min.value ? item : min, caps[0]);
+  }
+  return null;
+}
+
+function getDisplayCategory(type: CandidateType): DisplayCategory {
+  if (type === "brand_visibility_gap") return "改善提案";
+  if (type === "citation_evidence_review") return "引用確認事項";
+  if (type === "case_study_evidence_gap") return "サンプル不足";
+  return "確認事項";
+}
+
+function getConfidenceLabel(confidence: Confidence) {
+  if (confidence === "high") return "根拠強め";
+  if (confidence === "medium") return "傾向あり";
+  return "要確認";
+}
+
+function buildCustomerFacingCaution(type: CandidateType) {
+  const prefix = "Recora独自の観測であり、AIプラットフォーム公式評価ではありません。少数観測のため、強い結論として扱わず確認材料としてご利用ください。";
+  if (type === "citation_evidence_review") {
+    return `${prefix} 引用URLは取得されていますが、回答内容を支持しているかは別途確認が必要です。`;
+  }
+  if (type === "case_study_evidence_gap") {
+    return `${prefix} 1観測・1 clueのみのため、実績情報の不足を断定せず追加確認してください。`;
+  }
+  return `${prefix} 今回の観測範囲では一部質問で表示されない傾向として扱います。`;
+}
+
+function buildScoreExplanation(score: number, type: CandidateType, displayCategory: DisplayCategory) {
+  if (type === "brand_visibility_gap") {
+    return `${displayCategory}として表示します。根拠スコア${score}/100は、対象ブランド未表示の観測数、promptの広がり、search mode再現性をもとにした根拠の整い度です。非表示判定には使いません。`;
+  }
+  if (type === "citation_evidence_review") {
+    return `${displayCategory}として表示します。根拠スコア${score}/100は、web-search引用URL、unique domain、supports_claim確認状態をもとにした確認事項としての整い度です。改善提案としては扱いません。`;
+  }
+  if (type === "case_study_evidence_gap") {
+    return `${displayCategory}として表示します。根拠スコア${score}/100は、事例確認promptの観測とmatched clueに基づく低確度の確認材料です。`;
+  }
+  return `${displayCategory}として表示します。根拠スコア${score}/100は、今回の観測データに基づく根拠の整い度です。`;
+}
+
+function hasUnsafeCustomerText(values: string[]) {
+  const safeNegatedOfficialNotice = /AIプラットフォーム公式評価ではありません|AIプラットフォーム公式評価ではない/g;
+  const text = values.join("\n").replace(safeNegatedOfficialNotice, "");
+  return FORBIDDEN_CUSTOMER_PHRASES.some((phrase) => text.includes(phrase));
+}
+
+function treatsUnknownSupportsClaimAsVerified(input: {
+  summary: string;
+  rationale: string;
+  expectedImpact: string;
+  nextAction: string;
+  evidence: CandidateEvidence;
+}) {
+  if (input.evidence.supports_claim_unknown_count === 0) return false;
+  const text = [input.summary, input.rationale, input.expectedImpact, input.nextAction].join("\n");
+  return text.includes("支持確認済み") || text.includes("主張支持を確認済み");
+}
+
+function addBreakdown(
+  breakdown: QualityScoreBreakdownItem[],
+  key: string,
+  label: string,
+  points: number,
+  maxPoints: number,
+  note: string
+) {
+  breakdown.push({ key, label, points, max_points: maxPoints, note });
+}
+
+function sumBreakdown(breakdown: QualityScoreBreakdownItem[]) {
+  return breakdown.reduce((sum, item) => sum + item.points, 0);
+}
+
+function scoreByRanges(value: number, ranges: Array<[number, number, number]>) {
+  const matched = ranges.find(([min, max]) => value >= min && value <= max);
+  return matched ? matched[2] : 0;
+}
+
+function scoreByRate(value: number, ranges: Array<[number, number, number]>) {
+  const matched = ranges.find(([min, max]) => value >= min && value <= max);
+  return matched ? matched[2] : 0;
+}
+
+function clampScore(value: number) {
+  return Math.max(0, Math.min(QUALITY_SCORE_MAX, Math.round(value)));
 }
 
 function buildCandidateId(measurementRunId: string, type: CandidateType) {
@@ -1018,7 +1373,7 @@ function renderMarkdown(payload: CandidatesPayload) {
     `- profile: \`${payload.measurement_profile_id}\``,
     `- 観測範囲: ${payload.prompt_count} prompts / ${payload.observation_count} observations`,
     `- 候補数: ${payload.candidate_count}`,
-    `- 保存判定: review_required`,
+    "- 表示方針: latest standard-v01由来の候補は全件表示",
     `- DB書き込み: ${payload.db_write_status}`,
     `- recommendations件数: ${payload.db_write_check.recommendations_before} -> ${payload.db_write_check.recommendations_after}`,
     `- 注意: ${payload.recora_metric_notice}`,
@@ -1037,7 +1392,7 @@ function renderMarkdown(payload: CandidatesPayload) {
   ];
 
   if (payload.candidates.length === 0) {
-    lines.push("今回の観測範囲では、保存前レビューに進める改善提案候補は生成しませんでした。", "");
+    lines.push("今回の観測範囲では、表示対象の機械生成インサイトは生成しませんでした。", "");
   }
 
   for (const candidateItem of payload.candidates) {
@@ -1046,11 +1401,18 @@ function renderMarkdown(payload: CandidatesPayload) {
       "",
       `- ID: \`${candidateItem.id}\``,
       `- type: \`${candidateItem.type}\``,
+      `- 表示区分: ${candidateItem.display_category}`,
+      `- 表示判定: ${candidateItem.display_decision}`,
+      `- ${candidateItem.quality_score_label}: ${candidateItem.quality_score} / ${candidateItem.quality_score_max}`,
       `- priority: ${candidateItem.priority}`,
       `- confidence: ${candidateItem.confidence}`,
-      `- 保存判定: ${candidateItem.should_save_to_recommendations}`,
+      `- 確からしさ: ${candidateItem.confidence_label}`,
       `- 要約: ${candidateItem.summary}`,
       `- 根拠: ${candidateItem.rationale}`,
+      `- score explanation: ${candidateItem.score_explanation}`,
+      `- customer-facing caution: ${candidateItem.customer_facing_caution}`,
+      `- Recora注意書き: ${candidateItem.recora_metric_notice}`,
+      `- 少数観測の注意: ${candidateItem.evidence.sample_size_note}`,
       `- 主証拠の範囲: \`${candidateItem.evidence.primary_evidence_scope}\``,
       `- evidence要約: ${candidateItem.evidence.focused_observation_count} observations / ${candidateItem.evidence.citation_rows.length} citation_rows / ${candidateItem.evidence.matched_clues.length} matched_clues`,
       `- 引用URLを主証拠に使用: ${candidateItem.evidence.citations_used_as_primary_evidence}`,
@@ -1064,15 +1426,25 @@ function renderMarkdown(payload: CandidatesPayload) {
       `- supports_claim: ${candidateItem.evidence.supports_claim_values.length ? candidateItem.evidence.supports_claim_values.join(", ") : "-"}`,
       `- evidence strength note: ${candidateItem.evidence.evidence_strength_note ?? "-"}`,
       `- 注意書き: ${candidateItem.caution}`,
-      `- 推奨する人間レビュー項目: ${candidateItem.suggested_next_action}`,
+      `- 推奨する確認項目: ${candidateItem.suggested_next_action}`,
       ""
     );
+    appendScoreBreakdown(lines, candidateItem.quality_score_breakdown);
     appendObservationRowSummary(lines, candidateItem.evidence.observation_rows);
     appendCitationRowSummary(lines, candidateItem.evidence.citation_rows);
     appendMatchedClueSummary(lines, candidateItem.evidence.matched_clues);
   }
 
   return lines.join("\n") + "\n";
+}
+
+function appendScoreBreakdown(lines: string[], rows: QualityScoreBreakdownItem[]) {
+  if (rows.length === 0) return;
+  lines.push("  - score breakdown:");
+  for (const row of rows) {
+    lines.push(`    - ${row.label}: +${row.points}/${row.max_points} (${row.note})`);
+  }
+  lines.push("");
 }
 
 function appendObservationRowSummary(lines: string[], rows: ObservationEvidenceRow[]) {
