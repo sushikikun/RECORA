@@ -4,6 +4,14 @@ import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 import OpenAI from "openai";
+import {
+  getExpectedRunItems,
+  getMeasurementProfile,
+  getMeasurementProfileIds,
+  isMeasurementProfileId,
+  type MeasurementProfile,
+  type MeasurementProfileId
+} from "../lib/recora/measurement-profiles";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const DEFAULT_PROJECT_SLUG = "recora-kenzai-q2";
@@ -29,6 +37,8 @@ type BrandRelatedness = "target_brand" | "competitor" | "general" | "unknown";
 type CliOptions = {
   projectSlug: string;
   promptLimit: number;
+  promptLimitProvided: boolean;
+  profileId: MeasurementProfileId | null;
   searchMode: SearchModeOption;
 };
 
@@ -144,25 +154,42 @@ async function main() {
   await loadEnvLocal();
 
   const options = parseArgs(process.argv.slice(2));
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is missing. Add it to .env.local before running this script.");
-  }
+  const measurementProfile = options.profileId ? getMeasurementProfile(options.profileId) : null;
 
   const db = new LocalPostgresClient(process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL);
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const startedAt = new Date().toISOString();
 
   await db.connect();
   try {
     const beforeCounts = await getGuardrailCounts(db);
     const project = await getProject(db, options.projectSlug);
-    const prompts = await getPrompts(db, project.id, options.promptLimit);
+    const prompts = measurementProfile
+      ? await getPromptsByProfile(db, project.id, measurementProfile)
+      : await getPrompts(db, project.id, options.promptLimit);
     const brands = await getBrands(db, project.id);
     const searchModes = expandSearchMode(options.searchMode);
+    const selectedPromptIds = prompts.map((prompt) => prompt.id);
+    const expectedRunItems = getExpectedRunItems({ promptCount: prompts.length }, options.searchMode);
 
     validateMeasurementInput(prompts, brands);
 
-    const run = await insertMeasurementRun(db, project, startedAt);
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY is missing. Add it to .env.local before running this script.");
+    }
+
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const run = await insertMeasurementRun(
+      db,
+      project,
+      startedAt,
+      buildMeasurementRunMetadata({
+        profile: measurementProfile,
+        selectedPromptIds,
+        promptCount: prompts.length,
+        expectedRunItems,
+        searchMode: options.searchMode
+      })
+    );
     const results: ItemResult[] = [];
 
     for (const prompt of prompts) {
@@ -187,6 +214,9 @@ async function main() {
       runStatus,
       results,
       totals,
+      profile: measurementProfile,
+      selectedPromptIds,
+      expectedRunItems,
       guardrails: buildGuardrails(beforeCounts, afterCounts),
       dashboardUrls: [
         `/dashboard/reports/${project.slug}/conversations`,
@@ -346,6 +376,30 @@ async function getPrompts(db: LocalPostgresClient, projectId: string, limit: num
   `);
 }
 
+async function getPromptsByProfile(
+  db: LocalPostgresClient,
+  projectId: string,
+  profile: MeasurementProfile
+): Promise<PromptRow[]> {
+  const rows = await db.query<PromptRow>(`
+    select id::text as id, text, persona_id::text as persona_id, topic_id::text as topic_id
+    from public.prompts
+    where project_id = ${uuid(projectId)}
+      and is_active = true
+      and id in (${profile.promptIds.map((promptId) => uuid(promptId)).join(", ")})
+  `);
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  const missingPromptIds = profile.promptIds.filter((promptId) => !rowsById.has(promptId));
+
+  if (missingPromptIds.length > 0) {
+    throw new Error(
+      `Measurement profile ${profile.id} has missing or inactive prompts: ${missingPromptIds.join(", ")}`
+    );
+  }
+
+  return profile.promptIds.map((promptId) => rowsById.get(promptId)!);
+}
+
 async function getPersonaForPrompt(db: LocalPostgresClient, projectId: string, prompt: PromptRow): Promise<PersonaRow> {
   if (prompt.persona_id) {
     const rows = await db.query<PersonaRow>(`
@@ -393,11 +447,16 @@ async function getOrCreateOpenAiModel(db: LocalPostgresClient, searchMode: Searc
   return single(rows, `get or create OpenAI model ${modelName}`);
 }
 
-async function insertMeasurementRun(db: LocalPostgresClient, project: ProjectRow, startedAt: string) {
+async function insertMeasurementRun(
+  db: LocalPostgresClient,
+  project: ProjectRow,
+  startedAt: string,
+  metadata: JsonValue
+) {
   const date = toDateOnly(startedAt);
   const rows = await db.query<{ id: string }>(`
     insert into public.measurement_runs (
-      project_id, status, period_start, period_end, region, language, started_at
+      project_id, status, period_start, period_end, region, language, started_at, metadata
     )
     values (
       ${uuid(project.id)},
@@ -406,7 +465,8 @@ async function insertMeasurementRun(db: LocalPostgresClient, project: ProjectRow
       ${lit(date)}::date,
       ${lit(project.region || "JP")},
       ${lit(project.language || "ja")},
-      ${ts(startedAt)}
+      ${ts(startedAt)},
+      ${jsonb(metadata)}
     )
     returning id::text as id
   `);
@@ -886,10 +946,37 @@ function validateMeasurementInput(prompts: PromptRow[], brands: BrandRow[]) {
   if (!brands.some((brand) => brand.brand_type === "primary")) throw new Error("No primary brand found for the target project.");
 }
 
+function buildMeasurementRunMetadata(input: {
+  profile: MeasurementProfile | null;
+  selectedPromptIds: string[];
+  promptCount: number;
+  expectedRunItems: number;
+  searchMode: SearchModeOption;
+}) {
+  const profileMetadata = input.profile
+    ? {
+        measurement_profile_id: input.profile.id,
+        measurement_profile_label: input.profile.label
+      }
+    : {};
+
+  return toJsonValue({
+    run_kind: "measurement",
+    data_source: "openai_measurement",
+    selected_prompt_ids: input.selectedPromptIds,
+    prompt_count: input.promptCount,
+    expected_run_items: input.expectedRunItems,
+    search_mode: input.searchMode,
+    ...profileMetadata
+  });
+}
+
 function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
     projectSlug: DEFAULT_PROJECT_SLUG,
     promptLimit: DEFAULT_PROMPT_LIMIT,
+    promptLimitProvided: false,
+    profileId: null,
     searchMode: DEFAULT_SEARCH_MODE
   };
 
@@ -905,6 +992,15 @@ function parseArgs(args: string[]): CliOptions {
       const parsed = Number(next);
       if (!Number.isInteger(parsed) || parsed < 1) throw new Error("--prompt-limit must be a positive integer.");
       options.promptLimit = parsed;
+      options.promptLimitProvided = true;
+      index += 1;
+      continue;
+    }
+    if (arg === "--profile" && next) {
+      if (!isMeasurementProfileId(next)) {
+        throw new Error(`--profile must be one of: ${getMeasurementProfileIds().join(", ")}.`);
+      }
+      options.profileId = next;
       index += 1;
       continue;
     }
@@ -915,6 +1011,10 @@ function parseArgs(args: string[]): CliOptions {
       continue;
     }
     throw new Error(`Unknown or incomplete argument: ${arg}`);
+  }
+
+  if (options.profileId && options.promptLimitProvided) {
+    throw new Error("--profile and --prompt-limit cannot be used together.");
   }
 
   return options;
@@ -978,6 +1078,9 @@ function printSummary(summary: {
   runStatus: RunStatus;
   results: ItemResult[];
   totals: Totals;
+  profile: MeasurementProfile | null;
+  selectedPromptIds: string[];
+  expectedRunItems: number;
   guardrails: ReturnType<typeof buildGuardrails>;
   dashboardUrls: string[];
 }) {
@@ -988,7 +1091,20 @@ function printSummary(summary: {
         measurementRunId: summary.measurementRunId,
         openaiModel: OPENAI_MODEL,
         searchMode: summary.options.searchMode,
-        promptLimit: summary.options.promptLimit,
+        promptLimit: summary.profile ? null : summary.options.promptLimit,
+        promptCount: summary.selectedPromptIds.length,
+        expectedRunItems: summary.expectedRunItems,
+        selectedPromptIds: summary.selectedPromptIds,
+        profile: summary.profile
+          ? {
+              id: summary.profile.id,
+              label: summary.profile.label,
+              promptCount: summary.profile.promptCount,
+              defaultSearchMode: summary.profile.defaultSearchMode,
+              expectedRunItems: summary.expectedRunItems,
+              promptIds: summary.profile.promptIds
+            }
+          : null,
         startedAt: summary.startedAt,
         completedAt: summary.completedAt,
         runStatus: summary.runStatus,

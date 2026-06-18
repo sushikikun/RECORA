@@ -17,6 +17,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataCard, PageHeader } from "@/components/recora/ui";
+import {
+  DEFAULT_MEASUREMENT_PROFILE_ID,
+  getExpectedRunItems,
+  getMeasurementProfile,
+  measurementProfiles,
+  type MeasurementProfile,
+  type MeasurementProfileId
+} from "@/lib/recora/measurement-profiles";
 import { cn } from "@/lib/utils";
 
 type RunMode = "dry-run" | "execute";
@@ -31,15 +39,18 @@ type ApiResponse = {
 };
 
 const DEFAULT_PROJECT_SLUG = "recora-kenzai-q2";
-const DEFAULT_PROMPT_LIMIT = 1;
-const DEFAULT_SEARCH_MODE = "both";
 
 export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectSlug?: string }) {
   const normalizedProjectSlug = projectSlug || DEFAULT_PROJECT_SLUG;
+  const [selectedProfileId, setSelectedProfileId] = useState<MeasurementProfileId>(DEFAULT_MEASUREMENT_PROFILE_ID);
   const [isRunning, setIsRunning] = useState(false);
   const [activeMode, setActiveMode] = useState<RunMode | null>(null);
   const [response, setResponse] = useState<ApiResponse | null>(null);
 
+  const selectedProfile = useMemo(
+    () => getMeasurementProfile(selectedProfileId) ?? measurementProfiles[0],
+    [selectedProfileId]
+  );
   const summary = useMemo(() => buildSummary(response?.result), [response]);
   const dashboardUrls = useMemo(() => buildDashboardUrls(normalizedProjectSlug, response?.result), [normalizedProjectSlug, response]);
 
@@ -56,8 +67,8 @@ export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectS
         },
         body: JSON.stringify({
           projectSlug: normalizedProjectSlug,
-          promptLimit: DEFAULT_PROMPT_LIMIT,
-          searchMode: DEFAULT_SEARCH_MODE,
+          profileId: selectedProfile.id,
+          searchMode: selectedProfile.defaultSearchMode,
           mode
         })
       });
@@ -90,17 +101,30 @@ export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectS
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
         <DataCard
           title="実行設定"
-          description="v0.1では小規模な測定だけを画面から実行します。"
+          description="v0.1の測定対象を、固定されたプロファイルから選択します。"
           action={
             <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
-              prompt-limit 1
+              {selectedProfile.label}
             </Badge>
           }
         >
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 lg:grid-cols-2">
+            {measurementProfiles.map((profile) => (
+              <ProfileOption
+                key={profile.id}
+                profile={profile}
+                selected={profile.id === selectedProfile.id}
+                onSelect={() => setSelectedProfileId(profile.id)}
+              />
+            ))}
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <SettingTile label="Project" value={normalizedProjectSlug} />
-            <SettingTile label="Prompt limit" value={String(DEFAULT_PROMPT_LIMIT)} />
-            <SettingTile label="Search mode" value={DEFAULT_SEARCH_MODE} />
+            <SettingTile label="Profile" value={selectedProfile.id} />
+            <SettingTile label="Prompts" value={String(selectedProfile.promptCount)} />
+            <SettingTile label="Run items" value={String(getExpectedRunItems(selectedProfile, selectedProfile.defaultSearchMode))} />
+            <SettingTile label="Search mode" value={selectedProfile.defaultSearchMode} />
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -121,13 +145,13 @@ export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectS
               onClick={() => void runCycle("execute")}
             >
               {isRunning && activeMode === "execute" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              小規模測定を実行
+              {selectedProfile.label}を実行
             </Button>
           </div>
 
           <div className="mt-5 grid gap-3 text-sm leading-6 text-slate-600">
             <NoticeRow icon={<ShieldCheck className="h-4 w-4" />} text="Recora独自の観測であり、AIプラットフォーム公式評価ではありません。" />
-            <NoticeRow icon={<AlertTriangle className="h-4 w-4" />} text="小規模測定では強い結論にしないでください。" />
+            <NoticeRow icon={<AlertTriangle className="h-4 w-4" />} text={selectedProfile.warning} />
             <NoticeRow icon={<Terminal className="h-4 w-4" />} text="実行にはOpenAI APIを使用します。dry-runではAPIを呼びません。" />
           </div>
         </DataCard>
@@ -156,7 +180,7 @@ export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectS
       <div className="mt-5">
         <DataCard
           title="実行結果"
-          description="dry-runまたは小規模測定の結果をここに表示します。"
+          description="dry-runまたは選択した測定プロファイルの結果をここに表示します。"
           action={response ? <ResultBadge ok={response.ok} /> : null}
         >
           {!response ? (
@@ -169,6 +193,48 @@ export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectS
         </DataCard>
       </div>
     </>
+  );
+}
+
+function ProfileOption({
+  profile,
+  selected,
+  onSelect
+}: {
+  profile: MeasurementProfile;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onSelect}
+      className={cn(
+        "min-w-0 rounded-lg border bg-white p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2",
+        selected ? "border-teal-300 bg-teal-50/70 shadow-sm" : "border-slate-200 hover:border-teal-200 hover:bg-teal-50/40"
+      )}
+    >
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-bold text-slate-950">{profile.label}</p>
+            {profile.isRecommended ? (
+              <Badge variant="outline" className="rounded-sm border-teal-200 bg-white text-teal-700">
+                v0.1推奨
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{profile.description}</p>
+        </div>
+        <CheckCircle2 className={cn("h-5 w-5 shrink-0", selected ? "text-teal-700" : "text-slate-300")} />
+      </div>
+      <div className="mt-4 grid gap-2 text-xs font-bold text-slate-600 sm:grid-cols-3">
+        <span>{profile.promptCount} prompts</span>
+        <span>{profile.expectedRunItems} observations</span>
+        <span>{profile.defaultSearchMode}</span>
+      </div>
+    </button>
   );
 }
 
@@ -233,6 +299,9 @@ function ResultSummary({
   return (
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryTile label="profile" value={summary.profileLabel ?? "個別測定"} />
+        <SummaryTile label="prompt数" value={summary.promptCount} />
+        <SummaryTile label="expected run_items" value={summary.expectedRunItems} />
         <SummaryTile label="measurementRunId" value={summary.measurementRunId ?? "-"} />
         <SummaryTile label="runItems" value={summary.runItems} />
         <SummaryTile label="AI回答" value={summary.aiConversations} />
@@ -290,11 +359,17 @@ function SummaryLine({ label, value }: { label: string; value: string }) {
 function buildSummary(result?: JsonRecord) {
   const measurement = getRecord(result?.measurement);
   const aggregate = getRecord(result?.aggregate);
+  const profile = getRecord(result?.profile);
   const insertedCounts = getRecord(measurement.insertedCounts);
+  const promptCount = getNumber(result?.promptCount) ?? getNumber(profile.promptCount);
+  const expectedRunItems = getNumber(result?.expectedRunItems) ?? getNumber(profile.expectedRunItems);
 
   return {
+    profileLabel: getString(profile.label),
+    promptCount: formatNullableNumber(promptCount),
+    expectedRunItems: formatNullableNumber(expectedRunItems),
     measurementRunId: getString(result?.measurementRunId),
-    runItems: formatNullableNumber(insertedCounts.runItemsCreated),
+    runItems: formatNullableNumber(insertedCounts.runItemsCreated ?? expectedRunItems),
     aiConversations: formatNullableNumber(insertedCounts.aiConversationsInserted),
     brandMentions: formatNullableNumber(insertedCounts.brandMentionsInserted),
     citations: formatNullableNumber(insertedCounts.citationsInserted),
@@ -322,6 +397,10 @@ function getRecord(value: unknown): JsonRecord {
 
 function getString(value: unknown) {
   return typeof value === "string" && value ? value : null;
+}
+
+function getNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function formatNullableNumber(value: unknown) {

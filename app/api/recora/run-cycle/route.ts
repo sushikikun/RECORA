@@ -2,6 +2,14 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+import {
+  DEFAULT_MEASUREMENT_PROFILE_ID,
+  getMeasurementProfile,
+  getMeasurementProfileIds,
+  isMeasurementProfileId,
+  type MeasurementProfileId
+} from "@/lib/recora/measurement-profiles";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -14,6 +22,13 @@ const EXECUTION_TIMEOUT_MS = 180_000;
 type RequestMode = "dry-run" | "execute";
 type SearchMode = "no-search" | "web-search" | "both";
 type JsonRecord = Record<string, unknown>;
+type NormalizedInput = {
+  projectSlug: string;
+  promptLimit: number | null;
+  profileId: MeasurementProfileId | null;
+  searchMode: SearchMode;
+  mode: RequestMode;
+};
 
 export async function POST(request: Request) {
   try {
@@ -50,32 +65,46 @@ async function readJsonBody(request: Request) {
 function normalizeInput(body: unknown) {
   const record = isRecord(body) ? body : {};
   const projectSlug = getString(record.projectSlug) ?? DEFAULT_PROJECT_SLUG;
-  const promptLimit = clampPromptLimit(getNumber(record.promptLimit) ?? DEFAULT_PROMPT_LIMIT);
+  const hasPromptLimit = record.promptLimit !== undefined && record.promptLimit !== null;
+  const rawProfileId = getString(record.profileId);
+  let profileId: MeasurementProfileId | null = null;
+
+  if (rawProfileId) {
+    if (!isMeasurementProfileId(rawProfileId)) {
+      throw new Error(`Unknown measurement profile: ${rawProfileId}. Allowed profiles: ${getMeasurementProfileIds().join(", ")}.`);
+    }
+    if (hasPromptLimit) {
+      throw new Error("profileId and promptLimit cannot be used together.");
+    }
+    profileId = rawProfileId;
+  } else if (!hasPromptLimit) {
+    profileId = DEFAULT_MEASUREMENT_PROFILE_ID;
+  }
+
+  const promptLimit = profileId ? null : clampPromptLimit(getNumber(record.promptLimit) ?? DEFAULT_PROMPT_LIMIT);
   const searchMode = normalizeSearchMode(getString(record.searchMode));
   const mode = normalizeMode(getString(record.mode));
 
   return {
     projectSlug,
     promptLimit,
+    profileId,
     searchMode,
     mode
-  };
+  } satisfies NormalizedInput;
 }
 
-function buildCycleCommand(input: {
-  projectSlug: string;
-  promptLimit: number;
-  searchMode: SearchMode;
-  mode: RequestMode;
-}) {
+function buildCycleCommand(input: NormalizedInput) {
   const tsxCliPath = resolveTsxCliPath();
+  const promptSelectionArgs = input.profileId
+    ? ["--profile", getMeasurementProfile(input.profileId)?.id ?? input.profileId]
+    : ["--prompt-limit", String(input.promptLimit ?? DEFAULT_PROMPT_LIMIT)];
   const args = [
     tsxCliPath,
     "scripts/run-recora-cycle.ts",
     "--project-slug",
     input.projectSlug,
-    "--prompt-limit",
-    String(input.promptLimit),
+    ...promptSelectionArgs,
     "--search-mode",
     input.searchMode
   ];

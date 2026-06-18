@@ -23,6 +23,10 @@ export type RecoraRunHistoryItem = {
   createdAt: string;
   sourceRunId: string | null;
   searchMode: string | null;
+  measurementProfileId: string | null;
+  measurementProfileLabel: string | null;
+  measurementProfilePromptCount: number | null;
+  measurementProfileExpectedRunItems: number | null;
   promptCount: number;
   runItemCount: number;
   aiConversationCount: number;
@@ -224,6 +228,10 @@ function buildRunHistoryItems(
       createdAt: run.created_at,
       sourceRunId,
       searchMode: getSearchMode(metadata, conversationsForRun),
+      measurementProfileId: getMetadataString(metadata, "measurement_profile_id"),
+      measurementProfileLabel: getMetadataString(metadata, "measurement_profile_label"),
+      measurementProfilePromptCount: getMetadataNumber(metadata, "prompt_count"),
+      measurementProfileExpectedRunItems: getMetadataNumber(metadata, "expected_run_items"),
       promptCount: uniqueCount(runItemsForRun.map((item) => item.prompt_id)),
       runItemCount: runItemsForRun.length,
       aiConversationCount: conversationsForRun.length,
@@ -324,6 +332,11 @@ function getMetadataRecord(value: Json): Record<string, unknown> {
 function getMetadataString(metadata: Record<string, unknown>, key: string) {
   const value = metadata[key];
   return typeof value === "string" && value ? value : null;
+}
+
+function getMetadataNumber(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function throwIfSupabaseError(context: string, error: PostgrestError | null) {

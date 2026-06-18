@@ -44,7 +44,8 @@ export function RunHistoryList({ projectSlug, runsData, loadError = false }: Run
           <p className="mt-2 text-sm leading-6 text-slate-500">小規模測定を実行すると、ここにrun履歴が表示されます。</p>
         </div>
       ) : (
-        <Table className="min-w-[1320px]">
+        <div className="overflow-x-auto">
+        <Table className="min-w-[1120px]">
           <TableHeader>
             <TableRow>
               <TableHead className="min-w-[230px]">run id</TableHead>
@@ -85,11 +86,20 @@ export function RunHistoryList({ projectSlug, runsData, loadError = false }: Run
                     <Badge variant="outline" className="rounded-sm border-slate-200 bg-slate-50 text-slate-600">
                       {formatSearchMode(run.searchMode)}
                     </Badge>
+                    <div className="pt-1">
+                      <div className="text-xs font-semibold text-slate-500">profile</div>
+                      <Badge variant="outline" className="rounded-sm border-teal-100 bg-teal-50/70 text-teal-700">
+                        {formatProfileLabel(run)}
+                      </Badge>
+                    </div>
                   </div>
                 </TableCell>
                 <TableCell>
                   <CountLine label="prompt" value={run.promptCount} />
                   <CountLine label="run_items" value={run.runItemCount} />
+                  {run.measurementProfileExpectedRunItems !== null ? (
+                    <CountLine label="profile run_items" value={run.measurementProfileExpectedRunItems} />
+                  ) : null}
                 </TableCell>
                 <TableCell>
                   <CountLine label="AI回答" value={run.aiConversationCount} />
@@ -110,6 +120,7 @@ export function RunHistoryList({ projectSlug, runsData, loadError = false }: Run
             ))}
           </TableBody>
         </Table>
+        </div>
       )}
     </DataCard>
   );
@@ -232,6 +243,14 @@ function formatSearchMode(value: string | null) {
   if (value === "combined") return "combined";
   if (value === "both") return "both";
   return value;
+}
+
+function formatProfileLabel(run: RecoraRunHistoryItem) {
+  if (run.measurementProfileLabel) return run.measurementProfileLabel;
+  if (run.kind === "measurement") return "個別測定";
+  if (run.kind === "aggregate") return "集計run";
+  if (run.kind === "sample") return "初期データ";
+  return "-";
 }
 
 function formatDateTime(value: string | null) {

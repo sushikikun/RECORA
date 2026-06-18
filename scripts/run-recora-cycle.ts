@@ -2,6 +2,14 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import {
+  getExpectedRunItems,
+  getMeasurementProfile,
+  getMeasurementProfileIds,
+  isMeasurementProfileId,
+  type MeasurementProfile,
+  type MeasurementProfileId
+} from "../lib/recora/measurement-profiles";
 
 const DEFAULT_PROJECT_SLUG = "recora-kenzai-q2";
 const DEFAULT_PROMPT_LIMIT = 1;
@@ -14,6 +22,8 @@ type AggregateSearchMode = "combined" | "no-search" | "web-search" | "both";
 type Options = {
   projectSlug: string;
   promptLimit: number;
+  promptLimitProvided: boolean;
+  profileId: MeasurementProfileId | null;
   searchMode: SearchMode;
   aggregateSearchMode: AggregateSearchMode;
   execute: boolean;
@@ -36,16 +46,22 @@ type CommandResult = {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  const profile = options.profileId ? getMeasurementProfile(options.profileId) : null;
   const measurementCommand = buildMeasurementCommand(options);
   const aggregateCommandWithoutSourceRun = buildAggregateCommand(options, null);
   const dashboardUrls = buildDashboardUrls(options.projectSlug);
+  const profileSummary = profile ? buildProfileSummary(profile, options.searchMode) : null;
 
   if (!options.execute) {
     printJson({
       mode: "dry-run",
       projectSlug: options.projectSlug,
-      promptLimit: options.promptLimit,
+      promptLimit: profile ? null : options.promptLimit,
+      promptCount: profile ? profile.promptCount : options.promptLimit,
+      expectedRunItems: profile ? getExpectedRunItems(profile, options.searchMode) : getExpectedRunItems({ promptCount: options.promptLimit }, options.searchMode),
       searchMode: options.searchMode,
+      selectedPromptIds: profile ? [...profile.promptIds] : null,
+      profile: profileSummary,
       aggregateSearchMode: options.aggregateSearchMode,
       measurementRunId: null,
       measurement: {
@@ -91,8 +107,12 @@ async function main() {
   printJson({
     mode: options.applyAggregate ? "execute-and-apply-aggregate" : "execute-measurement-aggregate-dry-run",
     projectSlug: options.projectSlug,
-    promptLimit: options.promptLimit,
+    promptLimit: profile ? null : options.promptLimit,
+    promptCount: profile ? profile.promptCount : options.promptLimit,
+    expectedRunItems: profile ? getExpectedRunItems(profile, options.searchMode) : getExpectedRunItems({ promptCount: options.promptLimit }, options.searchMode),
     searchMode: options.searchMode,
+    selectedPromptIds: profile ? [...profile.promptIds] : null,
+    profile: profileSummary,
     aggregateSearchMode: options.aggregateSearchMode,
     measurementRunId,
     measurement: {
@@ -136,6 +156,8 @@ function parseArgs(args: string[]): Options {
   const options: Options = {
     projectSlug: DEFAULT_PROJECT_SLUG,
     promptLimit: DEFAULT_PROMPT_LIMIT,
+    promptLimitProvided: false,
+    profileId: null,
     searchMode: DEFAULT_SEARCH_MODE,
     aggregateSearchMode: DEFAULT_AGGREGATE_SEARCH_MODE,
     execute: false,
@@ -159,6 +181,15 @@ function parseArgs(args: string[]): Options {
       const parsed = Number(next);
       if (!Number.isInteger(parsed) || parsed < 1) throw new Error("--prompt-limit must be a positive integer.");
       options.promptLimit = parsed;
+      options.promptLimitProvided = true;
+      index += 1;
+      continue;
+    }
+    if (arg === "--profile" && next) {
+      if (!isMeasurementProfileId(next)) {
+        throw new Error(`--profile must be one of: ${getMeasurementProfileIds().join(", ")}.`);
+      }
+      options.profileId = next;
       index += 1;
       continue;
     }
@@ -188,15 +219,23 @@ function parseArgs(args: string[]): Options {
     throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
 
+  if (options.profileId && options.promptLimitProvided) {
+    throw new Error("--profile and --prompt-limit cannot be used together.");
+  }
+
   return options;
 }
 
 function buildMeasurementCommand(options: Options) {
+  const profile = options.profileId ? getMeasurementProfile(options.profileId) : null;
+  const promptSelectionArgs = profile
+    ? ["--profile", profile.id]
+    : ["--prompt-limit", String(options.promptLimit)];
+
   return buildChildScriptCommand("OpenAI measurement", "scripts/run-openai-measurement.ts", [
     "--project-slug",
     options.projectSlug,
-    "--prompt-limit",
-    String(options.promptLimit),
+    ...promptSelectionArgs,
     "--search-mode",
     options.searchMode
   ]);
@@ -242,6 +281,22 @@ function buildDashboardUrls(projectSlug: string) {
     conversations: `/dashboard/reports/${projectSlug}/conversations`,
     sources: `/dashboard/reports/${projectSlug}/sources`,
     leaderboard: `/dashboard/reports/${projectSlug}/leaderboard`
+  };
+}
+
+function buildProfileSummary(profile: MeasurementProfile, searchMode: SearchMode) {
+  return {
+    id: profile.id,
+    label: profile.label,
+    description: profile.description,
+    useCase: profile.useCase,
+    promptCount: profile.promptCount,
+    expectedRunItems: getExpectedRunItems(profile, searchMode),
+    defaultSearchMode: profile.defaultSearchMode,
+    searchMode,
+    warning: profile.warning,
+    isRecommended: profile.isRecommended,
+    selectedPromptIds: [...profile.promptIds]
   };
 }
 
@@ -402,11 +457,13 @@ function printJson(value: JsonRecord) {
 function printHelp() {
   console.log(`Usage:
   npx tsx scripts/run-recora-cycle.ts --project-slug recora-kenzai-q2 --prompt-limit 1 --search-mode both
+  npx tsx scripts/run-recora-cycle.ts --project-slug recora-kenzai-q2 --profile small-v01 --search-mode both
   npx tsx scripts/run-recora-cycle.ts --project-slug recora-kenzai-q2 --prompt-limit 1 --search-mode both --execute --apply-aggregate
 
 Options:
   --project-slug <slug>               Target Recora project slug. Default: recora-kenzai-q2
   --prompt-limit <number>             Number of prompts to measure. Default: 1
+  --profile <id>                      Measurement profile: small-v01 or standard-v01. Cannot be combined with --prompt-limit.
   --search-mode <mode>                no-search, web-search, or both. Default: both
   --aggregate-search-mode <mode>      combined, no-search, web-search, or both. Default: combined
   --execute                           Actually run OpenAI measurement.
