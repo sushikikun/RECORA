@@ -83,6 +83,7 @@ export type RecoraMeasurementRunRow = {
   language: string;
   started_at: string | null;
   completed_at: string | null;
+  metadata: Json;
   created_at: string;
   updated_at: string;
 };

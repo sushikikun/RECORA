@@ -3,22 +3,30 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { createRecoraSupabaseClient } from "@/lib/supabase/server";
 import {
   getDefaultRecoraProjectSlug,
-  getLatestRecoraMeasurementRun,
   getRecoraBrands,
   getRecoraProject
 } from "./dashboard";
+import {
+  isDisplayableCitation,
+  isOpenAiAggregateRun,
+  isOpenAiMeasuredConversation,
+  isSeedMeasurementRunId
+} from "./display-filters";
 import type {
   RecoraAiConversationRow,
   RecoraAiModelRow,
   RecoraBrandMentionRow,
   RecoraCitationRow,
   RecoraConversationsDbData,
+  RecoraMeasurementRunRow,
   RecoraPersonaRow,
   RecoraPromptRow,
   RecoraRunItemRow,
   RecoraTopicRow
 } from "./types";
 
+const MEASUREMENT_RUN_COLUMNS =
+  "id, project_id, status, period_start, period_end, comparison_start, comparison_end, region, language, started_at, completed_at, metadata, created_at, updated_at";
 const RUN_ITEM_COLUMNS =
   "id, run_id, prompt_id, persona_id, model_id, status, error_message, latency_ms, captured_at, created_at, updated_at";
 const AI_CONVERSATION_COLUMNS =
@@ -48,22 +56,27 @@ export async function getRecoraConversationsData(
     return emptyConversationsData();
   }
 
-  const [latestRun, brands, runIds] = await Promise.all([
-    getLatestRecoraMeasurementRun(project.id, supabase),
+  const [brands, completedRuns] = await Promise.all([
     getRecoraBrands(project.id, supabase),
-    getCompletedRunIds(project.id, supabase)
+    getCompletedRuns(project.id, supabase)
   ]);
+  const candidateRunIds = completedRuns
+    .filter((run) => !isSeedMeasurementRunId(run.id) && !isOpenAiAggregateRun(run))
+    .map((run) => run.id);
 
-  if (runIds.length === 0) {
-    return { ...emptyConversationsData(), project, latestRun, brands };
+  if (candidateRunIds.length === 0) {
+    return { ...emptyConversationsData(), project, latestRun: null, brands };
   }
 
-  const runItems = await getRunItemsForRuns(runIds, supabase);
+  const candidateRunItems = await getRunItemsForRuns(candidateRunIds, supabase);
 
-  const conversations = await getAiConversations(
-    runItems.map((item) => item.id),
+  const conversations = (await getAiConversations(
+    candidateRunItems.map((item) => item.id),
     supabase
-  );
+  )).filter(isOpenAiMeasuredConversation);
+  const visibleRunItemIds = new Set(conversations.map((item) => item.run_item_id));
+  const runItems = candidateRunItems.filter((item) => visibleRunItemIds.has(item.id));
+  const latestRun = getLatestRunForRunItems(completedRuns, runItems);
 
   const [prompts, personas, aiModels, brandMentions, citations] = await Promise.all([
     getPrompts(uniqueIds(runItems.map((item) => item.prompt_id)), supabase),
@@ -106,17 +119,17 @@ function emptyConversationsData(): RecoraConversationsDbData {
   };
 }
 
-async function getCompletedRunIds(projectId: string, supabase: RecoraSupabaseClient) {
+async function getCompletedRuns(projectId: string, supabase: RecoraSupabaseClient) {
   const { data, error } = await supabase
     .from("measurement_runs")
-    .select("id")
+    .select(MEASUREMENT_RUN_COLUMNS)
     .eq("project_id", projectId)
     .eq("status", "completed")
     .order("completed_at", { ascending: false })
     .order("created_at", { ascending: false });
 
   throwIfSupabaseError("measurement_runs", error);
-  return ((data ?? []) as Array<{ id: string }>).map((run) => run.id);
+  return (data ?? []) as RecoraMeasurementRunRow[];
 }
 
 async function getRunItemsForRuns(runIds: string[], supabase: RecoraSupabaseClient) {
@@ -205,11 +218,16 @@ async function getCitations(conversationIds: string[], supabase: RecoraSupabaseC
     .order("occurrence_count", { ascending: false });
 
   throwIfSupabaseError("citations", error);
-  return (data ?? []) as RecoraCitationRow[];
+  return ((data ?? []) as RecoraCitationRow[]).filter(isDisplayableCitation);
 }
 
 function uniqueIds(ids: Array<string | null | undefined>) {
   return Array.from(new Set(ids.filter((id): id is string => Boolean(id))));
+}
+
+function getLatestRunForRunItems(runs: RecoraMeasurementRunRow[], runItems: RecoraRunItemRow[]) {
+  const runIds = new Set(runItems.map((item) => item.run_id));
+  return runs.find((run) => runIds.has(run.id)) ?? null;
 }
 
 function throwIfSupabaseError(context: string, error: PostgrestError | null) {

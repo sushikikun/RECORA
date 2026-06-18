@@ -11,6 +11,7 @@ import type {
   RecoraProjectRow,
   RecoraRecommendationRow
 } from "./types";
+import { isDisplayableRecommendation, isOpenAiAggregateRun } from "./display-filters";
 
 const DEFAULT_PROJECT_SLUG = "recora-kenzai-q2";
 
@@ -19,7 +20,7 @@ const PROJECT_COLUMNS =
 const BRAND_COLUMNS =
   "id, project_id, brand_type, name, reading, domain, aliases, category, description, is_active, created_at, updated_at";
 const MEASUREMENT_RUN_COLUMNS =
-  "id, project_id, status, period_start, period_end, comparison_start, comparison_end, region, language, started_at, completed_at, created_at, updated_at";
+  "id, project_id, status, period_start, period_end, comparison_start, comparison_end, region, language, started_at, completed_at, metadata, created_at, updated_at";
 const METRIC_SNAPSHOT_COLUMNS =
   "id, run_id, scope_type, scope_id, brand_id, ai_visibility, ai_mention_count, citation_count, share_of_voice, competitive_gap, average_position, calculated_at, created_at, updated_at";
 const RECOMMENDATION_COLUMNS =
@@ -95,12 +96,15 @@ export async function getLatestRunWithMetricSnapshots(
   const runs = (data ?? []) as RecoraMeasurementRunRow[];
   if (runs.length === 0) return null;
 
+  const aggregateRuns = runs.filter(isOpenAiAggregateRun);
+  if (aggregateRuns.length === 0) return null;
+
   const runIdsWithSnapshots = await getMetricSnapshotRunIds(
-    runs.map((run) => run.id),
+    aggregateRuns.map((run) => run.id),
     supabase
   );
 
-  return runs.find((run) => runIdsWithSnapshots.has(run.id)) ?? null;
+  return aggregateRuns.find((run) => runIdsWithSnapshots.has(run.id)) ?? null;
 }
 
 export async function getRecoraMetricSnapshots(
@@ -130,7 +134,9 @@ export async function getRecoraRecommendations(
     .order("created_at", { ascending: false });
 
   throwIfSupabaseError("recommendations", error);
-  return ((data ?? []) as RecoraRecommendationRow[]).filter(isCustomerVisibleRecommendation);
+  return ((data ?? []) as RecoraRecommendationRow[])
+    .filter(isCustomerVisibleRecommendation)
+    .filter(isDisplayableRecommendation);
 }
 
 function isCustomerVisibleRecommendation(item: RecoraRecommendationRow) {

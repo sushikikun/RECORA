@@ -8,6 +8,7 @@ import {
   getRecoraMetricSnapshots,
   getRecoraProject
 } from "./dashboard";
+import { isDisplayableCitation, isOpenAiMeasuredConversation } from "./display-filters";
 import type {
   RecoraAiConversationRow,
   RecoraBrandMentionRow,
@@ -56,10 +57,10 @@ export async function getRecoraLeaderboardData(
     getRunItems(latestRun.id, supabase)
   ]);
 
-  const conversations = await getAiConversations(
+  const conversations = (await getAiConversations(
     runItems.map((item) => item.id),
     supabase
-  );
+  )).filter(isOpenAiMeasuredConversation);
   const conversationIds = uniqueIds(conversations.map((item) => item.id));
 
   const [brandMentions, citations, prompts] = await Promise.all([
@@ -142,7 +143,7 @@ async function getCitations(conversationIds: string[], supabase: RecoraSupabaseC
     .in("conversation_id", conversationIds);
 
   throwIfSupabaseError("citations", error);
-  return (data ?? []) as RecoraCitationRow[];
+  return ((data ?? []) as RecoraCitationRow[]).filter(isDisplayableCitation);
 }
 
 async function getPrompts(promptIds: string[], supabase: RecoraSupabaseClient) {
