@@ -6,24 +6,39 @@ import process from "node:process";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const DEFAULT_PROJECT_SLUG = process.env.RECORA_DEFAULT_PROJECT_SLUG ?? "recora-kenzai-q2";
-const INPUT_PATH = path.join(process.cwd(), "output", "recommendation-candidates", "recommendation-candidates.json");
-const SCRIPT_SOURCE = "candidate_generator";
+const DEFAULT_INPUT_PATH = path.join(process.cwd(), "output", "recommendation-candidates", "recommendation-candidates.json");
+const SCRIPT_SOURCE = "recommendation_candidate_generator";
+const SAVE_POLICY_VERSION = "recora-display-v01";
+const REQUIRED_PROFILE_ID = "standard-v01";
+const SEED_MEASUREMENT_RUN_ID = "70000000-0000-4000-8000-000000000001";
+const TABLES = [
+  "measurement_runs",
+  "run_items",
+  "ai_conversations",
+  "brand_mentions",
+  "citations",
+  "source_domains",
+  "metric_snapshots",
+  "recommendations",
+  "topics",
+  "prompts",
+  "personas"
+] as const;
 const DB_WRITE_POLICY: DbWritePolicy = {
   dry_run_default: true,
   requires_apply: true,
-  requires_candidate_ids: true,
-  requires_confirm_reviewed: true,
-  review_required_only: true,
-  candidate_only_excluded: true,
-  save_decision_auto_save_disabled: true
+  display_decision_show_only: true,
+  standard_v01_only: true,
+  openai_measurement_only: true,
+  save_policy_version: SAVE_POLICY_VERSION
 };
 
 type Row = Record<string, string | null>;
 type DbRecommendationType = "content" | "source" | "technical" | "prompt" | "risk" | "competitive";
 type DbPriority = "high" | "medium" | "low";
 type DbStatus = "open" | "planned" | "done" | "dismissed";
-type SaveDecision = "save" | "review_required" | "candidate_only";
 type CandidatePriority = "P0" | "P1" | "P2";
+type CountSnapshot = Record<string, number>;
 type Candidate = {
   id: string;
   title: string;
@@ -39,47 +54,76 @@ type Candidate = {
   related_brands: string[];
   related_topics: string[];
   confidence: string;
-  should_save_to_recommendations: SaveDecision;
+  confidence_label?: string;
+  quality_score?: number;
+  quality_score_label?: string;
+  quality_score_max?: number;
+  quality_score_breakdown?: unknown[];
+  display_category?: string;
+  display_decision?: string;
+  customer_facing_caution?: string;
+  score_explanation?: string;
+  recora_metric_notice?: string;
+  should_save_to_recommendations?: string;
   save_reason: string;
   caution: string;
   suggested_next_action: string;
 };
-type CandidatesPayload = { generated_at: string; project_slug: string; project_name: string; candidates: Candidate[] };
-type Options = { apply: boolean; candidateIds: string[]; confirmReviewed: boolean };
+type CandidatesPayload = {
+  generated_at: string;
+  project_slug: string;
+  project_name: string;
+  measurement_run_id?: string;
+  aggregate_run_id?: string | null;
+  measurement_profile_id?: string;
+  candidates: Candidate[];
+};
+type Options = { inputPath: string; apply: boolean; dryRun: boolean };
 type ProjectRow = { id: string; slug: string; name: string };
-type ExistingRecommendationRow = { id: string; title: string; candidate_id: string | null; source: string | null };
+type ExistingRecommendationRow = { id: string; title: string; candidate_id: string | null; measurement_run_id: string | null; source: string | null };
 type DbWritePolicy = {
   dry_run_default: boolean;
   requires_apply: boolean;
-  requires_candidate_ids: boolean;
-  requires_confirm_reviewed: boolean;
-  review_required_only: boolean;
-  candidate_only_excluded: boolean;
-  save_decision_auto_save_disabled: boolean;
+  display_decision_show_only: boolean;
+  standard_v01_only: boolean;
+  openai_measurement_only: boolean;
+  save_policy_version: string;
 };
 type RecommendationPlan = {
   candidate_id: string;
   title: string;
-  requested: boolean;
-  decision: SaveDecision;
+  candidate_type: string;
+  display_decision: string | null;
+  display_category: string | null;
+  quality_score: number | null;
+  confidence: string | null;
+  measurement_run_id: string | null;
+  aggregate_run_id: string | null;
+  measurement_profile_id: string | null;
   action: "skipped" | "would_insert" | "inserted";
   reason: string;
+  skip_reasons: string[];
+  duplicate: boolean;
   existing_recommendation_id: string | null;
   mapped_type: DbRecommendationType;
   mapped_priority: DbPriority;
   mapped_status: DbStatus;
-  review_status: "review_required";
+  impact_score: number;
   db_write_policy: DbWritePolicy;
   payload_summary: {
     candidate_id: string;
     title: string;
+    display_decision: string | null;
+    display_category: string | null;
+    quality_score: number | null;
+    confidence: string | null;
     mapped_priority: DbPriority;
     mapped_status: DbStatus;
-    review_status: "review_required";
     db_write_policy: DbWritePolicy;
   };
 };
 type InsertMapping = {
+  runId: string;
   type: DbRecommendationType;
   priority: DbPriority;
   status: DbStatus;
@@ -94,16 +138,16 @@ type PgMessage = { type: string; payload: Buffer };
 async function main() {
   await loadEnvLocal();
   const options = parseArgs(process.argv.slice(2));
-  const payload = await readPayload();
+  const payload = await readPayload(options.inputPath);
   const projectSlug = payload.project_slug || DEFAULT_PROJECT_SLUG;
   const db = new LocalPostgresClient(process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL);
   await db.connect();
   try {
     const project = await getProject(db, projectSlug);
-    const before = await getRecommendationsCount(db);
+    const before = await getCounts(db);
     const existing = await getExistingRecommendations(db, project.id, payload.candidates);
-    const databaseWriteAllowed = options.apply && options.candidateIds.length > 0 && options.confirmReviewed;
-    const plans = buildPlans(payload.candidates, options, existing, databaseWriteAllowed);
+    const databaseWriteAllowed = options.apply && !options.dryRun;
+    const plans = buildPlans(payload, existing);
     const insertablePlans = plans.filter((plan) => plan.action === "would_insert");
     const insertedCandidateIds: string[] = [];
 
@@ -125,30 +169,29 @@ async function main() {
       }
     }
 
-    const after = await getRecommendationsCount(db);
-    const candidateOnlyExcludedIds = payload.candidates.filter((candidate) => candidate.should_save_to_recommendations === "candidate_only").map((candidate) => candidate.id);
-    const unknownRequestedIds = options.candidateIds.filter((id) => !payload.candidates.some((candidate) => candidate.id === id));
+    const after = await getCounts(db);
+    const skippedPlans = plans.filter((plan) => plan.action === "skipped");
+    const duplicatePlans = plans.filter((plan) => plan.duplicate);
     console.log(JSON.stringify({
       mode: databaseWriteAllowed ? "apply" : "dry-run",
-      input: INPUT_PATH,
+      input: options.inputPath,
       projectSlug: project.slug,
       apply: options.apply,
-      confirmReviewed: options.confirmReviewed,
-      candidateIdsProvided: options.candidateIds.length > 0,
-      candidateIds: options.candidateIds,
-      candidateIdsRequiredForWrite: true,
       applyRequiredForWrite: true,
-      confirmReviewedRequiredForWrite: true,
       databaseWriteAllowed,
-      reviewRequiredOnly: true,
-      saveDecisionAutoSaveDisabled: true,
-      recommendationsBefore: before,
-      recommendationsAfter: after,
-      dbCountsUnchanged: before === after,
+      displayDecisionShowOnly: true,
+      candidateCount: payload.candidates.length,
+      saveTargetCount: insertablePlans.length + insertedCandidateIds.length,
+      skippedCount: skippedPlans.length,
+      duplicateCount: duplicatePlans.length,
+      duplicateCandidateIds: duplicatePlans.map((plan) => plan.candidate_id),
+      recommendationsBefore: before.recommendations ?? 0,
+      recommendationsAfter: after.recommendations ?? 0,
+      dbCountsBefore: before,
+      dbCountsAfter: after,
+      dbCountsUnchanged: sameCounts(before, after),
       databaseWritePerformed: insertedCandidateIds.length > 0,
       savedCandidateIds: insertedCandidateIds,
-      unknownRequestedIds,
-      candidateOnlyExcludedIds,
       plans
     }, null, 2));
   } finally {
@@ -157,35 +200,46 @@ async function main() {
 }
 
 function parseArgs(args: string[]): Options {
-  const options: Options = { apply: false, candidateIds: [], confirmReviewed: false };
+  const options: Options = { inputPath: DEFAULT_INPUT_PATH, apply: false, dryRun: true };
+  let applyRequested = false;
+  let dryRunRequested = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === "--apply") {
-      options.apply = true;
-      continue;
-    }
-    if (arg === "--confirm-reviewed") {
-      options.confirmReviewed = true;
-      continue;
-    }
-    if (arg === "--candidate-ids") {
-      options.candidateIds = parseCandidateIds(args[index + 1] ?? "");
+    if (arg === "--input") {
+      options.inputPath = path.resolve(readNext(args, index, arg));
       index += 1;
       continue;
     }
-    if (arg.startsWith("--candidate-ids=")) {
-      options.candidateIds = parseCandidateIds(arg.slice("--candidate-ids=".length));
+    if (arg.startsWith("--input=")) {
+      options.inputPath = path.resolve(arg.slice("--input=".length));
+      continue;
     }
+    if (arg === "--dry-run") {
+      dryRunRequested = true;
+      options.dryRun = true;
+      options.apply = false;
+      continue;
+    }
+    if (arg === "--apply") {
+      applyRequested = true;
+      options.apply = true;
+      options.dryRun = false;
+      continue;
+    }
+    throw new Error(`Unknown argument: ${arg}`);
   }
+  if (applyRequested && dryRunRequested) throw new Error("--apply and --dry-run cannot be used together.");
   return options;
 }
 
-function parseCandidateIds(value: string) {
-  return Array.from(new Set(value.split(",").map((item) => item.trim()).filter(Boolean)));
+function readNext(args: string[], index: number, arg: string) {
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
+  return value;
 }
 
-async function readPayload(): Promise<CandidatesPayload> {
-  const raw = JSON.parse(await fs.readFile(INPUT_PATH, "utf8")) as CandidatesPayload;
+async function readPayload(inputPath: string): Promise<CandidatesPayload> {
+  const raw = JSON.parse(await fs.readFile(inputPath, "utf8")) as CandidatesPayload;
   if (!Array.isArray(raw.candidates)) throw new Error("recommendation-candidates.json does not contain candidates.");
   return raw;
 }
@@ -196,68 +250,96 @@ async function getProject(db: LocalPostgresClient, slug: string): Promise<Projec
   return rows[0];
 }
 
-async function getRecommendationsCount(db: LocalPostgresClient) {
-  const rows = await db.query<{ count: string }>("select count(*)::text as count from public.recommendations");
-  return Number(rows[0]?.count ?? 0);
+async function getCounts(db: LocalPostgresClient) {
+  const result: CountSnapshot = {};
+  for (const table of TABLES) {
+    const rows = await db.query<{ count: string }>(`select count(*)::text as count from public.${table}`);
+    result[table] = Number(rows[0]?.count ?? 0);
+  }
+  return result;
 }
 
 async function getExistingRecommendations(db: LocalPostgresClient, projectId: string, candidates: Candidate[]): Promise<ExistingRecommendationRow[]> {
   if (candidates.length === 0) return [];
   const ids = candidates.map((candidate) => candidate.id);
-  const titles = candidates.map((candidate) => candidate.title);
+  const measurementRunIds = unique(candidates.map((candidate) => readEvidenceString(candidate, "measurement_run_id")).filter((value): value is string => Boolean(value)));
+  if (measurementRunIds.length === 0) return [];
   return db.query<ExistingRecommendationRow>(`
-    select id::text as id, title, metadata->>'candidate_id' as candidate_id, metadata->>'source' as source
+    select id::text as id, title,
+      metadata->>'candidate_id' as candidate_id,
+      metadata->>'measurement_run_id' as measurement_run_id,
+      metadata->>'source' as source
     from public.recommendations
     where project_id = ${uuid(projectId)}
-      and (
-        metadata->>'candidate_id' in (${litList(ids)})
-        or (metadata->>'source' = ${lit(SCRIPT_SOURCE)} and title in (${litList(titles)}))
-      )
+      and metadata->>'candidate_id' in (${litList(ids)})
+      and metadata->>'measurement_run_id' in (${litList(measurementRunIds)})
   `);
 }
 
-function buildPlans(candidates: Candidate[], options: Options, existing: ExistingRecommendationRow[], databaseWriteAllowed: boolean): RecommendationPlan[] {
-  const requestedIds = new Set(options.candidateIds);
-  return candidates.map((candidate) => {
-    const mapping = mapCandidate(candidate, { generated_at: "", project_slug: "", project_name: "", candidates: [] });
-    const requested = requestedIds.has(candidate.id);
+function buildPlans(payload: CandidatesPayload, existing: ExistingRecommendationRow[]): RecommendationPlan[] {
+  return payload.candidates.map((candidate) => {
+    const mapping = mapCandidate(candidate, payload);
+    const skipReasons = getSkipReasons(candidate);
     const duplicate = findDuplicate(candidate, existing);
     const base = {
       candidate_id: candidate.id,
       title: candidate.title,
-      requested,
-      decision: candidate.should_save_to_recommendations,
+      candidate_type: candidate.type,
+      display_decision: candidate.display_decision ?? null,
+      display_category: candidate.display_category ?? null,
+      quality_score: typeof candidate.quality_score === "number" ? candidate.quality_score : null,
+      confidence: candidate.confidence ?? null,
+      measurement_run_id: mapping.runId,
+      aggregate_run_id: readEvidenceString(candidate, "aggregate_run_id"),
+      measurement_profile_id: readEvidenceString(candidate, "measurement_profile_id"),
+      duplicate: Boolean(duplicate),
       existing_recommendation_id: duplicate?.id ?? null,
       mapped_type: mapping.type,
       mapped_priority: mapping.priority,
       mapped_status: mapping.status,
-      review_status: "review_required" as const,
+      impact_score: mapping.impactScore,
       db_write_policy: DB_WRITE_POLICY,
       payload_summary: {
         candidate_id: candidate.id,
         title: candidate.title,
+        display_decision: candidate.display_decision ?? null,
+        display_category: candidate.display_category ?? null,
+        quality_score: typeof candidate.quality_score === "number" ? candidate.quality_score : null,
+        confidence: candidate.confidence ?? null,
         mapped_priority: mapping.priority,
         mapped_status: mapping.status,
-        review_status: "review_required" as const,
         db_write_policy: DB_WRITE_POLICY
       }
     };
-    if (!requested) return { ...base, action: "skipped", reason: "not_requested" } satisfies RecommendationPlan;
-    if (candidate.should_save_to_recommendations === "candidate_only") return { ...base, action: "skipped", reason: "candidate_only_excluded" } satisfies RecommendationPlan;
-    if (candidate.should_save_to_recommendations === "save") return { ...base, action: "skipped", reason: "save_decision_auto_save_disabled" } satisfies RecommendationPlan;
-    if (candidate.should_save_to_recommendations !== "review_required") return { ...base, action: "skipped", reason: "not_review_required" } satisfies RecommendationPlan;
-    if (duplicate) return { ...base, action: "skipped", reason: "duplicate_existing_recommendation" } satisfies RecommendationPlan;
-    return { ...base, action: "would_insert", reason: databaseWriteAllowed ? "ready_to_insert" : getDryRunReason(options) } satisfies RecommendationPlan;
+    if (skipReasons.length > 0) {
+      return { ...base, action: "skipped", reason: skipReasons[0], skip_reasons: skipReasons } satisfies RecommendationPlan;
+    }
+    if (duplicate) {
+      return { ...base, action: "skipped", reason: "duplicate_existing_recommendation", skip_reasons: ["duplicate_existing_recommendation"] } satisfies RecommendationPlan;
+    }
+    return { ...base, action: "would_insert", reason: "display_decision_show", skip_reasons: [] } satisfies RecommendationPlan;
   });
 }
 
-function getDryRunReason(options: Options) {
-  if (options.apply && options.candidateIds.length > 0 && !options.confirmReviewed) return "missing_confirm_reviewed";
-  return "dry_run_only";
+function getSkipReasons(candidate: Candidate) {
+  const reasons: string[] = [];
+  const measurementRunId = readEvidenceString(candidate, "measurement_run_id");
+  const aggregateRunId = readEvidenceString(candidate, "aggregate_run_id");
+  const measurementProfileId = readEvidenceString(candidate, "measurement_profile_id");
+  const dataSource = readEvidenceString(candidate, "data_source");
+  if (candidate.display_decision !== "show") reasons.push("display_decision_not_show");
+  if (!measurementRunId) reasons.push("missing_measurement_run_id");
+  if (!aggregateRunId) reasons.push("missing_aggregate_run_id");
+  if (!measurementProfileId) reasons.push("missing_measurement_profile_id");
+  if (measurementProfileId && measurementProfileId !== REQUIRED_PROFILE_ID) reasons.push("measurement_profile_not_standard_v01");
+  if (dataSource !== "openai_measurement") reasons.push("data_source_not_openai_measurement");
+  if (hasSeedSampleOrExampleEvidence(candidate.evidence)) reasons.push("seed_sample_or_example_evidence_detected");
+  return reasons;
 }
 
 function findDuplicate(candidate: Candidate, existing: ExistingRecommendationRow[]) {
-  return existing.find((row) => row.candidate_id === candidate.id) ?? existing.find((row) => row.source === SCRIPT_SOURCE && row.title === candidate.title) ?? null;
+  const measurementRunId = readEvidenceString(candidate, "measurement_run_id");
+  return existing.find((row) => row.candidate_id === candidate.id && row.measurement_run_id === measurementRunId) ?? null;
 }
 
 function getCandidateById(candidates: Candidate[], id: string) {
@@ -269,8 +351,8 @@ function getCandidateById(candidates: Candidate[], id: string) {
 async function insertRecommendation(db: LocalPostgresClient, project: ProjectRow, candidate: Candidate, payload: CandidatesPayload) {
   const mapping = mapCandidate(candidate, payload);
   const rows = await db.query<{ id: string }>(`
-    insert into public.recommendations (project_id, type, priority, impact_score, effort_score, title, reason, target_url, status, metadata)
-    values (${uuid(project.id)}, ${lit(mapping.type)}::public.recora_recommendation_type, ${lit(mapping.priority)}::public.recora_priority, ${num(mapping.impactScore)}, ${nullableNum(mapping.effortScore)}, ${lit(candidate.title)}, ${nullable(mapping.reason)}, ${nullable(mapping.targetUrl)}, ${lit(mapping.status)}::public.recora_recommendation_state, ${jsonb(mapping.metadata)})
+    insert into public.recommendations (project_id, run_id, type, priority, impact_score, effort_score, title, reason, target_url, status, metadata)
+    values (${uuid(project.id)}, ${uuid(mapping.runId)}, ${lit(mapping.type)}::public.recora_recommendation_type, ${lit(mapping.priority)}::public.recora_priority, ${num(mapping.impactScore)}, ${nullableNum(mapping.effortScore)}, ${lit(candidate.title)}, ${nullable(mapping.reason)}, ${nullable(mapping.targetUrl)}, ${lit(mapping.status)}::public.recora_recommendation_state, ${jsonb(mapping.metadata)})
     returning id::text as id
   `);
   if (!rows[0]) throw new Error(`Insert failed for candidate: ${candidate.id}`);
@@ -284,19 +366,41 @@ function mapCandidate(candidate: Candidate, payload: CandidatesPayload): InsertM
   const effortScore = mapEffortScore(candidate.effort);
   const targetUrl = null;
   const reason = [candidate.summary, candidate.rationale].filter(Boolean).join("\n\n");
-  const impactScore = mapImpactScore(candidate.priority);
   const evidence = asRecord(candidate.evidence);
+  const measurementRunId = readEvidenceString(candidate, "measurement_run_id");
+  if (!measurementRunId) throw new Error(`Candidate is missing evidence.measurement_run_id: ${candidate.id}`);
+  const aggregateRunId = readEvidenceString(candidate, "aggregate_run_id");
+  const measurementProfileId = readEvidenceString(candidate, "measurement_profile_id");
+  const measurementProfileLabel = readEvidenceString(candidate, "measurement_profile_label");
+  const dataSource = readEvidenceString(candidate, "data_source");
+  const impactScore = mapImpactScore(candidate);
+  const evidenceSummary = buildEvidenceSummary(evidence);
   const metadata = {
     source: SCRIPT_SOURCE,
+    data_source: dataSource,
+    measurement_run_id: measurementRunId,
+    aggregate_run_id: aggregateRunId,
+    measurement_profile_id: measurementProfileId,
+    measurement_profile_label: measurementProfileLabel,
     candidate_id: candidate.id,
+    candidate_type: candidate.type,
+    display_decision: candidate.display_decision ?? null,
+    display_category: candidate.display_category ?? null,
+    quality_score: candidate.quality_score ?? null,
+    quality_score_label: candidate.quality_score_label ?? null,
+    quality_score_max: candidate.quality_score_max ?? null,
+    quality_score_breakdown: candidate.quality_score_breakdown ?? [],
+    confidence: candidate.confidence,
+    confidence_label: candidate.confidence_label ?? null,
+    priority: candidate.priority,
+    customer_facing_caution: candidate.customer_facing_caution ?? null,
+    score_explanation: candidate.score_explanation ?? null,
+    recora_metric_notice: candidate.recora_metric_notice ?? candidate.caution ?? null,
+    evidence_summary: evidenceSummary,
+    evidence: candidate.evidence,
     generated_at: payload.generated_at || null,
     project_slug: payload.project_slug || null,
-    original_priority: candidate.priority,
-    confidence: candidate.confidence,
-    should_save_to_recommendations: candidate.should_save_to_recommendations,
-    review_status: "review_required",
-    observation_scope: readMetadataString(evidence, "observation_scope"),
-    data_source: readMetadataString(evidence, "data_source"),
+    project_name: payload.project_name || null,
     caution: candidate.caution,
     suggested_next_action: candidate.suggested_next_action,
     expected_impact: candidate.expected_impact,
@@ -305,34 +409,66 @@ function mapCandidate(candidate: Candidate, payload: CandidatesPayload): InsertM
     related_observation_ids: candidate.related_observation_ids,
     related_brands: candidate.related_brands,
     related_topics: candidate.related_topics,
-    evidence: candidate.evidence,
-    original_candidate_type: candidate.type,
-    candidate,
+    save_policy_version: SAVE_POLICY_VERSION,
     mapping: {
       type,
       priority,
       status,
       impact_score: impactScore,
-      impact_score_source: "priority_default_for_manual_review",
+      impact_score_source: "quality_score",
       effort_score: effortScore,
       target_url: targetUrl,
-      note: "Saved rows remain open for human review. Related URLs stay in metadata."
+      note: "Saved as machine-generated display insight history. Related URLs stay in metadata."
     },
     db_write_policy: DB_WRITE_POLICY
   };
-  return { type, priority, status, impactScore, effortScore, targetUrl, reason, metadata };
+  return { runId: measurementRunId, type, priority, status, impactScore, effortScore, targetUrl, reason, metadata };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function readEvidenceString(candidate: Candidate, key: string) {
+  return readMetadataString(asRecord(candidate.evidence), key);
+}
+
 function readMetadataString(record: Record<string, unknown>, key: string) {
   const value = record[key];
-  return typeof value === "string" ? value : null;
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function readMetadataArray(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return Array.isArray(value) ? value : [];
+}
+
+function buildEvidenceSummary(evidence: Record<string, unknown>) {
+  return {
+    primary_evidence_scope: readMetadataString(evidence, "primary_evidence_scope"),
+    observation_count: readMetadataNumber(evidence, "observation_count"),
+    prompt_count: readMetadataNumber(evidence, "prompt_count"),
+    focused_observation_count: readMetadataNumber(evidence, "focused_observation_count"),
+    observation_rows_count: readMetadataArray(evidence, "observation_rows").length,
+    citation_rows_count: readMetadataArray(evidence, "citation_rows").length,
+    matched_clue_count: readMetadataNumber(evidence, "matched_clue_count"),
+    citation_count: readMetadataNumber(evidence, "citation_count"),
+    unique_url_count: readMetadataNumber(evidence, "unique_url_count"),
+    unique_domain_count: readMetadataNumber(evidence, "unique_domain_count"),
+    supports_claim_unknown_count: readMetadataNumber(evidence, "supports_claim_unknown_count"),
+    search_modes: readMetadataArray(evidence, "search_modes"),
+    prompt_texts: readMetadataArray(evidence, "prompt_texts")
+  };
+}
+
+function readMetadataNumber(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function mapRecommendationType(type: string): DbRecommendationType {
+  if (type === "citation_evidence_review") return "source";
+  if (type === "brand_visibility_gap" || type === "case_study_evidence_gap") return "content";
   if (type === "competitor_category_drift") return "competitive";
   if (type === "citation_mismatch" || type === "owned_site_not_cited") return "source";
   if (type === "source_friendly_page_gap") return "technical";
@@ -346,9 +482,12 @@ function mapPriority(priority: CandidatePriority): DbPriority {
   return "medium";
 }
 
-function mapImpactScore(priority: CandidatePriority) {
-  if (priority === "P0") return 90;
-  if (priority === "P1") return 70;
+function mapImpactScore(candidate: Candidate) {
+  if (typeof candidate.quality_score === "number" && Number.isFinite(candidate.quality_score)) {
+    return Math.max(0, Math.min(100, candidate.quality_score));
+  }
+  if (candidate.priority === "P0") return 90;
+  if (candidate.priority === "P1") return 70;
   return 45;
 }
 
@@ -360,6 +499,33 @@ function mapEffortScore(effort: string) {
   if (effort.includes("高")) return 80;
   if (effort.includes("中")) return 50;
   return null;
+}
+
+function hasSeedSampleOrExampleEvidence(value: unknown) {
+  return collectStringValues(value).some((item) => {
+    const normalized = item.trim().toLowerCase();
+    return normalized === SEED_MEASUREMENT_RUN_ID
+      || normalized === "seed"
+      || normalized === "sample"
+      || normalized.includes("sample@recora.ai")
+      || normalized.includes("sample-data")
+      || normalized.includes(".example");
+  });
+}
+
+function collectStringValues(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(collectStringValues);
+  if (typeof value === "object" && value !== null) return Object.values(value).flatMap(collectStringValues);
+  return [];
+}
+
+function sameCounts(a: CountSnapshot, b: CountSnapshot) {
+  return TABLES.every((table) => a[table] === b[table]);
+}
+
+function unique(values: string[]) {
+  return Array.from(new Set(values));
 }
 
 async function loadEnvLocal() {
