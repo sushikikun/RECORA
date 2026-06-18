@@ -283,3 +283,62 @@ v0.1の大枠は、以下の一本線が画面から通った状態です。
 - 改善提案の承認フロー
 - 自動スケジュール実行
 - 複数AIプラットフォーム比較の本格化
+
+## 8. 2026-06-18 表示データ方針の更新
+
+Recora v0.1 では、通常画面に seed / sample 由来データを混ぜない方針に更新した。
+sample fallback は廃止済みであり、DB取得失敗時や実データなしの場合に `sample-data.ts` の内容へ戻さない。
+
+DB内に開発初期化用のseedデータが残っていても、通常画面では `openai_measurement` aggregate または OpenAI実測由来のデータを優先表示する。
+`.example` ドメイン、`.example` を含むURL、seed runに紐づく表示データは通常表示対象から除外する。
+
+### 通常表示で除外するもの
+
+- seed run ID `70000000-0000-4000-8000-000000000001` に紐づく表示データ
+- `source_domains.domain` が `.example` で終わる参照元
+- `citations.domain` が `.example` で終わる引用
+- `citations.url` に `.example` を含む引用
+- `recommendations.target_url` に `.example` を含む改善提案
+- seed runに紐づくrecommendations
+- 未レビュー候補、`review_required`、`candidate_only` のrecommendations
+
+seed recommendations は通常表示から除外される。
+そのため、実データ由来かつ reviewed / approved 相当で表示対象になるrecommendationsがない場合、改善提案は0件として表示される。
+
+### 最新の画面別表示方針
+
+| Page | 最新表示方針 |
+|---|---|
+| `/dashboard` | `metadata.run_kind = aggregate` かつ `metadata.data_source = openai_measurement` のaggregate run由来KPIを表示する |
+| `/dashboard/reports/recora-kenzai-q2/conversations` | `provider = openai` または `response_id` があるOpenAI実測回答だけを通常表示する |
+| `/dashboard/reports/recora-kenzai-q2/sources` | OpenAI実測回答に紐づく参照元だけを表示し、`.example` ドメイン/URLは除外する |
+| `/dashboard/reports/recora-kenzai-q2/leaderboard` | `openai_measurement` aggregate のbrand scope snapshotsを表示する |
+| `/dashboard/reports/recora-kenzai-q2/recommendations` | 未レビュー候補とseed提案を通常表示しない。表示対象がなければ空状態にする |
+
+この方針により、seed.sqlに開発初期化用データが残っていても、通常画面は実測データ中心のプロダクト画面として扱える。
+
+### 直近の重要コミット
+
+| Commit | 内容 |
+|---|---|
+| `ab258ad` | `fix(recora): exclude seed data from live dashboard views` |
+| `fbb5e66` | `feat(recora): expand prompt library` |
+| `b2f780a` | `feat(recora): add topics and prompts management page` |
+
+### 現在のプロンプトライブラリ
+
+| Item | Count |
+|---|---:|
+| topics | 6 |
+| prompts | 12 |
+| personas | 4 |
+| active prompts | 12 |
+
+### 運用上の注意
+
+- `seed.sql` は開発初期化用として残す。
+- `npx supabase db reset` を実行すると、ローカルのOpenAI実測データ、aggregate run、追加snapshot、非破壊upsert済みprompt library反映分は消える。
+- 本番ではseed由来データを通常表示に混ぜない。
+- Recora指標はRecora独自の観測指標であり、AIプラットフォーム公式評価ではない。
+- 観測数が少ない場合、1回または少数回の測定結果を強い結論として扱わない。
+- 表示対象がない場合はsample fallbackではなく空状態にする。
