@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 type Tone = "blue" | "green" | "amber" | "rose" | "slate" | "purple";
 
 const toneClasses: Record<Tone, string> = {
-  blue: "bg-blue-50 text-blue-700",
+  blue: "bg-teal-50 text-teal-700",
   green: "bg-emerald-50 text-emerald-700",
   amber: "bg-orange-50 text-orange-700",
   rose: "bg-rose-50 text-rose-700",
@@ -40,11 +40,11 @@ export function PageHeader({
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           {eyebrow ? (
-            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-blue-700">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-teal-700">
               {eyebrow}
             </p>
           ) : null}
-          <h1 className="text-2xl font-bold tracking-normal text-slate-950 sm:text-[28px]">
+          <h1 className="text-2xl font-bold tracking-normal text-slate-950 sm:text-[30px]">
             {title}
           </h1>
           {description ? (
@@ -76,14 +76,14 @@ export function DashboardCard({
   return (
     <Card
       className={cn(
-        "min-w-0 max-w-full rounded-lg border-slate-200/80 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.045)]",
+        "min-w-0 max-w-full rounded-lg border-slate-200/80 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.045)]",
         className
       )}
     >
       {title || description || action ? (
         <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            {title ? <h2 className="text-sm font-bold text-slate-950">{title}</h2> : null}
+            {title ? <h2 className="text-[15px] font-bold text-slate-950">{title}</h2> : null}
             {description ? (
               <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
             ) : null}
@@ -120,7 +120,7 @@ export function MetricCard({
   return (
     <Card
       title={helper ? `${label}: ${helper}` : label}
-      className="min-w-0 rounded-lg border-slate-200/80 bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.045)]"
+      className="min-w-0 rounded-lg border-slate-200/80 bg-white p-4 shadow-[0_10px_26px_rgba(15,23,42,0.045)]"
     >
       <div className="flex min-h-[104px] min-w-0 flex-col justify-between gap-3">
         <p className="truncate whitespace-nowrap text-[13px] font-bold leading-5 text-slate-500">
@@ -128,7 +128,7 @@ export function MetricCard({
         </p>
         <div className="flex min-w-0 items-end justify-between gap-3">
           <div className="min-w-0">
-            <p className="whitespace-nowrap text-2xl font-bold tracking-normal text-slate-950">
+            <p className="whitespace-nowrap text-[28px] font-bold tracking-normal text-slate-950">
               {value}
             </p>
             <div className="mt-2 flex min-h-5 items-center gap-2">
@@ -194,7 +194,7 @@ export function AlertBanner({
             <p className="mt-1 text-sm leading-6 text-slate-700">{description}</p>
           </div>
         </div>
-        <button className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-orange-200 bg-white px-3 text-sm font-bold text-blue-700 shadow-sm transition-colors hover:bg-blue-50">
+        <button className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-orange-200 bg-white px-3 text-sm font-bold text-teal-700 shadow-sm transition-colors hover:bg-teal-50">
           {actionLabel}
           <ArrowRight className="h-4 w-4" />
         </button>
@@ -213,8 +213,8 @@ export function MiniSparkline({
   type?: "line" | "bars";
 }) {
   const color = {
-    blue: "#2563eb",
-    green: "#059669",
+    blue: "#0d9488",
+    green: "#10b981",
     amber: "#f97316",
     rose: "#ef4444",
     slate: "#475569",
@@ -274,7 +274,7 @@ export function ProgressBar({
   tone?: "blue" | "green" | "amber" | "rose" | "slate";
 }) {
   const toneClass = {
-    blue: "bg-blue-600",
+    blue: "bg-teal-600",
     green: "bg-emerald-600",
     amber: "bg-orange-500",
     rose: "bg-rose-500",
@@ -442,7 +442,7 @@ export function PrioritySuggestionCard({
       ? "border-rose-200 bg-rose-50 text-rose-700"
       : priority === "Medium"
         ? "border-orange-200 bg-orange-50 text-orange-700"
-        : "border-blue-200 bg-blue-50 text-blue-700";
+        : "border-teal-200 bg-teal-50 text-teal-700";
   const label = priority === "High" ? "高" : priority === "Medium" ? "中" : "低";
 
   return (
@@ -452,7 +452,7 @@ export function PrioritySuggestionCard({
       </span>
       <p className="mt-3 font-bold leading-5 text-slate-950">{title}</p>
       <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
-      <Link href={href} className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-blue-700">
+      <Link href={href} className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-teal-700">
         詳細を確認
         <ArrowRight className="h-4 w-4" />
       </Link>
@@ -473,12 +473,12 @@ export function RoadmapCard({
 }) {
   return (
     <div className="relative rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-700 text-sm font-bold text-white">
         {step}
       </span>
       <p className="mt-3 font-bold text-slate-950">{title}</p>
       <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
-      <span className="mt-4 inline-flex rounded-sm bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">
+      <span className="mt-4 inline-flex rounded-sm bg-teal-50 px-2 py-1 text-xs font-bold text-teal-700">
         {effect}
       </span>
     </div>
@@ -500,7 +500,7 @@ export function TinyBarChart({
         <div key={`${value}-${index}`} className="flex flex-1 flex-col items-center gap-2">
           <div className="flex h-20 w-full items-end rounded-md bg-slate-100">
             <div
-              className="w-full rounded-md bg-blue-600"
+              className="w-full rounded-md bg-teal-700"
               style={{ height: `${Math.max(8, Math.min((value / max) * 100, 100))}%` }}
             />
           </div>
@@ -518,3 +518,4 @@ export function TinyBarChart({
 export function formatPercent(value: number) {
   return `${value}%`;
 }
+

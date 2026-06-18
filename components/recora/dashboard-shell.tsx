@@ -69,35 +69,33 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-950">
-      <div className="grid min-h-screen lg:grid-cols-[264px_minmax(0,1fr)]">
-        <aside className="border-b border-slate-900 bg-[#061936] text-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0">
-          <div className="flex h-full flex-col bg-[linear-gradient(160deg,#061936_0%,#071f46_48%,#020816_100%)]">
+    <div className="min-h-screen bg-[#f6f9fb] text-slate-950">
+      <div className="grid min-h-screen lg:grid-cols-[256px_minmax(0,1fr)]">
+        <aside className="border-b border-slate-200 bg-white text-slate-900 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+          <div className="flex h-full flex-col bg-white">
             <div className="px-4 py-5">
               <Link href="/dashboard" className="flex items-center gap-3 px-1">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-sm font-bold text-white shadow-[0_12px_30px_rgba(37,99,235,0.45)]">
-                  R
-                </span>
+                <LogoMark />
                 <span>
                   <span className="block text-xl font-bold tracking-normal">Recora</span>
-                  <span className="block text-xs font-medium text-blue-100/75">レコラ</span>
+                  <span className="block text-xs font-medium text-slate-500">レコラ</span>
                 </span>
               </Link>
 
-              <div className="mt-5 rounded-lg border border-white/10 bg-white/7 p-3 shadow-[0_14px_36px_rgba(0,0,0,0.16)]">
-                <div className="flex items-center gap-2 text-xs font-semibold text-blue-100/80">
-                  <PanelTop className="h-3.5 w-3.5 text-blue-300" />
+              <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50/80 p-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                  <PanelTop className="h-3.5 w-3.5 text-teal-600" />
                   現在のプロジェクト
                 </div>
                 <Link
                   href={`/dashboard/reports/${reportId}/overview`}
-                  className="mt-2 block text-sm font-bold leading-5 text-white hover:text-blue-100"
+                  className="mt-2 block text-sm font-bold leading-5 text-slate-950 hover:text-teal-700"
                 >
                   {sampleProject.name}
                 </Link>
-                <div className="mt-3 flex items-center justify-between text-xs text-blue-100/70">
+                <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
                   <span>{sampleProject.period}</span>
-                  <span className="rounded-sm bg-blue-500/20 px-2 py-0.5 font-semibold text-blue-100">
+                  <span className="rounded-sm bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
                     サンプル
                   </span>
                 </div>
@@ -115,18 +113,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   onToggle={toggleSection}
                 />
               ))}
-              <div className="pointer-events-none sticky bottom-0 h-7 bg-gradient-to-t from-[#020816] to-transparent" />
+              <div className="pointer-events-none sticky bottom-0 h-7 bg-gradient-to-t from-white to-transparent" />
             </nav>
 
-            <div className="border-t border-white/10 p-4">
-              <div className="rounded-lg border border-white/10 bg-white/7 p-3">
+            <div className="border-t border-slate-200 p-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
                 <div className="flex items-center gap-2">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-950">
-                    <Sparkles className="h-4 w-4 text-blue-600" />
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-50 text-teal-700">
+                    <Sparkles className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-white">山田 太郎</p>
-                    <p className="truncate text-xs text-blue-100/65">sample@recora.ai</p>
+                    <p className="truncate text-sm font-bold text-slate-950">山田 太郎</p>
+                    <p className="truncate text-xs text-slate-500">sample@recora.ai</p>
                   </div>
                 </div>
               </div>
@@ -134,13 +132,26 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
 
-        <main className="min-w-0 bg-[linear-gradient(180deg,#f8fbff_0%,#f1f5f9_100%)]">
-          <div className="mx-auto w-full max-w-[1680px] px-4 py-6 sm:px-5 lg:px-6 xl:px-8">
+        <main className="min-w-0 bg-[#f6f9fb]">
+          <div className="mx-auto w-full max-w-[1480px] px-4 py-6 sm:px-5 lg:px-6 xl:px-8">
             {children}
           </div>
         </main>
       </div>
     </div>
+  );
+}
+
+function LogoMark() {
+  return (
+    <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-700 text-sm font-black text-white shadow-[0_12px_28px_rgba(15,118,110,0.22)]">
+      <span className="absolute bottom-2 left-2 flex items-end gap-0.5" aria-hidden="true">
+        <span className="h-2 w-1 rounded-sm bg-teal-100/90" />
+        <span className="h-3 w-1 rounded-sm bg-teal-100/90" />
+        <span className="h-4 w-1 rounded-sm bg-teal-100/90" />
+      </span>
+      <span className="relative ml-2">R</span>
+    </span>
   );
 }
 
@@ -184,8 +195,8 @@ function NavGroup({
         aria-controls={`recora-sidebar-${group.label}`}
         onClick={() => onToggle(group.label)}
         className={cn(
-          "flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left text-[11px] font-bold uppercase tracking-wider text-blue-100/50 transition-colors hover:bg-white/7 hover:text-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-400/70",
-          isActiveSection && "bg-white/8 text-blue-50"
+          "flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/70",
+          isActiveSection && "bg-teal-50 text-teal-700"
         )}
       >
         <span>{group.label}</span>
@@ -213,9 +224,9 @@ function NavLink({ item, pathname, nested = false }: { item: RecoraNavItem; path
       href={item.href}
       title={item.description ?? item.label}
       className={cn(
-        "group flex min-h-9 items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm font-bold text-blue-50/78 transition-colors hover:bg-white/10 hover:text-white",
-        nested && "ml-2 border-l border-white/8 pl-3",
-        isActive && "bg-blue-600 text-white shadow-[0_12px_26px_rgba(37,99,235,0.35)]"
+        "group flex min-h-10 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-teal-50 hover:text-teal-800",
+        nested && "ml-2 border-l border-slate-200 pl-3",
+        isActive && "bg-teal-50 text-teal-800 shadow-[inset_3px_0_0_#0f766e]"
       )}
     >
       <Icon className="h-4 w-4 shrink-0" />
@@ -224,8 +235,8 @@ function NavLink({ item, pathname, nested = false }: { item: RecoraNavItem; path
         {item.status === "preparing" ? (
           <span
             className={cn(
-              "mt-0.5 inline-flex rounded-sm bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-blue-100/60",
-              isActive && "bg-white/18 text-blue-50"
+              "mt-0.5 inline-flex rounded-sm bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500",
+              isActive && "bg-white text-teal-700"
             )}
           >
             準備中

@@ -123,7 +123,7 @@ function RunKindBadge({ kind }: { kind: RecoraRunHistoryKind }) {
     unknown: "不明"
   }[kind];
   const className = {
-    measurement: "border-blue-200 bg-blue-50 text-blue-700",
+    measurement: "border-teal-200 bg-teal-50 text-teal-700",
     aggregate: "border-emerald-200 bg-emerald-50 text-emerald-700",
     sample: "border-slate-200 bg-slate-50 text-slate-600",
     unknown: "border-orange-200 bg-orange-50 text-orange-700"
@@ -140,7 +140,7 @@ function RunStatusBadge({ status }: { status: RecoraRunHistoryItem["status"] }) 
   const statusMap = {
     completed: { label: "完了", className: "border-emerald-200 bg-emerald-50 text-emerald-700", icon: CheckCircle2 },
     failed: { label: "失敗", className: "border-rose-200 bg-rose-50 text-rose-700", icon: XCircle },
-    running: { label: "実行中", className: "border-blue-200 bg-blue-50 text-blue-700", icon: Clock3 },
+    running: { label: "実行中", className: "border-teal-200 bg-teal-50 text-teal-700", icon: Clock3 },
     draft: { label: "下書き", className: "border-slate-200 bg-slate-50 text-slate-600", icon: ListChecks }
   } satisfies Record<RecoraRunHistoryItem["status"], { label: string; className: string; icon: typeof CheckCircle2 }>;
   const item = statusMap[status];
@@ -211,7 +211,7 @@ function RunLinks({ projectSlug, run }: { projectSlug: string; run: RecoraRunHis
         <Link
           key={link.href}
           href={link.href}
-          className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-bold text-blue-700 transition hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+          className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-bold text-teal-700 transition hover:border-teal-200 hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
         >
           {link.label}
           <ExternalLink className="h-3.5 w-3.5" />

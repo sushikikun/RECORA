@@ -74,7 +74,7 @@ function DetailTabs({ items, active = 0 }: { items: readonly string[]; active?: 
             key={item}
             className={cn(
               "rounded-md px-3 py-2 text-xs font-bold text-slate-500",
-              index === active ? "bg-blue-600 text-white shadow-sm" : "hover:bg-slate-50"
+              index === active ? "bg-teal-700 text-white shadow-sm" : "hover:bg-teal-50 hover:text-teal-800"
             )}
           >
             {item}
@@ -761,10 +761,10 @@ function DashboardAlertStrip() {
           key={alert.title}
           href={alert.href}
           className={cn(
-            "group min-w-0 rounded-lg border bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2",
+            "group min-w-0 rounded-lg border bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2",
             alert.tone === "rose" && "border-rose-200 bg-rose-50/60",
             alert.tone === "amber" && "border-amber-200 bg-amber-50/70",
-            alert.tone === "blue" && "border-blue-200 bg-blue-50/60"
+            alert.tone === "blue" && "border-teal-200 bg-teal-50/70"
           )}
         >
           <div className="flex min-w-0 items-start justify-between gap-3">
@@ -774,7 +774,7 @@ function DashboardAlertStrip() {
                   "text-sm font-semibold",
                   alert.tone === "rose" && "text-rose-900",
                   alert.tone === "amber" && "text-amber-900",
-                  alert.tone === "blue" && "text-blue-900"
+                  alert.tone === "blue" && "text-teal-950"
                 )}
               >
                 {alert.title}
@@ -787,7 +787,7 @@ function DashboardAlertStrip() {
                 "mt-0.5 h-4 w-4 shrink-0 transition group-hover:translate-x-0.5",
                 alert.tone === "rose" && "text-rose-600",
                 alert.tone === "amber" && "text-amber-600",
-                alert.tone === "blue" && "text-blue-600"
+                alert.tone === "blue" && "text-teal-600"
               )}
             />
           </div>
@@ -796,7 +796,7 @@ function DashboardAlertStrip() {
               "mt-3 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold",
               alert.tone === "rose" && "bg-white text-rose-700",
               alert.tone === "amber" && "bg-white text-amber-700",
-              alert.tone === "blue" && "bg-white text-blue-700"
+              alert.tone === "blue" && "bg-white text-teal-700"
             )}
           >
             {alert.action}
@@ -832,7 +832,7 @@ function VisibilityTrendCard({ dashboardView }: { dashboardView?: DashboardHomeV
       title="AI表示率の推移"
       description="自社のAI表示率、首位競合、検索需要の直近推移"
       action={
-        <Link href={`${reportBase}/trends`} className="text-xs font-semibold text-blue-700">
+        <Link href={`${reportBase}/trends`} className="text-xs font-semibold text-teal-700">
           詳細
         </Link>
       }
@@ -874,7 +874,7 @@ function NextActionsCard({ tasks = priorityTasks }: { tasks?: DashboardTask[] })
       title="次にやる3つ"
       description="AI表示率の回復に直結する優先アクション"
       action={
-        <Link href={`${reportBase}/action-plan`} className="text-xs font-semibold text-blue-700">
+        <Link href={`${reportBase}/action-plan`} className="text-xs font-semibold text-teal-700">
           改善プランへ
         </Link>
       }
@@ -883,7 +883,7 @@ function NextActionsCard({ tasks = priorityTasks }: { tasks?: DashboardTask[] })
         {tasks.slice(0, 3).map((task, index) => (
           <div key={task.task} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
             <div className="flex min-w-0 items-start gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-teal-700 text-xs font-bold text-white">
                 {index + 1}
               </span>
               <div className="min-w-0">
@@ -912,13 +912,13 @@ function QuickLinksCard() {
           <Link
             key={link.title}
             href={link.href}
-            className="group flex min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3 transition hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+            className="group flex min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3 transition hover:border-teal-200 hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
           >
             <span className="min-w-0">
               <span className="block text-sm font-semibold text-slate-950">{link.title}</span>
               <span className="mt-1 block text-xs leading-5 text-slate-500">{link.description}</span>
             </span>
-            <ArrowRight className="h-4 w-4 shrink-0 text-blue-600 transition group-hover:translate-x-0.5" />
+            <ArrowRight className="h-4 w-4 shrink-0 text-teal-600 transition group-hover:translate-x-0.5" />
           </Link>
         ))}
       </div>
@@ -932,7 +932,7 @@ function RecentConversationsCard() {
       title="最近のAI回答ログ"
       description="直近で分析した回答とブランド表示状況"
       action={
-        <Link href={`${reportBase}/conversations`} className="text-xs font-semibold text-blue-700">
+        <Link href={`${reportBase}/conversations`} className="text-xs font-semibold text-teal-700">
           すべて見る
         </Link>
       }
@@ -981,7 +981,7 @@ function RecentSourceChangesCard() {
       title="最近の参照元の変化"
       description="AI回答で参照されたドメインの動き"
       action={
-        <Link href={`${reportBase}/sources`} className="text-xs font-semibold text-blue-700">
+        <Link href={`${reportBase}/sources`} className="text-xs font-semibold text-teal-700">
           参照元分析へ
         </Link>
       }
@@ -1002,7 +1002,7 @@ function RecentSourceChangesCard() {
               <TableCell className="whitespace-nowrap font-medium">{source.domain}</TableCell>
               <TableCell className="whitespace-nowrap text-slate-600">{source.type}</TableCell>
               <TableCell className="whitespace-nowrap text-right font-semibold">{source.appearances}</TableCell>
-              <TableCell className="whitespace-nowrap text-right font-semibold text-blue-700">
+              <TableCell className="whitespace-nowrap text-right font-semibold text-teal-700">
                 {source.citationShare}%
               </TableCell>
               <TableCell className="max-w-[260px] truncate text-slate-600">{source.recommendedAction}</TableCell>
@@ -1021,7 +1021,7 @@ function DashboardScopeRow({ label, value, tone }: { label: string; value: strin
       <p
         className={cn(
           "mt-1 text-lg font-bold",
-          tone === "blue" && "text-blue-700",
+          tone === "blue" && "text-teal-700",
           tone === "green" && "text-emerald-700",
           tone === "slate" && "text-slate-950"
         )}
@@ -1080,7 +1080,7 @@ export function ReportsIndexPage() {
               </TableCell>
               <TableCell>{sampleProject.lastRunAt}</TableCell>
               <TableCell>
-                <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+                <Badge variant="outline" className="border-teal-200 bg-teal-50 text-teal-700">
                   {sampleProject.status}
                 </Badge>
               </TableCell>
@@ -1137,7 +1137,7 @@ export function ReportLandingPage() {
             <div>
               <div className="flex items-center justify-between gap-3">
                 <p className="font-bold text-slate-950">{contentOpportunities[0].topic}</p>
-                <span className="font-bold text-blue-700">{contentOpportunities[0].opportunityScore}</span>
+                <span className="font-bold text-teal-700">{contentOpportunities[0].opportunityScore}</span>
               </div>
               <ProgressBar value={contentOpportunities[0].opportunityScore} className="mt-3" />
             </div>
@@ -1402,7 +1402,7 @@ function ObservationKindBadge({ kind, label }: { kind: ObservationKind; label: s
       className={cn(
         "whitespace-nowrap rounded-sm text-xs",
         kind === "openai"
-          ? "border-blue-200 bg-blue-50 text-blue-700"
+          ? "border-teal-200 bg-teal-50 text-teal-700"
           : "border-slate-200 bg-slate-50 text-slate-600"
       )}
     >
@@ -1487,7 +1487,7 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
                 <TableCell>
                   <div className="space-y-2">
                     {conversation.recoraMentioned ? (
-                      <Badge className="bg-blue-600 text-white">{"順位 "}{conversation.recoraRank ?? "-"}</Badge>
+                      <Badge className="bg-teal-700 text-white">{"順位 "}{conversation.recoraRank ?? "-"}</Badge>
                     ) : (
                       <Badge variant="outline" className="border-rose-200 bg-rose-50 text-rose-700">
                         {"未表示"}
@@ -1970,7 +1970,7 @@ export function BrandPerceptionPage() {
             "大手向け競合より公開事例が少ない"
           ].map((phrase) => (
             <div key={phrase} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3">
-              <span className="h-2.5 w-2.5 rounded-full bg-blue-600" />
+              <span className="h-2.5 w-2.5 rounded-full bg-teal-600" />
               <span className="text-sm font-semibold text-slate-700">{phrase}</span>
             </div>
           ))}
@@ -2283,9 +2283,9 @@ function PlaceholderPageShell({
         title="この画面の位置づけ"
         description="現在はサンプルデータで画面の役割を示しています。分析ロジック、外部連携、自動実行は追加していません。"
       >
-        <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/50 p-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-lg border border-teal-100 bg-teal-50/60 p-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <Badge variant="outline" className="border-blue-200 bg-white text-blue-700">
+            <Badge variant="outline" className="border-teal-200 bg-white text-teal-700">
               設計済み
             </Badge>
             <p className="mt-3 text-sm leading-6 text-slate-700">{detail.outcome}</p>
@@ -2342,7 +2342,7 @@ function PlaceholderInfoCard({
       ? "border-orange-200 bg-orange-50 text-orange-700"
       : tone === "green"
         ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-        : "border-blue-200 bg-blue-50 text-blue-700";
+        : "border-teal-200 bg-teal-50 text-teal-700";
 
   return (
     <DataCard
@@ -2361,7 +2361,7 @@ function PlaceholderInfoCard({
                 "mt-2 h-2 w-2 shrink-0 rounded-full",
                 tone === "amber" && "bg-orange-500",
                 tone === "green" && "bg-emerald-500",
-                tone === "blue" && "bg-blue-600"
+                tone === "blue" && "bg-teal-600"
               )}
             />
             <span>{item}</span>
@@ -2376,11 +2376,11 @@ function PlaceholderLink({ href, label, helper }: { href: string; label: string;
   return (
     <Link
       href={href}
-      className="group flex min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+      className="group flex min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
     >
       <span className="min-w-0">
         <span className="block">{label}</span>
-        <span className="mt-1 block truncate text-xs font-semibold text-slate-500 group-hover:text-blue-600">
+        <span className="mt-1 block truncate text-xs font-semibold text-slate-500 group-hover:text-teal-700">
           {helper}
         </span>
       </span>
@@ -2587,7 +2587,7 @@ function ReportFilters({ compact = false, dashboardView }: { compact?: boolean; 
       <FilterBox label="比較期間" value={dashboardView?.comparisonPeriod ?? "2026/06/03 - 2026/06/09"} />
       <FilterBox label="地域" value="日本語（日本）" />
       <div className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
-        <RefreshCw className="h-3.5 w-3.5 text-blue-600" />
+        <RefreshCw className="h-3.5 w-3.5 text-teal-600" />
         <span className="whitespace-nowrap">
           {compact ? "最終更新" : `最終更新: ${sampleProject.lastRunAt}`}
         </span>
@@ -2656,7 +2656,7 @@ function BrandVisibilityCard() {
     <DashboardCard
       title="AI表示率"
       description="AI回答内でのブランド別シェアです。"
-      action={<Link href={`${reportBase}/overview`} className="text-xs font-bold text-blue-700">詳細を見る</Link>}
+      action={<Link href={`${reportBase}/overview`} className="text-xs font-bold text-teal-700">詳細を見る</Link>}
     >
       <DonutChart items={brandDonutItems} centerLabel="あなたのブランド" centerValue="8.7%" />
     </DashboardCard>
@@ -2668,7 +2668,7 @@ function CompetitiveRankingCard({ rows }: { rows?: DashboardRankingRow[] }) {
     <DashboardCard
       title="競合ランキング（AI表示率）"
       description="Recoraと競合のAI表示率を比較します。"
-      action={<Link href={`${reportBase}/leaderboard`} className="text-xs font-bold text-blue-700">競合比較へ</Link>}
+      action={<Link href={`${reportBase}/leaderboard`} className="text-xs font-bold text-teal-700">競合比較へ</Link>}
     >
       <RankingTable compact rows={rows} />
     </DashboardCard>
@@ -2680,7 +2680,7 @@ function PromptCategoryCard() {
     <DashboardCard
       title="プロンプトカテゴリ分析"
       description="トピック別のAI表示率、前週比、AI言及数です。"
-      action={<Link href="/dashboard/config/topics-prompts" className="text-xs font-bold text-blue-700">カテゴリ詳細へ</Link>}
+      action={<Link href="/dashboard/config/topics-prompts" className="text-xs font-bold text-teal-700">カテゴリ詳細へ</Link>}
     >
       <Table className="min-w-[560px]">
         <TableHeader>
@@ -2714,7 +2714,7 @@ function ModelPerformanceCard() {
     <DashboardCard
       title="AIモデル別パフォーマンス"
       description="AIモデルごとのAI表示率・参照率です。"
-      action={<Link href="/dashboard/config/models" className="text-xs font-bold text-blue-700">すべてのAIモデル</Link>}
+      action={<Link href="/dashboard/config/models" className="text-xs font-bold text-teal-700">すべてのAIモデル</Link>}
     >
       <ModelVisibilityTable compact />
     </DashboardCard>
@@ -2726,7 +2726,7 @@ function SourceCitationCard() {
     <DashboardCard
       title="参照元分析"
       description="AI回答が参照している参照元の内訳です。"
-      action={<Link href={`${reportBase}/sources`} className="text-xs font-bold text-blue-700">詳細を見る</Link>}
+      action={<Link href={`${reportBase}/sources`} className="text-xs font-bold text-teal-700">詳細を見る</Link>}
     >
       <DonutChart items={sourceDonutItems} centerLabel="参照元内訳" centerValue="100%" />
     </DashboardCard>
@@ -2738,7 +2738,7 @@ function TopReferencedPagesCard() {
     <DashboardCard
       title="参照されているページ TOP5"
       description="AI回答で参照されたRecora関連ページです。"
-      action={<Link href={`${reportBase}/sources`} className="text-xs font-bold text-blue-700">すべて見る</Link>}
+      action={<Link href={`${reportBase}/sources`} className="text-xs font-bold text-teal-700">すべて見る</Link>}
     >
       <Table className="min-w-[540px]">
         <TableHeader>
@@ -2793,7 +2793,7 @@ function ImprovementPanel() {
       </div>
       <Link
         href={`${reportBase}/content-opportunities`}
-        className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-blue-700"
+        className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-teal-700"
       >
         すべての提案を見る
         <ArrowRight className="h-4 w-4" />
@@ -2831,7 +2831,7 @@ function PriorityTasksCard({ tasks = priorityTasks }: { tasks?: DashboardTask[] 
       </Table>
       <Link
         href={`${reportBase}/content-opportunities`}
-        className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-blue-700"
+        className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-teal-700"
       >
         すべての改善タスクを見る
         <ArrowRight className="h-4 w-4" />
@@ -2854,7 +2854,7 @@ function RoadmapSection() {
       </div>
       <Link
         href={`${reportBase}/content-opportunities`}
-        className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-blue-700"
+        className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-teal-700"
       >
         ロードマップの詳細を見る
         <ArrowRight className="h-4 w-4" />
@@ -3002,7 +3002,7 @@ function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: Das
       </TableHeader>
       <TableBody>
         {rankingRows.map((row, index) => (
-          <TableRow key={row.brandId} className={row.isPrimary ? "bg-blue-50/55" : undefined}>
+          <TableRow key={row.brandId} className={row.isPrimary ? "bg-teal-50/55" : undefined}>
             <TableCell className="font-bold">
               <span className="inline-flex items-center gap-1 whitespace-nowrap">
                 {index < 3 ? <Crown className="h-3.5 w-3.5 text-orange-500" /> : null}
@@ -3012,7 +3012,7 @@ function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: Das
             <TableCell>
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="font-bold text-slate-950">{row.name}</span>
-                {row.isPrimary ? <Badge className="bg-blue-600 text-white">自社</Badge> : null}
+                {row.isPrimary ? <Badge className="bg-teal-700 text-white">自社</Badge> : null}
               </div>
               {!compact && row.representativePrompt ? (
                 <p className="mt-1 max-w-[320px] truncate text-xs text-slate-500">{row.representativePrompt}</p>
@@ -3020,7 +3020,7 @@ function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: Das
             </TableCell>
             {!compact ? (
               <TableCell className="whitespace-nowrap">
-                <Badge variant="outline" className={cn("rounded-sm", row.isPrimary ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-600")}>
+                <Badge variant="outline" className={cn("rounded-sm", row.isPrimary ? "border-teal-200 bg-teal-50 text-teal-700" : "border-slate-200 bg-slate-50 text-slate-600")}>
                   {row.brandTypeLabel ?? (row.isPrimary ? "自社" : "競合")}
                 </Badge>
               </TableCell>
@@ -3277,7 +3277,7 @@ function ContentOpportunitiesTable() {
             <TableCell className="whitespace-nowrap">{formatPercent(item.competitorVisibility)}</TableCell>
             <TableCell className="min-w-[180px]">{item.missingSource}</TableCell>
             <TableCell className="whitespace-nowrap">{item.affectedPrompts}</TableCell>
-            <TableCell className="min-w-[220px] font-mono text-xs text-blue-700">{item.recommendedPage}</TableCell>
+            <TableCell className="min-w-[220px] font-mono text-xs text-teal-700">{item.recommendedPage}</TableCell>
             <TableCell className="min-w-[280px] text-sm leading-6 text-slate-600">{item.nextStep}</TableCell>
           </TableRow>
         ))}
@@ -3450,7 +3450,7 @@ function ReportSummaryBlock({ dashboardView }: { dashboardView?: DashboardHomeVi
               <TableCell className="min-w-[180px]">{state}</TableCell>
               <TableCell className="min-w-[220px]">{risk}</TableCell>
               <TableCell>
-                <Link href={href} className="inline-flex items-center gap-1 text-sm font-bold text-blue-700 hover:text-blue-900">
+                <Link href={href} className="inline-flex items-center gap-1 text-sm font-bold text-teal-700 hover:text-teal-900">
                   開く
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Link>

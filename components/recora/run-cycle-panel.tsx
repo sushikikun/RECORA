@@ -81,7 +81,7 @@ export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectS
         title="測定実行"
         description="OpenAI測定を実行し、AI回答ログ・参照元分析・ダッシュボードKPIへ反映します。"
         actions={
-          <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+          <Badge variant="outline" className="border-teal-200 bg-teal-50 text-teal-700">
             ローカル開発用
           </Badge>
         }
@@ -103,11 +103,11 @@ export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectS
             <SettingTile label="Search mode" value={DEFAULT_SEARCH_MODE} />
           </div>
 
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <Button
               type="button"
               variant="outline"
-              className="h-11 justify-center"
+              className="h-12 justify-center"
               disabled={isRunning}
               onClick={() => void runCycle("dry-run")}
             >
@@ -116,7 +116,7 @@ export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectS
             </Button>
             <Button
               type="button"
-              className="h-11 justify-center"
+              className="h-12 justify-center"
               disabled={isRunning}
               onClick={() => void runCycle("execute")}
             >
@@ -138,11 +138,11 @@ export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectS
               <Link
                 key={item.href}
                 href={item.href}
-                className="group flex min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                className="group flex min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
               >
                 <span className="min-w-0">
                   <span className="block">{item.label}</span>
-                  <span className="mt-1 block truncate text-xs font-semibold text-slate-500 group-hover:text-blue-600">
+                  <span className="mt-1 block truncate text-xs font-semibold text-slate-500 group-hover:text-teal-700">
                     {item.href}
                   </span>
                 </span>
@@ -174,7 +174,7 @@ export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectS
 
 function SettingTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/80 px-4 py-3">
       <p className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</p>
       <p className="mt-1 truncate text-sm font-bold text-slate-950">{value}</p>
     </div>
@@ -183,8 +183,8 @@ function SettingTile({ label, value }: { label: string; value: string }) {
 
 function NoticeRow({ icon, text }: { icon: ReactNode; text: string }) {
   return (
-    <div className="flex gap-2 rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-2 text-blue-900">
-      <span className="mt-1 shrink-0 text-blue-700">{icon}</span>
+    <div className="flex gap-2 rounded-lg border border-teal-100 bg-teal-50/70 px-3 py-2 text-teal-950">
+      <span className="mt-1 shrink-0 text-teal-700">{icon}</span>
       <span>{text}</span>
     </div>
   );
