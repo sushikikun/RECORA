@@ -309,3 +309,10 @@ export type RecoraDashboardDbData = {
   recommendations: RecoraRecommendationRow[];
   counts: RecoraDashboardCounts;
 };
+
+export type RecoraTopicsPromptsDbData = {
+  project: RecoraProjectRow | null;
+  topics: RecoraTopicRow[];
+  prompts: RecoraPromptRow[];
+  personas: RecoraPersonaRow[];
+};

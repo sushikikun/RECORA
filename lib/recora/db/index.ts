@@ -4,4 +4,5 @@ export * from "./conversations";
 export * from "./sources";
 export * from "./recommendations";
 export * from "./runs";
+export * from "./topics-prompts";
 export * from "./types";
