@@ -1,11 +1,11 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import { unstable_noStore as noStore } from "next/cache";
 
 import { createRecoraSupabaseClient } from "@/lib/supabase/server";
 import {
   getDefaultRecoraProjectSlug,
   getLatestRunWithMetricSnapshots,
   getRecoraBrands,
-  getRecoraMetricSnapshots,
   getRecoraProject
 } from "./dashboard";
 import { isDisplayableCitation, isOpenAiMeasuredConversation } from "./display-filters";
@@ -14,6 +14,7 @@ import type {
   RecoraBrandMentionRow,
   RecoraCitationRow,
   RecoraLeaderboardDbData,
+  RecoraMetricSnapshotRow,
   RecoraPromptRow,
   RecoraRunItemRow,
   RecoraTopicRow
@@ -30,12 +31,16 @@ const CITATION_COLUMNS =
 const PROMPT_COLUMNS =
   "id, project_id, topic_id, persona_id, text, intent, buyer_stage, priority, is_active, created_at, updated_at";
 const TOPIC_COLUMNS = "id, project_id, name, intent, priority, weight, is_active, created_at, updated_at";
+const METRIC_SNAPSHOT_COLUMNS =
+  "id, run_id, scope_type, scope_id, brand_id, ai_visibility, ai_mention_count, citation_count, share_of_voice, competitive_gap, average_position, calculated_at, created_at, updated_at";
 
 type RecoraSupabaseClient = SupabaseClient;
 
 export async function getRecoraLeaderboardData(
   projectSlug = getDefaultRecoraProjectSlug()
 ): Promise<RecoraLeaderboardDbData> {
+  noStore();
+
   const supabase = createRecoraSupabaseClient();
   const project = await getRecoraProject(projectSlug, supabase);
 
@@ -53,7 +58,7 @@ export async function getRecoraLeaderboardData(
 
   const [brands, metricSnapshots, runItems] = await Promise.all([
     brandsPromise,
-    getRecoraMetricSnapshots(latestRun.id, supabase),
+    getBrandMetricSnapshots(latestRun.id, supabase),
     getRunItems(latestRun.id, supabase)
   ]);
 
@@ -108,6 +113,19 @@ async function getRunItems(runId: string, supabase: RecoraSupabaseClient) {
 
   throwIfSupabaseError("run_items", error);
   return (data ?? []) as RecoraRunItemRow[];
+}
+
+async function getBrandMetricSnapshots(runId: string, supabase: RecoraSupabaseClient) {
+  const { data, error } = await supabase
+    .from("metric_snapshots")
+    .select(METRIC_SNAPSHOT_COLUMNS)
+    .eq("run_id", runId)
+    .eq("scope_type", "brand")
+    .order("ai_visibility", { ascending: false })
+    .order("created_at", { ascending: true });
+
+  throwIfSupabaseError("metric_snapshots", error);
+  return (data ?? []) as RecoraMetricSnapshotRow[];
 }
 
 async function getAiConversations(runItemIds: string[], supabase: RecoraSupabaseClient) {

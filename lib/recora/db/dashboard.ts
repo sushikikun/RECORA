@@ -88,23 +88,21 @@ export async function getLatestRunWithMetricSnapshots(
     .select(MEASUREMENT_RUN_COLUMNS)
     .eq("project_id", projectId)
     .eq("status", "completed")
+    .eq("metadata->>run_kind", "aggregate")
+    .eq("metadata->>data_source", "openai_measurement")
     .order("completed_at", { ascending: false })
     .order("created_at", { ascending: false })
-    .limit(50);
+    .limit(1)
+    .maybeSingle();
 
   throwIfSupabaseError("measurement_runs", error);
-  const runs = (data ?? []) as RecoraMeasurementRunRow[];
-  if (runs.length === 0) return null;
+  const run = (data as RecoraMeasurementRunRow | null) ?? null;
+  if (!run) return null;
 
-  const aggregateRuns = runs.filter(isOpenAiAggregateRun);
-  if (aggregateRuns.length === 0) return null;
+  if (!isOpenAiAggregateRun(run)) return null;
 
-  const runIdsWithSnapshots = await getMetricSnapshotRunIds(
-    aggregateRuns.map((run) => run.id),
-    supabase
-  );
-
-  return aggregateRuns.find((run) => runIdsWithSnapshots.has(run.id)) ?? null;
+  const runIdsWithSnapshots = await getMetricSnapshotRunIds([run.id], supabase);
+  return runIdsWithSnapshots.has(run.id) ? run : null;
 }
 
 export async function getRecoraMetricSnapshots(
