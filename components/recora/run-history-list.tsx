@@ -206,12 +206,15 @@ function CountLine({ label, value }: { label: string; value: number }) {
 }
 
 function RunLinks({ projectSlug, run }: { projectSlug: string; run: RecoraRunHistoryItem }) {
+  const detailLink = { label: "詳細", href: `/dashboard/reports/${projectSlug}/runs/${run.id}` };
   const links = run.kind === "aggregate"
     ? [
+        detailLink,
         { label: "Dashboard", href: "/dashboard" },
         { label: "Leaderboard", href: `/dashboard/reports/${projectSlug}/leaderboard` }
       ]
     : [
+        detailLink,
         { label: "AI回答", href: `/dashboard/reports/${projectSlug}/conversations` },
         { label: "参照元", href: `/dashboard/reports/${projectSlug}/sources` }
       ];

@@ -31,15 +31,13 @@ type RecommendationDisplayItem = {
   effortLabel: string;
   effortScore: number;
   impactScore: number;
-  qualityScore: number;
-  qualityScoreMax: number;
-  qualityScoreLabel: string;
   confidence: string;
   confidenceLabel: string;
   customerFacingCaution: string;
-  scoreExplanation: string;
   recoraMetricNotice: string;
-  sampleSizeNote: string;
+  sampleSizeCaution: string | null;
+  evidenceDescription: string;
+  evidenceMetrics: EvidenceMetrics;
   relatedBrand: string;
   relatedTopic: string;
   relatedPrompt: string;
@@ -52,11 +50,21 @@ type RecommendationsViewModel = {
   sourceLabel: string;
   items: RecommendationDisplayItem[];
   highPriorityCount: number;
-  averageImpact: number;
-  averageEffort: number;
+  observationCount: number;
+  citationUrlCount: number;
   openCount: number;
   plannedCount: number;
   doneCount: number;
+};
+
+type EvidenceMetrics = {
+  observationCount: number;
+  promptCount: number;
+  focusedObservationCount: number;
+  focusedObservationLabel: string;
+  citationCount: number;
+  uniqueDomainCount: number;
+  matchedClueCount: number;
 };
 
 const reportBase = "/dashboard/reports/recora-kenzai-q2";
@@ -79,8 +87,8 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
       <div className="grid gap-4 lg:grid-cols-4">
         <MetricTile label="表示項目" value={String(view.items.length)} helper={view.sourceLabel} />
         <MetricTile label="高優先度" value={String(view.highPriorityCount)} helper="priority high" tone="amber" />
-        <MetricTile label="平均根拠スコア" value={String(view.averageImpact)} helper="quality_score平均" />
-        <MetricTile label="平均負荷" value={String(view.averageEffort)} helper="effort_score平均" tone="slate" />
+        <MetricTile label="観測数" value={String(view.observationCount)} helper="latest standard-v01" />
+        <MetricTile label="引用URL数" value={String(view.citationUrlCount)} helper="web-search由来" tone="slate" />
       </div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -110,7 +118,7 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
         </DataCard>
       </div>
 
-      <DataCard className="mt-5" title="インサイト一覧" description="最新standard-v01由来の表示対象だけを、根拠スコアと確からしさ付きで表示します。">
+      <DataCard className="mt-5" title="インサイト一覧" description="最新standard-v01由来の表示対象だけを、区分と観測根拠付きで表示します。">
         <div className="overflow-x-auto">
           <RecommendationsTable rows={view.items} />
         </div>
@@ -122,16 +130,15 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
 function createRecommendationsViewModel(data?: RecoraRecommendationsDbData | null): RecommendationsViewModel {
   const items = data?.project ? createDbRecommendationItems(data) : [];
   const highPriorityCount = items.filter((item) => item.priority === "High").length;
-  const averageImpact = Math.round(average(items.map((item) => item.qualityScore)));
-  const effortValues = items.map((item) => item.effortScore).filter((value) => value > 0);
-  const averageEffort = Math.round(average(effortValues));
+  const observationCount = Math.max(0, ...items.map((item) => item.evidenceMetrics.observationCount));
+  const citationUrlCount = Math.max(0, ...items.map((item) => item.evidenceMetrics.citationCount));
 
   return {
     sourceLabel: data?.project ? "最新standard-v01" : "表示できるデータがありません",
     items,
     highPriorityCount,
-    averageImpact,
-    averageEffort,
+    observationCount,
+    citationUrlCount,
     openCount: items.filter((item) => item.statusLabel === "未着手").length,
     plannedCount: items.filter((item) => item.statusLabel === "計画中").length,
     doneCount: items.filter((item) => item.statusLabel === "完了").length
@@ -153,10 +160,9 @@ function createDbRecommendationItems(data: RecoraRecommendationsDbData): Recomme
       const expectedImpact = getMetadataString(metadata, "expected_impact") ?? "+" + Math.round(item.impact_score) + "pt";
       const effortScore = item.effort_score === null ? 0 : Math.round(item.effort_score);
       const relatedBrand = getMetadataString(metadata, "related_brand") ?? getMetadataString(metadata, "brand") ?? primaryBrand?.name ?? "未設定";
-      const qualityScore = getMetadataNumber(metadata, "quality_score") ?? Math.round(item.impact_score);
-      const qualityScoreMax = getMetadataNumber(metadata, "quality_score_max") ?? 100;
       const displayCategory = getMetadataString(metadata, "display_category") ?? recommendationTypeLabel(item.type);
       const confidence = getMetadataString(metadata, "confidence") ?? "unknown";
+      const evidenceMetrics = buildEvidenceMetrics(evidence, displayCategory);
 
       return {
         id: item.id,
@@ -171,15 +177,15 @@ function createDbRecommendationItems(data: RecoraRecommendationsDbData): Recomme
         effortLabel: item.effort_score === null ? "未設定" : effortScore + " / 100",
         effortScore,
         impactScore: Math.round(item.impact_score),
-        qualityScore,
-        qualityScoreMax,
-        qualityScoreLabel: getMetadataString(metadata, "quality_score_label") ?? "根拠スコア",
         confidence,
         confidenceLabel: getMetadataString(metadata, "confidence_label") ?? confidenceLabel(confidence),
         customerFacingCaution: safeRecoraNotice(getMetadataString(metadata, "customer_facing_caution")),
-        scoreExplanation: getMetadataString(metadata, "score_explanation") ?? "今回の観測範囲にもとづく確認材料です。",
         recoraMetricNotice: safeRecoraNotice(getMetadataString(metadata, "recora_metric_notice")),
-        sampleSizeNote: getMetadataString(evidence, "sample_size_note") ?? "少数観測のため断定しすぎない。",
+        sampleSizeCaution: displayCategory === "サンプル不足"
+          ? "サンプル数が少ないため、追加測定で傾向が変わる可能性があります。"
+          : null,
+        evidenceDescription: buildEvidenceDescription(displayCategory, evidenceMetrics),
+        evidenceMetrics,
         relatedBrand,
         relatedTopic: topic?.name ?? prompt?.intent ?? "未設定",
         relatedPrompt: prompt?.text ?? "未設定",
@@ -277,9 +283,6 @@ function RecommendationActionCard({ item }: { item: RecommendationDisplayItem })
           <div className="flex flex-wrap gap-2">
             <RecommendationPriorityBadge item={item} />
             <DisplayCategoryBadge item={item} />
-            <Badge variant="outline" className="whitespace-nowrap rounded-sm border-teal-200 bg-teal-50 text-teal-700">
-              {item.qualityScoreLabel} {item.qualityScore} / {item.qualityScoreMax}
-            </Badge>
             <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-white text-slate-600">{item.confidenceLabel}</Badge>
             <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-white text-slate-600">{item.statusLabel}</Badge>
           </div>
@@ -288,8 +291,12 @@ function RecommendationActionCard({ item }: { item: RecommendationDisplayItem })
         </div>
         <div className="grid min-w-[150px] gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
           <div>
-            <p className="text-xs font-bold text-slate-500">根拠スコア</p>
-            <p className="mt-1 text-lg font-bold text-teal-700">{item.qualityScore} / {item.qualityScoreMax}</p>
+            <p className="text-xs font-bold text-slate-500">観測数</p>
+            <p className="mt-1 text-lg font-bold text-teal-700">{item.evidenceMetrics.observationCount}</p>
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-500">対象プロンプト</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{item.evidenceMetrics.promptCount}</p>
           </div>
           <div>
             <p className="text-xs font-bold text-slate-500">確からしさ</p>
@@ -302,13 +309,41 @@ function RecommendationActionCard({ item }: { item: RecommendationDisplayItem })
         <RecommendationMeta label="関連トピック" value={item.relatedTopic} />
         <RecommendationMeta label="推奨アクション" value={item.action} />
       </div>
+      <RecommendationEvidenceMetrics item={item} />
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
-        <RecommendationNote label="スコア説明" value={item.scoreExplanation} />
+        <RecommendationNote label="観測根拠の説明" value={item.evidenceDescription} />
         <RecommendationNote label="注意書き" value={item.customerFacingCaution} />
       </div>
+      {item.sampleSizeCaution ? (
+        <div className="mt-3 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-bold leading-5 text-orange-800">
+          {item.sampleSizeCaution}
+        </div>
+      ) : null}
       <div className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-500">
-        {item.recoraMetricNotice} {item.sampleSizeNote}
+        {item.recoraMetricNotice}
       </div>
+    </div>
+  );
+}
+
+function RecommendationEvidenceMetrics({ item }: { item: RecommendationDisplayItem }) {
+  const metrics = item.evidenceMetrics;
+
+  return (
+    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <RecommendationMetric label={metrics.focusedObservationLabel} value={metrics.focusedObservationCount} />
+      <RecommendationMetric label="引用URL数" value={metrics.citationCount} />
+      <RecommendationMetric label="unique domain数" value={metrics.uniqueDomainCount} />
+      <RecommendationMetric label="matched_clues数" value={metrics.matchedClueCount} />
+    </div>
+  );
+}
+
+function RecommendationMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="min-w-0 rounded-md border border-slate-200 bg-white px-3 py-2">
+      <p className="text-xs font-bold text-slate-400">{label}</p>
+      <p className="mt-1 text-lg font-bold text-slate-950">{value}</p>
     </div>
   );
 }
@@ -355,14 +390,14 @@ function RecommendationStatusRow({ label, value, tone }: { label: string; value:
 
 function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
   return (
-    <Table className="min-w-[1120px]">
+    <Table className="min-w-[980px]">
       <TableHeader>
         <TableRow>
           <TableHead>タイトル</TableHead>
           <TableHead>優先度</TableHead>
           <TableHead>表示区分</TableHead>
-          <TableHead>根拠スコア</TableHead>
           <TableHead>確からしさ</TableHead>
+          <TableHead>観測根拠</TableHead>
           <TableHead>状態</TableHead>
           <TableHead>関連項目</TableHead>
           <TableHead>アクション</TableHead>
@@ -377,8 +412,12 @@ function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
             </TableCell>
             <TableCell className="whitespace-nowrap"><RecommendationPriorityBadge item={row} /></TableCell>
             <TableCell className="whitespace-nowrap"><DisplayCategoryBadge item={row} /></TableCell>
-            <TableCell className="whitespace-nowrap font-bold text-teal-700">{row.qualityScore} / {row.qualityScoreMax}</TableCell>
             <TableCell className="whitespace-nowrap font-semibold text-slate-700">{row.confidenceLabel}</TableCell>
+            <TableCell className="min-w-[170px] text-xs leading-5 text-slate-600">
+              <div>観測数: <span className="font-bold text-slate-950">{row.evidenceMetrics.observationCount}</span></div>
+              <div>{row.evidenceMetrics.focusedObservationLabel}: <span className="font-bold text-slate-950">{row.evidenceMetrics.focusedObservationCount}</span></div>
+              <div>引用URL: <span className="font-bold text-slate-950">{row.evidenceMetrics.citationCount}</span></div>
+            </TableCell>
             <TableCell className="whitespace-nowrap">{row.statusLabel}</TableCell>
             <TableCell className="min-w-[220px] text-sm leading-6 text-slate-600">
               <div className="font-semibold text-slate-800">{row.relatedTopic}</div>
@@ -493,6 +532,74 @@ function getMetadataNumber(metadata: Record<string, unknown>, key: string) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function getMetadataArrayLength(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  return Array.isArray(value) ? value.length : undefined;
+}
+
+function buildEvidenceMetrics(evidence: Record<string, unknown>, displayCategory: string): EvidenceMetrics {
+  const observationCount =
+    getMetadataNumber(evidence, "observation_count") ??
+    getMetadataArrayLength(evidence, "all_conversation_ids") ??
+    getMetadataArrayLength(evidence, "conversation_ids") ??
+    0;
+  const promptCount =
+    getMetadataNumber(evidence, "prompt_count") ??
+    getMetadataArrayLength(evidence, "selected_prompt_ids") ??
+    getMetadataArrayLength(evidence, "prompt_texts") ??
+    0;
+  const focusedObservationCount =
+    getMetadataNumber(evidence, "focused_observation_count") ??
+    getMetadataArrayLength(evidence, "observation_rows") ??
+    0;
+  const citationCount =
+    getMetadataNumber(evidence, "citation_count") ??
+    getMetadataArrayLength(evidence, "citation_rows") ??
+    getMetadataArrayLength(evidence, "citation_urls") ??
+    0;
+  const uniqueDomainCount =
+    getMetadataNumber(evidence, "unique_domain_count") ??
+    getMetadataArrayLength(evidence, "citation_domains") ??
+    0;
+  const matchedClueCount =
+    getMetadataNumber(evidence, "matched_clue_count") ??
+    getMetadataArrayLength(evidence, "matched_clues") ??
+    0;
+
+  return {
+    observationCount,
+    promptCount,
+    focusedObservationCount,
+    focusedObservationLabel: focusedObservationLabel(displayCategory),
+    citationCount,
+    uniqueDomainCount,
+    matchedClueCount
+  };
+}
+
+function focusedObservationLabel(displayCategory: string) {
+  if (displayCategory === "改善提案") return "未表示観測数";
+  if (displayCategory === "引用確認事項") return "web-search観測数";
+  if (displayCategory === "サンプル不足") return "対象観測数";
+  return "対象観測数";
+}
+
+function buildEvidenceDescription(displayCategory: string, metrics: EvidenceMetrics) {
+  if (displayCategory === "改善提案") {
+    return `今回の観測範囲では、${metrics.observationCount}件中${metrics.focusedObservationCount}件で対象ブランドの明示言及を確認できませんでした。`;
+  }
+
+  if (displayCategory === "引用確認事項") {
+    return `web-search由来の引用URLを${metrics.citationCount}件、unique domainを${metrics.uniqueDomainCount}件確認しました。引用URLは確認されていますが、回答内容を支持しているかは確認が必要です。`;
+  }
+
+  if (displayCategory === "サンプル不足") {
+    return `事例確認promptの回答から、確認不足の兆候を${metrics.matchedClueCount}件確認しました。追加確認する余地があります。`;
+  }
+
+  return "今回の観測範囲にもとづく確認材料です。";
+}
+
 function confidenceLabel(confidence: string) {
   if (confidence === "high") return "根拠強め";
   if (confidence === "medium") return "傾向あり";
@@ -506,11 +613,6 @@ function safeRecoraNotice(value: string | undefined) {
   return value
     .replace("Recora独自の観測であり、AIプラットフォーム公式評価ではありません。", "Recora独自の観測です。AI各社の公式な評価ではありません。")
     .replace("20観測の結果を強い結論として扱わず、", "少数観測のため、強い結論として扱わず");
-}
-
-function average(values: number[]) {
-  if (values.length === 0) return 0;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function formatDateTime(value: string | null | undefined) {

@@ -2,13 +2,44 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { unstable_noStore as noStore } from "next/cache";
 
 import { createRecoraSupabaseClient } from "@/lib/supabase/server";
-import { getDefaultRecoraProjectSlug, getRecoraProject } from "./dashboard";
-import type { Json, RecoraProjectRow, RecoraRunStatus } from "./types";
+import { getDefaultRecoraProjectSlug, getRecoraBrands, getRecoraProject } from "./dashboard";
+import { isDisplayableCitation } from "./display-filters";
+import type {
+  Json,
+  RecoraAiConversationRow,
+  RecoraAiModelRow,
+  RecoraBrandMentionRow,
+  RecoraBrandRow,
+  RecoraCitationRow,
+  RecoraMeasurementRunRow,
+  RecoraMetricSnapshotRow,
+  RecoraPersonaRow,
+  RecoraProjectRow,
+  RecoraPromptRow,
+  RecoraRunItemRow,
+  RecoraRunStatus,
+  RecoraTopicRow
+} from "./types";
 
 const RUN_HISTORY_LIMIT = 50;
 
 const MEASUREMENT_RUN_COLUMNS =
   "id, project_id, status, period_start, period_end, comparison_start, comparison_end, region, language, started_at, completed_at, metadata, created_at, updated_at";
+const RUN_ITEM_COLUMNS =
+  "id, run_id, prompt_id, persona_id, model_id, status, error_message, latency_ms, captured_at, created_at, updated_at";
+const AI_CONVERSATION_COLUMNS =
+  "id, run_item_id, raw_answer, answer_summary, answer_hash, prompt_text_snapshot, model_snapshot, captured_at, created_at, updated_at, provider, model_requested, model_returned, response_id, web_search_enabled, citation_status, measured_at, response_time_ms";
+const BRAND_MENTION_COLUMNS =
+  "id, conversation_id, brand_id, mentioned, position, recommendation_status, sentiment, answer_score, mention_text, mention_count, first_mention_index, evidence_snippet, confidence, matched_alias, created_at, updated_at";
+const CITATION_COLUMNS =
+  "id, conversation_id, brand_id, source_domain_id, url, domain, title, source_type, supports_claim, occurrence_count, created_at, updated_at, canonical_url, start_index, end_index, cited_text, brand_related";
+const PROMPT_COLUMNS =
+  "id, project_id, topic_id, persona_id, text, intent, buyer_stage, priority, is_active, created_at, updated_at";
+const TOPIC_COLUMNS = "id, project_id, name, intent, priority, weight, is_active, created_at, updated_at";
+const PERSONA_COLUMNS = "id, project_id, name, segment, weight, jobs, pain_points, is_active, created_at, updated_at";
+const AI_MODEL_COLUMNS = "id, provider, model_name, display_name, is_active, created_at, updated_at";
+const METRIC_SNAPSHOT_COLUMNS =
+  "id, run_id, scope_type, scope_id, brand_id, ai_visibility, ai_mention_count, citation_count, share_of_voice, competitive_gap, average_position, calculated_at, created_at, updated_at";
 
 type RecoraSupabaseClient = SupabaseClient;
 
@@ -40,6 +71,51 @@ export type RecoraRunHistoryItem = {
 export type RecoraRunsDbData = {
   project: RecoraProjectRow | null;
   runs: RecoraRunHistoryItem[];
+};
+
+export type RecoraRunDetailBrandMentionRow = RecoraBrandMentionRow & {
+  mention_count: number;
+  first_mention_index: number | null;
+  evidence_snippet: string | null;
+  confidence: string;
+  matched_alias: string | null;
+};
+
+export type RecoraRunDetailSummary = {
+  promptCount: number;
+  expectedRunItems: number | null;
+  runItemCount: number;
+  aiConversationCount: number;
+  brandMentionCount: number;
+  citationCount: number;
+  sourceDomainCount: number;
+  failedItemCount: number;
+  metricSnapshotCount: number;
+};
+
+export type RecoraRunDetailDbData = {
+  project: RecoraProjectRow | null;
+  run: RecoraMeasurementRunRow | null;
+  kind: RecoraRunHistoryKind;
+  sourceRunId: string | null;
+  searchMode: string | null;
+  measurementProfileId: string | null;
+  measurementProfileLabel: string | null;
+  measurementProfilePromptCount: number | null;
+  measurementProfileExpectedRunItems: number | null;
+  selectedPromptIds: string[];
+  relatedAggregateRuns: RecoraMeasurementRunRow[];
+  brands: RecoraBrandRow[];
+  runItems: RecoraRunItemRow[];
+  prompts: RecoraPromptRow[];
+  topics: RecoraTopicRow[];
+  personas: RecoraPersonaRow[];
+  aiModels: RecoraAiModelRow[];
+  conversations: RecoraAiConversationRow[];
+  brandMentions: RecoraRunDetailBrandMentionRow[];
+  citations: RecoraCitationRow[];
+  metricSnapshots: RecoraMetricSnapshotRow[];
+  summary: RecoraRunDetailSummary;
 };
 
 type MeasurementRunHistoryRow = {
@@ -117,6 +193,258 @@ export async function getRecoraRunsData(
     project,
     runs: buildRunHistoryItems(runs, runItems, conversations, brandMentions, citations, metricSnapshots)
   };
+}
+
+export async function getRecoraRunDetailData(
+  projectSlug = getDefaultRecoraProjectSlug(),
+  runId: string
+): Promise<RecoraRunDetailDbData> {
+  noStore();
+
+  const supabase = createRecoraSupabaseClient();
+  const project = await getRecoraProject(projectSlug, supabase);
+
+  if (!project) {
+    return emptyRunDetailData();
+  }
+
+  const run = await getMeasurementRunById(project.id, runId, supabase);
+
+  if (!run) {
+    return emptyRunDetailData(project);
+  }
+
+  const [runItems, metricSnapshots, brands, relatedAggregateRuns] = await Promise.all([
+    getRunItemsForRun(run.id, supabase),
+    getMetricSnapshotsForRun(run.id, supabase),
+    getRecoraBrands(project.id, supabase),
+    getAggregateRunsForSourceRun(project.id, run.id, supabase)
+  ]);
+  const runItemIds = runItems.map((item) => item.id);
+  const [conversations, prompts, personas, aiModels] = await Promise.all([
+    getConversationsForRunItems(runItemIds, supabase),
+    getPromptsByIds(uniqueIds(runItems.map((item) => item.prompt_id)), supabase),
+    getPersonasByIds(uniqueIds(runItems.map((item) => item.persona_id)), supabase),
+    getAiModelsByIds(uniqueIds(runItems.map((item) => item.model_id)), supabase)
+  ]);
+  const topics = await getTopicsByIds(uniqueIds(prompts.map((prompt) => prompt.topic_id)), supabase);
+  const conversationIds = conversations.map((conversation) => conversation.id);
+  const [brandMentions, citations] = await Promise.all([
+    getBrandMentionsForConversations(conversationIds, supabase),
+    getCitationsForConversations(conversationIds, supabase)
+  ]);
+  const displayableCitations = citations.filter(isDisplayableCitation);
+  const metadata = getMetadataRecord(run.metadata);
+  const kind = classifyRunKind(run, runItems.length, conversations, metricSnapshots.length);
+
+  return {
+    project,
+    run,
+    kind,
+    sourceRunId: getMetadataString(metadata, "source_run_id"),
+    searchMode: getSearchMode(metadata, conversations),
+    measurementProfileId: getMetadataString(metadata, "measurement_profile_id"),
+    measurementProfileLabel: getMetadataString(metadata, "measurement_profile_label"),
+    measurementProfilePromptCount: getMetadataNumber(metadata, "prompt_count"),
+    measurementProfileExpectedRunItems: getMetadataNumber(metadata, "expected_run_items"),
+    selectedPromptIds: getMetadataStringArray(metadata, "selected_prompt_ids"),
+    relatedAggregateRuns,
+    brands,
+    runItems,
+    prompts,
+    topics,
+    personas,
+    aiModels,
+    conversations,
+    brandMentions,
+    citations: displayableCitations,
+    metricSnapshots,
+    summary: {
+      promptCount: uniqueCount(runItems.map((item) => item.prompt_id)),
+      expectedRunItems: getMetadataNumber(metadata, "expected_run_items"),
+      runItemCount: runItems.length,
+      aiConversationCount: conversations.length,
+      brandMentionCount: brandMentions.length,
+      citationCount: displayableCitations.length,
+      sourceDomainCount: uniqueCount(displayableCitations.map((citation) => citation.source_domain_id ?? citation.domain)),
+      failedItemCount: runItems.filter((item) => item.status === "failed").length,
+      metricSnapshotCount: metricSnapshots.length
+    }
+  };
+}
+
+function emptyRunDetailData(project: RecoraProjectRow | null = null): RecoraRunDetailDbData {
+  return {
+    project,
+    run: null,
+    kind: "unknown",
+    sourceRunId: null,
+    searchMode: null,
+    measurementProfileId: null,
+    measurementProfileLabel: null,
+    measurementProfilePromptCount: null,
+    measurementProfileExpectedRunItems: null,
+    selectedPromptIds: [],
+    relatedAggregateRuns: [],
+    brands: [],
+    runItems: [],
+    prompts: [],
+    topics: [],
+    personas: [],
+    aiModels: [],
+    conversations: [],
+    brandMentions: [],
+    citations: [],
+    metricSnapshots: [],
+    summary: {
+      promptCount: 0,
+      expectedRunItems: null,
+      runItemCount: 0,
+      aiConversationCount: 0,
+      brandMentionCount: 0,
+      citationCount: 0,
+      sourceDomainCount: 0,
+      failedItemCount: 0,
+      metricSnapshotCount: 0
+    }
+  };
+}
+
+async function getMeasurementRunById(projectId: string, runId: string, supabase: RecoraSupabaseClient) {
+  const { data, error } = await supabase
+    .from("measurement_runs")
+    .select(MEASUREMENT_RUN_COLUMNS)
+    .eq("project_id", projectId)
+    .eq("id", runId)
+    .maybeSingle();
+
+  throwIfSupabaseError("measurement_runs", error);
+  return (data as RecoraMeasurementRunRow | null) ?? null;
+}
+
+async function getRunItemsForRun(runId: string, supabase: RecoraSupabaseClient) {
+  const { data, error } = await supabase
+    .from("run_items")
+    .select(RUN_ITEM_COLUMNS)
+    .eq("run_id", runId)
+    .order("created_at", { ascending: true });
+
+  throwIfSupabaseError("run_items", error);
+  return (data ?? []) as RecoraRunItemRow[];
+}
+
+async function getConversationsForRunItems(runItemIds: string[], supabase: RecoraSupabaseClient) {
+  if (runItemIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("ai_conversations")
+    .select(AI_CONVERSATION_COLUMNS)
+    .in("run_item_id", runItemIds)
+    .order("captured_at", { ascending: true });
+
+  throwIfSupabaseError("ai_conversations", error);
+  return (data ?? []) as RecoraAiConversationRow[];
+}
+
+async function getBrandMentionsForConversations(conversationIds: string[], supabase: RecoraSupabaseClient) {
+  if (conversationIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("brand_mentions")
+    .select(BRAND_MENTION_COLUMNS)
+    .in("conversation_id", conversationIds)
+    .order("created_at", { ascending: true });
+
+  throwIfSupabaseError("brand_mentions", error);
+  return (data ?? []) as RecoraRunDetailBrandMentionRow[];
+}
+
+async function getCitationsForConversations(conversationIds: string[], supabase: RecoraSupabaseClient) {
+  if (conversationIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("citations")
+    .select(CITATION_COLUMNS)
+    .in("conversation_id", conversationIds)
+    .order("created_at", { ascending: true });
+
+  throwIfSupabaseError("citations", error);
+  return (data ?? []) as RecoraCitationRow[];
+}
+
+async function getPromptsByIds(promptIds: string[], supabase: RecoraSupabaseClient) {
+  if (promptIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("prompts")
+    .select(PROMPT_COLUMNS)
+    .in("id", promptIds);
+
+  throwIfSupabaseError("prompts", error);
+  return (data ?? []) as RecoraPromptRow[];
+}
+
+async function getTopicsByIds(topicIds: string[], supabase: RecoraSupabaseClient) {
+  if (topicIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("topics")
+    .select(TOPIC_COLUMNS)
+    .in("id", topicIds);
+
+  throwIfSupabaseError("topics", error);
+  return (data ?? []) as RecoraTopicRow[];
+}
+
+async function getPersonasByIds(personaIds: string[], supabase: RecoraSupabaseClient) {
+  if (personaIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("personas")
+    .select(PERSONA_COLUMNS)
+    .in("id", personaIds);
+
+  throwIfSupabaseError("personas", error);
+  return (data ?? []) as RecoraPersonaRow[];
+}
+
+async function getAiModelsByIds(modelIds: string[], supabase: RecoraSupabaseClient) {
+  if (modelIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("ai_models")
+    .select(AI_MODEL_COLUMNS)
+    .in("id", modelIds);
+
+  throwIfSupabaseError("ai_models", error);
+  return (data ?? []) as RecoraAiModelRow[];
+}
+
+async function getMetricSnapshotsForRun(runId: string, supabase: RecoraSupabaseClient) {
+  const { data, error } = await supabase
+    .from("metric_snapshots")
+    .select(METRIC_SNAPSHOT_COLUMNS)
+    .eq("run_id", runId)
+    .order("scope_type", { ascending: true })
+    .order("ai_visibility", { ascending: false });
+
+  throwIfSupabaseError("metric_snapshots", error);
+  return (data ?? []) as RecoraMetricSnapshotRow[];
+}
+
+async function getAggregateRunsForSourceRun(projectId: string, sourceRunId: string, supabase: RecoraSupabaseClient) {
+  const { data, error } = await supabase
+    .from("measurement_runs")
+    .select(MEASUREMENT_RUN_COLUMNS)
+    .eq("project_id", projectId)
+    .eq("metadata->>run_kind", "aggregate")
+    .eq("metadata->>data_source", "openai_measurement")
+    .eq("metadata->>source_run_id", sourceRunId)
+    .order("completed_at", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  throwIfSupabaseError("measurement_runs aggregate", error);
+  return (data ?? []) as RecoraMeasurementRunRow[];
 }
 
 async function getMeasurementRuns(projectId: string, supabase: RecoraSupabaseClient) {
@@ -325,6 +653,10 @@ function uniqueCount(values: string[]) {
   return new Set(values.filter(Boolean)).size;
 }
 
+function uniqueIds(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
 function getMetadataRecord(value: Json): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -337,6 +669,11 @@ function getMetadataString(metadata: Record<string, unknown>, key: string) {
 function getMetadataNumber(metadata: Record<string, unknown>, key: string) {
   const value = metadata[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function getMetadataStringArray(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && Boolean(item)) : [];
 }
 
 function throwIfSupabaseError(context: string, error: PostgrestError | null) {
