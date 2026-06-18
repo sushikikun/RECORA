@@ -1,291 +1,1477 @@
-﻿import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
+import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-const PROJECT_SLUG = process.env.RECORA_DEFAULT_PROJECT_SLUG ?? "recora-kenzai-q2";
-const OUTPUT_DIR = path.join(process.cwd(), "output", "recommendation-candidates");
-const OUTPUT_JSON = path.join(OUTPUT_DIR, "recommendation-candidates.json");
-const OUTPUT_MD = path.join(OUTPUT_DIR, "recommendation-candidates.md");
-const TABLES = ["measurement_runs", "run_items", "ai_conversations", "brand_mentions", "citations", "source_domains", "recommendations"] as const;
-const SOURCE_CLASSIFICATION_NOTE = "URL分類はRecora内の簡易分類です。source_domain_types は確定分類ではないため、実URLの内容確認が必要です。";
-const SOURCE_CLASSIFICATION_UNKNOWN_NOTE = "URL分類はRecora内の簡易分類です。source_domain_types は確定分類ではありません。引用元のカテゴリ分類が未確定のURLがあるため、実URLの内容確認が必要です。";
-const URLLESS_SUPPORTS_CLAIM_NOTE = "この候補では引用URLを主証拠にしていません。supports_claim は引用URLがある候補で確認対象になります。";
+const DEFAULT_PROJECT_SLUG = process.env.RECORA_DEFAULT_PROJECT_SLUG ?? "recora-kenzai-q2";
+const DEFAULT_OUTPUT_DIR = path.join(process.cwd(), "output", "recommendation-candidates");
+const SEED_MEASUREMENT_RUN_ID = "70000000-0000-4000-8000-000000000001";
+const MAX_CANDIDATES = 3;
+const TABLES = [
+  "measurement_runs",
+  "run_items",
+  "ai_conversations",
+  "brand_mentions",
+  "citations",
+  "source_domains",
+  "recommendations"
+] as const;
+const RECORA_METRIC_NOTICE =
+  "Recora独自の観測であり、AIプラットフォーム公式評価ではありません。20観測の結果を強い結論として扱わず、人間レビューで確認してください。";
+const SOURCE_CLASSIFICATION_NOTE =
+  "URL分類はRecora内の簡易分類です。source_domain_types は確定分類ではないため、実URLの内容確認が必要です。";
+const SUPPORTS_CLAIM_NOTE =
+  "supports_claim がnullまたは未設定の引用はunknownに正規化し、URLの存在だけを主張支持の根拠として扱いません。";
+const BRAND_VISIBILITY_CITATION_NOTE = "この候補では引用URLを主証拠にしていません。";
+const CASE_STUDY_EVIDENCE_STRENGTH_NOTE =
+  "事例・実績確認promptの回答内に確認不足を示す表現があるかだけを根拠にした低確度候補です。ページ不足や改善効果は断定しません。";
+const CASE_STUDY_CLUE_PHRASES = [
+  "見つかりませんでした",
+  "確認できませんでした",
+  "情報が限られています",
+  "公式情報が見当たりません",
+  "明確な情報はありません",
+  "不明です"
+] as const;
 
 type Row = Record<string, string | null>;
-type Priority = "P0" | "P1" | "P2";
-type Confidence = "high" | "medium" | "low";
-type SaveDecision = "save" | "review_required" | "candidate_only";
-type CandidateType = "brand_absent" | "competitor_category_drift" | "citation_mismatch" | "owned_site_not_cited" | "comparison_content_gap" | "case_study_gap" | "faq_structure_gap" | "misinformation_or_category_risk" | "source_friendly_page_gap";
-type SourceDomainType = "owned" | "competitor" | "ec" | "manufacturer" | "media" | "foreign_brand" | "unknown";
-type DataSource = "openai_inspection_only" | "seed_only" | "mixed";
+type Priority = "P1" | "P2";
+type Confidence = "medium" | "low";
+type SaveDecision = "review_required";
+type CandidateType =
+  | "brand_visibility_gap"
+  | "citation_evidence_review"
+  | "comparison_content_gap"
+  | "case_study_evidence_gap"
+  | "implementation_information_gap"
+  | "source_seeking_gap";
+type SourceDomainType = "owned" | "competitor" | "media" | "review" | "technical" | "ec" | "manufacturer" | "foreign_brand" | "unknown";
 type NormalizedSupportsClaim = "true" | "false" | "unknown";
-type ProjectRow = { id: string; slug: string; name: string };
-type BrandRow = { id: string; name: string; brand_type: "primary" | "competitor"; domain: string | null };
-type TopicRow = { id: string; name: string; intent: string | null };
-type ConversationRow = { id: string; run_item_id: string; run_id: string; prompt_id: string | null; topic_id: string | null; topic_name: string | null; prompt_text: string | null; prompt_text_snapshot: string; raw_answer: string; provider: string | null; response_id: string | null; web_search_enabled: string | null; citation_status: string | null; measured_at: string | null; model_returned: string | null };
-type MentionRow = { conversation_id: string; brand_id: string; brand_name: string; brand_type: "primary" | "competitor"; mentioned: string; mention_count: string | null; evidence_snippet: string | null };
-type CitationRow = { id: string; conversation_id: string; url: string; domain: string; source_type: string | null; source_domain_type: string | null; supports_claim: string | null; brand_related: string | null; cited_text: string | null };
-type CitationEvidence = { url: string; domain: string; source_domain_type: SourceDomainType; brand_related: string; supports_claim: NormalizedSupportsClaim; cited_text: string | null };
-type Evidence = { observation_count: number; conversation_ids: string[]; run_item_ids: string[]; prompt_texts: string[]; response_excerpts: string[]; target_brand_present: boolean; competitor_presence: Array<{ brand: string; mentioned: boolean; mention_count: number }>; citation_statuses: string[]; web_search_enabled_values: boolean[]; cited_urls: string[]; cited_domains: string[]; citation_details: CitationEvidence[]; source_domain_types: SourceDomainType[]; brand_related_values: string[]; supports_claim_values: NormalizedSupportsClaim[]; measured_at_values: string[]; data_source: DataSource; observation_scope: string; owned_domain_match_count: number; target_domain_known: boolean; source_classification_note: string; supports_claim_note: string; existing_recommendations_count: number; db_write_status: "not_written"; evidence_label: string };
-type Candidate = { id: string; title: string; priority: Priority; type: CandidateType; summary: string; rationale: string; evidence: Evidence; expected_impact: string; effort: string; related_observation_ids: string[]; related_urls: string[]; related_brands: string[]; related_topics: string[]; confidence: Confidence; should_save_to_recommendations: SaveDecision; save_reason: string; caution: string; suggested_next_action: string };
-type Context = { project: ProjectRow; brands: BrandRow[]; topics: TopicRow[]; conversations: ConversationRow[]; seedConversations: ConversationRow[]; openaiConversations: ConversationRow[]; mentions: MentionRow[]; citations: CitationRow[]; openaiMentions: MentionRow[]; openaiCitations: CitationRow[]; webSearchCitations: CitationRow[]; primaryBrand: BrandRow; competitorBrands: BrandRow[]; evidence: Evidence };
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue | undefined };
 type CountSnapshot = Record<string, number>;
 type PgMessage = { type: string; payload: Buffer };
 
+type Options = {
+  projectSlug: string;
+  measurementRunId: string | null;
+  aggregateRunId: string | null;
+  latestProfile: string | null;
+  outputDir: string;
+};
+
+type ProjectRow = { id: string; slug: string; name: string };
+type BrandRow = {
+  id: string;
+  name: string;
+  brand_type: "primary" | "competitor";
+  domain: string | null;
+};
+type MeasurementRunRow = {
+  id: string;
+  project_id: string;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  metadata: string | null;
+  created_at: string;
+};
+type RunItemRow = {
+  id: string;
+  prompt_id: string;
+  persona_id: string;
+  status: string;
+  error_message: string | null;
+  prompt_text: string | null;
+  prompt_intent: string | null;
+  buyer_stage: string | null;
+  topic_id: string | null;
+  topic_name: string | null;
+  persona_name: string | null;
+};
+type ConversationRow = {
+  id: string;
+  run_item_id: string;
+  raw_answer: string;
+  prompt_text_snapshot: string;
+  provider: string | null;
+  response_id: string | null;
+  web_search_enabled: string | null;
+  citation_status: string | null;
+  measured_at: string | null;
+  model_returned: string | null;
+};
+type MentionRow = {
+  conversation_id: string;
+  brand_id: string;
+  brand_name: string;
+  brand_type: "primary" | "competitor";
+  mentioned: string;
+  mention_count: string | null;
+  recommendation_status: string | null;
+  evidence_snippet: string | null;
+};
+type CitationRow = {
+  id: string;
+  conversation_id: string;
+  url: string | null;
+  domain: string;
+  title: string | null;
+  source_type: string | null;
+  source_domain_type: string | null;
+  supports_claim: string | null;
+  brand_related: string | null;
+  cited_text: string | null;
+};
+type CitationEvidence = {
+  id: string;
+  conversation_id: string;
+  url: string | null;
+  domain: string;
+  title: string | null;
+  source_domain_type: SourceDomainType;
+  brand_related: string;
+  supports_claim: NormalizedSupportsClaim;
+  cited_text: string | null;
+};
+type BrandMentionEvidence = {
+  conversation_id: string;
+  brand: string;
+  brand_type: "primary" | "competitor";
+  mentioned: boolean;
+  mention_count: number;
+  recommendation_status: string | null;
+  evidence_snippet: string | null;
+};
+type PromptObservation = {
+  conversation_id: string;
+  run_item_id: string;
+  prompt_id: string;
+  prompt_text: string;
+  topic: string;
+  persona: string;
+  search_mode: "no-search" | "web-search";
+  response_excerpt: string;
+  target_brand_mentioned: boolean;
+  target_brand_mention_count: number;
+  citation_status: string;
+  measured_at: string | null;
+};
+type ObservationEvidenceRow = {
+  conversation_id: string;
+  run_item_id: string;
+  prompt_id: string;
+  prompt_text: string;
+  topic: string;
+  persona: string;
+  search_mode: "no-search" | "web-search";
+  target_brand_present: boolean;
+  target_brand_mention_count: number;
+  response_excerpt: string;
+  measured_at: string | null;
+};
+type CitationEvidenceRow = {
+  conversation_id: string;
+  run_item_id: string;
+  prompt_id: string;
+  prompt_text: string;
+  url: string | null;
+  domain: string;
+  title: string | null;
+  supports_claim: NormalizedSupportsClaim;
+  brand_related: string;
+  cited_text: string | null;
+  measured_at: string | null;
+};
+type MatchedClue = {
+  conversation_id: string;
+  run_item_id: string;
+  matched_text: string;
+  response_excerpt: string;
+  search_mode: "no-search" | "web-search";
+};
+type EvidenceBuildOptions = {
+  primaryEvidenceScope: string;
+  citationsUsedAsPrimaryEvidence: boolean;
+  citationNote?: string;
+  citationRows?: CitationEvidenceRow[];
+  matchedClues?: MatchedClue[];
+  evidenceStrengthNote?: string;
+  searchModes?: string[];
+  sourceClassificationNote?: string;
+};
+type CandidateEvidence = {
+  measurement_run_id: string;
+  aggregate_run_id: string | null;
+  measurement_profile_id: string;
+  measurement_profile_label: string;
+  selected_prompt_ids: string[];
+  observation_count: number;
+  prompt_count: number;
+  search_modes: string[];
+  conversation_ids: string[];
+  run_item_ids: string[];
+  prompt_texts: string[];
+  topics: string[];
+  personas: string[];
+  response_excerpts: string[];
+  target_brand_present: boolean;
+  competitor_presence: Array<{ brand: string; mentioned: boolean; mention_count: number }>;
+  brand_mentions: BrandMentionEvidence[];
+  citation_urls: string[];
+  citation_domains: string[];
+  citation_statuses: string[];
+  supports_claim_values: NormalizedSupportsClaim[];
+  brand_related_values: string[];
+  measured_at_values: string[];
+  data_source: "openai_measurement";
+  evidence_label: "CONFIRMED_FACT";
+  sample_size_note: string;
+  recora_metric_notice: string;
+  focused_observation_count: number;
+  all_conversation_ids: string[];
+  citation_details: CitationEvidence[];
+  source_domain_types: SourceDomainType[];
+  source_classification_note: string;
+  supports_claim_note: string;
+  primary_evidence_scope: string;
+  citations_used_as_primary_evidence: boolean;
+  citation_note: string | null;
+  observation_rows: ObservationEvidenceRow[];
+  citation_rows: CitationEvidenceRow[];
+  citation_count: number;
+  unique_url_count: number;
+  unique_domain_count: number;
+  supports_claim_unknown_count: number;
+  matched_clues: MatchedClue[];
+  matched_clue_count: number;
+  case_study_observation_count: number;
+  evidence_strength_note: string | null;
+  db_write_status: "not_written";
+};
+type Candidate = {
+  id: string;
+  title: string;
+  priority: Priority;
+  type: CandidateType;
+  summary: string;
+  rationale: string;
+  evidence: CandidateEvidence;
+  expected_impact: string;
+  effort: string;
+  related_observation_ids: string[];
+  related_urls: string[];
+  related_brands: string[];
+  related_topics: string[];
+  confidence: Confidence;
+  should_save_to_recommendations: SaveDecision;
+  save_reason: string;
+  caution: string;
+  suggested_next_action: string;
+};
+type Context = {
+  options: Options;
+  project: ProjectRow;
+  measurementRun: MeasurementRunRow;
+  aggregateRun: MeasurementRunRow | null;
+  measurementMetadata: Record<string, JsonValue | undefined>;
+  brands: BrandRow[];
+  primaryBrand: BrandRow;
+  competitorBrands: BrandRow[];
+  runItems: RunItemRow[];
+  conversations: ConversationRow[];
+  openaiConversations: ConversationRow[];
+  mentions: MentionRow[];
+  citations: CitationRow[];
+  filteredCitations: CitationRow[];
+  excludedExampleCitationCount: number;
+  observations: PromptObservation[];
+  selectedPromptIds: string[];
+  measurementProfileId: string;
+  measurementProfileLabel: string;
+};
+type CandidatesPayload = {
+  generated_at: string;
+  project_slug: string;
+  project_name: string;
+  measurement_run_id: string;
+  aggregate_run_id: string | null;
+  measurement_profile_id: string;
+  source_run_status: string;
+  observation_count: number;
+  prompt_count: number;
+  candidate_count: number;
+  candidates: Candidate[];
+  db_write_status: "not_written";
+  recora_metric_notice: string;
+  db_write_check: {
+    before: CountSnapshot;
+    after: CountSnapshot;
+    unchanged: boolean;
+    recommendations_before: number;
+    recommendations_after: number;
+  };
+  data_scope: {
+    run_items: number;
+    openai_conversations: number;
+    brand_mentions: number;
+    citations: number;
+    excluded_example_citations: number;
+    failed_run_items: number;
+  };
+  output: {
+    json: string;
+    markdown: string;
+    run_json: string;
+    run_markdown: string;
+  };
+};
+
 async function main() {
   await loadEnvLocal();
+  const options = parseArgs(process.argv.slice(2));
+  validateOptions(options);
+
+  debug("connecting to database");
   const db = new LocalPostgresClient(process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL);
   await db.connect();
   try {
+    debug("loading before counts");
     const before = await getCounts(db);
-    const context = await loadContext(db);
-    const candidates = buildCandidates(context, before.recommendations ?? 0);
+    debug("loading run context");
+    const context = await loadContext(db, options);
+    debug("building candidates");
+    const candidates = buildCandidates(context).slice(0, MAX_CANDIDATES);
+    debug("loading after counts");
     const after = await getCounts(db);
-    await writeOutputs(context, candidates, before, after);
-    console.log(JSON.stringify({ projectSlug: context.project.slug, openaiConversations: context.openaiConversations.length, seedConversations: context.seedConversations.length, openaiCitations: context.openaiCitations.length, candidates: candidates.length, priorityBreakdown: countBy(candidates, (c) => c.priority), confidenceBreakdown: countBy(candidates, (c) => c.confidence), saveDecisionBreakdown: countBy(candidates, (c) => c.should_save_to_recommendations), output: { json: OUTPUT_JSON, markdown: OUTPUT_MD }, dbCountsUnchanged: sameCounts(before, after), dbCountsBefore: before, dbCountsAfter: after }, null, 2));
+    debug("writing outputs");
+    const payload = await writeOutputs(context, candidates, before, after);
+
+    console.log(JSON.stringify({
+      projectSlug: payload.project_slug,
+      measurementRunId: payload.measurement_run_id,
+      aggregateRunId: payload.aggregate_run_id,
+      measurementProfileId: payload.measurement_profile_id,
+      observationCount: payload.observation_count,
+      promptCount: payload.prompt_count,
+      candidateCount: payload.candidate_count,
+      candidates: candidates.map((candidate) => ({
+        id: candidate.id,
+        type: candidate.type,
+        priority: candidate.priority,
+        confidence: candidate.confidence,
+        decision: candidate.should_save_to_recommendations
+      })),
+      output: payload.output,
+      dbWriteStatus: payload.db_write_status,
+      dbCountsUnchanged: payload.db_write_check.unchanged,
+      recommendationsBefore: payload.db_write_check.recommendations_before,
+      recommendationsAfter: payload.db_write_check.recommendations_after
+    }, null, 2));
   } finally {
     db.end();
   }
 }
 
-async function loadContext(db: LocalPostgresClient): Promise<Context> {
-  const project = await getProject(db);
+function parseArgs(args: string[]): Options {
+  const options: Options = {
+    projectSlug: DEFAULT_PROJECT_SLUG,
+    measurementRunId: null,
+    aggregateRunId: null,
+    latestProfile: null,
+    outputDir: DEFAULT_OUTPUT_DIR
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--project-slug") {
+      options.projectSlug = readNext(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--project-slug=")) {
+      options.projectSlug = arg.slice("--project-slug=".length);
+      continue;
+    }
+    if (arg === "--measurement-run-id") {
+      options.measurementRunId = readNext(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--measurement-run-id=")) {
+      options.measurementRunId = arg.slice("--measurement-run-id=".length);
+      continue;
+    }
+    if (arg === "--aggregate-run-id") {
+      options.aggregateRunId = readNext(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--aggregate-run-id=")) {
+      options.aggregateRunId = arg.slice("--aggregate-run-id=".length);
+      continue;
+    }
+    if (arg === "--latest-profile") {
+      options.latestProfile = readNext(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--latest-profile=")) {
+      options.latestProfile = arg.slice("--latest-profile=".length);
+      continue;
+    }
+    if (arg === "--output-dir") {
+      options.outputDir = path.resolve(readNext(args, index, arg));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--output-dir=")) {
+      options.outputDir = path.resolve(arg.slice("--output-dir=".length));
+    }
+  }
+
+  return options;
+}
+
+function readNext(args: string[], index: number, arg: string) {
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
+  return value;
+}
+
+function debug(message: string) {
+  if (process.env.RECORA_RECOMMENDATION_DEBUG === "1") {
+    console.error(`[generate-recommendation-candidates] ${message}`);
+  }
+}
+
+function validateOptions(options: Options) {
+  if (!options.measurementRunId && !options.latestProfile) {
+    throw new Error("--measurement-run-id or --latest-profile is required. Refusing to aggregate every run.");
+  }
+  if (options.measurementRunId && options.latestProfile) {
+    throw new Error("--measurement-run-id and --latest-profile cannot be used together.");
+  }
+  if (options.latestProfile && options.latestProfile !== "standard-v01") {
+    throw new Error("--latest-profile currently supports standard-v01 only.");
+  }
+}
+
+async function loadContext(db: LocalPostgresClient, options: Options): Promise<Context> {
+  debug("loading project");
+  const project = await getProject(db, options.projectSlug);
+  debug("loading measurement run");
+  const measurementRun = options.measurementRunId
+    ? await getMeasurementRunById(db, project.id, options.measurementRunId)
+    : await getLatestMeasurementRunByProfile(db, project.id, options.latestProfile ?? "standard-v01");
+  const measurementMetadata = parseMetadata(measurementRun.metadata);
+
+  assertMeasurementRun(measurementRun, measurementMetadata);
+
+  const aggregateRun = options.aggregateRunId
+    ? await getAggregateRunById(db, project.id, options.aggregateRunId, measurementRun.id)
+    : await getLatestAggregateRunForMeasurement(db, project.id, measurementRun.id);
+
+  debug("loading brands and run items");
   const brands = await getBrands(db, project.id);
-  const topics = await getTopics(db, project.id);
-  const conversations = await getConversations(db, project.id);
-  const ids = conversations.map((c) => c.id);
-  const mentions = await getMentions(db, ids);
-  const citations = await getCitations(db, ids);
-  const primaryBrand = brands.find((b) => b.brand_type === "primary");
+  const runItems = await getRunItems(db, measurementRun.id);
+
+  const primaryBrand = brands.find((brand) => brand.brand_type === "primary");
   if (!primaryBrand) throw new Error("Primary brand was not found.");
-  const competitorBrands = brands.filter((b) => b.brand_type === "competitor");
+  const competitorBrands = brands.filter((brand) => brand.brand_type === "competitor");
+
+  debug("loading conversations");
+  const conversations = await getConversations(db, measurementRun.id);
   const openaiConversations = conversations.filter(isOpenAiObservation);
-  const seedConversations = conversations.filter((c) => !isOpenAiObservation(c));
-  const openaiIds = new Set(openaiConversations.map((c) => c.id));
-  const openaiMentions = mentions.filter((m) => openaiIds.has(m.conversation_id));
-  const openaiCitations = citations.filter((c) => openaiIds.has(c.conversation_id));
-  const webIds = new Set(openaiConversations.filter((c) => parseBool(c.web_search_enabled)).map((c) => c.id));
-  const webSearchCitations = openaiCitations.filter((c) => webIds.has(c.conversation_id));
-  const evidence = buildEvidence(openaiConversations, openaiMentions, openaiCitations, primaryBrand, competitorBrands);
-  return { project, brands, topics, conversations, seedConversations, openaiConversations, mentions, citations, openaiMentions, openaiCitations, webSearchCitations, primaryBrand, competitorBrands, evidence };
+  const conversationIds = openaiConversations.map((conversation) => conversation.id);
+  debug(`loading mentions and citations for ${conversationIds.length} conversations`);
+  const mentions = await getMentions(db, conversationIds);
+  const citations = await getCitations(db, conversationIds);
+  const filteredCitations = citations.filter(isDisplayableCitation);
+  const excludedExampleCitationCount = citations.length - filteredCitations.length;
+  const selectedPromptIds = readMetadataStringArray(measurementMetadata, "selected_prompt_ids", unique(runItems.map((item) => item.prompt_id)));
+  const measurementProfileId = readMetadataString(measurementMetadata, "measurement_profile_id") ?? "unknown";
+  const measurementProfileLabel = getMeasurementProfileLabel(measurementProfileId, readMetadataString(measurementMetadata, "measurement_profile_label"));
+  const observations = buildObservations(openaiConversations, runItems, mentions, primaryBrand);
+
+  if (openaiConversations.length === 0) {
+    throw new Error("No OpenAI measurement conversations were found for the selected measurement run.");
+  }
+
+  return {
+    options,
+    project,
+    measurementRun,
+    aggregateRun,
+    measurementMetadata,
+    brands,
+    primaryBrand,
+    competitorBrands,
+    runItems,
+    conversations,
+    openaiConversations,
+    mentions,
+    citations,
+    filteredCitations,
+    excludedExampleCitationCount,
+    observations,
+    selectedPromptIds,
+    measurementProfileId,
+    measurementProfileLabel
+  };
 }
 
-function buildCandidates(context: Context, existingRecommendationsCount: number): Candidate[] {
-  const e = { ...context.evidence, existing_recommendations_count: existingRecommendationsCount };
-  const relatedTopics = getRelatedTopics(context);
-  const allBrands = [context.primaryBrand.name, ...context.competitorBrands.map((b) => b.name)];
-  const ownedCited = e.owned_domain_match_count > 0;
-  const configuredCompetitorPresent = e.competitor_presence.some((item) => item.mentioned);
-  const generalCitationDetails = e.citation_details.filter((c) => ["general", "unknown", "unrelated"].includes(c.brand_related));
-  const reviewCitationDetails = e.citation_details.filter((c) => c.source_domain_type !== "owned" && c.source_domain_type !== "competitor").slice(0, 6);
-  const representativeCitationDetails = reviewCitationDetails.slice(0, 3);
-  const hasClassifiedSource = reviewCitationDetails.some((c) => c.source_domain_type !== "unknown");
-  const citationConfidence: Confidence = hasClassifiedSource ? "medium" : "low";
-  const ownedSiteConfidence: Confidence = e.target_domain_known ? "medium" : "low";
-  const brandAbsentEvidence = scopeEvidence(e, [], {
-    source_classification_note: "ブランド非表示候補では、URLではなく回答本文とブランド言及の不在を主証拠にしています。",
-    supports_claim_note: URLLESS_SUPPORTS_CLAIM_NOTE
-  });
-  const competitorDriftEvidence = scopeEvidence(e, generalCitationDetails.slice(0, 3), {
-    source_classification_note: hasClassifiedSource ? e.source_classification_note : SOURCE_CLASSIFICATION_UNKNOWN_NOTE + " 設定競合から別カテゴリへ流れているかは追加確認が必要です。"
-  });
-  const citationMismatchEvidence = scopeEvidence(e, reviewCitationDetails, {
-    source_classification_note: hasClassifiedSource ? e.source_classification_note : SOURCE_CLASSIFICATION_UNKNOWN_NOTE + " EC・海外・別カテゴリへの偏りは断定せず追加確認が必要です。"
-  });
-  const ownedSiteEvidence = scopeEvidence(e, representativeCitationDetails, {
-    source_classification_note: e.target_domain_known ? e.source_classification_note : SOURCE_CLASSIFICATION_UNKNOWN_NOTE + " 自社公式ドメイン定義と照合したうえで、公式サイト未引用かどうかを確認する必要があります。"
-  });
-  const sourceFriendlyEvidence = scopeEvidence(e, [], {
-    source_classification_note: "ページ構造不足は今回の観測だけでは推定止まりです。引用URLではなく追加観測とサイト棚卸しで確認します。",
-    supports_claim_note: URLLESS_SUPPORTS_CLAIM_NOTE
-  });
+function assertMeasurementRun(run: MeasurementRunRow, metadata: Record<string, JsonValue | undefined>) {
+  if (run.id === SEED_MEASUREMENT_RUN_ID) {
+    throw new Error("Seed measurement run cannot be used for recommendation candidates.");
+  }
+  if (run.status !== "completed") {
+    throw new Error(`Selected measurement run is not completed: ${run.status}`);
+  }
+  if (readMetadataString(metadata, "run_kind") === "aggregate") {
+    throw new Error("Selected run is an aggregate run. Use a measurement run as the source.");
+  }
+  if (readMetadataString(metadata, "data_source") !== "openai_measurement") {
+    throw new Error("Selected measurement run is not openai_measurement.");
+  }
+  const profileId = readMetadataString(metadata, "measurement_profile_id");
+  if (profileId !== "standard-v01") {
+    throw new Error(`Selected measurement run must be standard-v01. Actual profile: ${profileId ?? "unknown"}`);
+  }
+}
+
+function buildCandidates(context: Context): Candidate[] {
   const candidates: Candidate[] = [];
-  if (context.openaiConversations.length > 0 && !e.target_brand_present) candidates.push(candidate("openai-brand-absent", "brand_absent", "自社ブランドがAI回答候補に出ていない可能性", "P1", context.openaiConversations.length >= 2 ? "medium" : "low", "review_required", "今回のOpenAI実測では、対象ブランドの言及を確認できませんでした。", "no-searchとweb-searchの両方で自社名が出ていないため、発見クエリに対する説明と実体情報の整備を確認する価値があります。", "追加観測で同傾向が出る場合、ブランド発見率の改善候補になります。", "中", allBrands, relatedTopics, brandAbsentEvidence, "最も保存に近い候補ですが、OpenAI実測2件のみのためreview_requiredに留めます。", "同じプロンプトを複数モデル・複数回で再測定し、製品・選び方・FAQページの記述と照合してください。"));
-  if (context.openaiConversations.length > 0 && !configuredCompetitorPresent && generalCitationDetails.length > 0) candidates.push(candidate("openai-competitor-category-drift", "competitor_category_drift", "設定競合ではなく別カテゴリ候補に流れている可能性", "P2", "low", "candidate_only", "今回の観測では設定済み競合の言及が確認できず、想定カテゴリからずれている可能性があります。", "ただし、引用元の分類やカテゴリ適合性は未確定です。1〜2件の観測だけで競合流出とは断定しません。", "カテゴリ定義と競合比較軸を点検するための候補です。", "中", allBrands, relatedTopics, competitorDriftEvidence, "競合・カテゴリのずれはまだ弱い兆候のため、現時点では候補出力のみに留めます。", "引用ドメインが建材・タイル選定の文脈に適しているかを確認し、競合プロンプトを追加して再測定してください。"));
-  if (context.webSearchCitations.length > 0 && reviewCitationDetails.length > 0) candidates.push(candidate("openai-citation-mismatch", "citation_mismatch", hasClassifiedSource ? "Web検索時の引用元にカテゴリ確認が必要なURLがあります" : "Web検索時の引用元分類が未確定です", "P1", citationConfidence, "review_required", hasClassifiedSource ? "web-searchありの観測では引用URLが返っており、一部URLは商材・カテゴリとの関連性を確認する必要があります。" : "web-searchありの観測では引用URLが返っていますが、引用元のカテゴリ分類が未確定のため追加確認が必要です。", "supports_claimはunknownとして扱います。URLの存在だけを根拠にせず、ドメインの性質・引用位置・主張支持の有無を確認します。", "参照元のずれを直すための優先確認項目です。", "中", allBrands, relatedTopics, citationMismatchEvidence, "web-searchありでURLは確認できましたが、主張支持とカテゴリ分類は保存前レビューが必要です。", "引用URLをドメイン種別に分け、自社公式・業界メディア・レビュー・ECのどれに寄っているか確認してください。"));
-  if (context.webSearchCitations.length > 0 && (!ownedCited || !e.target_domain_known)) candidates.push(candidate("openai-owned-site-not-cited", "owned_site_not_cited", e.target_domain_known ? "自社公式サイトや根拠ページが引用されていない可能性" : "自社公式ドメイン定義と引用照合が必要です", "P1", ownedSiteConfidence, "review_required", e.target_domain_known ? "web-searchありの観測で、定義済み自社公式ドメインの引用は確認できませんでした。" : "DB上の自社公式ドメイン定義が明確でないため、公式サイト未引用とは断定せず、ドメイン定義との照合が必要です。", "一回のweb-search観測のため断定はできませんが、AIが参照しやすい公式根拠ページが足りないか、見つけにくい可能性があります。", "公式ページを引用されやすい状態に整えるための確認候補です。", "中", [context.primaryBrand.name], relatedTopics, ownedSiteEvidence, "公式ドメイン定義と対象ページの確認が必要なため、review_requiredに留めます。", "公式サイトに、選び方、比較表、FAQ、施工事例をまとめた参照しやすいページがあるか確認してください。"));
-  candidates.push(candidate("openai-source-friendly-page-gap", "source_friendly_page_gap", "AIが参照しやすいページ構造や説明文が不足している可能性", "P2", "low", "candidate_only", "今回の観測だけでは断定できませんが、引用されやすい状態を整えるための候補です。", "自社不在や公式未引用が追加観測でも続く場合に備え、用語定義、FAQ、選定基準、事例のまとめ方を見直す価値があります。", "中長期で引用候補を増やすための基盤整備候補です。", "低〜中", [context.primaryBrand.name], relatedTopics, sourceFriendlyEvidence, "根拠はまだ推定止まりのため、保存せず候補出力のみに留めます。", "FAQ、用語定義、比較軸、施工事例の各ページを棚卸しし、プロンプトと対応する根拠を表で整理してください。"));
-  return candidates;
+  const absentObservations = context.observations.filter((observation) => !observation.target_brand_mentioned);
+  const webSearchConversationIds = new Set(
+    context.observations
+      .filter((observation) => observation.search_mode === "web-search")
+      .map((observation) => observation.conversation_id)
+  );
+  const webSearchCitationDetails = buildCitationDetails(
+    context.filteredCitations.filter((citation) => webSearchConversationIds.has(citation.conversation_id)),
+    context.primaryBrand,
+    context.competitorBrands
+  );
+  const unknownCitationDetails = webSearchCitationDetails.filter((citation) => citation.supports_claim === "unknown");
+
+  if (absentObservations.length > 0) {
+    candidates.push(buildBrandVisibilityGapCandidate(context, absentObservations));
+  }
+
+  if (webSearchCitationDetails.length > 0 && unknownCitationDetails.length > 0) {
+    candidates.push(buildCitationEvidenceReviewCandidate(context, webSearchCitationDetails, unknownCitationDetails));
+  }
+
+  const specificGap = buildSpecificGapCandidate(context);
+  if (specificGap) candidates.push(specificGap);
+
+  return candidates.slice(0, MAX_CANDIDATES);
 }
 
-function candidate(id: string, type: CandidateType, title: string, priority: Priority, confidence: Confidence, decision: SaveDecision, summary: string, rationale: string, expectedImpact: string, effort: string, brands: string[], topics: string[], evidence: Evidence, saveReason: string, nextAction: string): Candidate {
-  const safeDecision = decision === "save" ? "review_required" : decision;
-  return { id, title, priority, type, summary, rationale, evidence, expected_impact: expectedImpact, effort, related_observation_ids: evidence.conversation_ids, related_urls: evidence.cited_urls, related_brands: unique(brands), related_topics: unique(topics), confidence, should_save_to_recommendations: safeDecision, save_reason: saveReason, caution: "今回の候補はRecora独自の観測であり、AIプラットフォーム公式評価ではありません。観測数が少ないため、追加観測で確認する必要があります。", suggested_next_action: nextAction };
+function buildBrandVisibilityGapCandidate(context: Context, absentObservations: PromptObservation[]): Candidate {
+  const evidence = buildEvidence(context, absentObservations, context.mentions.filter((mention) => {
+    return absentObservations.some((observation) => observation.conversation_id === mention.conversation_id);
+  }), [], {
+    primaryEvidenceScope: "target_brand_absent_observations",
+    citationsUsedAsPrimaryEvidence: false,
+    citationNote: BRAND_VISIBILITY_CITATION_NOTE,
+    searchModes: unique(absentObservations.map((observation) => observation.search_mode))
+  });
+
+  return candidate({
+    context,
+    type: "brand_visibility_gap",
+    title: "一部の質問で自社ブランドが表示されない傾向があります",
+    priority: "P1",
+    confidence: absentObservations.length >= 2 ? "medium" : "low",
+    summary: `今回の観測範囲では、一部の質問で表示されない傾向がありました。${context.openaiConversations.length}件中${absentObservations.length}件で${context.primaryBrand.name}の明示的な言及を確認できませんでした。`,
+    rationale: "AI表示率は50%であり、全体として非表示とは断定しません。一方で、一部の重要プロンプトでは表示されない傾向があるため、質問別に根拠ページや説明内容を確認する余地があります。",
+    evidence,
+    expectedImpact: "一部プロンプトでのブランド発見率改善につながる可能性",
+    effort: "中",
+    brands: [context.primaryBrand.name],
+    topics: evidence.topics,
+    saveReason: "保存前レビューが必要です。20観測のみのため、表示不足の傾向として扱います。",
+    nextAction: "未表示になったprompt、search mode、回答本文を人間が確認し、対応する比較・選定基準・FAQ・事例ページの不足を棚卸ししてください。"
+  });
 }
 
-function buildEvidence(conversations: ConversationRow[], mentions: MentionRow[], citations: CitationRow[], primary: BrandRow, competitors: BrandRow[]): Evidence {
-  const primaryMentions = mentions.filter((m) => m.brand_id === primary.id || m.brand_name === primary.name);
-  const targetBrandPresent = primaryMentions.some((m) => parseBool(m.mentioned) || toNum(m.mention_count) > 0) || conversations.some((c) => c.raw_answer.includes(primary.name));
-  const citationDetails = buildCitationDetails(citations, primary, competitors);
-  const webSearchConversationCount = conversations.filter((c) => parseBool(c.web_search_enabled)).length;
-  const hasUnknownSource = citationDetails.some((c) => c.source_domain_type === "unknown");
-  const hasUnknownSupportsClaim = citationDetails.some((c) => c.supports_claim === "unknown");
-  const targetDomainKnown = Boolean(primary.domain?.trim());
-  const ownedDomainMatchCount = citationDetails.filter((c) => c.source_domain_type === "owned").length;
-  return { observation_count: conversations.length, conversation_ids: conversations.map((c) => c.id), run_item_ids: unique(conversations.map((c) => c.run_item_id)), prompt_texts: unique(conversations.map((c) => c.prompt_text ?? c.prompt_text_snapshot)), response_excerpts: conversations.map((c) => excerpt(c.raw_answer, 280)), target_brand_present: targetBrandPresent, competitor_presence: competitors.map((brand) => { const rows = mentions.filter((m) => m.brand_id === brand.id || m.brand_name === brand.name); return { brand: brand.name, mentioned: rows.some((m) => parseBool(m.mentioned) || toNum(m.mention_count) > 0), mention_count: rows.reduce((sum, m) => sum + toNum(m.mention_count), 0) }; }), citation_statuses: unique(conversations.map((c) => c.citation_status ?? "unknown")), web_search_enabled_values: Array.from(new Set(conversations.map((c) => parseBool(c.web_search_enabled)))), cited_urls: unique(citationDetails.map((c) => c.url)), cited_domains: unique(citationDetails.map((c) => c.domain)), citation_details: citationDetails, source_domain_types: uniqueSourceTypes(citationDetails.map((c) => c.source_domain_type)), brand_related_values: unique(citationDetails.map((c) => c.brand_related)), supports_claim_values: uniqueSupportsClaims(citationDetails.map((c) => c.supports_claim)), measured_at_values: unique(conversations.map((c) => c.measured_at ?? "unknown")), data_source: "openai_inspection_only", observation_scope: `OpenAI実測${conversations.length}件、うちWeb検索あり${webSearchConversationCount}件`, owned_domain_match_count: ownedDomainMatchCount, target_domain_known: targetDomainKnown, source_classification_note: hasUnknownSource ? SOURCE_CLASSIFICATION_UNKNOWN_NOTE : SOURCE_CLASSIFICATION_NOTE, supports_claim_note: hasUnknownSupportsClaim ? "supports_claim がnullまたは未設定の引用はunknownに正規化し、主張支持は未検証として扱っています。" : "supports_claim は取得値に基づいて正規化しています。", existing_recommendations_count: 0, db_write_status: "not_written", evidence_label: `OpenAI実測${conversations.length}件（no-search/web-searchを含む）。Recora独自の観測であり、AIプラットフォーム公式評価ではありません。` };
+function buildCitationEvidenceReviewCandidate(
+  context: Context,
+  citationDetails: CitationEvidence[],
+  unknownCitationDetails: CitationEvidence[]
+): Candidate {
+  const evidenceConversations = context.observations.filter((observation) => {
+    return citationDetails.some((citation) => citation.conversation_id === observation.conversation_id);
+  });
+  const evidenceConversationIds = new Set(evidenceConversations.map((observation) => observation.conversation_id));
+  const evidence = buildEvidence(
+    context,
+    evidenceConversations,
+    context.mentions.filter((mention) => evidenceConversationIds.has(mention.conversation_id)),
+    citationDetails,
+    {
+      primaryEvidenceScope: "web_search_citations",
+      citationsUsedAsPrimaryEvidence: true,
+      citationRows: buildCitationRows(context, citationDetails),
+      searchModes: ["web-search"],
+      sourceClassificationNote: SOURCE_CLASSIFICATION_NOTE
+    }
+  );
+  const priority: Priority = unknownCitationDetails.length >= 5 ? "P1" : "P2";
+  const confidence: Confidence = citationDetails.length >= 5 ? "medium" : "low";
+
+  return candidate({
+    context,
+    type: "citation_evidence_review",
+    title: "引用URLの主張支持を確認する必要があります",
+    priority,
+    confidence,
+    summary: `web-search由来の引用URLは${citationDetails.length}件確認されていますが、supports_claim が未検証の引用が${unknownCitationDetails.length}件あります。`,
+    rationale: "引用URLがあること自体は確認できますが、回答内容を支持しているかは別途確認が必要です。URLの存在だけを改善根拠として扱わないため、引用元・ドメイン・brand_related・supports_claimをレビュー対象にします。",
+    evidence,
+    expectedImpact: "引用元の信頼性確認と根拠ページ整備の優先順位づけに役立つ可能性",
+    effort: "中",
+    brands: [context.primaryBrand.name, ...context.competitorBrands.map((brand) => brand.name)],
+    topics: evidence.topics,
+    saveReason: "supports_claim未検証のため、review_requiredに留めます。",
+    nextAction: "引用URLを開いて、回答内の主張を実際に支えているか、公式・業界メディア・競合・一般情報のどれに偏っているかを確認してください。"
+  });
 }
 
-function scopeEvidence(base: Evidence, citationDetails: CitationEvidence[], notes: Partial<Pick<Evidence, "source_classification_note" | "supports_claim_note">> = {}): Evidence {
-  return { ...base, citation_details: citationDetails, cited_urls: unique(citationDetails.map((c) => c.url)), cited_domains: unique(citationDetails.map((c) => c.domain)), source_domain_types: uniqueSourceTypes(citationDetails.map((c) => c.source_domain_type)), brand_related_values: unique(citationDetails.map((c) => c.brand_related)), supports_claim_values: uniqueSupportsClaims(citationDetails.map((c) => c.supports_claim)), source_classification_note: notes.source_classification_note ?? base.source_classification_note, supports_claim_note: notes.supports_claim_note ?? base.supports_claim_note };
+function buildSpecificGapCandidate(context: Context): Candidate | null {
+  const evidenceCandidates = [
+    findSpecificGap(context, "case_study_evidence_gap", ["導入事例", "採用実績", "実績", "事例"], [...CASE_STUDY_CLUE_PHRASES])
+  ];
+  const match = evidenceCandidates.find((item): item is { type: CandidateType; observations: PromptObservation[]; matchedClues: MatchedClue[] } => Boolean(item));
+  if (!match) return null;
+
+  const evidence = buildEvidence(context, match.observations, context.mentions.filter((mention) => {
+    return match.observations.some((observation) => observation.conversation_id === mention.conversation_id);
+  }), [], {
+    primaryEvidenceScope: "case_study_prompt_responses",
+    citationsUsedAsPrimaryEvidence: false,
+    matchedClues: match.matchedClues,
+    evidenceStrengthNote: CASE_STUDY_EVIDENCE_STRENGTH_NOTE,
+    searchModes: unique(match.observations.map((observation) => observation.search_mode))
+  });
+
+  const labels: Record<CandidateType, { title: string; summary: string; nextAction: string }> = {
+    brand_visibility_gap: {
+      title: "",
+      summary: "",
+      nextAction: ""
+    },
+    citation_evidence_review: {
+      title: "",
+      summary: "",
+      nextAction: ""
+    },
+    comparison_content_gap: {
+      title: "比較・選定基準コンテンツを確認する余地があります",
+      summary: "比較系の回答で、自社の具体的根拠や選定基準が弱い可能性があります。",
+      nextAction: "競合比較、選定基準、向いている案件・不向きな条件を整理したページやFAQを確認してください。"
+    },
+    case_study_evidence_gap: {
+      title: "事例・実績情報の提示状況を確認する余地があります",
+      summary: "今回の観測では、実績情報の確認に追加調査が必要な回答がありました。",
+      nextAction: "導入事例、採用実績、ホテル・商業施設での利用例を確認し、引用しやすい形で整理されているか見直してください。"
+    },
+    implementation_information_gap: {
+      title: "施工条件・導入前確認情報を確認する余地があります",
+      summary: "施工条件や互換性に関する回答で、公式根拠や確認情報が弱い可能性があります。",
+      nextAction: "施工条件、下地、接着剤、既存改修での注意点をまとめた技術情報の有無を確認してください。"
+    },
+    source_seeking_gap: {
+      title: "根拠確認向け情報源を確認する余地があります",
+      summary: "情報源確認系の回答で、参照しやすい根拠ページや信頼できる情報源が十分に出ていない可能性があります。",
+      nextAction: "公式情報、FAQ、事例、施工条件資料がAI回答から参照しやすい形になっているか確認してください。"
+    }
+  };
+  const label = labels[match.type];
+
+  return candidate({
+    context,
+    type: match.type,
+    title: label.title,
+    priority: "P2",
+    confidence: "low",
+    summary: label.summary,
+    rationale: "事例・実績確認promptの回答excerptに、情報確認が必要であることを示す表現が含まれていました。事例ページ不足とは断定せず、人間レビューで実回答とサイト上の根拠を照合する候補として扱います。",
+    evidence,
+    expectedImpact: "比較・事例・施工条件の説明改善により、今後の観測で根拠付き表示を増やせる可能性",
+    effort: "中",
+    brands: [context.primaryBrand.name],
+    topics: evidence.topics,
+    saveReason: "回答excerptの兆候に基づく低確度候補のため、review_requiredに留めます。",
+    nextAction: label.nextAction
+  });
+}
+
+function findSpecificGap(context: Context, type: CandidateType, promptHints: string[], answerHints: string[]) {
+  const observations = context.observations.filter((observation) => {
+    const prompt = [observation.prompt_text, observation.topic].join(" ");
+    const promptMatched = promptHints.some((hint) => prompt.includes(hint));
+    const answerMatched = answerHints.some((hint) => observation.response_excerpt.includes(hint));
+    return promptMatched && answerMatched;
+  });
+  const matchedClues = observations.flatMap((observation) => {
+    return answerHints
+      .filter((hint) => observation.response_excerpt.includes(hint))
+      .map((hint) => ({
+        conversation_id: observation.conversation_id,
+        run_item_id: observation.run_item_id,
+        matched_text: hint,
+        response_excerpt: observation.response_excerpt,
+        search_mode: observation.search_mode
+      }));
+  });
+  return observations.length > 0 ? { type, observations, matchedClues } : null;
+}
+
+function candidate(input: {
+  context: Context;
+  type: CandidateType;
+  title: string;
+  priority: Priority;
+  confidence: Confidence;
+  summary: string;
+  rationale: string;
+  evidence: CandidateEvidence;
+  expectedImpact: string;
+  effort: string;
+  brands: string[];
+  topics: string[];
+  saveReason: string;
+  nextAction: string;
+}): Candidate {
+  return {
+    id: buildCandidateId(input.context.measurementRun.id, input.type),
+    title: input.title,
+    priority: input.priority,
+    type: input.type,
+    summary: input.summary,
+    rationale: input.rationale,
+    evidence: input.evidence,
+    expected_impact: input.expectedImpact,
+    effort: input.effort,
+    related_observation_ids: input.evidence.conversation_ids,
+    related_urls: input.evidence.citation_urls,
+    related_brands: unique(input.brands),
+    related_topics: unique(input.topics),
+    confidence: input.confidence,
+    should_save_to_recommendations: "review_required",
+    save_reason: input.saveReason,
+    caution: RECORA_METRIC_NOTICE,
+    suggested_next_action: input.nextAction
+  };
+}
+
+function buildCandidateId(measurementRunId: string, type: CandidateType) {
+  return `rec-${measurementRunId.slice(0, 8)}-${type.replace(/_/g, "-")}`;
+}
+
+function buildEvidence(
+  context: Context,
+  focusedObservations: PromptObservation[],
+  focusedMentions: MentionRow[],
+  focusedCitations: CitationEvidence[],
+  options: EvidenceBuildOptions
+): CandidateEvidence {
+  const citationDetails = focusedCitations;
+  const citationRows = options.citationRows ?? buildCitationRows(context, citationDetails);
+  const observationRows = buildObservationRows(focusedObservations);
+  const citationStatuses = options.citationsUsedAsPrimaryEvidence
+    ? unique(focusedObservations.map((observation) => observation.citation_status))
+    : [];
+  const citationUrls = unique(citationDetails.map((citation) => citation.url).filter((url): url is string => Boolean(url)));
+  const citationDomains = unique(citationDetails.map((citation) => citation.domain));
+  const matchedClues = options.matchedClues ?? [];
+
+  return {
+    measurement_run_id: context.measurementRun.id,
+    aggregate_run_id: context.aggregateRun?.id ?? null,
+    measurement_profile_id: context.measurementProfileId,
+    measurement_profile_label: context.measurementProfileLabel,
+    selected_prompt_ids: context.selectedPromptIds,
+    observation_count: context.openaiConversations.length,
+    prompt_count: context.selectedPromptIds.length,
+    search_modes: options.searchModes ?? unique(focusedObservations.map((observation) => observation.search_mode)),
+    conversation_ids: focusedObservations.map((observation) => observation.conversation_id),
+    run_item_ids: unique(focusedObservations.map((observation) => observation.run_item_id)),
+    prompt_texts: unique(focusedObservations.map((observation) => observation.prompt_text)),
+    topics: unique(focusedObservations.map((observation) => observation.topic)),
+    personas: unique(focusedObservations.map((observation) => observation.persona)),
+    response_excerpts: focusedObservations.map((observation) => observation.response_excerpt),
+    target_brand_present: context.observations.some((observation) => observation.target_brand_mentioned),
+    competitor_presence: buildCompetitorPresence(context.mentions, context.competitorBrands),
+    brand_mentions: buildBrandMentionEvidence(focusedMentions),
+    citation_urls: citationUrls,
+    citation_domains: citationDomains,
+    citation_statuses: citationStatuses,
+    supports_claim_values: uniqueSupportsClaims(citationDetails.map((citation) => citation.supports_claim)),
+    brand_related_values: unique(citationDetails.map((citation) => citation.brand_related)),
+    measured_at_values: unique(focusedObservations.map((observation) => observation.measured_at ?? "unknown")),
+    data_source: "openai_measurement",
+    evidence_label: "CONFIRMED_FACT",
+    sample_size_note: `${context.selectedPromptIds.length} prompts / ${context.openaiConversations.length} observations. 少数観測のため断定しすぎない。`,
+    recora_metric_notice: RECORA_METRIC_NOTICE,
+    focused_observation_count: focusedObservations.length,
+    all_conversation_ids: context.openaiConversations.map((conversation) => conversation.id),
+    citation_details: citationDetails,
+    source_domain_types: uniqueSourceTypes(citationDetails.map((citation) => citation.source_domain_type)),
+    source_classification_note: options.sourceClassificationNote ?? SOURCE_CLASSIFICATION_NOTE,
+    supports_claim_note: SUPPORTS_CLAIM_NOTE,
+    primary_evidence_scope: options.primaryEvidenceScope,
+    citations_used_as_primary_evidence: options.citationsUsedAsPrimaryEvidence,
+    citation_note: options.citationNote ?? null,
+    observation_rows: observationRows,
+    citation_rows: citationRows,
+    citation_count: citationDetails.length,
+    unique_url_count: citationUrls.length,
+    unique_domain_count: citationDomains.length,
+    supports_claim_unknown_count: citationDetails.filter((citation) => citation.supports_claim === "unknown").length,
+    matched_clues: matchedClues,
+    matched_clue_count: matchedClues.length,
+    case_study_observation_count: options.primaryEvidenceScope === "case_study_prompt_responses" ? focusedObservations.length : 0,
+    evidence_strength_note: options.evidenceStrengthNote ?? null,
+    db_write_status: "not_written"
+  };
+}
+
+function buildObservationRows(observations: PromptObservation[]): ObservationEvidenceRow[] {
+  return observations.map((observation) => ({
+    conversation_id: observation.conversation_id,
+    run_item_id: observation.run_item_id,
+    prompt_id: observation.prompt_id,
+    prompt_text: observation.prompt_text,
+    topic: observation.topic,
+    persona: observation.persona,
+    search_mode: observation.search_mode,
+    target_brand_present: observation.target_brand_mentioned,
+    target_brand_mention_count: observation.target_brand_mention_count,
+    response_excerpt: observation.response_excerpt,
+    measured_at: observation.measured_at
+  }));
+}
+
+function buildCitationRows(context: Context, citations: CitationEvidence[]): CitationEvidenceRow[] {
+  const observationByConversationId = new Map(context.observations.map((observation) => [observation.conversation_id, observation]));
+  return citations.map((citation) => {
+    const observation = observationByConversationId.get(citation.conversation_id);
+    return {
+      conversation_id: citation.conversation_id,
+      run_item_id: observation?.run_item_id ?? "",
+      prompt_id: observation?.prompt_id ?? "",
+      prompt_text: observation?.prompt_text ?? "",
+      url: citation.url,
+      domain: citation.domain,
+      title: citation.title,
+      supports_claim: citation.supports_claim,
+      brand_related: citation.brand_related,
+      cited_text: citation.cited_text,
+      measured_at: observation?.measured_at ?? null
+    };
+  });
+}
+
+function buildObservations(
+  conversations: ConversationRow[],
+  runItems: RunItemRow[],
+  mentions: MentionRow[],
+  primaryBrand: BrandRow
+): PromptObservation[] {
+  const runItemById = new Map(runItems.map((item) => [item.id, item]));
+  return conversations.map((conversation) => {
+    const runItem = runItemById.get(conversation.run_item_id);
+    const targetMention = mentions.find((mention) => {
+      return mention.conversation_id === conversation.id && (mention.brand_id === primaryBrand.id || mention.brand_name === primaryBrand.name);
+    });
+    const targetMentionCount = toNum(targetMention?.mention_count);
+    const targetMentioned = Boolean(targetMention && (parseBool(targetMention.mentioned) || targetMentionCount > 0));
+    return {
+      conversation_id: conversation.id,
+      run_item_id: conversation.run_item_id,
+      prompt_id: runItem?.prompt_id ?? "",
+      prompt_text: runItem?.prompt_text ?? conversation.prompt_text_snapshot,
+      topic: runItem?.topic_name ?? "未設定",
+      persona: runItem?.persona_name ?? "未設定",
+      search_mode: parseBool(conversation.web_search_enabled) ? "web-search" : "no-search",
+      response_excerpt: excerpt(conversation.raw_answer, 360),
+      target_brand_mentioned: targetMentioned || conversation.raw_answer.includes(primaryBrand.name),
+      target_brand_mention_count: targetMentionCount,
+      citation_status: conversation.citation_status ?? "unknown",
+      measured_at: conversation.measured_at
+    };
+  });
 }
 
 function buildCitationDetails(citations: CitationRow[], primary: BrandRow, competitors: BrandRow[]): CitationEvidence[] {
-  return citations.map((citation) => ({ url: citation.url, domain: normalizeDomain(citation.domain || citation.url), source_domain_type: classifySourceDomain(citation, primary, competitors), brand_related: citation.brand_related ?? "unknown", supports_claim: normalizeSupportsClaim(citation.supports_claim), cited_text: citation.cited_text }));
+  return citations.map((citation) => toCitationEvidence(citation, primary, competitors));
 }
 
-function getRelatedTopics(context: Context) {
-  const ids = new Set(context.openaiConversations.map((c) => c.topic_id).filter(Boolean));
-  const names = context.topics.filter((t) => ids.has(t.id)).map((t) => t.name);
-  return names.length > 0 ? unique(names) : ["AI検索上の発見性"];
+function toCitationEvidence(citation: CitationRow, primary: BrandRow, competitors: BrandRow[]): CitationEvidence {
+  return {
+    id: citation.id,
+    conversation_id: citation.conversation_id,
+    url: citation.url,
+    domain: citation.domain,
+    title: citation.title,
+    source_domain_type: classifySourceDomain(citation, primary, competitors),
+    brand_related: citation.brand_related ?? "unknown",
+    supports_claim: normalizeSupportsClaim(citation.supports_claim),
+    cited_text: citation.cited_text
+  };
 }
 
-async function writeOutputs(context: Context, candidates: Candidate[], before: CountSnapshot, after: CountSnapshot) {
-  await fs.mkdir(OUTPUT_DIR, { recursive: true });
-  const payload = {
+function buildBrandMentionEvidence(mentions: MentionRow[]): BrandMentionEvidence[] {
+  return mentions.map((mention) => ({
+    conversation_id: mention.conversation_id,
+    brand: mention.brand_name,
+    brand_type: mention.brand_type,
+    mentioned: parseBool(mention.mentioned),
+    mention_count: toNum(mention.mention_count),
+    recommendation_status: mention.recommendation_status,
+    evidence_snippet: mention.evidence_snippet
+  }));
+}
+
+function buildCompetitorPresence(mentions: MentionRow[], competitors: BrandRow[]) {
+  return competitors.map((brand) => {
+    const rows = mentions.filter((mention) => mention.brand_id === brand.id || mention.brand_name === brand.name);
+    const mentionCount = rows.reduce((sum, mention) => sum + toNum(mention.mention_count), 0);
+    return {
+      brand: brand.name,
+      mentioned: rows.some((mention) => parseBool(mention.mentioned) || toNum(mention.mention_count) > 0),
+      mention_count: mentionCount
+    };
+  });
+}
+
+async function writeOutputs(context: Context, candidates: Candidate[], before: CountSnapshot, after: CountSnapshot): Promise<CandidatesPayload> {
+  const outputJson = path.join(context.options.outputDir, "recommendation-candidates.json");
+  const outputMd = path.join(context.options.outputDir, "recommendation-candidates.md");
+  const runOutputDir = path.join(context.options.outputDir, context.measurementRun.id);
+  const runOutputJson = path.join(runOutputDir, "recommendation-candidates.json");
+  const runOutputMd = path.join(runOutputDir, "recommendation-candidates.md");
+  const failedRunItems = context.runItems.filter((item) => item.status === "failed").length;
+  const payload: CandidatesPayload = {
     generated_at: new Date().toISOString(),
     project_slug: context.project.slug,
     project_name: context.project.name,
-    note: "今回の出力はRecora独自の観測にもとづく改善提案候補です。AIプラットフォーム公式評価ではありません。",
-    data_scope: {
-      seed_conversation_count: context.seedConversations.length,
-      openai_conversation_count: context.openaiConversations.length,
-      openai_web_search_conversation_count: context.openaiConversations.filter((c) => parseBool(c.web_search_enabled)).length,
-      openai_citation_count: context.openaiCitations.length,
-      web_search_citation_count: context.webSearchCitations.length
+    measurement_run_id: context.measurementRun.id,
+    aggregate_run_id: context.aggregateRun?.id ?? null,
+    measurement_profile_id: context.measurementProfileId,
+    source_run_status: context.measurementRun.status,
+    observation_count: context.openaiConversations.length,
+    prompt_count: context.selectedPromptIds.length,
+    candidate_count: candidates.length,
+    candidates,
+    db_write_status: "not_written",
+    recora_metric_notice: RECORA_METRIC_NOTICE,
+    db_write_check: {
+      before,
+      after,
+      unchanged: sameCounts(before, after),
+      recommendations_before: before.recommendations ?? 0,
+      recommendations_after: after.recommendations ?? 0
     },
-    db_write_check: { before, after, unchanged: sameCounts(before, after) },
-    candidates
+    data_scope: {
+      run_items: context.runItems.length,
+      openai_conversations: context.openaiConversations.length,
+      brand_mentions: context.mentions.length,
+      citations: context.filteredCitations.length,
+      excluded_example_citations: context.excludedExampleCitationCount,
+      failed_run_items: failedRunItems
+    },
+    output: {
+      json: outputJson,
+      markdown: outputMd,
+      run_json: runOutputJson,
+      run_markdown: runOutputMd
+    }
   };
-  await fs.writeFile(OUTPUT_JSON, JSON.stringify(payload, null, 2) + "\n", "utf8");
-  await fs.writeFile(OUTPUT_MD, renderMarkdown(payload), "utf8");
+
+  await fs.mkdir(context.options.outputDir, { recursive: true });
+  await fs.mkdir(runOutputDir, { recursive: true });
+  const jsonText = JSON.stringify(payload, null, 2) + "\n";
+  const markdownText = renderMarkdown(payload);
+  await Promise.all([
+    fs.writeFile(outputJson, jsonText, "utf8"),
+    fs.writeFile(outputMd, markdownText, "utf8"),
+    fs.writeFile(runOutputJson, jsonText, "utf8"),
+    fs.writeFile(runOutputMd, markdownText, "utf8")
+  ]);
+  return payload;
 }
 
-function renderMarkdown(payload: { generated_at: string; project_slug: string; project_name: string; note: string; data_scope: Record<string, number>; db_write_check: { before: CountSnapshot; after: CountSnapshot; unchanged: boolean }; candidates: Candidate[] }) {
-  const existingRecommendationsCount = payload.db_write_check.before.recommendations ?? 0;
-  const lines = ["# Recora 改善提案候補", "", `- 生成日時: ${payload.generated_at}`, `- プロジェクト: ${payload.project_name} (${payload.project_slug})`, `- メモ: ${payload.note}`, `- 観測範囲: OpenAI実測${payload.data_scope.openai_conversation_count ?? 0}件、うちweb-searchあり${payload.data_scope.openai_web_search_conversation_count ?? 0}件`, `- 既存recommendations件数: ${existingRecommendationsCount}件（seed/既存データ。今回の生成では保存していません）`, "- 現時点で recommendations テーブルへ保存してよい候補: 0件", "- 今回生成した候補: すべて保存前レビュー対象", "- 実保存には追加観測または人間確認が必要", `- DB書き込み: ${payload.db_write_check.unchanged ? "なし（件数変化なし）" : "要確認（件数に変化あり）"}`, `- 注意: AIプラットフォーム公式評価ではなくRecora独自観測です`, "", "## 対象データ", ""];
-  for (const [key, value] of Object.entries(payload.data_scope)) lines.push(`- ${key}: ${value}`);
-  lines.push("", "## 候補一覧", "");
-  for (const c of payload.candidates) {
-    lines.push(`### ${c.title}`, "", `- ID: ${c.id}`, `- 優先度: ${c.priority}`, `- confidence: ${c.confidence}`, `- 保存判定: ${c.should_save_to_recommendations}`, `- 要約: ${c.summary}`, `- 根拠: ${c.rationale}`, `- 観測範囲: ${c.evidence.observation_scope}`, `- データソース: ${c.evidence.data_source}`, `- DB書き込み状態: ${c.evidence.db_write_status}`, `- 既存recommendations件数: ${c.evidence.existing_recommendations_count}`, `- 自社公式ドメイン定義あり: ${c.evidence.target_domain_known}`, `- 自社ドメイン引用一致数: ${c.evidence.owned_domain_match_count}`, `- source_domain_types: ${c.evidence.source_domain_types.length ? c.evidence.source_domain_types.join(", ") : "なし"}`, `- source_classification_note: ${c.evidence.source_classification_note}`, `- supports_claim_values: ${c.evidence.supports_claim_values.length ? c.evidence.supports_claim_values.join(", ") : "なし"}`, `- supports_claim_note: ${c.evidence.supports_claim_note}`, `- 引用ドメイン: ${c.evidence.cited_domains.length ? c.evidence.cited_domains.join(", ") : "なし"}`, `- 引用URL: ${c.related_urls.length ? c.related_urls.join(", ") : "なし"}`, `- 保存理由: ${c.save_reason}`, `- 注意書き: ${c.caution}`, `- 次の推奨アクション: ${c.suggested_next_action}`, "");
+function renderMarkdown(payload: CandidatesPayload) {
+  const lines = [
+    "# Recora 改善提案候補",
+    "",
+    `- 生成日時: ${payload.generated_at}`,
+    `- プロジェクト: ${payload.project_name} (${payload.project_slug})`,
+    `- 対象measurement run: \`${payload.measurement_run_id}\``,
+    `- 対象aggregate run: ${payload.aggregate_run_id ? "`" + payload.aggregate_run_id + "`" : "-"}`,
+    `- profile: \`${payload.measurement_profile_id}\``,
+    `- 観測範囲: ${payload.prompt_count} prompts / ${payload.observation_count} observations`,
+    `- 候補数: ${payload.candidate_count}`,
+    `- 保存判定: review_required`,
+    `- DB書き込み: ${payload.db_write_status}`,
+    `- recommendations件数: ${payload.db_write_check.recommendations_before} -> ${payload.db_write_check.recommendations_after}`,
+    `- 注意: ${payload.recora_metric_notice}`,
+    "",
+    "## 対象データ",
+    "",
+    `- run_items: ${payload.data_scope.run_items}`,
+    `- OpenAI実測回答: ${payload.data_scope.openai_conversations}`,
+    `- brand_mentions: ${payload.data_scope.brand_mentions}`,
+    `- citations: ${payload.data_scope.citations}`,
+    `- .example除外citations: ${payload.data_scope.excluded_example_citations}`,
+    `- failed_run_items: ${payload.data_scope.failed_run_items}`,
+    "",
+    "## 候補一覧",
+    ""
+  ];
+
+  if (payload.candidates.length === 0) {
+    lines.push("今回の観測範囲では、保存前レビューに進める改善提案候補は生成しませんでした。", "");
   }
+
+  for (const candidateItem of payload.candidates) {
+    lines.push(
+      `### ${candidateItem.title}`,
+      "",
+      `- ID: \`${candidateItem.id}\``,
+      `- type: \`${candidateItem.type}\``,
+      `- priority: ${candidateItem.priority}`,
+      `- confidence: ${candidateItem.confidence}`,
+      `- 保存判定: ${candidateItem.should_save_to_recommendations}`,
+      `- 要約: ${candidateItem.summary}`,
+      `- 根拠: ${candidateItem.rationale}`,
+      `- 主証拠の範囲: \`${candidateItem.evidence.primary_evidence_scope}\``,
+      `- evidence要約: ${candidateItem.evidence.focused_observation_count} observations / ${candidateItem.evidence.citation_rows.length} citation_rows / ${candidateItem.evidence.matched_clues.length} matched_clues`,
+      `- 引用URLを主証拠に使用: ${candidateItem.evidence.citations_used_as_primary_evidence}`,
+      `- citation note: ${candidateItem.evidence.citation_note ?? "-"}`,
+      `- 対象prompt: ${candidateItem.evidence.prompt_texts.length ? candidateItem.evidence.prompt_texts.join(" / ") : "-"}`,
+      `- search modes: ${candidateItem.evidence.search_modes.length ? candidateItem.evidence.search_modes.join(", ") : "-"}`,
+      `- observation_rows: ${candidateItem.evidence.observation_rows.length}`,
+      `- citation_rows: ${candidateItem.evidence.citation_rows.length}`,
+      `- matched_clues: ${candidateItem.evidence.matched_clue_count}`,
+      `- citation集計: ${candidateItem.evidence.citation_count} citations / ${candidateItem.evidence.unique_url_count} unique URLs / ${candidateItem.evidence.unique_domain_count} domains / ${candidateItem.evidence.supports_claim_unknown_count} supports_claim unknown`,
+      `- supports_claim: ${candidateItem.evidence.supports_claim_values.length ? candidateItem.evidence.supports_claim_values.join(", ") : "-"}`,
+      `- evidence strength note: ${candidateItem.evidence.evidence_strength_note ?? "-"}`,
+      `- 注意書き: ${candidateItem.caution}`,
+      `- 推奨する人間レビュー項目: ${candidateItem.suggested_next_action}`,
+      ""
+    );
+    appendObservationRowSummary(lines, candidateItem.evidence.observation_rows);
+    appendCitationRowSummary(lines, candidateItem.evidence.citation_rows);
+    appendMatchedClueSummary(lines, candidateItem.evidence.matched_clues);
+  }
+
   return lines.join("\n") + "\n";
 }
-async function getProject(db: LocalPostgresClient) {
-  const rows = await db.query<ProjectRow>("select id::text as id, slug, name from public.projects where slug = " + lit(PROJECT_SLUG) + " limit 1");
-  if (!rows[0]) throw new Error("Project not found: " + PROJECT_SLUG);
+
+function appendObservationRowSummary(lines: string[], rows: ObservationEvidenceRow[]) {
+  if (rows.length === 0) return;
+  lines.push("  - observation_rows summary:");
+  for (const row of rows.slice(0, 5)) {
+    lines.push(
+      `    - ${row.search_mode} / ${row.topic} / ${row.persona} / target_brand_present=${row.target_brand_present} / conversation=${row.conversation_id}`
+    );
+  }
+  if (rows.length > 5) lines.push(`    - ...他${rows.length - 5}件`);
+  lines.push("");
+}
+
+function appendCitationRowSummary(lines: string[], rows: CitationEvidenceRow[]) {
+  if (rows.length === 0) return;
+  lines.push("  - citation_rows summary:");
+  for (const row of rows.slice(0, 8)) {
+    lines.push(
+      `    - ${row.domain} / supports_claim=${row.supports_claim} / brand_related=${row.brand_related} / conversation=${row.conversation_id}`
+    );
+  }
+  if (rows.length > 8) lines.push(`    - ...他${rows.length - 8}件`);
+  lines.push("");
+}
+
+function appendMatchedClueSummary(lines: string[], rows: MatchedClue[]) {
+  if (rows.length === 0) return;
+  lines.push("  - matched_clues summary:");
+  for (const row of rows) {
+    lines.push(`    - ${row.search_mode} / ${row.matched_text} / conversation=${row.conversation_id}`);
+  }
+  lines.push("");
+}
+
+async function getProject(db: LocalPostgresClient, slug: string): Promise<ProjectRow> {
+  const rows = await db.query<ProjectRow>(`
+    select id::text as id, slug, name
+    from public.projects
+    where slug = ${lit(slug)}
+    limit 1
+  `);
+  if (!rows[0]) throw new Error(`Project not found: ${slug}`);
   return rows[0];
 }
+
+async function getMeasurementRunById(db: LocalPostgresClient, projectId: string, runId: string): Promise<MeasurementRunRow> {
+  const rows = await db.query<MeasurementRunRow>(`
+    select id::text as id, project_id::text as project_id, status::text as status,
+      started_at::text as started_at, completed_at::text as completed_at,
+      metadata::text as metadata, created_at::text as created_at
+    from public.measurement_runs
+    where project_id = ${uuid(projectId)}
+      and id = ${uuid(runId)}
+    limit 1
+  `);
+  if (!rows[0]) throw new Error(`Measurement run not found: ${runId}`);
+  return rows[0];
+}
+
+async function getLatestMeasurementRunByProfile(db: LocalPostgresClient, projectId: string, profileId: string): Promise<MeasurementRunRow> {
+  const rows = await db.query<MeasurementRunRow>(`
+    select id::text as id, project_id::text as project_id, status::text as status,
+      started_at::text as started_at, completed_at::text as completed_at,
+      metadata::text as metadata, created_at::text as created_at
+    from public.measurement_runs
+    where project_id = ${uuid(projectId)}
+      and status = 'completed'
+      and id <> ${uuid(SEED_MEASUREMENT_RUN_ID)}
+      and metadata->>'measurement_profile_id' = ${lit(profileId)}
+      and metadata->>'data_source' = 'openai_measurement'
+      and coalesce(metadata->>'run_kind', 'measurement') <> 'aggregate'
+    order by completed_at desc nulls last, created_at desc
+    limit 1
+  `);
+  if (!rows[0]) throw new Error(`Completed measurement run was not found for profile: ${profileId}`);
+  return rows[0];
+}
+
+async function getAggregateRunById(
+  db: LocalPostgresClient,
+  projectId: string,
+  aggregateRunId: string,
+  sourceRunId: string
+): Promise<MeasurementRunRow> {
+  const run = await getMeasurementRunById(db, projectId, aggregateRunId);
+  const metadata = parseMetadata(run.metadata);
+  if (run.status !== "completed") throw new Error(`Aggregate run is not completed: ${run.status}`);
+  if (readMetadataString(metadata, "run_kind") !== "aggregate") throw new Error("Provided aggregate run is not an aggregate run.");
+  if (readMetadataString(metadata, "data_source") !== "openai_measurement") throw new Error("Provided aggregate run is not openai_measurement.");
+  if (readMetadataString(metadata, "source_run_id") !== sourceRunId) {
+    throw new Error("Provided aggregate run source_run_id does not match the selected measurement run.");
+  }
+  return run;
+}
+
+async function getLatestAggregateRunForMeasurement(
+  db: LocalPostgresClient,
+  projectId: string,
+  sourceRunId: string
+): Promise<MeasurementRunRow | null> {
+  const rows = await db.query<MeasurementRunRow>(`
+    select id::text as id, project_id::text as project_id, status::text as status,
+      started_at::text as started_at, completed_at::text as completed_at,
+      metadata::text as metadata, created_at::text as created_at
+    from public.measurement_runs
+    where project_id = ${uuid(projectId)}
+      and status = 'completed'
+      and metadata->>'run_kind' = 'aggregate'
+      and metadata->>'data_source' = 'openai_measurement'
+      and metadata->>'source_run_id' = ${lit(sourceRunId)}
+    order by completed_at desc nulls last, created_at desc
+    limit 1
+  `);
+  return rows[0] ?? null;
+}
+
 async function getBrands(db: LocalPostgresClient, projectId: string) {
-  return db.query<BrandRow>("select id::text as id, name, brand_type, domain from public.brands where project_id = " + uuid(projectId) + " order by brand_type asc, name asc");
+  return db.query<BrandRow>(`
+    select id::text as id, name, brand_type::text as brand_type, domain
+    from public.brands
+    where project_id = ${uuid(projectId)}
+      and is_active = true
+    order by brand_type asc, name asc
+  `);
 }
-async function getTopics(db: LocalPostgresClient, projectId: string) {
-  return db.query<TopicRow>("select id::text as id, name, intent from public.topics where project_id = " + uuid(projectId) + " order by created_at asc");
+
+async function getRunItems(db: LocalPostgresClient, runId: string) {
+  return db.query<RunItemRow>(`
+    select ri.id::text as id, ri.prompt_id::text as prompt_id, ri.persona_id::text as persona_id,
+      ri.status::text as status, ri.error_message,
+      p.text as prompt_text, p.intent as prompt_intent, p.buyer_stage,
+      t.id::text as topic_id, t.name as topic_name,
+      ps.name as persona_name
+    from public.run_items ri
+    left join public.prompts p on p.id = ri.prompt_id
+    left join public.topics t on t.id = p.topic_id
+    left join public.personas ps on ps.id = ri.persona_id
+    where ri.run_id = ${uuid(runId)}
+    order by ri.created_at asc
+  `);
 }
-async function getConversations(db: LocalPostgresClient, projectId: string) {
-  return db.query<ConversationRow>("select c.id::text as id, c.run_item_id::text as run_item_id, ri.run_id::text as run_id, ri.prompt_id::text as prompt_id, p.topic_id::text as topic_id, t.name as topic_name, p.text as prompt_text, c.prompt_text_snapshot, c.raw_answer, c.provider, c.response_id, c.web_search_enabled::text as web_search_enabled, c.citation_status::text as citation_status, c.measured_at::text as measured_at, c.model_returned from public.ai_conversations c join public.run_items ri on ri.id = c.run_item_id join public.measurement_runs mr on mr.id = ri.run_id left join public.prompts p on p.id = ri.prompt_id left join public.topics t on t.id = p.topic_id where mr.project_id = " + uuid(projectId) + " order by c.created_at asc");
+
+async function getConversations(db: LocalPostgresClient, runId: string) {
+  return db.query<ConversationRow>(`
+    select c.id::text as id, c.run_item_id::text as run_item_id, c.raw_answer,
+      c.prompt_text_snapshot, c.provider, c.response_id,
+      c.web_search_enabled::text as web_search_enabled,
+      c.citation_status::text as citation_status,
+      c.measured_at::text as measured_at,
+      c.model_returned
+    from public.ai_conversations c
+    join public.run_items ri on ri.id = c.run_item_id
+    where ri.run_id = ${uuid(runId)}
+    order by c.created_at asc
+  `);
 }
+
 async function getMentions(db: LocalPostgresClient, conversationIds: string[]) {
   if (conversationIds.length === 0) return [];
-  return db.query<MentionRow>("select bm.conversation_id::text as conversation_id, bm.brand_id::text as brand_id, b.name as brand_name, b.brand_type, bm.mentioned::text as mentioned, bm.mention_count::text as mention_count, coalesce(bm.evidence_snippet, bm.mention_text) as evidence_snippet from public.brand_mentions bm join public.brands b on b.id = bm.brand_id where bm.conversation_id in (" + uuidList(conversationIds) + ") order by b.brand_type asc, b.name asc");
+  return db.query<MentionRow>(`
+    select bm.conversation_id::text as conversation_id,
+      bm.brand_id::text as brand_id,
+      b.name as brand_name,
+      b.brand_type::text as brand_type,
+      bm.mentioned::text as mentioned,
+      bm.mention_count::text as mention_count,
+      bm.recommendation_status::text as recommendation_status,
+      coalesce(bm.evidence_snippet, bm.mention_text) as evidence_snippet
+    from public.brand_mentions bm
+    join public.brands b on b.id = bm.brand_id
+    where bm.conversation_id in (${uuidList(conversationIds)})
+    order by bm.conversation_id asc, b.brand_type asc, b.name asc
+  `);
 }
+
 async function getCitations(db: LocalPostgresClient, conversationIds: string[]) {
   if (conversationIds.length === 0) return [];
-  return db.query<CitationRow>("select c.id::text as id, c.conversation_id::text as conversation_id, c.url, c.domain, c.source_type::text as source_type, sd.source_type::text as source_domain_type, c.supports_claim::text as supports_claim, c.brand_related::text as brand_related, c.cited_text from public.citations c left join public.source_domains sd on sd.id = c.source_domain_id where c.conversation_id in (" + uuidList(conversationIds) + ") order by c.created_at asc");
+  return db.query<CitationRow>(`
+    select c.id::text as id,
+      c.conversation_id::text as conversation_id,
+      c.url,
+      c.domain,
+      c.title,
+      c.source_type::text as source_type,
+      sd.source_type::text as source_domain_type,
+      c.supports_claim::text as supports_claim,
+      c.brand_related::text as brand_related,
+      c.cited_text
+    from public.citations c
+    left join public.source_domains sd on sd.id = c.source_domain_id
+    where c.conversation_id in (${uuidList(conversationIds)})
+    order by c.created_at asc
+  `);
 }
+
 async function getCounts(db: LocalPostgresClient) {
   const result: CountSnapshot = {};
   for (const table of TABLES) {
-    const rows = await db.query<{ count: string }>("select count(*)::text as count from public." + table);
+    const rows = await db.query<{ count: string }>(`select count(*)::text as count from public.${table}`);
     result[table] = Number(rows[0]?.count ?? 0);
   }
   return result;
 }
-function isOpenAiObservation(c: ConversationRow) {
-  if (c.provider === "openai") return true;
-  if (c.response_id) return true;
-  const hasMetadata = Boolean(c.measured_at || c.model_returned || (c.citation_status && c.citation_status !== "unknown"));
-  return hasMetadata && (c.web_search_enabled === "true" || c.web_search_enabled === "false");
+
+function isOpenAiObservation(conversation: ConversationRow) {
+  return conversation.provider === "openai" || Boolean(conversation.response_id);
 }
+
+function isDisplayableCitation(citation: CitationRow) {
+  return !isExampleDomain(citation.domain) && !isExampleDomain(citation.url);
+}
+
+function isExampleDomain(value: string | null | undefined) {
+  const hostname = getHostname(value);
+  return Boolean(hostname && (hostname === "example" || hostname.endsWith(".example")));
+}
+
+function getHostname(value: string | null | undefined) {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  try {
+    return new URL(normalized.includes("://") ? normalized : `https://${normalized}`).hostname;
+  } catch {
+    return normalized.split("/")[0]?.split(":")[0] ?? null;
+  }
+}
+
+function parseMetadata(value: string | null): Record<string, JsonValue | undefined> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as JsonValue;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, JsonValue | undefined>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function readMetadataString(metadata: Record<string, JsonValue | undefined>, key: string) {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function readMetadataStringArray(metadata: Record<string, JsonValue | undefined>, key: string, fallback: string[]) {
+  const value = metadata[key];
+  if (!Array.isArray(value)) return fallback;
+  const values = value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()));
+  return values.length > 0 ? values : fallback;
+}
+
+function getMeasurementProfileLabel(profileId: string, metadataLabel: string | null) {
+  if (profileId === "standard-v01") return "標準測定";
+  if (profileId === "small-v01") return "小規模測定";
+  return metadataLabel ?? profileId;
+}
+
+function classifySourceDomain(citation: CitationRow, primary: BrandRow, competitors: BrandRow[]): SourceDomainType {
+  const existing = parseSourceDomainType(citation.source_domain_type ?? citation.source_type);
+  if (existing && existing !== "unknown") return existing;
+  const domain = normalizeDomain(citation.domain || citation.url || "");
+  const primaryDomain = primary.domain ? normalizeDomain(primary.domain) : "";
+  if (primaryDomain && !isExampleDomain(primaryDomain) && domainMatches(domain, primaryDomain)) return "owned";
+  const competitorDomains = competitors
+    .map((brand) => brand.domain)
+    .filter((value): value is string => Boolean(value))
+    .map(normalizeDomain)
+    .filter((value) => !isExampleDomain(value));
+  if (competitorDomains.some((competitorDomain) => domainMatches(domain, competitorDomain))) return "competitor";
+  const ecHints = ["amazon.", "rakuten.co.jp", "shopping.yahoo.co.jp", "monotaro.com", "askul.co.jp"];
+  if (ecHints.some((hint) => domain.includes(hint))) return "ec";
+  const mediaHints = ["dezeen", "archdaily", "magazine", "journal", "news", "blog", "media"];
+  if (mediaHints.some((hint) => domain.includes(hint))) return "media";
+  const foreignBrandHints = ["bisazza", "porcelanosa", "mutina", "marazzi", "florim", "fiandre"];
+  if (foreignBrandHints.some((hint) => domain.includes(hint))) return "foreign_brand";
+  const manufacturerHints = ["lixil", "sangetsu", "aica", "tile", "tiles", "ceramic", "porcelain", "stone", "kenzai"];
+  if (manufacturerHints.some((hint) => domain.includes(hint))) return "manufacturer";
+  return "unknown";
+}
+
+function parseSourceDomainType(value: string | null | undefined): SourceDomainType | null {
+  if (
+    value === "owned" ||
+    value === "competitor" ||
+    value === "media" ||
+    value === "review" ||
+    value === "technical" ||
+    value === "unknown"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeSupportsClaim(value: string | null | undefined): NormalizedSupportsClaim {
+  if (value === "true") return "true";
+  if (value === "false") return "false";
+  return "unknown";
+}
+
 async function loadEnvLocal() {
   try {
     const envText = await fs.readFile(path.join(process.cwd(), ".env.local"), "utf8");
     for (const line of envText.split(/\r?\n/)) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
-      const i = trimmed.indexOf("=");
-      if (i <= 0) continue;
-      const key = trimmed.slice(0, i).trim();
-      const value = trimmed.slice(i + 1).trim().replace(/^[ '\"]|[ '\"]$/g, "");
+      const separatorIndex = trimmed.indexOf("=");
+      if (separatorIndex <= 0) continue;
+      const key = trimmed.slice(0, separatorIndex).trim();
+      const value = trimmed.slice(separatorIndex + 1).trim().replace(/^[ '"]|[ '"]$/g, "");
       if (!process.env[key]) process.env[key] = value;
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 }
-function countBy<T>(items: T[], getKey: (item: T) => string) {
-  return items.reduce<Record<string, number>>((acc, item) => {
-    const key = getKey(item);
-    acc[key] = (acc[key] ?? 0) + 1;
-    return acc;
-  }, {});
+
+function uniqueSourceTypes(values: SourceDomainType[]) {
+  return Array.from(new Set(values));
 }
-function classifySourceDomain(citation: CitationRow, primary: BrandRow, competitors: BrandRow[]): SourceDomainType {
-  const existing = parseSourceDomainType(citation.source_domain_type ?? citation.source_type);
-  if (existing && existing !== "unknown") return existing;
-  const domain = normalizeDomain(citation.domain || citation.url);
-  const primaryDomain = primary.domain ? normalizeDomain(primary.domain) : "";
-  if (primaryDomain && domainMatches(domain, primaryDomain)) return "owned";
-  const competitorDomains = competitors.map((brand) => brand.domain).filter((value): value is string => Boolean(value)).map(normalizeDomain);
-  if (competitorDomains.some((competitorDomain) => domainMatches(domain, competitorDomain))) return "competitor";
-  const ecHints = ["amazon.", "rakuten.co.jp", "shopping.yahoo.co.jp", "store.shopping.yahoo.co.jp", "lohaco.jp", "monotaro.com", "askul.co.jp"];
-  if (ecHints.some((hint) => domain.includes(hint))) return "ec";
-  const mediaHints = ["floorinsite", "dezeen", "archdaily", "magazine", "journal", "news", "blog"];
-  if (mediaHints.some((hint) => domain.includes(hint))) return "media";
-  const foreignBrandHints = ["lithosdesign", "taipingcarpets", "cole-and-son", "rafaelinteriors", "idoitalia", "bisazza", "porcelanosa", "mutina", "marazzi", "florim", "fiandre"];
-  if (foreignBrandHints.some((hint) => domain.includes(hint))) return "foreign_brand";
-  const manufacturerHints = ["lixil", "sangetsu", "aica", "tile", "tiles", "ceramic", "porcelain", "stone", "kenzai"];
-  if (manufacturerHints.some((hint) => domain.includes(hint))) return "manufacturer";
-  return "unknown";
+
+function uniqueSupportsClaims(values: NormalizedSupportsClaim[]) {
+  return Array.from(new Set(values));
 }
-function parseSourceDomainType(value: string | null | undefined): SourceDomainType | null {
-  if (value === "owned" || value === "competitor" || value === "ec" || value === "manufacturer" || value === "media" || value === "foreign_brand" || value === "unknown") return value;
-  return null;
+
+function sameCounts(a: CountSnapshot, b: CountSnapshot) {
+  return TABLES.every((table) => a[table] === b[table]);
 }
-function normalizeSupportsClaim(value: string | null | undefined): NormalizedSupportsClaim {
-  if (value === "true") return "true";
-  if (value === "false") return "false";
-  return "unknown";
+
+function unique(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
 }
-function uniqueSourceTypes(values: SourceDomainType[]) { return Array.from(new Set(values)); }
-function uniqueSupportsClaims(values: NormalizedSupportsClaim[]) { return Array.from(new Set(values)); }
-function sameCounts(a: CountSnapshot, b: CountSnapshot) { return TABLES.every((table) => a[table] === b[table]); }
-function unique(values: Array<string | null | undefined>) { return Array.from(new Set(values.filter((v): v is string => Boolean(v)))); }
-function excerpt(value: string, length: number) { return value.replace(/\s+/g, " ").trim().slice(0, length); }
-function parseBool(value: string | null | undefined) { return value === "true"; }
-function toNum(value: string | null | undefined) { const n = Number(value ?? 0); return Number.isFinite(n) ? n : 0; }
-function normalizeDomain(value: string) { return value.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase(); }
-function domainMatches(domain: string, target: string) { return domain === target || domain.endsWith("." + target); }
-function lit(value: string) { return "'" + value.replace(/'/g, "''") + "'"; }
-function uuid(value: string) { return lit(value) + "::uuid"; }
-function uuidList(values: string[]) { return values.map(uuid).join(", "); }
+
+function excerpt(value: string, length: number) {
+  return value.replace(/\s+/g, " ").trim().slice(0, length);
+}
+
+function parseBool(value: string | null | undefined) {
+  return value === "true";
+}
+
+function toNum(value: string | null | undefined) {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function normalizeDomain(value: string) {
+  return value.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase();
+}
+
+function domainMatches(domain: string, target: string) {
+  return domain === target || domain.endsWith("." + target);
+}
+
+function lit(value: string) {
+  return "'" + value.replace(/'/g, "''") + "'";
+}
+
+function uuid(value: string) {
+  return `${lit(value)}::uuid`;
+}
+
+function uuidList(values: string[]) {
+  return values.map(uuid).join(", ");
+}
+
 class LocalPostgresClient {
   private socket: net.Socket | null = null;
   private buffer = Buffer.alloc(0);
   private waiters: Array<() => void> = [];
   private readonly url: URL;
-  constructor(databaseUrl: string) { this.url = new URL(databaseUrl); }
+
+  constructor(databaseUrl: string) {
+    this.url = new URL(databaseUrl);
+  }
+
   async connect() {
     const socket = net.createConnection({ host: this.url.hostname, port: Number(this.url.port || 5432) });
     this.socket = socket;
-    socket.on("data", (chunk) => { this.buffer = Buffer.concat([this.buffer, chunk]); for (const waiter of this.waiters.splice(0)) waiter(); });
-    await new Promise<void>((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
+    socket.on("data", (chunk) => {
+      this.buffer = Buffer.concat([this.buffer, chunk]);
+      for (const waiter of this.waiters.splice(0)) waiter();
+    });
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
     this.sendStartup();
     await this.authenticate();
   }
-  end() { if (!this.socket || this.socket.destroyed) return; this.sendMessage("X", Buffer.alloc(0)); this.socket.end(); }
+
+  end() {
+    if (!this.socket || this.socket.destroyed) return;
+    this.sendMessage("X", Buffer.alloc(0));
+    this.socket.end();
+  }
+
   async query<T extends Row = Row>(queryText: string): Promise<T[]> {
     this.sendMessage("Q", Buffer.from(queryText + "\0", "utf8"));
     const fields: string[] = [];
@@ -298,27 +1484,42 @@ class LocalPostgresClient {
       else if (message.type === "Z") return rows;
     }
   }
+
   private sendStartup() {
-    const params = Buffer.from("user\0" + this.user + "\0database\0" + this.database + "\0client_encoding\0UTF8\0\0", "utf8");
+    const params = Buffer.from(
+      "user\0" + this.user + "\0database\0" + this.database + "\0client_encoding\0UTF8\0\0",
+      "utf8"
+    );
     const protocol = Buffer.alloc(4);
     protocol.writeInt32BE(196608, 0);
     this.sendRaw(Buffer.concat([int32(8 + params.length), protocol, params]));
   }
+
   private async authenticate() {
     while (true) {
       const message = await this.readMessage();
       if (message.type === "R") {
         const code = message.payload.readInt32BE(0);
         if (code === 0 || code === 11 || code === 12) continue;
-        if (code === 3) { this.sendPassword(this.password); continue; }
-        if (code === 5) { this.sendPassword(buildMd5Password(this.user, this.password, message.payload.subarray(4, 8))); continue; }
-        if (code === 10) { await this.handleScram(message.payload.subarray(4)); continue; }
+        if (code === 3) {
+          this.sendPassword(this.password);
+          continue;
+        }
+        if (code === 5) {
+          this.sendPassword(buildMd5Password(this.user, this.password, message.payload.subarray(4, 8)));
+          continue;
+        }
+        if (code === 10) {
+          await this.handleScram(message.payload.subarray(4));
+          continue;
+        }
         throw new Error("Unsupported PostgreSQL authentication request: " + code);
       }
       if (message.type === "E") throw new Error(parseErrorResponse(message.payload));
       if (message.type === "Z") return;
     }
   }
+
   private async handleScram(payload: Buffer) {
     const mechanisms = payload.toString("utf8").split("\0").filter(Boolean);
     if (!mechanisms.includes("SCRAM-SHA-256")) throw new Error("Unsupported SASL mechanisms: " + mechanisms.join(", "));
@@ -327,13 +1528,17 @@ class LocalPostgresClient {
     this.sendSaslInitial("SCRAM-SHA-256", "n,," + clientFirstBare);
     const serverFirstMessage = await this.readMessage();
     if (serverFirstMessage.type === "E") throw new Error(parseErrorResponse(serverFirstMessage.payload));
-    if (serverFirstMessage.type !== "R" || serverFirstMessage.payload.readInt32BE(0) !== 11) throw new Error("Unexpected PostgreSQL SASL first response.");
+    if (serverFirstMessage.type !== "R" || serverFirstMessage.payload.readInt32BE(0) !== 11) {
+      throw new Error("Unexpected PostgreSQL SASL first response.");
+    }
     const serverFirst = serverFirstMessage.payload.subarray(4).toString("utf8");
     const attributes = parseScramAttributes(serverFirst);
     const serverNonce = attributes.r;
     const salt = attributes.s ? Buffer.from(attributes.s, "base64") : null;
     const iterations = Number(attributes.i);
-    if (!serverNonce || !serverNonce.startsWith(clientNonce) || !salt || !Number.isFinite(iterations)) throw new Error("Invalid PostgreSQL SCRAM challenge.");
+    if (!serverNonce || !serverNonce.startsWith(clientNonce) || !salt || !Number.isFinite(iterations)) {
+      throw new Error("Invalid PostgreSQL SCRAM challenge.");
+    }
     const clientFinalWithoutProof = "c=biws,r=" + serverNonce;
     const authMessage = clientFirstBare + "," + serverFirst + "," + clientFinalWithoutProof;
     const saltedPassword = pbkdf2Sync(this.password, salt, iterations, 32, "sha256");
@@ -342,18 +1547,30 @@ class LocalPostgresClient {
     const signature = createHmac("sha256", storedKey).update(authMessage).digest();
     this.sendSaslResponse(clientFinalWithoutProof + ",p=" + xorBuffers(clientKey, signature).toString("base64"));
   }
-  private sendPassword(password: string) { this.sendMessage("p", Buffer.from(password + "\0", "utf8")); }
+
+  private sendPassword(password: string) {
+    this.sendMessage("p", Buffer.from(password + "\0", "utf8"));
+  }
+
   private sendSaslInitial(mechanism: string, response: string) {
     const mechanismBuffer = Buffer.from(mechanism + "\0", "utf8");
     const responseBuffer = Buffer.from(response, "utf8");
     this.sendMessage("p", Buffer.concat([mechanismBuffer, int32(responseBuffer.length), responseBuffer]));
   }
-  private sendSaslResponse(response: string) { this.sendMessage("p", Buffer.from(response, "utf8")); }
-  private sendMessage(type: string, payload: Buffer) { this.sendRaw(Buffer.concat([Buffer.from(type, "utf8"), int32(payload.length + 4), payload])); }
+
+  private sendSaslResponse(response: string) {
+    this.sendMessage("p", Buffer.from(response, "utf8"));
+  }
+
+  private sendMessage(type: string, payload: Buffer) {
+    this.sendRaw(Buffer.concat([Buffer.from(type, "utf8"), int32(payload.length + 4), payload]));
+  }
+
   private sendRaw(payload: Buffer) {
     if (!this.socket || this.socket.destroyed) throw new Error("PostgreSQL socket is not connected.");
     this.socket.write(payload);
   }
+
   private async readMessage(): Promise<PgMessage> {
     await this.waitForBytes(5);
     const type = this.buffer.subarray(0, 1).toString("utf8");
@@ -364,31 +1581,58 @@ class LocalPostgresClient {
     this.buffer = this.buffer.subarray(totalLength);
     return { type, payload };
   }
+
   private async waitForBytes(size: number) {
     while (this.buffer.length < size) {
       await new Promise<void>((resolve, reject) => {
         const socket = this.socket;
-        if (!socket) { reject(new Error("PostgreSQL socket is not connected.")); return; }
+        if (!socket) {
+          reject(new Error("PostgreSQL socket is not connected."));
+          return;
+        }
         const cleanup = () => {
           socket.off("error", onError);
           socket.off("close", onClose);
           const index = this.waiters.indexOf(onData);
           if (index >= 0) this.waiters.splice(index, 1);
         };
-        const onError = (error: Error) => { cleanup(); reject(error); };
-        const onClose = () => { cleanup(); reject(new Error("PostgreSQL socket closed before response was complete.")); };
-        const onData = () => { cleanup(); resolve(); };
+        const onError = (error: Error) => {
+          cleanup();
+          reject(error);
+        };
+        const onClose = () => {
+          cleanup();
+          reject(new Error("PostgreSQL socket closed before response was complete."));
+        };
+        const onData = () => {
+          cleanup();
+          resolve();
+        };
         this.waiters.push(onData);
         socket.once("error", onError);
         socket.once("close", onClose);
       });
     }
   }
-  private get user() { return decodeURIComponent(this.url.username || "postgres"); }
-  private get password() { return decodeURIComponent(this.url.password || ""); }
-  private get database() { return decodeURIComponent(this.url.pathname.replace(/^\//, "") || "postgres"); }
+
+  private get user() {
+    return decodeURIComponent(this.url.username || "postgres");
+  }
+
+  private get password() {
+    return decodeURIComponent(this.url.password || "");
+  }
+
+  private get database() {
+    return decodeURIComponent(this.url.pathname.replace(/^\//, "") || "postgres");
+  }
 }
-function int32(value: number) { const buffer = Buffer.alloc(4); buffer.writeInt32BE(value, 0); return buffer; }
+
+function int32(value: number) {
+  const buffer = Buffer.alloc(4);
+  buffer.writeInt32BE(value, 0);
+  return buffer;
+}
 
 function parseRowDescription(payload: Buffer) {
   const fieldCount = payload.readInt16BE(0);
@@ -453,6 +1697,3 @@ main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });
-
-
-
