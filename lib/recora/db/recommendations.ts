@@ -3,6 +3,7 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { createRecoraSupabaseClient } from "@/lib/supabase/server";
 import {
   getDefaultRecoraProjectSlug,
+  getLatestStandardV01MeasurementRun,
   getLatestRunWithMetricSnapshots,
   getRecoraBrands,
   getRecoraProject,
@@ -30,11 +31,12 @@ export async function getRecoraRecommendationsData(
     return emptyRecommendationsData();
   }
 
-  const [latestRun, brands, recommendations] = await Promise.all([
+  const [latestRun, latestStandardRun, brands] = await Promise.all([
     getLatestRunWithMetricSnapshots(project.id, supabase),
-    getRecoraBrands(project.id, supabase),
-    getRecoraRecommendations(project.id, supabase)
+    getLatestStandardV01MeasurementRun(project.id, supabase),
+    getRecoraBrands(project.id, supabase)
   ]);
+  const recommendations = await getRecoraRecommendations(project.id, latestStandardRun?.id ?? null, supabase);
 
   const [topics, prompts] = await Promise.all([
     getTopics(uniqueIds(recommendations.map((item) => item.related_topic_id)), supabase),

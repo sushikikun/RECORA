@@ -11,7 +11,7 @@ import type {
   RecoraProjectRow,
   RecoraRecommendationRow
 } from "./types";
-import { isDisplayableRecommendation, isOpenAiAggregateRun } from "./display-filters";
+import { getMetadataRecord, getMetadataString, isDisplayableRecommendation, isOpenAiAggregateRun } from "./display-filters";
 
 const DEFAULT_PROJECT_SLUG = "recora-kenzai-q2";
 
@@ -122,44 +122,60 @@ export async function getRecoraMetricSnapshots(
 
 export async function getRecoraRecommendations(
   projectId: string,
+  latestStandardRunId: string | null = null,
   supabase: RecoraSupabaseClient = createRecoraSupabaseClient()
 ): Promise<RecoraRecommendationRow[]> {
+  if (!latestStandardRunId) return [];
+
   const { data, error } = await supabase
     .from("recommendations")
     .select(RECOMMENDATION_COLUMNS)
     .eq("project_id", projectId)
+    .eq("metadata->>measurement_run_id", latestStandardRunId)
+    .eq("metadata->>measurement_profile_id", "standard-v01")
+    .eq("metadata->>data_source", "openai_measurement")
+    .eq("metadata->>display_decision", "show")
     .order("impact_score", { ascending: false })
     .order("created_at", { ascending: false });
 
   throwIfSupabaseError("recommendations", error);
   return ((data ?? []) as RecoraRecommendationRow[])
-    .filter(isCustomerVisibleRecommendation)
+    .filter((item) => isLatestStandardV01ShowRecommendation(item, latestStandardRunId))
     .filter(isDisplayableRecommendation);
 }
 
-function isCustomerVisibleRecommendation(item: RecoraRecommendationRow) {
+export async function getLatestStandardV01MeasurementRun(
+  projectId: string,
+  supabase: RecoraSupabaseClient = createRecoraSupabaseClient()
+): Promise<RecoraMeasurementRunRow | null> {
+  const { data, error } = await supabase
+    .from("measurement_runs")
+    .select(MEASUREMENT_RUN_COLUMNS)
+    .eq("project_id", projectId)
+    .eq("status", "completed")
+    .eq("metadata->>run_kind", "measurement")
+    .eq("metadata->>data_source", "openai_measurement")
+    .eq("metadata->>measurement_profile_id", "standard-v01")
+    .order("completed_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  throwIfSupabaseError("measurement_runs", error);
+  return (data as RecoraMeasurementRunRow | null) ?? null;
+}
+
+function isLatestStandardV01ShowRecommendation(item: RecoraRecommendationRow, latestStandardRunId: string) {
   const metadata = getMetadataRecord(item.metadata);
   const source = getMetadataString(metadata, "source");
-  const reviewStatus = getMetadataString(metadata, "review_status");
-  const saveDecision = getMetadataString(metadata, "should_save_to_recommendations");
 
-  if (reviewStatus === "review_required") return false;
-  if (reviewStatus === "candidate_only" || saveDecision === "candidate_only") return false;
-
-  if (source === "candidate_generator") {
-    return reviewStatus === "approved" || reviewStatus === "reviewed";
-  }
-
-  return true;
-}
-
-function getMetadataRecord(value: RecoraRecommendationRow["metadata"]): Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function getMetadataString(metadata: Record<string, unknown>, key: string) {
-  const value = metadata[key];
-  return typeof value === "string" ? value : null;
+  return (
+    source === "recommendation_candidate_generator" &&
+    getMetadataString(metadata, "measurement_run_id") === latestStandardRunId &&
+    getMetadataString(metadata, "measurement_profile_id") === "standard-v01" &&
+    getMetadataString(metadata, "data_source") === "openai_measurement" &&
+    getMetadataString(metadata, "display_decision") === "show"
+  );
 }
 
 export async function getRecoraDashboardCounts(
@@ -205,7 +221,7 @@ export async function getRecoraDashboardData(
   const [brands, metricSnapshots, recommendations, counts] = await Promise.all([
     getRecoraBrands(project.id, supabase),
     latestRun ? getRecoraMetricSnapshots(latestRun.id, supabase) : Promise.resolve([]),
-    getRecoraRecommendations(project.id, supabase),
+    getLatestStandardV01MeasurementRun(project.id, supabase).then((run) => getRecoraRecommendations(project.id, run?.id ?? null, supabase)),
     getRecoraDashboardCounts(latestRun?.id ?? null, supabase)
   ]);
 
