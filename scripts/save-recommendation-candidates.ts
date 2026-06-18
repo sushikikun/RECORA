@@ -105,6 +105,7 @@ type RecommendationPlan = {
   skip_reasons: string[];
   duplicate: boolean;
   existing_recommendation_id: string | null;
+  saved_recommendation_id: string | null;
   mapped_type: DbRecommendationType;
   mapped_priority: DbPriority;
   mapped_status: DbStatus;
@@ -159,7 +160,7 @@ async function main() {
           const inserted = await insertRecommendation(db, project, candidate, payload);
           plan.action = "inserted";
           plan.reason = "inserted";
-          plan.existing_recommendation_id = inserted.id;
+          plan.saved_recommendation_id = inserted.id;
           insertedCandidateIds.push(candidate.id);
         }
         await db.query("commit");
@@ -170,8 +171,11 @@ async function main() {
     }
 
     const after = await getCounts(db);
-    const skippedPlans = plans.filter((plan) => plan.action === "skipped");
+    const eligibleShowCandidateCount = plans.filter((plan) => plan.display_decision === "show").length;
+    const insertTargetPlans = plans.filter((plan) => plan.action === "would_insert" || plan.action === "inserted");
+    const skippedPlans = plans.filter((plan) => plan.action === "skipped" && !plan.duplicate);
     const duplicatePlans = plans.filter((plan) => plan.duplicate);
+    const insertedPlans = plans.filter((plan) => plan.action === "inserted");
     console.log(JSON.stringify({
       mode: databaseWriteAllowed ? "apply" : "dry-run",
       input: options.inputPath,
@@ -181,9 +185,11 @@ async function main() {
       databaseWriteAllowed,
       displayDecisionShowOnly: true,
       candidateCount: payload.candidates.length,
-      saveTargetCount: insertablePlans.length + insertedCandidateIds.length,
+      eligibleShowCandidateCount,
+      insertTargetCount: insertTargetPlans.length,
       skippedCount: skippedPlans.length,
       duplicateCount: duplicatePlans.length,
+      insertedCount: insertedPlans.length,
       duplicateCandidateIds: duplicatePlans.map((plan) => plan.candidate_id),
       recommendationsBefore: before.recommendations ?? 0,
       recommendationsAfter: after.recommendations ?? 0,
@@ -294,6 +300,7 @@ function buildPlans(payload: CandidatesPayload, existing: ExistingRecommendation
       measurement_profile_id: readEvidenceString(candidate, "measurement_profile_id"),
       duplicate: Boolean(duplicate),
       existing_recommendation_id: duplicate?.id ?? null,
+      saved_recommendation_id: null,
       mapped_type: mapping.type,
       mapped_priority: mapping.priority,
       mapped_status: mapping.status,
