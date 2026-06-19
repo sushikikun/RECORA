@@ -311,6 +311,69 @@ export type RecoraDashboardDbData = {
   counts: RecoraDashboardCounts;
 };
 
+export type RecoraHomeDataCautionSeverity =
+  | "info"
+  | "warning"
+  | "needs_verification";
+
+export type RecoraHomeDataCautionFlag = {
+  code: string;
+  severity: RecoraHomeDataCautionSeverity;
+  message: string;
+};
+
+export type RecoraHomeAggregationPeriod = {
+  start: string | null;
+  end: string | null;
+};
+
+export type RecoraLatestAggregateSummary = {
+  periodStart: string;
+  periodEnd: string;
+  completedAt: string | null;
+  metricSnapshotCount: number;
+  dataCautionFlags: RecoraHomeDataCautionFlag[];
+};
+
+export type RecoraCumulativeHomeSummary = {
+  aggregationPeriod: RecoraHomeAggregationPeriod;
+  completedMeasurementCount: number;
+  validObservationCount: number;
+  aiConversationCount: number;
+  brandDisplayObservationCount: number;
+  citationOccurrenceCount: number;
+  citationUrlCount: number;
+  sourceDomainCount: number;
+  recommendationCandidateCount: number;
+  dataCautionFlags: RecoraHomeDataCautionFlag[];
+};
+
+export type RecoraTrendHomePoint = {
+  periodStart: string;
+  periodEnd: string;
+  completedMeasurementCount: number;
+  validObservationCount: number;
+  aiConversationCount: number;
+  brandDisplayObservationCount: number;
+  citationOccurrenceCount: number;
+  citationUrlCount: number;
+  sourceDomainCount: number;
+  dataCautionFlags: RecoraHomeDataCautionFlag[];
+};
+
+export type RecoraTrendHomeSummary = {
+  points: RecoraTrendHomePoint[];
+  dataCautionFlags: RecoraHomeDataCautionFlag[];
+};
+
+export type RecoraHomeReadModelDbData = {
+  project: RecoraProjectRow | null;
+  brands: RecoraBrandRow[];
+  latestAggregateSummary: RecoraLatestAggregateSummary | null;
+  cumulativeHomeSummary: RecoraCumulativeHomeSummary | null;
+  trendHomeSummary: RecoraTrendHomeSummary | null;
+};
+
 export type RecoraTopicsPromptsDbData = {
   project: RecoraProjectRow | null;
   topics: RecoraTopicRow[];
