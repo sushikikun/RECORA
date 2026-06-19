@@ -9,7 +9,7 @@ import type { RecoraNavGroup, RecoraNavItem, RecoraNavSection } from "@/lib/reco
 import { buildRecoraNavGroups } from "@/lib/recora/nav-config";
 
 const defaultReportId = "recora-kenzai-q2";
-const alwaysVisibleSection: RecoraNavSection = "全体";
+const alwaysVisibleSection: RecoraNavSection = "ホーム";
 
 function getReportId(pathname: string) {
   const match = pathname.match(/^\/dashboard\/reports\/([^/]+)/);
@@ -24,6 +24,10 @@ function getReportId(pathname: string) {
 
 function isNavItemActive(item: RecoraNavItem, pathname: string) {
   if (item.href === "/dashboard" || item.href === "/dashboard/reports") {
+    return pathname === item.href;
+  }
+
+  if (/^\/dashboard\/reports\/[^/]+$/.test(item.href)) {
     return pathname === item.href;
   }
 
@@ -87,7 +91,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   現在のプロジェクト
                 </div>
                 <Link
-                  href={`/dashboard/reports/${reportId}/overview`}
+                  href={`/dashboard/reports/${reportId}`}
                   className="mt-2 block text-sm font-bold leading-5 text-[#0F172A] hover:text-[#00796B]"
                 >
                   Recora

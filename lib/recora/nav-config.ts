@@ -7,7 +7,6 @@ import {
   Home,
   Layers3,
   Lightbulb,
-  LineChart,
   Link2,
   MessageSquareText,
   Radar,
@@ -19,7 +18,7 @@ import {
 export type RecoraNavStatus = "ready" | "preparing";
 
 export type RecoraNavSection =
-  | "全体"
+  | "ホーム"
   | "レポート"
   | "測定管理"
   | "設定";
@@ -39,7 +38,7 @@ export type RecoraNavGroup = {
 };
 
 const sectionOrder: RecoraNavSection[] = [
-  "全体",
+  "ホーム",
   "レポート",
   "測定管理",
   "設定"
@@ -47,25 +46,19 @@ const sectionOrder: RecoraNavSection[] = [
 
 // P1/Pending:
 // - 「測定条件」「根拠確認」はレポート配下の専用route作成後に追加する。
-// - 「新しい測定」は現行runs画面に同居しているため、sidebarでは「実行履歴」を優先する。
-// - 「測定プロファイル」はP1扱いのため、今回のnavには出さない。
+// - 「新しい測定」「測定プロファイル」は今回のnavには出さない。
+// - 現行runs画面は「実行履歴」として残す。
 export function buildRecoraNavItems(reportId: string): RecoraNavItem[] {
   const reportBase = `/dashboard/reports/${reportId}`;
 
   return [
     {
-      label: "概要",
+      label: "ホーム",
       href: "/dashboard",
-      section: "全体",
+      section: "ホーム",
       status: "ready",
-      icon: Gauge
-    },
-    {
-      label: "推移",
-      href: `${reportBase}/trends`,
-      section: "全体",
-      status: "ready",
-      icon: LineChart
+      icon: Gauge,
+      description: "レポート横断の数字、推移、全体傾向を確認します。"
     },
     {
       label: "レポート一覧",
@@ -76,7 +69,7 @@ export function buildRecoraNavItems(reportId: string): RecoraNavItem[] {
     },
     {
       label: "レポート概要",
-      href: `${reportBase}/overview`,
+      href: reportBase,
       section: "レポート",
       status: "ready",
       icon: Radar
