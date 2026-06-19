@@ -469,6 +469,7 @@ Purpose:
 - route は `/dashboard` とする。
 - 旧「全体 > 概要」と「全体 > 推移」はここに統合し、サイドバーでは分けない。
 - レポート詳細タブは表示しない。
+- ホームread modelの詳細は `docs/recora-home-read-model.md` を参照する。
 
 P0 fields:
 
