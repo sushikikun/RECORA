@@ -330,6 +330,10 @@ type DashboardRankingRow = {
   competitiveGap?: number | null;
   strongTopic?: string;
   representativePrompt?: string;
+  mentionContext?: string;
+  coMentionedCompetitors?: string[];
+  newAppearanceLabel?: string;
+  newAppearanceNeedsVerification?: boolean;
 };
 type DashboardHomeViewModel = {
   hasDbData: boolean;
@@ -851,6 +855,7 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
   );
   const primaryGap = Math.round(primarySnapshot?.competitive_gap ?? primaryVisibility - topCompetitorVisibility);
   const totalMentionRows = Math.max(1, data.brandMentions.filter((item) => item.mentioned).length);
+  const coMentionedCompetitorsByBrandId = createCoMentionedCompetitorsByBrandId(data);
 
   const rankingRows = brandSnapshots
     .flatMap((snapshot) => {
@@ -868,6 +873,7 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
       const winRate = mentionCount > 0 ? Math.round((recommendationCount / mentionCount) * 100) : 0;
       const strongTopic = getTopMapKey(stat?.topicCounts) ?? brandItem.category ?? "-";
       const representativePrompt = truncateText(getTopMapKey(stat?.promptCounts) ?? "", 44);
+      const coMentionedCompetitors = coMentionedCompetitorsByBrandId.get(brandItem.id) ?? [];
 
       return [{
         brandId: brandItem.id,
@@ -884,7 +890,11 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
         averagePosition,
         competitiveGap: brandItem.id === primaryBrand?.id ? primaryGap : Math.round(visibility - primaryVisibility),
         strongTopic,
-        representativePrompt
+        representativePrompt,
+        mentionContext: createMentionContext(strongTopic, representativePrompt),
+        coMentionedCompetitors,
+        newAppearanceLabel: "NEEDS_VERIFICATION",
+        newAppearanceNeedsVerification: true
       } satisfies DashboardRankingRow];
     })
     .sort((a, b) => b.visibility - a.visibility || (b.citationCount ?? 0) - (a.citationCount ?? 0));
@@ -937,6 +947,50 @@ function createLeaderboardModelRows(data: RecoraLeaderboardDbData): LeaderboardM
       averagePosition: snapshot.average_position
     }))
     .sort((a, b) => b.visibility - a.visibility);
+}
+
+function createCoMentionedCompetitorsByBrandId(data: RecoraLeaderboardDbData) {
+  const brandById = new Map(data.brands.map((item) => [item.id, item]));
+  const mentionedByConversationId = groupBy(
+    data.brandMentions.filter((item) => item.mentioned),
+    (item) => item.conversation_id
+  );
+  const result = new Map<string, string[]>();
+
+  for (const brandItem of data.brands) {
+    const counts = new Map<string, number>();
+
+    for (const mentions of Array.from(mentionedByConversationId.values())) {
+      if (!mentions.some((mention) => mention.brand_id === brandItem.id)) continue;
+
+      for (const mention of mentions) {
+        if (mention.brand_id === brandItem.id) continue;
+        const coMentionedBrand = brandById.get(mention.brand_id);
+        if (!coMentionedBrand || coMentionedBrand.brand_type !== "competitor") continue;
+        incrementMap(counts, coMentionedBrand.name);
+      }
+    }
+
+    result.set(
+      brandItem.id,
+      Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 3)
+        .map(([name]) => name)
+    );
+  }
+
+  return result;
+}
+
+function createMentionContext(strongTopic?: string, representativePrompt?: string) {
+  const topic = strongTopic && strongTopic !== "-" ? strongTopic : null;
+  const prompt = representativePrompt ? representativePrompt : null;
+
+  if (topic && prompt) return `${topic} / ${prompt}`;
+  if (topic) return topic;
+  if (prompt) return prompt;
+  return "文脈は追加確認";
 }
 
 function getBrandMentionAggregate(stats: Map<string, BrandMentionAggregate>, brandId: string) {
@@ -2401,6 +2455,17 @@ type ReportOverviewNextLink = {
   icon: LucideIcon;
 };
 
+type ReportOverviewNextCheck = {
+  label: string;
+  title: string;
+  value: string;
+  helper: string;
+  href: string;
+  icon: LucideIcon;
+  tone: "green" | "amber" | "slate";
+  needsVerification?: boolean;
+};
+
 type ReportOverviewViewModel = {
   hasReportData: boolean;
   reportBase: string;
@@ -2415,6 +2480,7 @@ type ReportOverviewViewModel = {
   leaderboardRows: DashboardRankingRow[];
   sourceRows: ReportOverviewSourceRow[];
   recommendationCountValue: string;
+  nextChecks: ReportOverviewNextCheck[];
   detailLinks: ReportOverviewNextLink[];
 };
 
@@ -2486,10 +2552,11 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
   const citationOccurrenceCount = getReportCitationOccurrenceCount(leaderboardData);
   const recommendationCount = recommendationsData?.recommendations.length ?? dashboardData?.recommendations.length ?? null;
   const sourceRows = createReportOverviewSourceRows(leaderboardData);
+  const currentReportBase = `/dashboard/reports/${projectSlug}`;
 
   return {
     hasReportData: Boolean(project),
-    reportBase: `/dashboard/reports/${projectSlug}`,
+    reportBase: currentReportBase,
     projectName: project?.name ?? "Recora",
     period: formatReportPeriod(latestRun?.period_start, latestRun?.period_end, project?.default_period),
     comparisonPeriod: formatReportPeriod(latestRun?.comparison_start, latestRun?.comparison_end),
@@ -2508,6 +2575,11 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
     leaderboardRows: leaderboardView.rankingRows.slice(0, 5),
     sourceRows,
     recommendationCountValue: formatReportOverviewCount(recommendationCount),
+    nextChecks: createReportOverviewNextChecks({
+      leaderboardData,
+      recommendationsData,
+      reportBase: currentReportBase
+    }),
     detailLinks: [
       {
         title: "AI回答",
@@ -2537,12 +2609,143 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
   };
 }
 
+function createReportOverviewNextChecks({
+  leaderboardData,
+  recommendationsData,
+  reportBase
+}: {
+  leaderboardData: RecoraLeaderboardDbData | null;
+  recommendationsData: RecoraRecommendationsDbData | null;
+  reportBase: string;
+}): ReportOverviewNextCheck[] {
+  return [
+    createTopicGapNextCheck(leaderboardData, reportBase),
+    createWeakOwnedSourceCategoryNextCheck(leaderboardData, reportBase),
+    createPreQualityGateNextCheck(recommendationsData, reportBase)
+  ];
+}
+
+function createTopicGapNextCheck(
+  leaderboardData: RecoraLeaderboardDbData | null,
+  reportBase: string
+): ReportOverviewNextCheck {
+  const topicById = new Map((leaderboardData?.topics ?? []).map((topic) => [topic.id, topic]));
+  const topicGapSnapshot = (leaderboardData?.metricSnapshots ?? [])
+    .filter((snapshot) => snapshot.scope_type === "topic" && typeof snapshot.competitive_gap === "number")
+    .sort((a, b) => Math.abs(b.competitive_gap ?? 0) - Math.abs(a.competitive_gap ?? 0))[0];
+
+  if (!topicGapSnapshot) {
+    return {
+      label: "競合差が大きいトピック",
+      title: "トピック別の競合差は追加確認",
+      value: "未接続",
+      helper: "topic scope の competitive_gap がないため NEEDS_VERIFICATION です。",
+      href: `${reportBase}/leaderboard`,
+      icon: BarChart3,
+      tone: "amber",
+      needsVerification: true
+    };
+  }
+
+  return {
+    label: "競合差が大きいトピック",
+    title: topicGapSnapshot.scope_id ? topicById.get(topicGapSnapshot.scope_id)?.name ?? "トピック未設定" : "トピック未設定",
+    value: formatSignedPt(topicGapSnapshot.competitive_gap),
+    helper: "このレポート内の topic scope 差分です。公式順位や市場シェアではありません。",
+    href: `${reportBase}/leaderboard`,
+    icon: BarChart3,
+    tone: "amber"
+  };
+}
+
+function createWeakOwnedSourceCategoryNextCheck(
+  leaderboardData: RecoraLeaderboardDbData | null,
+  reportBase: string
+): ReportOverviewNextCheck {
+  const categoryStats = new Map<string, { total: number; owned: number }>();
+
+  for (const citation of leaderboardData?.citations ?? []) {
+    const sourceType = citation.source_type ?? "unknown";
+    const appearances = Math.max(1, citation.occurrence_count ?? 1);
+    const current = categoryStats.get(sourceType) ?? { total: 0, owned: 0 };
+    current.total += appearances;
+    if (sourceType === "owned" || citation.brand_related === "target_brand") {
+      current.owned += appearances;
+    }
+    categoryStats.set(sourceType, current);
+  }
+
+  const weakestCategory = Array.from(categoryStats.entries())
+    .filter(([, value]) => value.total > 0)
+    .map(([sourceType, value]) => ({
+      sourceType,
+      ...value,
+      ownedShare: Math.round((value.owned / value.total) * 100)
+    }))
+    .sort((a, b) => a.ownedShare - b.ownedShare || b.total - a.total)[0];
+
+  if (!weakestCategory) {
+    return {
+      label: "自社参照が弱い情報源カテゴリ",
+      title: "参照元カテゴリは追加確認",
+      value: "未接続",
+      helper: "参照元の出現データがないため NEEDS_VERIFICATION です。",
+      href: `${reportBase}/sources`,
+      icon: ExternalLink,
+      tone: "green",
+      needsVerification: true
+    };
+  }
+
+  return {
+    label: "自社参照が弱い情報源カテゴリ",
+    title: getSourceTypeLabel(weakestCategory.sourceType),
+    value: `${weakestCategory.ownedShare}%`,
+    helper: `参照出現${weakestCategory.total}件中、自社関連として扱える出現は${weakestCategory.owned}件です。根拠確認済み数ではありません。`,
+    href: `${reportBase}/sources`,
+    icon: ExternalLink,
+    tone: weakestCategory.ownedShare < 35 ? "amber" : "green"
+  };
+}
+
+function createPreQualityGateNextCheck(
+  recommendationsData: RecoraRecommendationsDbData | null,
+  reportBase: string
+): ReportOverviewNextCheck {
+  const count = recommendationsData?.preQualityGateCandidateCount;
+
+  if (typeof count !== "number") {
+    return {
+      label: "品質ゲート通過前の改善候補数",
+      title: "候補数は追加確認",
+      value: "未接続",
+      helper: "latest standard-v01 の候補数を取得できないため NEEDS_VERIFICATION です。",
+      href: `${reportBase}/recommendations`,
+      icon: ListChecks,
+      tone: "slate",
+      needsVerification: true
+    };
+  }
+
+  return {
+    label: "品質ゲート通過前の改善候補数",
+    title: "確認待ちの改善候補",
+    value: formatReportOverviewCount(count),
+    helper: "品質ゲート通過前の候補数です。承認済み施策や効果保証ではありません。",
+    href: `${reportBase}/recommendations`,
+    icon: ListChecks,
+    tone: count > 0 ? "amber" : "slate"
+  };
+}
+
 function ReportOverviewTab({ data, projectSlug = currentReportSlug }: { data: ReportOverviewDataBundle; projectSlug?: string }) {
   const view = createReportOverviewViewModel(data, projectSlug);
 
   return (
     <div className="min-w-0 space-y-5">
       <ReportOverviewHero view={view} />
+
+      <ReportOverviewNextChecks view={view} />
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-3">
         <ReportOverviewLeaderboard view={view} />
@@ -2690,6 +2893,63 @@ function ReportOverviewHeroMetric({ stat }: { stat: ReportOverviewStat }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function ReportOverviewNextChecks({ view }: { view: ReportOverviewViewModel }) {
+  return (
+    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold text-[#00796B]">次に見るべき3つ</p>
+          <h2 className="mt-1 text-xl font-bold tracking-normal text-[#0F172A]">このレポートで深掘りする論点</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#64748B]">
+            競合差、参照元カテゴリ、品質ゲート前の候補数を、誤認しない範囲で次の確認導線にまとめます。
+          </p>
+        </div>
+        <span className="w-fit rounded-full border border-[#DDE8E5] bg-[#F6FAF9] px-3 py-1 text-xs font-bold text-[#64748B]">
+          client-safe
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-3 lg:grid-cols-3">
+        {view.nextChecks.map((item) => {
+          const Icon = item.icon;
+
+          return (
+            <Link
+              key={item.label}
+              href={item.href}
+              className="group rounded-[20px] border border-[#DDE8E5] bg-[#F6FAF9] p-4 transition hover:-translate-y-0.5 hover:border-[#00796B]/30 hover:bg-[#E6F4F1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className={cn(
+                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white shadow-sm",
+                  item.tone === "green" && "text-[#00796B]",
+                  item.tone === "amber" && "text-amber-700",
+                  item.tone === "slate" && "text-slate-600"
+                )}>
+                  <Icon className="h-5 w-5" />
+                </span>
+                {item.needsVerification ? (
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700">
+                    NEEDS_VERIFICATION
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-4 text-xs font-bold text-[#00796B]">{item.label}</p>
+              <h3 className="mt-1 text-base font-bold leading-6 text-[#0F172A]">{item.title}</h3>
+              <p className="mt-3 text-3xl font-bold tracking-normal text-[#073F39]">{item.value}</p>
+              <p className="mt-3 text-sm leading-6 text-[#64748B]">{item.helper}</p>
+              <div className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-[#00796B]">
+                詳細で確認
+                <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -2932,6 +3192,13 @@ export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: 
         <MetricTile label="比較ブランドとの差分" value={leaderboardView.competitiveGapValue} helper="同一レポート内の参考差分" tone="amber" />
         <MetricTile label="AI回答内シェア" value={leaderboardView.primaryCitationShare} helper="Recora独自の観測指標" />
       </div>
+
+      <DataCard
+        title="AI回答内でどう語られたか"
+        description="表示率、平均順位、言及文脈、同時に出た競合をまとめます。新規出現ブランドは過去比較が必要なため、現時点では追加確認として扱います。"
+      >
+        <LeaderboardNarrativeTable rows={leaderboardView.rankingRows} />
+      </DataCard>
 
       <DataCard title="AI回答内ブランドランキング" description="最新レポート内の観測順位です。勝敗や公式順位ではなく、詳細確認の入口として扱います。">
         <RankingTable rows={leaderboardView.rankingRows} />
@@ -3242,6 +3509,7 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
 
 export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSourcesDbData | null }) {
   const sourceDisplay = createSourcesDisplayData(sourcesData);
+  const hasSourceData = Boolean(sourcesData?.project);
 
   return (
     <div className="min-w-0 space-y-5">
@@ -3257,27 +3525,29 @@ export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSource
       <div className="grid gap-4 lg:grid-cols-4">
         <MetricTile
           label={"参照元ドメイン"}
-          value={String(sourceDisplay.uniqueDomainCount)}
-          helper={String(sourceDisplay.totalCitationRows) + "件の参照URL"}
+          value={hasSourceData ? String(sourceDisplay.uniqueDomainCount) : "-"}
+          helper={hasSourceData ? String(sourceDisplay.totalCitationRows) + "件の参照URL" : "追加測定後に表示"}
         />
         <MetricTile
           label={"自社参照シェア"}
-          value={sourceDisplay.ownedCitationShare + "%"}
+          value={hasSourceData ? sourceDisplay.ownedCitationShare + "%" : "-"}
           helper={"自社ドメインが参照された比率"}
         />
         <MetricTile
           label={"競合参照シェア"}
-          value={sourceDisplay.competitorCitationShare + "%"}
+          value={hasSourceData ? sourceDisplay.competitorCitationShare + "%" : "-"}
           helper={"競合ドメインが参照された比率"}
           tone="amber"
         />
         <MetricTile
           label={"第三者参照元"}
-          value={String(sourceDisplay.thirdPartyDomainCount)}
+          value={hasSourceData ? String(sourceDisplay.thirdPartyDomainCount) : "-"}
           helper={"メディア・レビュー系のドメイン"}
           tone="slate"
         />
       </div>
+
+      <SourceEvidenceReadinessPanel sourceDisplay={sourceDisplay} />
 
       <DataCard
         title={"参照元ドメイン"}
@@ -3296,6 +3566,63 @@ export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSource
   );
 }
 
+function SourceEvidenceReadinessPanel({ sourceDisplay }: { sourceDisplay: SourcesDisplayData }) {
+  return (
+    <DataCard
+      title="参照されたが、根拠として使えるか"
+      description="参照出現数と source-to-claim 状態を分けて確認します。参照回数は根拠確認済み数ではありません。"
+    >
+      <div className="grid gap-3 lg:grid-cols-3">
+        <div className="rounded-[18px] border border-[#DDE8E5] bg-[#F6FAF9] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-bold text-[#00796B]">source-to-claim</p>
+            <Badge variant="outline" className="rounded-sm border-[#00796B]/25 bg-white text-[#00796B]">
+              抽出状態
+            </Badge>
+          </div>
+          <p className="mt-3 text-3xl font-bold tracking-normal text-[#073F39]">
+            {sourceDisplay.supportingCitationCount}
+          </p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            抽出上、主張と紐づく参照です。人手確認済みの保証ではありません。
+          </p>
+        </div>
+        <div className="rounded-[18px] border border-amber-200 bg-amber-50/70 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-bold text-amber-700">要確認 / 未検証</p>
+            <Badge variant="outline" className="rounded-sm border-amber-200 bg-white text-amber-700">
+              review
+            </Badge>
+          </div>
+          <p className="mt-3 text-3xl font-bold tracking-normal text-amber-900">
+            {sourceDisplay.needsClaimReviewCount}
+          </p>
+          <p className="mt-2 text-sm leading-6 text-amber-900/75">
+            参照はありますが、根拠として使う前に一致確認が必要です。
+          </p>
+        </div>
+        <div className="rounded-[18px] border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-bold text-slate-600">source freshness</p>
+            <Badge variant="outline" className="rounded-sm border-slate-200 bg-white text-slate-600">
+              NEEDS_VERIFICATION
+            </Badge>
+          </div>
+          <p className="mt-3 text-3xl font-bold tracking-normal text-slate-900">
+            未取得
+          </p>
+          <p className="mt-1 text-xs font-bold text-slate-500">
+            対象 {sourceDisplay.freshnessNeedsVerificationCount} 出現
+          </p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            URLの公開日・更新日は現行データにないため、鮮度評価は次工程で追加確認します。
+          </p>
+        </div>
+      </div>
+    </DataCard>
+  );
+}
+
 type SourceDisplayRow = {
   domain: string;
   category: string;
@@ -3304,10 +3631,14 @@ type SourceDisplayRow = {
   citationShare: number;
   trustScore: number;
   trustLabel: string;
+  supportingCitationCount: number;
+  needsClaimReviewCount: number;
   urls: string[];
   recommendedAction: string;
   observationLabels: string[];
 };
+
+type SourceToClaimStatus = "supporting" | "needs_review" | "unknown";
 
 type CitationDisplayRow = {
   id: string;
@@ -3317,6 +3648,9 @@ type CitationDisplayRow = {
   sourceType: string;
   occurrences: number;
   supportsClaimLabel: string;
+  sourceToClaimStatus: SourceToClaimStatus;
+  sourceToClaimTone: "green" | "amber" | "slate";
+  sourceFreshnessLabel: string;
   citedFor: string;
   observationKind: ObservationKind;
   observationLabel: string;
@@ -3334,6 +3668,9 @@ type SourcesDisplayData = {
   ownedCitationShare: number;
   competitorCitationShare: number;
   thirdPartyDomainCount: number;
+  supportingCitationCount: number;
+  needsClaimReviewCount: number;
+  freshnessNeedsVerificationCount: number;
 };
 
 function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDisplayData {
@@ -3359,6 +3696,8 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
     const observationKind = getConversationObservationKind(conversation ?? { provider: null, response_id: null });
     const observationLabel = getObservationLabel(observationKind);
     const appearances = Math.max(1, citation.occurrence_count ?? 1);
+    const sourceToClaim = getSourceToClaimStatus(citation.supports_claim);
+    const sourceFreshnessLabel = getSourceFreshnessLabel();
     totalAppearances += appearances;
 
     if (sourceType === "owned") ownedAppearances += appearances;
@@ -3372,6 +3711,8 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
       citationShare: 0,
       trustScore: 0,
       trustLabel: sourceDomain?.trust_label ?? getSourceTypeLabel(sourceType),
+      supportingCitationCount: 0,
+      needsClaimReviewCount: 0,
       urls: [],
       recommendedAction: getSourceRecommendedAction(sourceType),
       observationLabels: [],
@@ -3381,7 +3722,7 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
 
     sourceRow.appearances += appearances;
     sourceRow.citationRows += 1;
-    if (citation.supports_claim === true) sourceRow.supportedCount += 1;
+    if (citation.supports_claim === true) sourceRow.supportedCount += appearances;
     if (!sourceRow.observationLabels.includes(observationLabel)) sourceRow.observationLabels.push(observationLabel);
     if (citation.url && !sourceRow.urls.includes(citation.url)) sourceRow.urls.push(citation.url);
     groupedSources.set(domain, sourceRow);
@@ -3393,7 +3734,10 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
       domain,
       sourceType: getSourceTypeLabel(sourceType),
       occurrences: appearances,
-      supportsClaimLabel: getSupportsClaimLabel(citation.supports_claim),
+      supportsClaimLabel: sourceToClaim.label,
+      sourceToClaimStatus: sourceToClaim.status,
+      sourceToClaimTone: sourceToClaim.tone,
+      sourceFreshnessLabel,
       citedFor: getCitationContext(citation.supports_claim),
       observationKind,
       observationLabel,
@@ -3406,11 +3750,13 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
 
   const sourceRows = Array.from(groupedSources.values())
     .map((source) => {
-      const supportRate = source.citationRows === 0 ? 0 : source.supportedCount / source.citationRows;
+      const supportRate = source.appearances === 0 ? 0 : source.supportedCount / source.appearances;
       return {
         ...source,
         citationShare: totalAppearances === 0 ? 0 : Math.round((source.appearances / totalAppearances) * 100),
-        trustScore: getSourceTrustScore(source.sourceType, supportRate)
+        trustScore: getSourceTrustScore(source.sourceType, supportRate),
+        supportingCitationCount: source.supportedCount,
+        needsClaimReviewCount: Math.max(0, source.appearances - source.supportedCount)
       };
     })
     .sort((a, b) => b.appearances - a.appearances);
@@ -3419,6 +3765,12 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
     ["media", "review", "technical", "unknown"].includes(source.sourceType)
   ).length;
 
+  const supportingCitationCount = citationRows.reduce(
+    (sum, citation) => citation.sourceToClaimStatus === "supporting" ? sum + citation.occurrences : sum,
+    0
+  );
+  const needsClaimReviewCount = Math.max(0, totalAppearances - supportingCitationCount);
+
   return {
     sourceRows,
     citationRows,
@@ -3426,7 +3778,10 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
     uniqueDomainCount: sourceRows.length,
     ownedCitationShare: totalAppearances === 0 ? 0 : Math.round((ownedAppearances / totalAppearances) * 100),
     competitorCitationShare: totalAppearances === 0 ? 0 : Math.round((competitorAppearances / totalAppearances) * 100),
-    thirdPartyDomainCount
+    thirdPartyDomainCount,
+    supportingCitationCount,
+    needsClaimReviewCount,
+    freshnessNeedsVerificationCount: totalAppearances
   };
 }
 
@@ -3438,7 +3793,10 @@ function createEmptySourcesDisplayData(): SourcesDisplayData {
     uniqueDomainCount: 0,
     ownedCitationShare: 0,
     competitorCitationShare: 0,
-    thirdPartyDomainCount: 0
+    thirdPartyDomainCount: 0,
+    supportingCitationCount: 0,
+    needsClaimReviewCount: 0,
+    freshnessNeedsVerificationCount: 0
   };
 }
 
@@ -3492,16 +3850,40 @@ function getCitationTitle(url: string | null, domain: string) {
   }
 }
 
-function getSupportsClaimLabel(value: boolean | null) {
-  if (value === true) return "確認済み";
-  if (value === false) return "要確認";
-  return "未検証";
+function getSourceToClaimStatus(value: boolean | null): {
+  label: string;
+  status: SourceToClaimStatus;
+  tone: "green" | "amber" | "slate";
+} {
+  if (value === true) {
+    return {
+      label: "支持あり（抽出上）",
+      status: "supporting",
+      tone: "green"
+    };
+  }
+  if (value === false) {
+    return {
+      label: "要確認",
+      status: "needs_review",
+      tone: "amber"
+    };
+  }
+  return {
+    label: "未検証",
+    status: "unknown",
+    tone: "slate"
+  };
+}
+
+function getSourceFreshnessLabel() {
+  return "NEEDS_VERIFICATION";
 }
 
 function getCitationContext(value: boolean | null) {
-  if (value === true) return "AI回答の根拠として参照されています。";
+  if (value === true) return "抽出上はAI回答内の主張と紐づいています。必要に応じて人手で確認してください。";
   if (value === false) return "参照はありますが、主張との一致確認が必要です。";
-  return "URLは取得済みですが、主張の支持は未検証です。";
+  return "URLは取得済みですが、主張を支持するかは未検証です。";
 }
 
 export function TrendsPage() {
@@ -4979,6 +5361,73 @@ function SourceSharePanel() {
   );
 }
 
+function LeaderboardNarrativeTable({ rows }: { rows: DashboardRankingRow[] }) {
+  return (
+    <Table className="min-w-[1180px]">
+      <TableHeader>
+        <TableRow>
+          <TableHead className="min-w-[190px]">ブランド</TableHead>
+          <TableHead className="whitespace-nowrap">表示率</TableHead>
+          <TableHead className="whitespace-nowrap">平均順位</TableHead>
+          <TableHead className="min-w-[260px]">言及文脈</TableHead>
+          <TableHead className="min-w-[220px]">同時に出た競合</TableHead>
+          <TableHead className="min-w-[180px]">新規出現ブランド</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.length > 0 ? rows.map((row) => (
+          <TableRow key={row.brandId} className={row.isPrimary ? "bg-[#E6F4F1]/55" : undefined}>
+            <TableCell className="min-w-[190px]">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="font-bold text-slate-950">{row.name}</span>
+                {row.isPrimary ? <Badge className="bg-[#00796B] text-white">自社</Badge> : null}
+              </div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">
+                AI言及 {row.aiMentionCount ?? "-"}件
+              </div>
+            </TableCell>
+            <TableCell><MetricWithBar value={row.visibility} /></TableCell>
+            <TableCell className="whitespace-nowrap font-semibold text-slate-700">
+              {typeof row.averagePosition === "number" ? row.averagePosition.toFixed(1) : "-"}
+            </TableCell>
+            <TableCell className="min-w-[260px] text-sm leading-6 text-slate-600">
+              {row.mentionContext ?? "文脈は追加確認"}
+            </TableCell>
+            <TableCell className="min-w-[220px]">
+              {row.coMentionedCompetitors && row.coMentionedCompetitors.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {row.coMentionedCompetitors.map((competitor) => (
+                    <Badge key={competitor} variant="muted" className="font-medium">
+                      {competitor}
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-sm text-slate-500">同時出現なし</span>
+              )}
+            </TableCell>
+            <TableCell className="min-w-[180px]">
+              {row.newAppearanceNeedsVerification ? (
+                <Badge variant="outline" className="whitespace-nowrap rounded-sm border-amber-200 bg-amber-50 text-amber-700">
+                  {row.newAppearanceLabel ?? "NEEDS_VERIFICATION"}
+                </Badge>
+              ) : (
+                <span className="text-sm font-semibold text-slate-700">{row.newAppearanceLabel ?? "-"}</span>
+              )}
+            </TableCell>
+          </TableRow>
+        )) : (
+          <TableRow>
+            <TableCell colSpan={6} className="text-sm text-slate-500">
+              まだブランドの語られ方を表示できるデータがありません。
+            </TableCell>
+          </TableRow>
+        )}
+      </TableBody>
+    </Table>
+  );
+}
+
 function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: DashboardRankingRow[] }) {
   const rankingRows = rows ?? [];
   return (
@@ -5085,6 +5534,7 @@ function SourcesTable({ rows = [] }: { rows?: SourceDisplayRow[] }) {
           <TableHead className="whitespace-nowrap">{"参照回数"}</TableHead>
           <TableHead className="whitespace-nowrap">{"参照シェア"}</TableHead>
           <TableHead className="whitespace-nowrap">{"信頼ラベル"}</TableHead>
+          <TableHead className="min-w-[170px]">{"source-to-claim"}</TableHead>
           <TableHead className="min-w-[260px]">{"主なURL"}</TableHead>
           <TableHead className="min-w-[280px]">{"確認ポイント"}</TableHead>
         </TableRow>
@@ -5113,6 +5563,16 @@ function SourcesTable({ rows = [] }: { rows?: SourceDisplayRow[] }) {
                 <MetricWithBar value={source.trustScore} />
               </div>
             </TableCell>
+            <TableCell className="min-w-[170px]">
+              <div className="flex flex-col gap-1.5 text-xs">
+                <Badge variant="outline" className="w-fit rounded-sm border-[#00796B]/25 bg-[#E6F4F1] text-[#00796B]">
+                  支持あり {source.supportingCitationCount}
+                </Badge>
+                <Badge variant="outline" className="w-fit rounded-sm border-amber-200 bg-amber-50 text-amber-700">
+                  要確認 {source.needsClaimReviewCount}
+                </Badge>
+              </div>
+            </TableCell>
             <TableCell className="min-w-[260px]">
               <div className="space-y-1.5">
                 {(source.urls.length > 0 ? source.urls : [source.domain]).slice(0, 3).map((url) => (
@@ -5129,7 +5589,7 @@ function SourcesTable({ rows = [] }: { rows?: SourceDisplayRow[] }) {
           </TableRow>
         )) : (
           <TableRow>
-            <TableCell colSpan={7} className="text-sm text-slate-500">
+            <TableCell colSpan={8} className="text-sm text-slate-500">
               {"まだ参照元データがありません。測定を実行するとここに結果が表示されます。"}
             </TableCell>
           </TableRow>
@@ -5141,14 +5601,15 @@ function SourcesTable({ rows = [] }: { rows?: SourceDisplayRow[] }) {
 
 function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
   return (
-    <Table className="min-w-[940px]">
+    <Table className="min-w-[1120px]">
       <TableHeader>
         <TableRow>
           <TableHead className="min-w-[320px]">{"タイトル・URL"}</TableHead>
           <TableHead className="min-w-[180px]">{"ドメイン"}</TableHead>
           <TableHead className="whitespace-nowrap">{"カテゴリ"}</TableHead>
           <TableHead className="whitespace-nowrap">{"参照回数"}</TableHead>
-          <TableHead className="min-w-[260px]">{"根拠確認"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"source freshness"}</TableHead>
+          <TableHead className="min-w-[280px]">{"source-to-claim状態"}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -5170,9 +5631,22 @@ function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
             <TableCell className="font-semibold text-slate-700">{citation.domain}</TableCell>
             <TableCell>{citation.sourceType}</TableCell>
             <TableCell className="font-semibold">{citation.occurrences}</TableCell>
+            <TableCell>
+              <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-slate-50 text-slate-600">
+                {citation.sourceFreshnessLabel}
+              </Badge>
+            </TableCell>
             <TableCell className="text-sm leading-6 text-slate-600">
               <div className="mb-2 flex flex-wrap gap-1.5">
-                <Badge variant="muted" className="font-medium">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "font-medium",
+                    citation.sourceToClaimTone === "green" && "border-[#00796B]/25 bg-[#E6F4F1] text-[#00796B]",
+                    citation.sourceToClaimTone === "amber" && "border-amber-200 bg-amber-50 text-amber-700",
+                    citation.sourceToClaimTone === "slate" && "border-slate-200 bg-slate-50 text-slate-600"
+                  )}
+                >
                   {citation.supportsClaimLabel}
                 </Badge>
                 <Badge variant="muted" className="font-medium">
@@ -5188,7 +5662,7 @@ function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
           </TableRow>
         )) : (
           <TableRow>
-            <TableCell colSpan={5} className="text-sm text-slate-500">
+            <TableCell colSpan={6} className="text-sm text-slate-500">
               {"まだ参照元データがありません。測定を実行すると参照URLが表示されます。"}
             </TableCell>
           </TableRow>

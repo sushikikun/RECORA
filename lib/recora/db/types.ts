@@ -42,7 +42,21 @@ export type RecoraRecommendationType =
   | "competitive";
 export type RecoraRecommendationState = "open" | "planned" | "done" | "dismissed";
 export type RecoraCitationStatus = "unknown" | "not_requested" | "unavailable" | "available" | "partial" | "error";
+export type RecoraExtractionConfidence = "unknown" | "low" | "medium" | "high";
 export type RecoraBrandRelatedness = "unknown" | "target_brand" | "competitor" | "unknown_competitor" | "category" | "general" | "unrelated";
+export type RecoraSourceToClaimStatus =
+  | "supported"
+  | "partially_supported"
+  | "contradicted"
+  | "unrelated"
+  | "unknown"
+  | "not_reviewed";
+export type RecoraSourceFreshnessStatus =
+  | "fresh"
+  | "recent"
+  | "stale"
+  | "unknown"
+  | "not_checked";
 
 export type RecoraProjectRow = {
   id: string;
@@ -101,6 +115,7 @@ export type RecoraMetricSnapshotRow = {
   competitive_gap: number | null;
   average_position: number | null;
   calculated_at: string;
+  metadata: Json;
   created_at: string;
   updated_at: string;
 };
@@ -202,6 +217,8 @@ export type RecoraAiConversationRow = {
   model_requested: string | null;
   model_returned: string | null;
   response_id: string | null;
+  raw_response: Json | null;
+  usage: Json | null;
   web_search_enabled: boolean;
   citation_status: RecoraCitationStatus;
   measured_at: string | null;
@@ -218,6 +235,11 @@ export type RecoraBrandMentionRow = {
   sentiment: RecoraSentiment;
   answer_score: number;
   mention_text: string | null;
+  mention_count: number;
+  first_mention_index: number | null;
+  evidence_snippet: string | null;
+  confidence: RecoraExtractionConfidence;
+  matched_alias: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -239,7 +261,16 @@ export type RecoraCitationRow = {
   start_index: number | null;
   end_index: number | null;
   cited_text: string | null;
+  raw_citation: Json | null;
   brand_related: RecoraBrandRelatedness;
+  source_to_claim_status: RecoraSourceToClaimStatus;
+  claim_text: string | null;
+  source_to_claim_note: string | null;
+  source_retrieved_at: string | null;
+  source_published_at: string | null;
+  source_last_modified_at: string | null;
+  source_freshness_status: RecoraSourceFreshnessStatus;
+  source_freshness_days: number | null;
 };
 
 export type RecoraSourceDomainRow = {
@@ -280,6 +311,7 @@ export type RecoraRecommendationsDbData = {
   latestRun: RecoraMeasurementRunRow | null;
   brands: RecoraBrandRow[];
   recommendations: RecoraRecommendationRow[];
+  preQualityGateCandidateCount: number | null;
   topics: RecoraTopicRow[];
   prompts: RecoraPromptRow[];
 };
