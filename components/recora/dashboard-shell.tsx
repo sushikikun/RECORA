@@ -8,7 +8,13 @@ import { cn } from "@/lib/utils";
 import type { RecoraNavGroup, RecoraNavItem, RecoraNavSection } from "@/lib/recora/nav-config";
 import { buildRecoraNavGroups } from "@/lib/recora/nav-config";
 
-const alwaysVisibleSection: RecoraNavSection = "ホーム";
+const alwaysVisibleSections: RecoraNavSection[] = ["ホーム", "レポート"];
+const reportContextSettingPaths = [
+  "/dashboard/config/personas",
+  "/dashboard/config/topics-prompts",
+  "/dashboard/config/competitors",
+  "/dashboard/config/models"
+];
 
 function getSelectedReportId(pathname: string) {
   const match = pathname.match(/^\/dashboard\/reports\/([^/]+)(?:\/.*)?$/);
@@ -36,6 +42,14 @@ function isNavItemActive(item: RecoraNavItem, pathname: string) {
   );
 }
 
+function isAlwaysVisibleSection(section: RecoraNavSection) {
+  return alwaysVisibleSections.includes(section);
+}
+
+function isReportContextSettingPath(pathname: string) {
+  return reportContextSettingPaths.some((href) => pathname === href || pathname.startsWith(`${href}/`));
+}
+
 function getActiveSection(navGroups: RecoraNavGroup[], pathname: string) {
   return navGroups.find((group) => group.items.some((item) => isNavItemActive(item, pathname)))?.label;
 }
@@ -45,7 +59,7 @@ function buildInitialExpandedSections(navGroups: RecoraNavGroup[], pathname: str
 
   return Object.fromEntries(
     navGroups
-      .filter((group) => group.label !== alwaysVisibleSection)
+      .filter((group) => !isAlwaysVisibleSection(group.label))
       .map((group) => [group.label, group.label === activeSection])
   ) as Partial<Record<RecoraNavSection, boolean>>;
 }
@@ -53,8 +67,12 @@ function buildInitialExpandedSections(navGroups: RecoraNavGroup[], pathname: str
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const reportId = getSelectedReportId(pathname);
+  const showReportContextItems = Boolean(reportId) || isReportContextSettingPath(pathname);
   const currentReportHref = reportId ? `/dashboard/reports/${reportId}` : "/dashboard/reports";
-  const navGroups = useMemo(() => buildRecoraNavGroups(reportId), [reportId]);
+  const navGroups = useMemo(
+    () => buildRecoraNavGroups(reportId, { showReportContextItems }),
+    [reportId, showReportContextItems]
+  );
   const activeSection = getActiveSection(navGroups, pathname);
   const [expandedSections, setExpandedSections] = useState<Partial<Record<RecoraNavSection, boolean>>>(() =>
     buildInitialExpandedSections(navGroups, pathname)
@@ -168,7 +186,7 @@ function NavGroup({
   expanded: boolean;
   onToggle: (section: RecoraNavSection) => void;
 }) {
-  const isAlwaysVisible = group.label === alwaysVisibleSection;
+  const isAlwaysVisible = isAlwaysVisibleSection(group.label);
   const isActiveSection = group.label === activeSection;
   const visibleItems =
     isAlwaysVisible || expanded
@@ -179,8 +197,13 @@ function NavGroup({
     return (
       <div>
         <div className="mt-1 space-y-1">
-          {group.items.map((item) => (
-            <NavLink key={`${item.label}-${item.href}`} item={item} pathname={pathname} />
+          {group.items.map((item, index) => (
+            <NavLink
+              key={`${item.label}-${item.href}`}
+              item={item}
+              pathname={pathname}
+              nested={group.label === "レポート" && index > 0}
+            />
           ))}
         </div>
       </div>

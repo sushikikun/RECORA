@@ -7,10 +7,8 @@ import {
   Home,
   Layers3,
   Lightbulb,
-  Link2,
   MessageSquareText,
   Radar,
-  Settings,
   Swords,
   Users
 } from "lucide-react";
@@ -39,17 +37,20 @@ export type RecoraNavGroup = {
 
 const sectionOrder: RecoraNavSection[] = [
   "ホーム",
-  "レポート",
-  "測定管理",
-  "設定"
+  "レポート"
 ];
+
+export type RecoraNavBuildOptions = {
+  showReportContextItems?: boolean;
+};
 
 // P1/Pending:
 // - 「測定条件」「根拠確認」はレポート配下の専用route作成後に追加する。
 // - 「新しい測定」「測定プロファイル」は今回のnavには出さない。
 // - 現行runs画面はreportId選択後に「実行履歴」として残す。
-export function buildRecoraNavItems(reportId?: string): RecoraNavItem[] {
+export function buildRecoraNavItems(reportId?: string, options: RecoraNavBuildOptions = {}): RecoraNavItem[] {
   const reportBase = reportId ? `/dashboard/reports/${reportId}` : undefined;
+  const showReportContextItems = Boolean(reportBase) || options.showReportContextItems === true;
 
   const reportDetailItems: RecoraNavItem[] = reportBase
     ? [
@@ -91,12 +92,49 @@ export function buildRecoraNavItems(reportId?: string): RecoraNavItem[] {
       ]
     : [];
 
-  const measurementItems: RecoraNavItem[] = reportBase
+  const reportContextItems: RecoraNavItem[] = showReportContextItems
+    ? [
+        {
+          label: "ペルソナ",
+          href: "/dashboard/config/personas",
+          section: "レポート",
+          status: "ready",
+          icon: Users,
+          description: "レポート解釈に使うペルソナ設定を確認します。"
+        },
+        {
+          label: "トピック・プロンプト",
+          href: "/dashboard/config/topics-prompts",
+          section: "レポート",
+          status: "ready",
+          icon: Layers3,
+          description: "AI回答の観測条件に関わるトピック・プロンプトを確認します。"
+        },
+        {
+          label: "比較ブランド",
+          href: "/dashboard/config/competitors",
+          section: "レポート",
+          status: "ready",
+          icon: Swords,
+          description: "レポートで比較するブランド設定を確認します。"
+        },
+        {
+          label: "AIモデル",
+          href: "/dashboard/config/models",
+          section: "レポート",
+          status: "ready",
+          icon: Cpu,
+          description: "観測に使うAIモデル設定を確認します。"
+        }
+      ]
+    : [];
+
+  const reportRunItems: RecoraNavItem[] = reportBase
     ? [
         {
           label: "実行履歴",
           href: `${reportBase}/runs`,
-          section: "測定管理",
+          section: "レポート",
           status: "ready",
           icon: ClipboardList,
           description: "選択中レポートの実行履歴を確認します。"
@@ -114,69 +152,21 @@ export function buildRecoraNavItems(reportId?: string): RecoraNavItem[] {
       description: "レポート横断の数字、推移、全体傾向を確認します。"
     },
     {
-      label: "レポート一覧",
+      label: "レポート",
       href: "/dashboard/reports",
       section: "レポート",
       status: "ready",
       icon: Home,
-      description: "レポートを選択すると詳細タブを表示します。"
+      description: "レポート一覧を確認します。"
     },
     ...reportDetailItems,
-    ...measurementItems,
-    {
-      label: "プロジェクト設定",
-      href: "/dashboard/config/project",
-      section: "設定",
-      status: "ready",
-      icon: Settings
-    },
-    {
-      label: "ペルソナ",
-      href: "/dashboard/config/personas",
-      section: "設定",
-      status: "ready",
-      icon: Users
-    },
-    {
-      label: "トピック・プロンプト",
-      href: "/dashboard/config/topics-prompts",
-      section: "設定",
-      status: "ready",
-      icon: Layers3
-    },
-    {
-      label: "比較ブランド",
-      href: "/dashboard/config/competitors",
-      section: "設定",
-      status: "ready",
-      icon: Swords
-    },
-    {
-      label: "AIモデル",
-      href: "/dashboard/config/models",
-      section: "設定",
-      status: "ready",
-      icon: Cpu
-    },
-    {
-      label: "チーム",
-      href: "/dashboard/config/team",
-      section: "設定",
-      status: "preparing",
-      icon: Users
-    },
-    {
-      label: "外部連携",
-      href: "/dashboard/config/api-integrations",
-      section: "設定",
-      status: "preparing",
-      icon: Link2
-    }
+    ...reportContextItems,
+    ...reportRunItems
   ];
 }
 
-export function buildRecoraNavGroups(reportId?: string): RecoraNavGroup[] {
-  const items = buildRecoraNavItems(reportId);
+export function buildRecoraNavGroups(reportId?: string, options: RecoraNavBuildOptions = {}): RecoraNavGroup[] {
+  const items = buildRecoraNavItems(reportId, options);
 
   return sectionOrder
     .map((section) => ({
