@@ -8,15 +8,14 @@ import { cn } from "@/lib/utils";
 import type { RecoraNavGroup, RecoraNavItem, RecoraNavSection } from "@/lib/recora/nav-config";
 import { buildRecoraNavGroups } from "@/lib/recora/nav-config";
 
-const defaultReportId = "recora-kenzai-q2";
 const alwaysVisibleSection: RecoraNavSection = "ホーム";
 
-function getReportId(pathname: string) {
-  const match = pathname.match(/^\/dashboard\/reports\/([^/]+)/);
+function getSelectedReportId(pathname: string) {
+  const match = pathname.match(/^\/dashboard\/reports\/([^/]+)(?:\/.*)?$/);
   const segment = match?.[1];
 
   if (!segment || segment === "history") {
-    return defaultReportId;
+    return undefined;
   }
 
   return segment;
@@ -53,7 +52,8 @@ function buildInitialExpandedSections(navGroups: RecoraNavGroup[], pathname: str
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const reportId = getReportId(pathname);
+  const reportId = getSelectedReportId(pathname);
+  const currentReportHref = reportId ? `/dashboard/reports/${reportId}` : "/dashboard/reports";
   const navGroups = useMemo(() => buildRecoraNavGroups(reportId), [reportId]);
   const activeSection = getActiveSection(navGroups, pathname);
   const [expandedSections, setExpandedSections] = useState<Partial<Record<RecoraNavSection, boolean>>>(() =>
@@ -91,13 +91,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   現在のプロジェクト
                 </div>
                 <Link
-                  href={`/dashboard/reports/${reportId}`}
+                  href={currentReportHref}
                   className="mt-2 block text-sm font-bold leading-5 text-[#0F172A] hover:text-[#00796B]"
                 >
                   Recora
                 </Link>
                 <div className="mt-3 text-xs font-semibold text-[#64748B]">
-                  現在のレポート
+                  {reportId ? "現在のレポート" : "レポート一覧から選択"}
                 </div>
               </div>
             </div>

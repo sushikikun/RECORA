@@ -47,9 +47,62 @@ const sectionOrder: RecoraNavSection[] = [
 // P1/Pending:
 // - 「測定条件」「根拠確認」はレポート配下の専用route作成後に追加する。
 // - 「新しい測定」「測定プロファイル」は今回のnavには出さない。
-// - 現行runs画面は「実行履歴」として残す。
-export function buildRecoraNavItems(reportId: string): RecoraNavItem[] {
-  const reportBase = `/dashboard/reports/${reportId}`;
+// - 現行runs画面はreportId選択後に「実行履歴」として残す。
+export function buildRecoraNavItems(reportId?: string): RecoraNavItem[] {
+  const reportBase = reportId ? `/dashboard/reports/${reportId}` : undefined;
+
+  const reportDetailItems: RecoraNavItem[] = reportBase
+    ? [
+        {
+          label: "レポート概要",
+          href: reportBase,
+          section: "レポート",
+          status: "ready",
+          icon: Radar
+        },
+        {
+          label: "AI回答",
+          href: `${reportBase}/conversations`,
+          section: "レポート",
+          status: "ready",
+          icon: MessageSquareText
+        },
+        {
+          label: "ブランド比較",
+          href: `${reportBase}/leaderboard`,
+          section: "レポート",
+          status: "ready",
+          icon: Swords
+        },
+        {
+          label: "参照元",
+          href: `${reportBase}/sources`,
+          section: "レポート",
+          status: "ready",
+          icon: Database
+        },
+        {
+          label: "改善候補",
+          href: `${reportBase}/recommendations`,
+          section: "レポート",
+          status: "ready",
+          icon: Lightbulb
+        }
+      ]
+    : [];
+
+  const measurementItems: RecoraNavItem[] = reportBase
+    ? [
+        {
+          label: "実行履歴",
+          href: `${reportBase}/runs`,
+          section: "測定管理",
+          status: "ready",
+          icon: ClipboardList,
+          description: "選択中レポートの実行履歴を確認します。"
+        }
+      ]
+    : [];
 
   return [
     {
@@ -65,51 +118,11 @@ export function buildRecoraNavItems(reportId: string): RecoraNavItem[] {
       href: "/dashboard/reports",
       section: "レポート",
       status: "ready",
-      icon: Home
+      icon: Home,
+      description: "レポートを選択すると詳細タブを表示します。"
     },
-    {
-      label: "レポート概要",
-      href: reportBase,
-      section: "レポート",
-      status: "ready",
-      icon: Radar
-    },
-    {
-      label: "AI回答",
-      href: `${reportBase}/conversations`,
-      section: "レポート",
-      status: "ready",
-      icon: MessageSquareText
-    },
-    {
-      label: "ブランド比較",
-      href: `${reportBase}/leaderboard`,
-      section: "レポート",
-      status: "ready",
-      icon: Swords
-    },
-    {
-      label: "参照元",
-      href: `${reportBase}/sources`,
-      section: "レポート",
-      status: "ready",
-      icon: Database
-    },
-    {
-      label: "改善候補",
-      href: `${reportBase}/recommendations`,
-      section: "レポート",
-      status: "ready",
-      icon: Lightbulb
-    },
-    {
-      label: "実行履歴",
-      href: `${reportBase}/runs`,
-      section: "測定管理",
-      status: "ready",
-      icon: ClipboardList,
-      description: "現行画面では新しい測定と実行履歴が同居しているため、実行履歴として表示します。"
-    },
+    ...reportDetailItems,
+    ...measurementItems,
     {
       label: "プロジェクト設定",
       href: "/dashboard/config/project",
@@ -162,13 +175,15 @@ export function buildRecoraNavItems(reportId: string): RecoraNavItem[] {
   ];
 }
 
-export function buildRecoraNavGroups(reportId: string): RecoraNavGroup[] {
+export function buildRecoraNavGroups(reportId?: string): RecoraNavGroup[] {
   const items = buildRecoraNavItems(reportId);
 
-  return sectionOrder.map((section) => ({
-    label: section,
-    items: items.filter((item) => item.section === section)
-  }));
+  return sectionOrder
+    .map((section) => ({
+      label: section,
+      items: items.filter((item) => item.section === section)
+    }))
+    .filter((group) => group.items.length > 0);
 }
 
 export const reportDetailTabs = {
