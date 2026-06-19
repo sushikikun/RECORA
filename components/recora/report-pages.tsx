@@ -41,6 +41,7 @@ import {
   visibilityMetrics,
   weeklyTrends
 } from "@/lib/recora/sample-data";
+import { createTemporaryReportViewModel, type TemporaryReportViewModel } from "@/lib/recora/report-view-model";
 import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-config";
 import type { RecoraConversationsDbData, RecoraDashboardDbData, RecoraLeaderboardDbData, RecoraRecommendationRow, RecoraRecommendationsDbData, RecoraSourcesDbData } from "@/lib/recora/db";
 import {
@@ -304,6 +305,7 @@ type DashboardHomeViewModel = {
   aiMentionCount: number;
   citationCount: number;
   competitiveGapDelta: number;
+  temporaryReportView: TemporaryReportViewModel;
   kpiCards: DashboardKpiCardData[];
   rankingRows: DashboardRankingRow[];
   priorityTasks: DashboardTask[];
@@ -331,6 +333,28 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
   const citationCount = Math.round(Number(projectSnapshot?.citation_count ?? data.counts.citations ?? 0));
   const displayCompetitiveGap = competitiveGap ?? -absoluteGap;
   const displayImprovementPriority = topRecommendationImpact > 0 ? topRecommendationImpact : data.recommendations.length;
+  const temporaryReportView = createTemporaryReportViewModel({
+    run: latestRun
+      ? {
+          id: latestRun.id,
+          status: latestRun.status,
+          metadata: getJsonRecord(latestRun.metadata),
+          started_at: latestRun.started_at,
+          completed_at: latestRun.completed_at
+        }
+      : null,
+    observations: [],
+    metrics: {
+      aiVisibility: primarySnapshot?.ai_visibility ?? projectSnapshot?.ai_visibility ?? null,
+      mentionCount: projectSnapshot?.ai_mention_count ?? primarySnapshot?.ai_mention_count ?? null,
+      citationCount: projectSnapshot?.citation_count ?? primarySnapshot?.citation_count ?? null,
+      sourceDomainCount: null,
+      shareOfVoice: projectSnapshot?.share_of_voice ?? primarySnapshot?.share_of_voice ?? null,
+      competitiveGap
+    },
+    candidates: data.recommendations.map(toTemporaryReportCandidateInput),
+    sources: []
+  });
 
   const kpiCards: DashboardKpiCardData[] = dashboardKpiCardTemplates.map((card, index) => {
     if (index === 0) {
@@ -381,6 +405,7 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
     aiMentionCount: mentionCount,
     citationCount,
     competitiveGapDelta: displayCompetitiveGap,
+    temporaryReportView,
     kpiCards,
     rankingRows: rankingRows.length > 0 ? rankingRows : createZeroRankingRowsFromBrands(data.brands, primaryBrand?.id),
     priorityTasks: tasksFromDb
@@ -402,6 +427,13 @@ function createEmptyDashboardHomeViewModel(): DashboardHomeViewModel {
     aiMentionCount: 0,
     citationCount: 0,
     competitiveGapDelta: 0,
+    temporaryReportView: createTemporaryReportViewModel({
+      run: null,
+      observations: [],
+      metrics: null,
+      candidates: [],
+      sources: []
+    }),
     kpiCards: dashboardKpiCardTemplates.map((card, index) => ({
       ...card,
       value: index === 0 ? "0%" : index === 3 ? "0pt" : "0",
@@ -428,6 +460,29 @@ function createZeroRankingRowsFromBrands(brands: RecoraDashboardDbData["brands"]
     averagePosition: null,
     competitiveGap: 0
   }));
+}
+
+function toTemporaryReportCandidateInput(item: RecoraRecommendationRow) {
+  const metadata = getJsonRecord(item.metadata);
+
+  return {
+    id: item.id,
+    title: item.title,
+    status: item.status,
+    displayDecision: getRecordString(metadata, "display_decision"),
+    priority: item.priority,
+    confidence: getRecordString(metadata, "confidence_label") ?? getRecordString(metadata, "confidence"),
+    caution: getRecordString(metadata, "client_caution") ?? getRecordString(metadata, "caution")
+  };
+}
+
+function getJsonRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function getRecordString(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  return typeof value === "string" ? value : null;
 }
 
 type LeaderboardCompetitorCard = {
@@ -726,6 +781,8 @@ export function DashboardHomePage({ dashboardData = null }: { dashboardData?: Re
         actions={<HeaderActions />}
       />
 
+      <TemporaryReportStatusCard view={dashboardView.temporaryReportView} />
+
       <DashboardSnapshotHero dashboardView={dashboardView} />
 
       <DashboardKpiGrid cards={dashboardView.kpiCards} />
@@ -748,6 +805,84 @@ export function DashboardHomePage({ dashboardData = null }: { dashboardData?: Re
         <PriorityTasksCard tasks={dashboardView.priorityTasks} />
       </div>
     </>
+  );
+}
+
+function TemporaryReportStatusCard({ view }: { view: TemporaryReportViewModel }) {
+  const isBlocked = view.clientDisplayReadiness.status === "blocked";
+
+  return (
+    <section className={cn(
+      "mt-5 rounded-lg border bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.035)]",
+      isBlocked ? "border-amber-200" : "border-teal-200"
+    )}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-bold text-slate-950">暫定report viewの表示状態</h2>
+            <Badge
+              variant="outline"
+              className={cn(
+                "rounded-sm text-xs",
+                isBlocked ? "border-amber-200 bg-amber-50 text-amber-700" : "border-teal-200 bg-teal-50 text-teal-700"
+              )}
+            >
+              {view.clientDisplayReadiness.status}
+            </Badge>
+          </div>
+          <p className="mt-1 text-sm text-slate-600">{view.clientDisplayReadiness.label}</p>
+          {isBlocked ? (
+            <p className="mt-2 text-sm leading-6 text-amber-700">
+              {"この状態ではKPIを正式な評価や承認済みレポートとして扱いません。"}
+            </p>
+          ) : null}
+        </div>
+        <div className="grid min-w-[260px] gap-2 text-xs font-bold text-slate-600 sm:grid-cols-3">
+          <TemporaryReportStatusValue
+            label="暫定report view必要条件"
+            value={view.runPrerequisitesMet ? "満たしています" : "未達"}
+            isMuted={isBlocked}
+          />
+          <TemporaryReportStatusValue label="有効観測" value={String(view.validObservationCount)} isMuted={isBlocked} />
+          <TemporaryReportStatusValue label="除外観測" value={String(view.invalidObservationCount)} isMuted={false} />
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">blocking reasons</p>
+          {view.clientDisplayReadiness.blockingReasons.length > 0 ? (
+            <ul className="mt-2 space-y-1.5 text-sm leading-6 text-slate-700">
+              {view.clientDisplayReadiness.blockingReasons.map((reason) => (
+                <li key={reason}>{"- "}{reason}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {"重大なblocking reasonはありません。ただし正式なreport entityではなく注意付きの暫定表示です。"}
+            </p>
+          )}
+        </div>
+
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">cautions</p>
+          <ul className="mt-2 grid gap-1.5 text-sm leading-6 text-slate-600 md:grid-cols-2">
+            {view.cautions.map((caution) => (
+              <li key={caution}>{"- "}{caution}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TemporaryReportStatusValue({ label, value, isMuted }: { label: string; value: string; isMuted: boolean }) {
+  return (
+    <div className={cn("rounded-md border px-3 py-2", isMuted ? "border-amber-100 bg-amber-50/60" : "border-slate-200 bg-slate-50")}>
+      <p className="truncate text-[11px] text-slate-500" title={label}>{label}</p>
+      <p className="mt-1 truncate text-sm font-bold text-slate-950" title={value}>{value}</p>
+    </div>
   );
 }
 
