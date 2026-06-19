@@ -387,7 +387,7 @@ function buildDashboardUrls(projectSlug: string, result?: JsonRecord) {
     { label: "Dashboard", href: getString(fromResult.dashboard) ?? "/dashboard" },
     { label: "AI回答ログ", href: getString(fromResult.conversations) ?? `/dashboard/reports/${projectSlug}/conversations` },
     { label: "参照元分析", href: getString(fromResult.sources) ?? `/dashboard/reports/${projectSlug}/sources` },
-    { label: "競合ランキング", href: getString(fromResult.leaderboard) ?? `/dashboard/reports/${projectSlug}/leaderboard` }
+    { label: "ブランド比較", href: getString(fromResult.leaderboard) ?? `/dashboard/reports/${projectSlug}/leaderboard` }
   ];
 }
 

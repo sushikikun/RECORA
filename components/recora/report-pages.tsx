@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowRight,
   BarChart3,
+  CalendarDays,
   CheckCircle2,
   Crown,
   Download,
@@ -15,7 +16,8 @@ import {
   RefreshCw,
   Search,
   Share2,
-  ShieldCheck
+  ShieldCheck,
+  type LucideIcon
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,7 +52,23 @@ import {
 } from "@/lib/recora/sample-data";
 import { createTemporaryReportViewModel, type TemporaryReportViewModel } from "@/lib/recora/report-view-model";
 import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-config";
-import type { RecoraConversationsDbData, RecoraCumulativeSourceDomainRank, RecoraDashboardDbData, RecoraHomeDataCautionFlag, RecoraHomeReadModelDbData, RecoraLeaderboardDbData, RecoraRecommendationRow, RecoraRecommendationsDbData, RecoraSourcesDbData, RecoraTrendHomePoint } from "@/lib/recora/db";
+import {
+  getRecoraDashboardData,
+  getRecoraLeaderboardData,
+  getRecoraRecommendationsData,
+  type RecoraBrandRow,
+  type RecoraConversationsDbData,
+  type RecoraCumulativeSourceDomainRank,
+  type RecoraDashboardDbData,
+  type RecoraHomeDataCautionFlag,
+  type RecoraHomeReadModelDbData,
+  type RecoraLeaderboardDbData,
+  type RecoraRecommendationRow,
+  type RecoraRecommendationsDbData,
+  type RecoraSourcesDbData,
+  type RecoraTopicsPromptsDbData,
+  type RecoraTrendHomePoint
+} from "@/lib/recora/db";
 import {
   AlertBanner,
   DashboardCard,
@@ -71,7 +89,8 @@ import {
   formatPercent
 } from "@/components/recora/ui";
 
-const reportBase = "/dashboard/reports/recora-kenzai-q2";
+const currentReportSlug = "recora-kenzai-q2";
+const reportBase = `/dashboard/reports/${currentReportSlug}`;
 
 function DetailTabs({ items, active = 0 }: { items: readonly string[]; active?: number }) {
   return (
@@ -194,7 +213,7 @@ const dashboardAlerts = [
     description: "前週比 -2.1pt。比較・価格系プロンプトでAI表示率が下がっています。",
     tone: "rose" as const,
     href: `${reportBase}/recommendations`,
-    action: "改善提案へ"
+    action: "改善候補へ"
   },
   {
     title: "競合の表示増加",
@@ -1036,62 +1055,80 @@ export function DashboardHomePage({
 
 function HomeLatestReportHero({ dashboardView }: { dashboardView: DashboardHomeViewModel }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-[#003F36]/20 bg-[#003F36] text-white shadow-[0_22px_70px_rgba(15,23,42,0.18)]">
-      <div className="grid min-w-0 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
-        <div className="min-w-0 p-5 sm:p-6 lg:p-8">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-bold text-[#DDF7EF]">
-              <Activity className="h-3.5 w-3.5" />
-              最新レポート
-            </span>
-            <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-bold text-white/72">
-              AI回答内の表示率
-            </span>
-          </div>
-
-          <div className="mt-6 grid min-w-0 gap-6 md:grid-cols-[220px_minmax(0,1fr)] md:items-center">
-            <HomeVisibilityGauge dashboardView={dashboardView} />
-
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-[#9CE2D0]">AI検索でどれだけ候補に入れているか</p>
-              <h1 className="mt-2 max-w-2xl text-3xl font-bold leading-tight tracking-normal text-white sm:text-4xl lg:text-5xl">
-                最新レポートのAI表示率
-              </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-white/74 sm:text-base">
-                最新レポートで観測したAI回答内のブランド存在感です。公式スコアや成果保証ではなく、Recoraの観測範囲に基づく表示です。
-              </p>
-              <div className="mt-5 flex flex-wrap gap-2 text-xs font-semibold">
-                <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-white/80">測定日 {dashboardView.lastUpdated}</span>
-                <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-white/80">期間 {dashboardView.period}</span>
-                <span className="rounded-full border border-amber-200/35 bg-amber-100/10 px-3 py-1 text-amber-100">最新レポートの観測値</span>
-              </div>
-            </div>
-          </div>
+    <section className="overflow-hidden rounded-[30px] border border-[#DDE8E5] bg-white p-4 shadow-[0_22px_70px_rgba(15,23,42,0.10)] sm:p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#00796B] px-3.5 py-2 text-sm font-bold text-white shadow-[0_8px_18px_rgba(0,121,107,0.20)]">
+          <Activity className="h-4 w-4" />
+          ホーム
         </div>
+        <Link
+          href={reportBase}
+          className="inline-flex h-10 w-fit items-center justify-center gap-2 rounded-xl border border-[#DDE8E5] bg-white px-3 text-xs font-bold text-[#005C50] transition hover:border-[#00796B]/30 hover:bg-[#E6F4F1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
+        >
+          最新レポートへ
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
 
-        <div className="min-w-0 border-t border-white/10 bg-white/10 p-5 backdrop-blur sm:p-6 lg:border-l lg:border-t-0 lg:p-8">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase text-white/50">latest report numbers</p>
-              <h2 className="mt-2 text-xl font-bold tracking-normal text-white">主要数字</h2>
+      <div className="overflow-hidden rounded-[26px] border border-[#DDE8E5] bg-[radial-gradient(circle_at_8%_100%,rgba(230,244,241,0.88),rgba(255,255,255,0)_38%),linear-gradient(135deg,#FFFFFF_0%,#FFFFFF_56%,#F7FCFB_100%)] p-5 shadow-inner sm:p-7">
+        <div className="grid min-w-0 gap-7 xl:grid-cols-[minmax(0,0.95fr)_minmax(260px,320px)_minmax(380px,0.9fr)] xl:items-center">
+          <div className="min-w-0">
+            <div className="inline-flex rounded-full bg-[#E6F4F1] px-4 py-2 text-xs font-bold text-[#005C50]">
+              最新レポートの観測値
             </div>
-            <Link
-              href={reportBase}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-[#003F36] shadow-sm transition hover:bg-[#E6F4F1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#003F36]"
-            >
-              最新レポートへ
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
+            <p className="mt-7 text-sm font-semibold text-[#00796B]">AI検索でどれだけ候補に入れているか</p>
+            <h1 className="mt-2 max-w-xl text-3xl font-bold leading-tight tracking-normal text-[#073F39] sm:text-4xl">
+              最新レポートのAI表示率
+            </h1>
+            <p className="mt-4 max-w-lg text-sm leading-7 text-[#475569]">
+              最新レポートで観測したAI回答内のブランド存在感です。公式評価や成果保証ではなく、Recoraの観測範囲に基づく表示です。
+            </p>
+            <div className="mt-7 grid gap-3 sm:grid-cols-2">
+              <HomeHeroFact icon={CalendarDays} label="測定日" value={dashboardView.lastUpdated} />
+              <HomeHeroFact icon={FileText} label="対象期間" value={dashboardView.period} />
+            </div>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {dashboardView.latestReportStats.map((stat) => (
-              <HomeLatestStatTile key={stat.label} stat={stat} />
-            ))}
+          <HomeVisibilityGauge dashboardView={dashboardView} />
+
+          <div className="min-w-0">
+            <div className="mb-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#64748B]">latest report numbers</p>
+              <h2 className="mt-2 text-xl font-bold tracking-normal text-[#0F172A]">主要数字</h2>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {dashboardView.latestReportStats.map((stat) => (
+                <HomeLatestStatTile key={stat.label} stat={stat} />
+              ))}
+            </div>
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function HomeHeroFact({
+  icon: Icon,
+  label,
+  value
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#DDE8E5] bg-white/80 px-4 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+      <div className="flex items-start gap-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#E6F4F1] text-[#00796B]">
+          <Icon className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-xs font-bold text-[#64748B]">{label}</p>
+          <p className="mt-1 truncate text-sm font-bold text-[#0F172A]" title={value}>{value}</p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1100,31 +1137,31 @@ function HomeVisibilityGauge({ dashboardView }: { dashboardView: DashboardHomeVi
 
   if (!dashboardView.hasLatestReportMetrics) {
     return (
-      <div className="flex h-56 min-w-0 items-center justify-center rounded-2xl border border-white/10 bg-white/10 p-4">
+      <div className="flex h-64 min-w-0 items-center justify-center rounded-[24px] border border-[#DDE8E5] bg-white/80 p-4">
         <EmptyDashboardState message="最新レポートのAI表示率を取得後に表示します。" />
       </div>
     );
   }
 
   return (
-    <div className="min-w-0 rounded-2xl border border-white/10 bg-white/10 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-      <div className="mx-auto flex h-44 w-44 items-center justify-center rounded-full p-3"
-        style={{ background: `conic-gradient(#9CE2D0 ${value * 3.6}deg, rgba(255,255,255,0.16) 0deg)` }}
+    <div className="mx-auto flex w-full max-w-[320px] flex-col items-center">
+      <div className="mx-auto flex h-64 w-64 items-center justify-center rounded-full p-4 sm:h-72 sm:w-72"
+        style={{ background: `conic-gradient(#00796B ${value * 3.6}deg, #EEF3F1 0deg)` }}
         aria-label={`AI表示率 ${dashboardView.brandVisibilityValue}`}
       >
-        <div className="flex h-full w-full flex-col items-center justify-center rounded-full border border-white/10 bg-[#003F36] text-center">
-          <span className="text-xs font-bold text-white/52">AI表示率</span>
-          <span className="mt-1 text-5xl font-bold tracking-normal text-white">{dashboardView.brandVisibilityValue}</span>
-          <span className="mt-2 text-[11px] font-semibold text-[#9CE2D0]">最新レポート</span>
+        <div className="flex h-full w-full flex-col items-center justify-center rounded-full border border-[#DDE8E5] bg-white text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_18px_45px_rgba(15,23,42,0.08)]">
+          <span className="text-xs font-bold text-[#64748B]">AI表示率</span>
+          <span className="mt-1 text-6xl font-bold tracking-normal text-[#073F39] sm:text-7xl">{dashboardView.brandVisibilityValue}</span>
+          <span className="mt-2 text-[11px] font-semibold text-[#00796B]">最新レポート</span>
         </div>
       </div>
-      <div className="mt-4 rounded-xl border border-white/10 bg-white/10 p-3">
-        <div className="flex items-center justify-between gap-3 text-xs font-bold text-white/70">
+      <div className="mt-3 w-full max-w-[260px] rounded-2xl border border-[#DDE8E5] bg-white/85 p-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+        <div className="flex items-center justify-between gap-3 text-xs font-bold text-[#64748B]">
           <span>AI回答内でのブランド存在感</span>
           <span>{dashboardView.brandVisibilityValue}</span>
         </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-          <div className="h-full rounded-full bg-[#9CE2D0]" style={{ width: `${value}%` }} />
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#E8EFED]">
+          <div className="h-full rounded-full bg-gradient-to-r from-[#6FE1C3] to-[#00796B]" style={{ width: `${value}%` }} />
         </div>
       </div>
     </div>
@@ -1133,11 +1170,11 @@ function HomeVisibilityGauge({ dashboardView }: { dashboardView: DashboardHomeVi
 
 function HomeLatestStatTile({ stat }: { stat: DashboardLatestReportStat }) {
   return (
-    <div className="min-w-0 rounded-xl border border-white/10 bg-white/10 px-4 py-3">
-      <p className="truncate text-xs font-semibold text-white/55" title={stat.label}>{stat.label}</p>
-      <p className="mt-1 truncate text-2xl font-bold tracking-normal text-white" title={stat.value}>{stat.value}</p>
+    <div className="min-w-0 rounded-[18px] border border-[#E3ECE9] bg-white/90 px-4 py-4 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
+      <p className="truncate text-xs font-bold text-[#00796B]" title={stat.label}>{stat.label}</p>
+      <p className="mt-1 truncate text-2xl font-bold tracking-normal text-[#0F172A]" title={stat.value}>{stat.value}</p>
       {stat.helper ? (
-        <p className="mt-1 line-clamp-2 text-xs leading-5 text-white/62">{stat.helper}</p>
+        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#64748B]">{stat.helper}</p>
       ) : null}
     </div>
   );
@@ -1149,20 +1186,20 @@ function HomeObservationSafetyStrip({ view }: { view: DashboardHomeReadModelView
     : ["最新レポートの値はRecoraの観測範囲に基づく参考値です。"];
 
   return (
-    <section className="rounded-2xl border border-amber-200 bg-amber-50/75 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-5">
+    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-4 shadow-[0_12px_38px_rgba(15,23,42,0.06)] sm:p-5">
       <div className="flex flex-wrap items-start gap-4">
         <div className="flex min-w-[220px] items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#FFF7E6] text-amber-700">
             <AlertTriangle className="h-5 w-5" />
           </span>
           <div>
             <p className="text-sm font-bold text-slate-950">表示の前提</p>
-            <p className="mt-1 text-xs font-semibold text-amber-700">保証表現は使わず、観測値として表示</p>
+            <p className="mt-1 text-xs font-semibold text-amber-700">観測値として表示し、保証表現は使いません</p>
           </div>
         </div>
         <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-3">
           {cautions.map((caution) => (
-            <div key={caution} className="rounded-xl border border-amber-200/70 bg-white/80 px-3 py-2 text-xs font-semibold leading-5 text-slate-700">
+            <div key={caution} className="rounded-xl border border-amber-200/70 bg-amber-50/55 px-3 py-2 text-xs font-semibold leading-5 text-slate-700">
               {caution}
             </div>
           ))}
@@ -2231,180 +2268,677 @@ function DashboardScopeRow({ label, value, tone }: { label: string; value: strin
   );
 }
 
-export function ReportsIndexPage() {
+export function ReportsIndexPage({ dashboardData = null }: { dashboardData?: RecoraDashboardDbData | null }) {
+  const dashboardView = createDashboardHomeViewModel(dashboardData, null);
+  const projectSlug = dashboardData?.project?.slug ?? currentReportSlug;
+  const reportHref = `/dashboard/reports/${projectSlug}`;
+  const hasReport = Boolean(dashboardData?.project);
+  const reportRows = hasReport
+    ? [{
+        id: projectSlug,
+        name: dashboardView.projectName,
+        period: dashboardView.period,
+        lastUpdated: dashboardView.lastUpdated,
+        aiVisibility: dashboardView.brandVisibilityValue,
+        aiAnswers: formatNullableCount(dashboardView.aiConversationCount),
+        recommendations: formatNullableCount(dashboardData?.recommendations.length),
+        href: reportHref
+      }]
+    : [];
+
   return (
-    <>
-      <PageHeader
-        eyebrow="レポート"
-        title="レポート概要"
-        description="ブランド、競合、ペルソナ、トピック、プロンプト、AIモデルを束ねた監視レポート一覧です。"
-        meta={<ReportFilters compact />}
-        actions={<HeaderActions />}
-      />
+    <div className="min-w-0 space-y-5">
+      <section className="overflow-hidden rounded-[28px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
+        <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 rounded-full bg-[#E6F4F1] px-4 py-2 text-xs font-bold text-[#005C50]">
+              <FileText className="h-3.5 w-3.5" />
+              レポート一覧
+            </div>
+            <h1 className="mt-4 max-w-3xl text-3xl font-bold leading-tight tracking-normal text-[#073F39] sm:text-4xl">
+              最新レポートから詳細確認へ進む
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-[#475569]">
+              ホームで見た最新状況を、選択した1レポートのAI回答・ブランド比較・参照元・改善候補へつなげます。
+            </p>
+          </div>
+          <div className="rounded-[22px] border border-[#DDE8E5] bg-[#F6FAF9] p-4">
+            <p className="text-xs font-bold text-[#64748B]">表示中プロジェクト</p>
+            <p className="mt-2 text-2xl font-bold tracking-normal text-[#0F172A]">{dashboardView.projectName}</p>
+            <p className="mt-2 text-xs leading-5 text-[#64748B]">
+              レポート詳細タブは、ここでレポートを選択した後に表示されます。
+            </p>
+          </div>
+        </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile label="プロジェクト" value="1" helper="サンプルワークスペース" tone="slate" />
-        <MetricTile label="プロンプト数" value={String(sampleProject.promptCount)} helper="6トピックで監視" />
-        <MetricTile label="AI回答ログ" value={String(sampleProject.conversationCount)} helper="4つのAIモデル x ペルソナ" />
-        <MetricTile label="参照回数" value={String(sampleProject.citationCount)} helper="ドメイン単位で集計" />
+        <MetricTile label="AI表示率" value={dashboardView.brandVisibilityValue} helper="最新レポートの観測値" />
+        <MetricTile label="AI回答数" value={formatNullableCount(dashboardData?.counts.aiConversations)} helper="最新レポート内" />
+        <MetricTile label="比較ブランド数" value={formatNullableCount(dashboardData?.brands.filter((item) => item.brand_type === "competitor").length)} helper="DBに登録された比較対象" tone="slate" />
+        <MetricTile label="改善候補数" value={formatNullableCount(dashboardData?.recommendations.length)} helper="承認済み施策ではありません" tone="amber" />
       </div>
 
-      <DataCard className="mt-5" title="レポート一覧" description="現在はサンプルデータのみです。外部連携や自動実行は含めていません。">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>レポート</TableHead>
-              <TableHead>ブランド</TableHead>
-              <TableHead>カバレッジ</TableHead>
-              <TableHead>最終更新</TableHead>
-              <TableHead>状態</TableHead>
-              <TableHead className="text-right">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableRow>
-              <TableCell>
-                <div className="font-bold text-slate-950">{sampleProject.name}</div>
-                <div className="mt-1 text-xs text-slate-500">{sampleProject.workspace}</div>
-              </TableCell>
-              <TableCell>
-                <div className="font-semibold">{brand.name}</div>
-                <div className="text-xs text-slate-500">{brand.domain}</div>
-              </TableCell>
-              <TableCell>
-                <div className="text-sm font-semibold">{sampleProject.conversationCount}件のAI回答</div>
-                <div className="mt-1 text-xs text-slate-500">
-                  {sampleProject.promptCount}プロンプト / {sampleProject.modelCount}AIモデル
-                </div>
-              </TableCell>
-              <TableCell>{sampleProject.lastRunAt}</TableCell>
-              <TableCell>
-                <Badge variant="outline" className="border-[#00796B]/25 bg-[#E6F4F1] text-[#00796B]">
-                  {sampleProject.status}
-                </Badge>
-              </TableCell>
-              <TableCell className="text-right">
-                <Button asChild size="sm">
-                  <Link href={`${reportBase}/overview`}>
-                    開く
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
+      <DataCard
+        title="レポート"
+        description="既存DBから取得できるレポートを表示します。測定がない場合は追加測定後に表示されます。"
+      >
+        {reportRows.length > 0 ? (
+          <div className="overflow-x-auto">
+            <Table className="min-w-[860px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="min-w-[220px]">レポート</TableHead>
+                  <TableHead>対象期間</TableHead>
+                  <TableHead>AI表示率</TableHead>
+                  <TableHead>AI回答数</TableHead>
+                  <TableHead>改善候補</TableHead>
+                  <TableHead>最終更新</TableHead>
+                  <TableHead className="text-right">詳細</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reportRows.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="min-w-[220px]">
+                      <div className="font-bold text-slate-950">{row.name}</div>
+                      <div className="mt-1 text-xs text-slate-500">最新レポート</div>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">{row.period}</TableCell>
+                    <TableCell className="whitespace-nowrap font-bold text-[#00796B]">{row.aiVisibility}</TableCell>
+                    <TableCell className="whitespace-nowrap">{row.aiAnswers}</TableCell>
+                    <TableCell className="whitespace-nowrap">{row.recommendations}</TableCell>
+                    <TableCell className="whitespace-nowrap">{row.lastUpdated}</TableCell>
+                    <TableCell className="text-right">
+                      <Button asChild size="sm">
+                        <Link href={row.href}>
+                          レポート概要へ
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <EmptyStateBlock
+            title="表示できるレポートがありません"
+            description="測定が完了すると、ここから選択レポートの詳細へ進めます。"
+          />
+        )}
       </DataCard>
-    </>
+    </div>
   );
 }
 
-export function ReportLandingPage() {
+type ReportOverviewDataBundle = {
+  dashboardData: RecoraDashboardDbData | null;
+  leaderboardData: RecoraLeaderboardDbData | null;
+  recommendationsData: RecoraRecommendationsDbData | null;
+};
+
+type ReportOverviewStat = {
+  label: string;
+  value: string;
+  helper: string;
+  icon: LucideIcon;
+};
+
+type ReportOverviewSourceRow = {
+  domain: string;
+  sourceTypeLabel: string;
+  occurrenceCount: number;
+  occurrenceValue: string;
+  share: number;
+};
+
+type ReportOverviewNextLink = {
+  title: string;
+  description: string;
+  href: string;
+  icon: LucideIcon;
+};
+
+type ReportOverviewViewModel = {
+  hasReportData: boolean;
+  reportBase: string;
+  projectName: string;
+  period: string;
+  comparisonPeriod: string;
+  lastUpdated: string;
+  primaryBrandName: string;
+  aiVisibilityValue: string;
+  aiVisibilityNumber: number | null;
+  summaryStats: ReportOverviewStat[];
+  leaderboardRows: DashboardRankingRow[];
+  sourceRows: ReportOverviewSourceRow[];
+  recommendationCountValue: string;
+  detailLinks: ReportOverviewNextLink[];
+};
+
+export async function ReportLandingPage({ projectSlug = currentReportSlug }: { projectSlug?: string } = {}) {
+  const overviewData = await getReportOverviewData(projectSlug);
+
+  return <ReportOverviewTab data={overviewData} projectSlug={projectSlug} />;
+}
+
+export async function OverviewPage({ projectSlug = currentReportSlug }: { projectSlug?: string } = {}) {
+  const overviewData = await getReportOverviewData(projectSlug);
+
+  return <ReportOverviewTab data={overviewData} projectSlug={projectSlug} />;
+}
+
+async function getReportOverviewData(projectSlug = currentReportSlug): Promise<ReportOverviewDataBundle> {
+  const [dashboardData, leaderboardData, recommendationsData] = await Promise.all([
+    safelyLoadReportData("dashboard", () => getRecoraDashboardData(projectSlug)),
+    safelyLoadReportData("leaderboard", () => getRecoraLeaderboardData(projectSlug)),
+    safelyLoadReportData("recommendations", () => getRecoraRecommendationsData(projectSlug))
+  ]);
+
+  return {
+    dashboardData,
+    leaderboardData,
+    recommendationsData
+  };
+}
+
+async function safelyLoadReportData<T extends { project: unknown | null }>(
+  label: string,
+  loader: () => Promise<T>
+): Promise<T | null> {
+  try {
+    const data = await loader();
+    return data.project ? data : null;
+  } catch (error) {
+    console.warn(`Failed to load Recora report overview ${label} data.`, error);
+    return null;
+  }
+}
+
+function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSlug = currentReportSlug): ReportOverviewViewModel {
+  const dashboardData = data.dashboardData;
+  const leaderboardData = data.leaderboardData;
+  const recommendationsData = data.recommendationsData;
+  const leaderboardView = createLeaderboardViewModel(leaderboardData);
+  const dashboardProject = dashboardData?.project ?? null;
+  const leaderboardProject = leaderboardData?.project ?? null;
+  const recommendationProject = recommendationsData?.project ?? null;
+  const project = dashboardProject ?? leaderboardProject ?? recommendationProject;
+  const latestRun = dashboardData?.latestRun ?? leaderboardData?.latestRun ?? recommendationsData?.latestRun ?? null;
+  const brands = dashboardData?.brands.length ? dashboardData.brands : leaderboardData?.brands ?? [];
+  const primaryBrand = brands.find((item) => item.brand_type === "primary") ?? brands[0] ?? null;
+  const dashboardSnapshots = dashboardData?.metricSnapshots ?? [];
+  const leaderboardSnapshots = leaderboardData?.metricSnapshots ?? [];
+  const brandSnapshots = dashboardSnapshots.length > 0
+    ? dashboardSnapshots.filter((snapshot) => snapshot.scope_type === "brand" && snapshot.brand_id)
+    : leaderboardSnapshots.filter((snapshot) => snapshot.scope_type === "brand" && snapshot.brand_id);
+  const projectSnapshot = dashboardSnapshots.find((snapshot) => snapshot.scope_type === "project") ?? null;
+  const primarySnapshot = brandSnapshots.find((snapshot) => snapshot.brand_id === primaryBrand?.id) ?? null;
+  const primaryRankingRow = leaderboardView.rankingRows.find((row) => row.isPrimary) ?? null;
+  const aiVisibilityNumber = getRoundedNumber(primarySnapshot?.ai_visibility ?? projectSnapshot?.ai_visibility)
+    ?? (typeof primaryRankingRow?.visibility === "number" ? primaryRankingRow.visibility : null);
+  const competitorCount = brands.length > 0 ? brands.filter((item) => item.brand_type === "competitor").length : null;
+  const observationCount = leaderboardData?.runItems.filter((item) => item.status === "completed").length ?? null;
+  const aiAnswerCount = leaderboardData?.conversations.length ?? dashboardData?.counts.aiConversations ?? null;
+  const brandDisplayCount = primaryRankingRow?.aiMentionCount ?? getRoundedNumber(primarySnapshot?.ai_mention_count ?? projectSnapshot?.ai_mention_count);
+  const citationOccurrenceCount = getReportCitationOccurrenceCount(leaderboardData);
+  const recommendationCount = recommendationsData?.recommendations.length ?? dashboardData?.recommendations.length ?? null;
+  const sourceRows = createReportOverviewSourceRows(leaderboardData);
+
+  return {
+    hasReportData: Boolean(project),
+    reportBase: `/dashboard/reports/${projectSlug}`,
+    projectName: project?.name ?? "Recora",
+    period: formatReportPeriod(latestRun?.period_start, latestRun?.period_end, project?.default_period),
+    comparisonPeriod: formatReportPeriod(latestRun?.comparison_start, latestRun?.comparison_end),
+    lastUpdated: formatDateTime(latestRun?.completed_at ?? project?.updated_at),
+    primaryBrandName: primaryBrand?.name ?? leaderboardView.primaryBrandName,
+    aiVisibilityValue: formatReportOverviewPercent(aiVisibilityNumber),
+    aiVisibilityNumber,
+    summaryStats: [
+      { label: "観測数", value: formatReportOverviewCount(observationCount), helper: "このレポート内の測定対象", icon: Activity },
+      { label: "AI回答数", value: formatReportOverviewCount(aiAnswerCount), helper: "取得できたAI回答", icon: Search },
+      { label: "ブランド表示数", value: formatReportOverviewCount(brandDisplayCount), helper: "AI回答内での表示観測", icon: ShieldCheck },
+      { label: "参照出現数", value: formatReportOverviewCount(citationOccurrenceCount), helper: "根拠確認済み数ではありません", icon: ExternalLink },
+      { label: "比較ブランド数", value: formatReportOverviewCount(competitorCount), helper: "このレポートの比較対象", icon: BarChart3 },
+      { label: "改善候補数", value: formatReportOverviewCount(recommendationCount), helper: "承認済み施策ではありません", icon: ListChecks }
+    ],
+    leaderboardRows: leaderboardView.rankingRows.slice(0, 5),
+    sourceRows,
+    recommendationCountValue: formatReportOverviewCount(recommendationCount),
+    detailLinks: [
+      {
+        title: "AI回答",
+        description: "実際の回答内でブランドがどう扱われたかを見る",
+        href: `/dashboard/reports/${projectSlug}/conversations`,
+        icon: Search
+      },
+      {
+        title: "ブランド比較",
+        description: "比較ブランド内での見え方を確認する",
+        href: `/dashboard/reports/${projectSlug}/leaderboard`,
+        icon: BarChart3
+      },
+      {
+        title: "参照元",
+        description: "AI回答が参照した情報源を確認する",
+        href: `/dashboard/reports/${projectSlug}/sources`,
+        icon: ExternalLink
+      },
+      {
+        title: "改善候補",
+        description: "次に確認すべき改善候補を見る",
+        href: `/dashboard/reports/${projectSlug}/recommendations`,
+        icon: ListChecks
+      }
+    ]
+  };
+}
+
+function ReportOverviewTab({ data, projectSlug = currentReportSlug }: { data: ReportOverviewDataBundle; projectSlug?: string }) {
+  const view = createReportOverviewViewModel(data, projectSlug);
+
   return (
-    <>
-      <PageHeader
-        eyebrow="レポート"
-        title={sampleProject.name}
-        description="このレポートは、AI検索での自社表示とブランド評価を確認するためのRecoraサンプルです。"
-        meta={<ReportFilters />}
-        actions={<HeaderActions />}
-      />
-      <KpiGrid />
-      <div className="mt-5 grid gap-5 xl:grid-cols-3">
-        <DataCard title="ブランド" description="監視対象のブランドです。">
-          <div className="space-y-3">
-            <div>
-              <p className="text-2xl font-bold text-slate-950">{brand.name}</p>
-              <p className="text-sm font-medium text-slate-500">{brand.reading}</p>
+    <div className="min-w-0 space-y-5">
+      <ReportOverviewHero view={view} />
+
+      <div className="grid min-w-0 gap-5 xl:grid-cols-3">
+        <ReportOverviewLeaderboard view={view} />
+        <ReportOverviewSources view={view} />
+        <ReportOverviewRecommendations view={view} />
+      </div>
+
+      <ReportOverviewNextSteps links={view.detailLinks} />
+    </div>
+  );
+}
+
+function ReportOverviewHero({ view }: { view: ReportOverviewViewModel }) {
+  const heroStats: ReportOverviewStat[] = [
+    { label: "測定期間", value: view.period, helper: "このレポートの対象期間", icon: FileText },
+    { label: "最終更新", value: view.lastUpdated, helper: "測定データの更新時刻", icon: RefreshCw },
+    ...view.summaryStats
+  ];
+
+  return (
+    <section className="overflow-hidden rounded-[30px] border border-[#DDE8E5] bg-white p-4 shadow-[0_20px_70px_rgba(15,23,42,0.10)] sm:p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#00796B] px-3.5 py-2 text-sm font-bold text-white shadow-[0_8px_18px_rgba(0,121,107,0.20)]">
+          <ShieldCheck className="h-4 w-4" />
+          レポート概要
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <HeaderActions />
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-[26px] border border-[#DDE8E5] bg-[radial-gradient(circle_at_8%_100%,rgba(230,244,241,0.86),rgba(255,255,255,0)_38%),linear-gradient(135deg,#FFFFFF_0%,#FFFFFF_56%,#F7FCFB_100%)] p-5 shadow-inner sm:p-7">
+        <div className="grid gap-7 xl:grid-cols-[minmax(0,0.92fr)_minmax(260px,320px)_minmax(380px,0.9fr)] xl:items-center">
+          <div className="min-w-0">
+            <div className="inline-flex rounded-full bg-[#E6F4F1] px-4 py-2 text-xs font-bold text-[#005C50]">
+              このレポート内の観測値
             </div>
-            <p className="text-sm leading-6 text-slate-600">{brand.description}</p>
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm font-semibold">
-              {brand.domain}
-            </div>
-          </div>
-        </DataCard>
-        <DataCard title="設定済みスコープ" description="分析対象の軸です。">
-          <div className="grid gap-3 text-sm">
-            <ScopeRow label="ペルソナ" value={`${personas.length}件`} />
-            <ScopeRow label="トピック" value={`${topics.length}件`} />
-            <ScopeRow label="プロンプト" value={`${prompts.length}件`} />
-            <ScopeRow label="AIモデル" value={models.map((model) => model.name).join(", ")} />
-          </div>
-        </DataCard>
-        <DataCard title="次の推奨アクション" description="改善インパクトが最も大きい項目です。">
-          <div className="space-y-4">
-            <div>
-              <div className="flex items-center justify-between gap-3">
-                <p className="font-bold text-slate-950">{contentOpportunities[0].topic}</p>
-                <span className="font-bold text-[#00796B]">{contentOpportunities[0].opportunityScore}</span>
+            <h1 className="mt-7 max-w-xl text-2xl font-bold leading-tight tracking-normal text-[#073F39] sm:text-3xl">
+              AI回答内でのブランド存在感
+            </h1>
+            <p className="mt-4 max-w-lg text-sm leading-7 text-[#475569]">
+              公式スコアや市場シェアではなく、選択中レポートのAI回答内で観測された表示率です。
+            </p>
+            <div className="mt-7 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-[#DDE8E5] bg-white/75 px-4 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+                <p className="text-xs font-bold text-[#64748B]">プロジェクト</p>
+                <p className="mt-1 truncate text-sm font-bold text-[#0F172A]">{view.projectName}</p>
               </div>
-              <ProgressBar value={contentOpportunities[0].opportunityScore} className="mt-3" />
+              <div className="rounded-2xl border border-[#DDE8E5] bg-white/75 px-4 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+                <p className="text-xs font-bold text-[#64748B]">対象ブランド</p>
+                <p className="mt-1 truncate text-sm font-bold text-[#0F172A]">{view.primaryBrandName}</p>
+              </div>
             </div>
-            <p className="text-sm leading-6 text-slate-600">{contentOpportunities[0].nextStep}</p>
           </div>
-        </DataCard>
+
+          <ReportOverviewGauge value={view.aiVisibilityNumber} label={view.aiVisibilityValue} />
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {heroStats.map((stat) => (
+              <ReportOverviewHeroMetric key={stat.label} stat={stat} />
+            ))}
+          </div>
+        </div>
+        {!view.hasReportData ? (
+          <div className="mt-5 rounded-[16px] border border-[#DDE8E5] bg-white/80 p-4 text-sm leading-6 text-[#64748B]">
+            レポートデータを取得できませんでした。測定完了後に、このレポートの要点が表示されます。
+          </div>
+        ) : null}
       </div>
-    </>
+    </section>
   );
 }
 
-export function OverviewPage() {
+function ReportOverviewGauge({ value, label }: { value: number | null; label: string }) {
+  const normalizedValue = value === null ? 0 : Math.max(0, Math.min(value, 100));
+  const radius = 46;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference - (normalizedValue / 100) * circumference;
+
   return (
-    <>
-      <PageHeader
-        eyebrow="分析"
-        title="概要"
-        description="AI表示率、トピック別の表示状況、AIモデル別の違い、参照元を1つの画面で確認します。"
-        meta={<ReportFilters />}
-        actions={<HeaderActions />}
-      />
-      <DetailTabs items={reportDetailTabs.overview} />
-      <AlertBanner
-        title="AI検索での表示率に注意が必要です"
-        description="一部の購買プロンプトでRecoraのAI表示率が低下しています。サイト技術診断とコンテンツ改善案を確認してください。"
-        actionLabel="改善案を見る"
-      />
-      <MetricGrid />
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
-        <OverviewHeatmap />
-        <ModelVisibilityPanel />
+    <div className="mx-auto flex w-full max-w-[320px] flex-col items-center">
+      <div className="relative h-64 w-64 sm:h-72 sm:w-72">
+        <svg className="h-full w-full -rotate-90" viewBox="0 0 120 120" aria-hidden="true">
+          <defs>
+            <linearGradient id="report-overview-gauge" x1="0" x2="1" y1="0" y2="1">
+              <stop offset="0%" stopColor="#5ED6B2" />
+              <stop offset="100%" stopColor="#00796B" />
+            </linearGradient>
+          </defs>
+          <circle
+            cx="60"
+            cy="60"
+            r={radius}
+            fill="none"
+            stroke="#EEF3F1"
+            strokeWidth="8"
+          />
+          <circle
+            cx="60"
+            cy="60"
+            r={radius}
+            fill="none"
+            stroke="url(#report-overview-gauge)"
+            strokeDasharray={circumference}
+            strokeDashoffset={dashOffset}
+            strokeLinecap="round"
+            strokeWidth="8"
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+          <p className="text-6xl font-bold tracking-normal text-[#073F39] sm:text-7xl">{label}</p>
+          <p className="mt-2 text-sm font-semibold text-[#64748B]">AI表示率</p>
+        </div>
       </div>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <TopicVisibilityTable />
-        <SourceSharePanel />
+      <div className="mt-2 flex w-full max-w-[260px] items-center gap-3">
+        <span className="text-xs font-bold text-[#64748B]">低</span>
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#E8EFED]">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-[#6FE1C3] to-[#00796B]"
+            style={{ width: `${normalizedValue}%` }}
+          />
+        </div>
+        <span className="text-xs font-bold text-[#64748B]">高</span>
       </div>
-    </>
+      {value === null ? (
+        <p className="mt-3 text-center text-xs leading-5 text-[#64748B]">測定データが揃うと表示されます。</p>
+      ) : null}
+    </div>
   );
+}
+
+function ReportOverviewHeroMetric({ stat }: { stat: ReportOverviewStat }) {
+  const Icon = stat.icon;
+
+  return (
+    <div className="rounded-[18px] border border-[#E3ECE9] bg-white/90 px-4 py-4 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
+      <div className="flex items-start gap-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#E6F4F1] text-[#00796B]">
+          <Icon className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-xs font-bold text-[#00796B]">{stat.label}</p>
+          <p className="mt-1 text-xl font-bold tracking-normal text-[#0F172A]">{stat.value}</p>
+          <p className="mt-1 text-xs leading-5 text-[#64748B]">{stat.helper}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReportOverviewLeaderboard({ view }: { view: ReportOverviewViewModel }) {
+  return (
+    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold text-[#00796B]">ブランド比較</p>
+          <h2 className="mt-1 text-lg font-bold text-[#0F172A]">比較ブランド内でのポジション</h2>
+          <p className="mt-1 text-sm leading-6 text-[#64748B]">
+            このレポート内の観測順位です。公式順位や市場シェアではありません。
+          </p>
+        </div>
+        <Link href={`${view.reportBase}/leaderboard`} className="inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]">
+          ブランド比較へ
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
+
+      <div className="mt-5 space-y-3">
+        {view.leaderboardRows.length > 0 ? view.leaderboardRows.map((row, index) => (
+          <div
+            key={row.brandId}
+            className={cn(
+              "rounded-[18px] border border-transparent bg-white px-4 py-3",
+              row.isPrimary && "border-[#BFE4DC] bg-[#E6F4F1]/75"
+            )}
+          >
+            <div className="flex min-w-0 items-center justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold", index === 0 ? "bg-[#005C50] text-white" : "bg-white text-[#64748B]")}>
+                  {index + 1}
+                </span>
+                <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <p className="truncate font-bold text-[#0F172A]">{row.name}</p>
+                    {row.isPrimary ? <Badge className="bg-[#00796B] text-white">自社</Badge> : null}
+                  </div>
+                  <p className="mt-1 text-xs font-medium text-[#64748B]">
+                    AI言及 {formatReportOverviewCount(row.aiMentionCount)} / 参照出現 {formatReportOverviewCount(row.citationCount)}
+                  </p>
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-2xl font-bold tracking-normal text-[#0F172A]">{formatReportOverviewPercent(row.visibility)}</p>
+                <p className="text-xs font-semibold text-[#64748B]">AI表示率</p>
+              </div>
+            </div>
+            <ProgressBar value={row.visibility} className="mt-3" tone={row.isPrimary ? "blue" : "slate"} />
+          </div>
+        )) : (
+          <EmptyStateBlock title="まだブランドランキングを表示できません" description="測定データが揃うと、このレポート内の上位ブランドが表示されます。" />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ReportOverviewSources({ view }: { view: ReportOverviewViewModel }) {
+  return (
+    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold text-[#00796B]">参照元</p>
+          <h2 className="mt-1 text-lg font-bold text-[#0F172A]">よく参照されている情報源</h2>
+          <p className="mt-1 text-sm leading-6 text-[#64748B]">
+            参照として出現した数です。根拠確認済み件数ではありません。
+          </p>
+        </div>
+        <Link href={`${view.reportBase}/sources`} className="inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]">
+          参照元へ
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
+
+      <div className="mt-5 space-y-4">
+        {view.sourceRows.length > 0 ? view.sourceRows.map((source) => (
+          <div key={source.domain} className="min-w-0">
+            <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-[#0F172A]">{source.domain}</p>
+                <p className="mt-1 text-xs font-semibold text-[#64748B]">{source.sourceTypeLabel}</p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-bold text-[#0F172A]">{source.occurrenceValue}</p>
+                <p className="text-xs font-semibold text-[#64748B]">参照出現</p>
+              </div>
+            </div>
+            <ProgressBar value={source.share} tone="green" />
+          </div>
+        )) : (
+          <EmptyStateBlock title="まだ参照元を表示できません" description="参照データが取得できると、よく出ているドメインがここに表示されます。" />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ReportOverviewRecommendations({ view }: { view: ReportOverviewViewModel }) {
+  return (
+    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
+      <p className="text-xs font-bold text-[#00796B]">改善候補</p>
+      <h2 className="mt-1 text-lg font-bold text-[#0F172A]">次に確認したい改善候補</h2>
+      <div className="mt-5 rounded-[20px] border border-[#DDE8E5] bg-[#F6FAF9] p-5">
+        <p className="text-xs font-semibold text-[#64748B]">改善候補の発見数</p>
+        <p className="mt-2 text-5xl font-bold tracking-normal text-[#0F172A]">{view.recommendationCountValue}</p>
+        <p className="mt-3 text-sm leading-6 text-[#64748B]">
+          個別理由や具体アクションは概要では出しすぎず、改善候補タブで確認します。承認済み施策や効果保証ではありません。
+        </p>
+      </div>
+      <Link href={`${view.reportBase}/recommendations`} className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]">
+        改善候補を確認する
+        <ArrowRight className="h-4 w-4" />
+      </Link>
+    </section>
+  );
+}
+
+function ReportOverviewNextSteps({ links }: { links: ReportOverviewNextLink[] }) {
+  return (
+    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
+      <div>
+        <p className="text-xs font-bold text-[#00796B]">次に見る詳細</p>
+        <h2 className="mt-1 text-lg font-bold text-[#0F172A]">要点から、根拠の確認へ進む</h2>
+        <p className="mt-1 text-sm leading-6 text-[#64748B]">
+          概要で気になった数字を、回答・比較・参照元・改善候補の各タブで掘り下げます。
+        </p>
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        {links.map((item) => {
+          const Icon = item.icon;
+
+          return (
+            <Link
+              key={item.title}
+              href={item.href}
+              className="group rounded-[18px] border border-[#DDE8E5] bg-[#F6FAF9] p-4 transition hover:-translate-y-0.5 hover:border-[#00796B]/30 hover:bg-[#E6F4F1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
+            >
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#00796B] shadow-sm">
+                  <Icon className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-[#0F172A]">{item.title}</p>
+                    <ArrowRight className="h-4 w-4 text-[#00796B] transition group-hover:translate-x-0.5" />
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-[#64748B]">{item.description}</p>
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function createReportOverviewSourceRows(data?: RecoraLeaderboardDbData | null): ReportOverviewSourceRow[] {
+  if (!data?.project || data.citations.length === 0) return [];
+
+  const groupedSources = new Map<string, { domain: string; sourceTypeLabel: string; occurrenceCount: number }>();
+  let totalOccurrences = 0;
+
+  for (const citation of data.citations) {
+    const domain = citation.domain || getCitationDomain(citation.url);
+    if (!domain) continue;
+
+    const occurrenceCount = Number(citation.occurrence_count ?? 1);
+    const sourceRow = groupedSources.get(domain) ?? {
+      domain,
+      sourceTypeLabel: getSourceTypeLabel(citation.source_type),
+      occurrenceCount: 0
+    };
+
+    sourceRow.occurrenceCount += occurrenceCount;
+    totalOccurrences += occurrenceCount;
+    groupedSources.set(domain, sourceRow);
+  }
+
+  return Array.from(groupedSources.values())
+    .sort((a, b) => b.occurrenceCount - a.occurrenceCount)
+    .slice(0, 5)
+    .map((source) => ({
+      ...source,
+      occurrenceValue: formatReportOverviewCount(source.occurrenceCount),
+      share: totalOccurrences > 0 ? Math.round((source.occurrenceCount / totalOccurrences) * 100) : 0
+    }));
+}
+
+function getReportCitationOccurrenceCount(data?: RecoraLeaderboardDbData | null) {
+  if (!data?.project) return null;
+  return data.citations.reduce((sum, citation) => sum + Number(citation.occurrence_count ?? 1), 0);
+}
+
+function getCitationDomain(url: string | null) {
+  if (!url) return null;
+
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function getRoundedNumber(value: number | null | undefined) {
+  return typeof value === "number" ? Math.round(value) : null;
+}
+
+function formatReportOverviewPercent(value: number | null | undefined) {
+  return typeof value === "number" ? formatPercent(value) : "-";
+}
+
+function formatReportOverviewCount(value: number | null | undefined) {
+  return typeof value === "number" ? `${value}件` : "-";
+}
+
+function formatReportPeriod(start?: string | null, end?: string | null, fallback?: string | null) {
+  if (start || end) return `${start ?? "-"} - ${end ?? "-"}`;
+  return fallback ?? "-";
 }
 
 export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: RecoraLeaderboardDbData | null }) {
   const leaderboardView = createLeaderboardViewModel(leaderboardData);
 
   return (
-    <>
+    <div className="min-w-0 space-y-5">
       <PageHeader
-        eyebrow="競合"
-        title="競合ランキング"
-        description="AI回答内での自社と競合の表示状況を、AI表示率・AI言及数・参照回数・平均順位で比較します。数値はRecora独自の測定指標です。"
+        eyebrow="レポート詳細"
+        title="ブランド比較"
+        description="選択レポート内で、対象ブランドと比較ブランドがAI回答にどう表示されたかを確認します。公式順位や市場シェアではありません。"
         meta={<ReportFilters compact {...createReportFilterProps(leaderboardData)} />}
         actions={<HeaderActions />}
       />
       <DetailTabs items={reportDetailTabs.leaderboard} />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <MetricTile label={leaderboardView.primaryBrandName + "のAI表示率"} value={leaderboardView.primaryVisibility} helper="ブランド別測定データから集計" delta={leaderboardView.competitiveGapDelta} />
-        <MetricTile label="競合差分" value={leaderboardView.competitiveGapValue} helper="最上位競合とのAI表示率差" tone="amber" />
-        <MetricTile label="自社のAI内シェア" value={leaderboardView.primaryCitationShare} helper="ブランド別スナップショットから集計" delta={leaderboardView.competitiveGapDelta} />
+        <MetricTile label={leaderboardView.primaryBrandName + "のAI表示率"} value={leaderboardView.primaryVisibility} helper="このレポート内の観測値" />
+        <MetricTile label="比較ブランドとの差分" value={leaderboardView.competitiveGapValue} helper="同一レポート内の参考差分" tone="amber" />
+        <MetricTile label="AI回答内シェア" value={leaderboardView.primaryCitationShare} helper="Recora独自の観測指標" />
       </div>
 
-      <DataCard className="mt-5" title="ブランド別リーダーボード" description="1回の観測だけで結論づけず、測定ごとの傾向確認に使う比較表です。">
+      <DataCard title="AI回答内ブランドランキング" description="最新レポート内の観測順位です。勝敗や公式順位ではなく、詳細確認の入口として扱います。">
         <RankingTable rows={leaderboardView.rankingRows} />
       </DataCard>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <DataCard title="競合メモ" description="AI回答内で競合が強く出ている領域と、推薦・参照の状況です。">
+      <div className="grid gap-5 xl:grid-cols-2">
+        <DataCard title="比較ブランドの見え方" description="AI回答内で比較ブランドが出やすい領域を短く確認します。">
           <div className="space-y-3">
             {leaderboardView.competitorCards.length > 0 ? leaderboardView.competitorCards.map((competitor) => (
               <div key={competitor.id} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
@@ -2422,11 +2956,11 @@ export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: 
             )}
           </div>
         </DataCard>
-        <DataCard title="AIモデル別リーダーボード" description="AIモデルごとにRecoraのAI表示率が変わります。">
+        <DataCard title="AIモデル別の見え方" description="AIモデル別スナップショットがある場合のみ表示します。平均順位は条件付きの参考値です。">
           <ModelVisibilityTable rows={leaderboardView.modelRows} />
         </DataCard>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -2605,11 +3139,11 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
   const conversationRows = createConversationDisplayRows(conversationsData);
 
   return (
-    <>
+    <div className="min-w-0 space-y-5">
       <PageHeader
-        eyebrow={"モニタリング"}
-        title={"AI回答ログ"}
-        description={"ペルソナ、トピック、プロンプト、AIモデルごとに取得したAI回答を確認します。"}
+        eyebrow={"レポート詳細"}
+        title={"AI回答"}
+        description={"実際のAI回答内で、ブランドがどう扱われたかを回答単位で確認します。raw responseではなく、表示用に整理した要約です。"}
         meta={<ReportFilters compact {...createReportFilterProps(conversationsData)} />}
         actions={
           <>
@@ -2624,8 +3158,8 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
       <DetailTabs items={reportDetailTabs.conversations} />
 
       <DataCard
-        title={"AI回答ログ"}
-        description={String(conversationRows.length) + "件のAI回答について、ブランド言及、言及されたブランド、参照元を一覧化しています。"}
+        title={"AI回答の観測ログ"}
+        description={String(conversationRows.length) + "件のAI回答について、ブランド言及、参照元、回答要約を一覧化しています。"}
       >
         {conversationRows.length > 0 ? (
           <Table className="min-w-[1080px]">
@@ -2702,7 +3236,7 @@ export function ConversationsPage({ conversationsData = null }: { conversationsD
           <EmptyStateBlock title="まだAI回答ログがありません" description="測定を実行すると、取得したAI回答がここに表示されます。" />
         )}
       </DataCard>
-    </>
+    </div>
   );
 }
 
@@ -2710,11 +3244,11 @@ export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSource
   const sourceDisplay = createSourcesDisplayData(sourcesData);
 
   return (
-    <>
+    <div className="min-w-0 space-y-5">
       <PageHeader
-        eyebrow={"モニタリング"}
-        title={"参照元分析"}
-        description={"AI回答で参照されたドメインとURLを、自社・競合・第三者参照元に分けて確認します。"}
+        eyebrow={"レポート詳細"}
+        title={"参照元"}
+        description={"AI回答で参照として出現したドメインとURLを確認します。参照数は根拠確認済み件数ではありません。"}
         meta={<ReportFilters compact {...createReportFilterProps(sourcesData)} />}
         actions={<HeaderActions />}
       />
@@ -2746,21 +3280,19 @@ export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSource
       </div>
 
       <DataCard
-        className="mt-5"
         title={"参照元ドメイン"}
-        description={"ドメイン別の参照回数、参照シェア、カテゴリ、主なURLをまとめています。"}
+        description={"ドメイン別の参照出現数、参照シェア、カテゴリ、主なURLをまとめています。"}
       >
         <SourcesTable rows={sourceDisplay.sourceRows} />
       </DataCard>
 
       <DataCard
-        className="mt-5"
         title={"参照されたURL"}
-        description={"AI回答で参照されたURLを一覧化しています。OpenAI web_search由来のURLも同じ形で扱える構成です。"}
+        description={"AI回答で参照として出現したURLを一覧化しています。source-to-claim supportとは分けて確認します。"}
       >
         <CitationsTable rows={sourceDisplay.citationRows} />
       </DataCard>
-    </>
+    </div>
   );
 }
 
@@ -3042,10 +3574,10 @@ export function BuyerCriteriaPage() {
         meta={<ReportFilters compact />}
         actions={<HeaderActions />}
       />
-      <DetailTabs items={["選定基準", "勝ち負け要因", "補強すべき根拠"]} />
+      <DetailTabs items={["選定基準", "比較要因", "補強すべき根拠"]} />
 
       <div className="grid gap-4 lg:grid-cols-4">
-        <MetricTile label="勝ち項目" value="2 / 7" helper="参照元追跡、改善提案" tone="green" />
+        <MetricTile label="強い項目" value="2 / 7" helper="参照元追跡、改善候補" tone="green" />
         <MetricTile label="僅差負け" value="2" helper="カバレッジ、使いやすさ" tone="amber" />
         <MetricTile label="最大差分" value="25 pt" helper="サイト技術診断" tone="amber" />
         <MetricTile label="加重スコア" value="71" helper="サンプル加重平均" delta={4} />
@@ -3139,7 +3671,7 @@ export function TechnicalAuditPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <MetricTile label="診断スコア" value="63" helper="チェック平均" tone="amber" />
         <MetricTile label="要改善" value="2" helper="比較根拠、選定基準" tone="amber" />
-        <MetricTile label="良好" value="2" helper="エンティティ説明、改善提案" tone="green" />
+        <MetricTile label="良好" value="2" helper="エンティティ説明、改善候補" tone="green" />
       </div>
 
       <DataCard className="mt-5" title="サイト技術診断チェック" description="完全自動実行ではなく、サンプル診断結果として表示しています。">
@@ -3240,7 +3772,7 @@ const placeholderPageDetails: Record<PlaceholderRouteKey, PlaceholderPageDetail>
   export: {
     outcome: "分析結果を社内共有、顧客報告、改善タスク化に使える形へ出力するための画面です。",
     canCheck: [
-      "出力対象に含めるKPI、AI回答ログ、参照元、改善提案",
+      "出力対象に含めるKPI、AI回答ログ、参照元、改善候補",
       "CSV、共有用レポート、タスク一覧の出力イメージ",
       "期間、地域、AIモデルで絞り込んだ出力範囲"
     ],
@@ -3252,12 +3784,12 @@ const placeholderPageDetails: Record<PlaceholderRouteKey, PlaceholderPageDetail>
     requiredData: [
       "AI表示率、AI回答ログ",
       "参照回数、参照元、選定基準",
-      "改善提案と改善タスク"
+      "改善候補と確認タスク"
     ],
     links: [
       { label: "参照元分析", href: `${reportBase}/sources`, helper: "出力対象の参照データを見る" },
-      { label: "選定基準分析", href: `${reportBase}/buyer-criteria`, helper: "報告に使う勝ち負けを確認する" },
-      { label: "改善提案", href: `${reportBase}/recommendations`, helper: "出力する施策候補を見る" }
+      { label: "選定基準分析", href: `${reportBase}/buyer-criteria`, helper: "比較要因を確認する" },
+      { label: "改善候補", href: `${reportBase}/recommendations`, helper: "出力する候補を見る" }
     ]
   },
   prompts: {
@@ -3268,7 +3800,7 @@ const placeholderPageDetails: Record<PlaceholderRouteKey, PlaceholderPageDetail>
       "AIモデルごとの差が出やすい質問パターン"
     ],
     planned: [
-      "プロンプト分類と意図別の勝ち負け集計",
+      "プロンプト分類と意図別の比較要因集計",
       "AIモデル別の違いと未取得プロンプトの検出",
       "改善に使うプロンプトギャップスコア"
     ],
@@ -3292,7 +3824,7 @@ const placeholderPageDetails: Record<PlaceholderRouteKey, PlaceholderPageDetail>
     ],
     planned: [
       "スコア内訳と推定改善幅の表示",
-      "改善提案から改善プランへの変換",
+      "改善候補から確認プランへの変換",
       "担当者、期限、完了状態の紐づけ"
     ],
     requiredData: [
@@ -3330,11 +3862,11 @@ const placeholderPageDetails: Record<PlaceholderRouteKey, PlaceholderPageDetail>
     ]
   },
   actionPlan: {
-    outcome: "改善提案を30/60/90日の実行計画に落とし込み、チームで進捗を管理する画面です。",
+    outcome: "改善候補を30/60/90日の確認計画に落とし込み、チームで進捗を管理する画面です。",
     canCheck: [
       "優先タスク、推定効果、関連カテゴリ、期限",
       "短期で直す基盤、中期で強化するコンテンツ、長期で広げる存在感",
-      "改善提案と実行タスクの接続"
+      "改善候補と確認タスクの接続"
     ],
     planned: [
       "30/60/90日プランとタスク管理",
@@ -3342,12 +3874,12 @@ const placeholderPageDetails: Record<PlaceholderRouteKey, PlaceholderPageDetail>
       "完了タスクがAI表示率に与えた影響の記録"
     ],
     requiredData: [
-      "改善提案とコンテンツ改善案",
+      "改善候補とコンテンツ改善案",
       "サイト技術診断と参照元",
       "チームメンバーとタスク状況"
     ],
     links: [
-      { label: "改善提案", href: `${reportBase}/recommendations`, helper: "施策候補を見る" },
+      { label: "改善候補", href: `${reportBase}/recommendations`, helper: "確認候補を見る" },
       { label: "コンテンツ改善案", href: `${reportBase}/content-opportunities`, helper: "作るべきページを見る" },
       { label: "サイト技術診断", href: `${reportBase}/technical-audit`, helper: "技術タスクを見る" }
     ]
@@ -3569,20 +4101,35 @@ export function ApiIntegrationsConfigPage() {
   return <PlaceholderPageShell summaryKey="apiIntegrations" eyebrow="設定" />;
 }
 
-export function PersonasConfigPage() {
+export function PersonasConfigPage({ topicsPromptsData = null }: { topicsPromptsData?: RecoraTopicsPromptsDbData | null }) {
+  const project = topicsPromptsData?.project ?? null;
+  const dbPersonas = topicsPromptsData?.personas ?? [];
+  const dbPrompts = topicsPromptsData?.prompts ?? [];
+  const activePromptCount = dbPrompts.filter((prompt) => prompt.is_active).length;
+
   return (
-    <>
+    <div className="min-w-0 space-y-5">
       <PageHeader
-        eyebrow="設定"
+        eyebrow="レポート設定"
         title="ペルソナ"
-        description="AI回答を取得する購買ペルソナです。各ペルソナの重みがAI表示率の集計に反映されます。"
-        meta={<ReportFilters compact />}
+        description="AI検索測定で使う購買ペルソナを確認します。ここでは測定対象の前提を見せ、成果保証やorganic discoveryの証明には使いません。"
         actions={<HeaderActions />}
       />
-      <DataCard title="ペルソナ設定">
-        <PersonasTable />
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricTile label="ペルソナ数" value={project ? formatNullableCount(dbPersonas.length) : "-"} helper={project?.name ?? "プロジェクト未確認"} />
+        <MetricTile label="プロンプト数" value={project ? formatNullableCount(dbPrompts.length) : "-"} helper="紐づく測定質問" />
+        <MetricTile label="有効プロンプト数" value={project ? formatNullableCount(activePromptCount) : "-"} helper="測定対象として有効" tone="slate" />
+      </div>
+
+      <DataCard title="ペルソナ一覧" description="DBに登録された購買層と、関連プロンプト数を確認します。">
+        {dbPersonas.length > 0 ? (
+          <DbPersonasTable personas={dbPersonas} prompts={dbPrompts} />
+        ) : (
+          <EmptyStateBlock title="まだペルソナがありません" description="ペルソナが登録されると、ここで測定対象の前提を確認できます。" />
+        )}
       </DataCard>
-    </>
+    </div>
   );
 }
 
@@ -3634,38 +4181,260 @@ export function TopicsPromptsConfigPage() {
   );
 }
 
-export function CompetitorsConfigPage() {
+export function CompetitorsConfigPage({ dashboardData = null }: { dashboardData?: RecoraDashboardDbData | null }) {
+  const brands = dashboardData?.brands ?? [];
+  const primaryBrand = brands.find((item) => item.brand_type === "primary") ?? null;
+  const competitorBrands = brands.filter((item) => item.brand_type === "competitor");
+
   return (
-    <>
+    <div className="min-w-0 space-y-5">
       <PageHeader
-        eyebrow="設定"
-        title="競合"
-        description="AI回答内でRecoraと比較される競合ブランドです。"
-        meta={<ReportFilters compact />}
+        eyebrow="レポート設定"
+        title="比較ブランド"
+        description="選択レポートで比較対象として扱うブランドを確認します。seedされた比較対象はorganic discoveryの証明として扱いません。"
         actions={<HeaderActions />}
       />
-      <DataCard title="競合セット">
-        <CompetitorsTable />
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricTile label="対象ブランド" value={primaryBrand?.name ?? "-"} helper={primaryBrand?.domain ?? "未設定"} />
+        <MetricTile label="比較ブランド数" value={dashboardData?.project ? formatNullableCount(competitorBrands.length) : "-"} helper="DBに登録された比較対象" />
+        <MetricTile label="プロジェクト" value={dashboardData?.project?.name ?? "-"} helper="現在の設定範囲" tone="slate" />
+      </div>
+
+      <DataCard title="比較ブランド一覧" description="比較対象として登録されているブランドです。AI上の自然発見を保証するものではありません。">
+        {brands.length > 0 ? (
+          <DbBrandsTable brands={brands} />
+        ) : (
+          <EmptyStateBlock title="比較ブランドを表示できません" description="ブランド設定が登録されると、ここに対象ブランドと比較ブランドが表示されます。" />
+        )}
       </DataCard>
-    </>
+    </div>
   );
 }
 
-export function ModelsConfigPage() {
+export function ModelsConfigPage({ conversationsData = null }: { conversationsData?: RecoraConversationsDbData | null }) {
+  const modelRows = createModelsConfigRows(conversationsData);
+
   return (
-    <>
+    <div className="min-w-0 space-y-5">
       <PageHeader
-        eyebrow="設定"
+        eyebrow="レポート設定"
         title="AIモデル"
-        description="AI回答を取得・比較するAIモデルセットです。ここではサンプル評価値を表示しています。"
-        meta={<ReportFilters compact />}
+        description="このレポートで観測されたAIモデルを確認します。モデル別の表示率は、条件が揃う場合のみ参考値として扱います。"
         actions={<HeaderActions />}
       />
-      <DataCard title="AIモデル設定">
-        <ModelsTable />
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricTile label="観測モデル数" value={conversationsData?.project ? formatNullableCount(modelRows.length) : "-"} helper="回答ログに紐づくモデル" />
+        <MetricTile label="AI回答数" value={formatNullableCount(conversationsData?.conversations.length)} helper="取得済み回答" />
+        <MetricTile label="参照出現行数" value={formatNullableCount(conversationsData?.citations.length)} helper="根拠確認済み数ではありません" tone="slate" />
+      </div>
+
+      <DataCard title="AIモデル一覧" description="測定で使われたモデルと、取得済み回答・ブランド表示・参照出現を確認します。">
+        {modelRows.length > 0 ? (
+          <DbModelsTable rows={modelRows} />
+        ) : (
+          <EmptyStateBlock title="AIモデルを表示できません" description="測定が完了すると、回答ログに紐づくAIモデルがここに表示されます。" />
+        )}
       </DataCard>
-    </>
+    </div>
   );
+}
+
+type ModelsConfigRow = {
+  id: string;
+  name: string;
+  provider: string;
+  aiAnswerCount: number;
+  brandMentionCount: number;
+  citationOccurrenceCount: number;
+  lastMeasuredAt: string;
+};
+
+function DbPersonasTable({
+  personas,
+  prompts
+}: {
+  personas: RecoraTopicsPromptsDbData["personas"];
+  prompts: RecoraTopicsPromptsDbData["prompts"];
+}) {
+  return (
+    <Table className="min-w-[920px]">
+      <TableHeader>
+        <TableRow>
+          <TableHead className="min-w-[220px]">ペルソナ</TableHead>
+          <TableHead>セグメント</TableHead>
+          <TableHead>重み</TableHead>
+          <TableHead>関連プロンプト</TableHead>
+          <TableHead className="min-w-[260px]">主なジョブ</TableHead>
+          <TableHead className="min-w-[260px]">確認したい課題</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {personas.map((persona) => {
+          const personaPrompts = prompts.filter((prompt) => prompt.persona_id === persona.id);
+          const jobs = jsonToStringList(persona.jobs);
+          const painPoints = jsonToStringList(persona.pain_points);
+
+          return (
+            <TableRow key={persona.id}>
+              <TableCell className="min-w-[220px]">
+                <div className="font-bold text-slate-950">{persona.name}</div>
+                <div className="mt-1 text-xs text-slate-500">{persona.is_active ? "active" : "inactive"}</div>
+              </TableCell>
+              <TableCell>{persona.segment ?? "-"}</TableCell>
+              <TableCell className="whitespace-nowrap">{persona.weight}</TableCell>
+              <TableCell className="whitespace-nowrap font-semibold">{personaPrompts.length}件</TableCell>
+              <TableCell className="min-w-[260px]">
+                <TagList values={jobs} emptyLabel="未設定" />
+              </TableCell>
+              <TableCell className="min-w-[260px]">
+                <TagList values={painPoints} emptyLabel="未設定" />
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
+  );
+}
+
+function DbBrandsTable({ brands }: { brands: RecoraBrandRow[] }) {
+  return (
+    <Table className="min-w-[860px]">
+      <TableHeader>
+        <TableRow>
+          <TableHead className="min-w-[220px]">ブランド</TableHead>
+          <TableHead>種別</TableHead>
+          <TableHead>ドメイン</TableHead>
+          <TableHead>カテゴリ</TableHead>
+          <TableHead>状態</TableHead>
+          <TableHead className="min-w-[280px]">説明</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {brands.map((item) => (
+          <TableRow key={item.id}>
+            <TableCell className="min-w-[220px]">
+              <div className="font-bold text-slate-950">{item.name}</div>
+              <div className="mt-1 text-xs text-slate-500">{item.reading ?? "-"}</div>
+            </TableCell>
+            <TableCell>
+              <Badge variant="outline" className={cn("rounded-sm", item.brand_type === "primary" ? "border-[#00796B]/25 bg-[#E6F4F1] text-[#00796B]" : "border-slate-200 bg-slate-50 text-slate-600")}>
+                {item.brand_type === "primary" ? "対象ブランド" : "比較ブランド"}
+              </Badge>
+            </TableCell>
+            <TableCell className="font-mono text-xs">{item.domain ?? "-"}</TableCell>
+            <TableCell>{item.category ?? "-"}</TableCell>
+            <TableCell>{item.is_active ? "active" : "inactive"}</TableCell>
+            <TableCell className="min-w-[280px] text-sm leading-6 text-slate-600">
+              {item.description ?? "説明は未設定です。"}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function createModelsConfigRows(data?: RecoraConversationsDbData | null): ModelsConfigRow[] {
+  if (!data?.project) return [];
+
+  const modelById = new Map(data.aiModels.map((model) => [model.id, model]));
+  const runItemsByModelId = groupBy(data.runItems, (item) => item.model_id);
+  const runItemById = new Map(data.runItems.map((item) => [item.id, item]));
+  const mentionsByConversationId = groupBy(data.brandMentions, (item) => item.conversation_id);
+  const citationsByConversationId = groupBy(data.citations, (item) => item.conversation_id);
+
+  return Array.from(modelById.values())
+    .map((model) => {
+      const modelRunItemIds = new Set((runItemsByModelId.get(model.id) ?? []).map((item) => item.id));
+      const conversationsForModel = data.conversations.filter((conversation) => modelRunItemIds.has(conversation.run_item_id));
+      const brandMentionCount = conversationsForModel.reduce((sum, conversation) => (
+        sum + (mentionsByConversationId.get(conversation.id) ?? []).filter((mention) => mention.mentioned).length
+      ), 0);
+      const citationOccurrenceCount = conversationsForModel.reduce((sum, conversation) => (
+        sum + (citationsByConversationId.get(conversation.id) ?? []).reduce((citationSum, citation) => citationSum + Number(citation.occurrence_count ?? 1), 0)
+      ), 0);
+      const latestMeasuredAt = conversationsForModel
+        .map((conversation) => conversation.measured_at ?? conversation.captured_at)
+        .sort()
+        .at(-1);
+
+      return {
+        id: model.id,
+        name: model.display_name,
+        provider: model.provider,
+        aiAnswerCount: conversationsForModel.length,
+        brandMentionCount,
+        citationOccurrenceCount,
+        lastMeasuredAt: formatDateTime(latestMeasuredAt)
+      };
+    })
+    .sort((a, b) => b.aiAnswerCount - a.aiAnswerCount || a.name.localeCompare(b.name));
+}
+
+function DbModelsTable({ rows }: { rows: ModelsConfigRow[] }) {
+  return (
+    <Table className="min-w-[840px]">
+      <TableHeader>
+        <TableRow>
+          <TableHead className="min-w-[220px]">AIモデル</TableHead>
+          <TableHead>提供元</TableHead>
+          <TableHead>AI回答数</TableHead>
+          <TableHead>ブランド表示観測</TableHead>
+          <TableHead>参照出現</TableHead>
+          <TableHead>最終観測</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.id}>
+            <TableCell className="min-w-[220px] font-bold text-slate-950">{row.name}</TableCell>
+            <TableCell>{row.provider}</TableCell>
+            <TableCell className="font-semibold">{row.aiAnswerCount}件</TableCell>
+            <TableCell className="font-semibold">{row.brandMentionCount}件</TableCell>
+            <TableCell className="font-semibold">{row.citationOccurrenceCount}件</TableCell>
+            <TableCell>{row.lastMeasuredAt}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function TagList({ values, emptyLabel }: { values: string[]; emptyLabel: string }) {
+  const displayValues = values.slice(0, 4);
+  if (displayValues.length === 0) {
+    return <span className="text-sm text-slate-500">{emptyLabel}</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {displayValues.map((value) => (
+        <Badge key={value} variant="muted" className="font-medium">
+          {value}
+        </Badge>
+      ))}
+      {values.length > displayValues.length ? (
+        <Badge variant="outline" className="rounded-sm border-slate-200 bg-slate-50 text-slate-600">
+          +{values.length - displayValues.length}
+        </Badge>
+      ) : null}
+    </div>
+  );
+}
+
+function jsonToStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => typeof item === "string" ? [item] : []);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    return [value];
+  }
+
+  return [];
 }
 
 export function SettingsConfigPage() {
@@ -3853,7 +4622,7 @@ function CompetitiveRankingCard({ rows }: { rows?: DashboardRankingRow[] }) {
 
   return (
     <DashboardCard
-      title="競合ランキング（AI表示率）"
+      title="ブランド比較（AI表示率）"
       description="Recoraと競合のAI表示率を比較します。"
       action={<Link href={`${reportBase}/leaderboard`} className="text-xs font-bold text-[#00796B]">競合比較へ</Link>}
     >
@@ -4682,7 +5451,7 @@ function ReportSummaryBlock({ dashboardView }: { dashboardView?: DashboardHomeVi
         <TableBody>
           {[
             ["概要", "AI表示率は一部で改善中", "サイト技術診断領域が弱い", `${reportBase}/overview`],
-            ["競合ランキング", "順位と競合差分を確認", "首位との差を確認", `${reportBase}/leaderboard`],
+            ["ブランド比較", "観測順位と比較差分を確認", "上位ブランドとの差を確認", `${reportBase}/leaderboard`],
             ["参照元分析", "自社参照は31%", "競合参照元がまだ強い", `${reportBase}/sources`],
             ["選定基準分析", "2項目で勝ち", "レポート品質と技術根拠が不足", `${reportBase}/buyer-criteria`]
           ].map(([area, state, risk, href]) => (

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Download, ExternalLink, RefreshCw, Share2 } from "lucide-react";
+import { Download, ExternalLink, RefreshCw, Share2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,42 +67,40 @@ type EvidenceMetrics = {
   matchedClueCount: number;
 };
 
-const reportBase = "/dashboard/reports/recora-kenzai-q2";
-
 export function RecommendationsDbPage({ recommendationsData = null }: { recommendationsData?: RecoraRecommendationsDbData | null }) {
   const view = createRecommendationsViewModel(recommendationsData);
   const topItems = view.items.slice(0, 3);
 
   return (
-    <>
+    <div className="min-w-0 space-y-5">
       <PageHeader
-        eyebrow="改善"
-        title="改善提案"
-        description="AI表示率と競合差分から、優先して直す施策を整理します。数値はRecora独自の測定結果にもとづく参考指標です。"
+        eyebrow="レポート詳細"
+        title="改善候補"
+        description="AI検索での観測結果から、次に確認したい改善候補を整理します。承認済み施策や効果保証ではありません。"
         meta={<ReportFilters compact data={recommendationsData} />}
         actions={<HeaderActions />}
       />
       <DetailTabs items={reportDetailTabs.recommendations} />
 
       <div className="grid gap-4 lg:grid-cols-4">
-        <MetricTile label="表示項目" value={String(view.items.length)} helper={view.sourceLabel} />
+        <MetricTile label="改善候補数" value={String(view.items.length)} helper={view.sourceLabel} />
         <MetricTile label="高優先度" value={String(view.highPriorityCount)} helper="priority high" tone="amber" />
         <MetricTile label="観測数" value={String(view.observationCount)} helper="latest standard-v01" />
-        <MetricTile label="引用URL数" value={String(view.citationUrlCount)} helper="web-search由来" tone="slate" />
+        <MetricTile label="参照URL数" value={String(view.citationUrlCount)} helper="根拠確認済み数ではありません" tone="slate" />
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <DataCard title="最新standard-v01の機械生成インサイト" description="断定ではなく、AI検索での観測結果から表示する確認材料です。">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <DataCard title="優先して確認したい改善候補" description="断定ではなく、AI検索での観測結果から表示する確認材料です。">
           <div className="space-y-4">
             {topItems.length > 0 ? topItems.map((item) => (
               <RecommendationActionCard key={item.id} item={item} />
             )) : (
-              <EmptyStateBlock title="表示できるrecommendationsがありません" description="最新standard-v01由来の表示対象が保存されると、ここに表示されます。" />
+              <EmptyStateBlock title="表示できる改善候補がありません" description="最新standard-v01由来の表示対象が保存されると、ここに表示されます。" />
             )}
           </div>
         </DataCard>
 
-        <DataCard title="対応状況" description="今の改善提案の状態を要約しています。">
+        <DataCard title="確認状況" description="改善候補の状態を要約しています。完了は効果保証を意味しません。">
           <div className="space-y-4">
             <RecommendationStatusRow label="未着手" value={view.openCount} tone="rose" />
             <RecommendationStatusRow label="計画中" value={view.plannedCount} tone="amber" />
@@ -110,20 +108,16 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
             <div className="rounded-lg border border-teal-100 bg-teal-50/70 p-3 text-xs leading-5 text-teal-800">
               {"最新standard-v01由来かつdisplay_decision=showの項目だけを表示しています。Recora独自の観測です。"}
             </div>
-            <div className="grid gap-2">
-              <PlaceholderLink href={reportBase + "/action-plan"} label="改善プラン" helper="30/60/90日の実行計画に落とし込む" />
-              <PlaceholderLink href={reportBase + "/content-opportunities"} label="コンテンツ改善案" helper="作るべきページを確認する" />
-            </div>
           </div>
         </DataCard>
       </div>
 
-      <DataCard className="mt-5" title="インサイト一覧" description="最新standard-v01由来の表示対象だけを、区分と観測根拠付きで表示します。">
+      <DataCard title="改善候補一覧" description="最新standard-v01由来の表示対象だけを、区分と観測根拠付きで表示します。">
         <div className="overflow-x-auto">
           <RecommendationsTable rows={view.items} />
         </div>
       </DataCard>
-    </>
+    </div>
   );
 }
 
@@ -160,7 +154,9 @@ function createDbRecommendationItems(data: RecoraRecommendationsDbData): Recomme
       const expectedImpact = getMetadataString(metadata, "expected_impact") ?? "+" + Math.round(item.impact_score) + "pt";
       const effortScore = item.effort_score === null ? 0 : Math.round(item.effort_score);
       const relatedBrand = getMetadataString(metadata, "related_brand") ?? getMetadataString(metadata, "brand") ?? primaryBrand?.name ?? "未設定";
-      const displayCategory = getMetadataString(metadata, "display_category") ?? recommendationTypeLabel(item.type);
+      const displayCategory = normalizeRecommendationDisplayCategory(
+        getMetadataString(metadata, "display_category") ?? recommendationTypeLabel(item.type)
+      );
       const confidence = getMetadataString(metadata, "confidence") ?? "unknown";
       const evidenceMetrics = buildEvidenceMetrics(evidence, displayCategory);
 
@@ -257,21 +253,6 @@ function FilterBox({ label, value }: { label: string; value: string }) {
       <p className="text-xs font-semibold text-slate-500">{label}</p>
       <p className="mt-1 truncate text-sm font-bold text-slate-950">{value}</p>
     </div>
-  );
-}
-
-function PlaceholderLink({ href, label, helper }: { href: string; label: string; helper: string }) {
-  return (
-    <Link
-      href={href}
-      className="group flex min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-    >
-      <span className="min-w-0">
-        <span className="block">{label}</span>
-        <span className="mt-1 block truncate text-xs font-semibold text-slate-500 group-hover:text-blue-600">{helper}</span>
-      </span>
-      <ArrowRight className="h-4 w-4 shrink-0 transition group-hover:translate-x-0.5" />
-    </Link>
   );
 }
 
@@ -435,7 +416,7 @@ function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
         )) : (
           <TableRow>
             <TableCell colSpan={8} className="text-sm text-slate-500">
-              表示できるrecommendationsがありません。最新standard-v01由来の表示対象が保存されるとここに表示されます。
+              表示できる改善候補がありません。最新standard-v01由来の表示対象が保存されるとここに表示されます。
             </TableCell>
           </TableRow>
         )}
@@ -458,7 +439,7 @@ function RecommendationPriorityBadge({ item }: { item: RecommendationDisplayItem
 }
 
 function DisplayCategoryBadge({ item }: { item: RecommendationDisplayItem }) {
-  const className = item.displayCategory === "改善提案"
+  const className = item.displayCategory === "改善候補"
     ? "border-teal-200 bg-teal-50 text-teal-700"
     : item.displayCategory === "引用確認事項"
       ? "border-blue-200 bg-blue-50 text-blue-700"
@@ -506,6 +487,11 @@ function recommendationTypeLabel(type: RecoraRecommendationRow["type"]) {
     competitive: "競合"
   };
   return labels[type];
+}
+
+function normalizeRecommendationDisplayCategory(value: string) {
+  if (value === "改善提案" || value === "インサイト") return "改善候補";
+  return value;
 }
 
 function recommendationStateLabel(status: RecoraRecommendationRow["status"]) {
@@ -578,14 +564,14 @@ function buildEvidenceMetrics(evidence: Record<string, unknown>, displayCategory
 }
 
 function focusedObservationLabel(displayCategory: string) {
-  if (displayCategory === "改善提案") return "未表示観測数";
+  if (displayCategory === "改善候補") return "未表示観測数";
   if (displayCategory === "引用確認事項") return "web-search観測数";
   if (displayCategory === "サンプル不足") return "対象観測数";
   return "対象観測数";
 }
 
 function buildEvidenceDescription(displayCategory: string, metrics: EvidenceMetrics) {
-  if (displayCategory === "改善提案") {
+  if (displayCategory === "改善候補") {
     return `今回の観測範囲では、${metrics.observationCount}件中${metrics.focusedObservationCount}件で対象ブランドの明示言及を確認できませんでした。`;
   }
 
