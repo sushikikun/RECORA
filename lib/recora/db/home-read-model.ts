@@ -23,6 +23,7 @@ import type {
   RecoraAiConversationRow,
   RecoraBrandMentionRow,
   RecoraBrandRow,
+  RecoraCumulativeSourceDomainRank,
   RecoraCitationRow,
   RecoraCumulativeHomeSummary,
   RecoraHomeDataCautionFlag,
@@ -134,7 +135,8 @@ export async function getRecoraHomeReadModelData(
       brandMentions,
       citations,
       primaryBrand
-    })
+    }),
+    citations
   });
   const trendHomeSummary = buildTrendHomeSummary({
     runs: runClassification.measurementRuns,
@@ -189,17 +191,20 @@ function buildCumulativeHomeSummary({
   observationModel,
   recommendations,
   primaryBrand,
-  counts
+  counts,
+  citations
 }: {
   runClassification: RunClassification;
   observationModel: ObservationModel;
   recommendations: RecoraRecommendationRow[];
   primaryBrand: RecoraBrandRow | null;
   counts: HomeCounts;
+  citations: RecoraCitationRow[];
 }): RecoraCumulativeHomeSummary {
   return {
     aggregationPeriod: getAggregationPeriod(runClassification.measurementRuns),
     ...counts,
+    sourceDomainRanking: buildSourceDomainRanking(citations),
     recommendationCandidateCount: recommendations.length,
     dataCautionFlags: buildCumulativeCautionFlags({
       runClassification,
@@ -317,6 +322,51 @@ function buildHomeCounts({
     citationUrlCount: uniqueValues(displayableCitations.map(getCitationUrlKey)).length,
     sourceDomainCount: uniqueValues(displayableCitations.map((citation) => citation.domain)).length
   };
+}
+
+function buildSourceDomainRanking(citations: RecoraCitationRow[]): RecoraCumulativeSourceDomainRank[] {
+  const rows = new Map<string, {
+    domain: string;
+    sourceType: RecoraCitationRow["source_type"];
+    occurrenceCount: number;
+    citationRowCount: number;
+    citationUrlKeys: Set<string>;
+  }>();
+
+  for (const citation of citations.filter(isDisplayableCitation)) {
+    const domain = citation.domain.trim();
+    if (!domain) continue;
+
+    const key = domain.toLowerCase();
+    const current = rows.get(key) ?? {
+      domain,
+      sourceType: citation.source_type,
+      occurrenceCount: 0,
+      citationRowCount: 0,
+      citationUrlKeys: new Set<string>()
+    };
+    const urlKey = getCitationUrlKey(citation);
+
+    current.occurrenceCount += Math.max(1, citation.occurrence_count ?? 1);
+    current.citationRowCount += 1;
+    if (urlKey) current.citationUrlKeys.add(urlKey);
+    rows.set(key, current);
+  }
+
+  return Array.from(rows.values())
+    .map((row) => ({
+      domain: row.domain,
+      sourceType: row.sourceType,
+      occurrenceCount: row.occurrenceCount,
+      citationUrlCount: row.citationUrlKeys.size,
+      citationRowCount: row.citationRowCount
+    }))
+    .sort((a, b) =>
+      b.occurrenceCount - a.occurrenceCount ||
+      b.citationUrlCount - a.citationUrlCount ||
+      a.domain.localeCompare(b.domain)
+    )
+    .slice(0, 5);
 }
 
 function buildCumulativeCautionFlags({

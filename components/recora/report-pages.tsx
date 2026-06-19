@@ -1,14 +1,21 @@
 import Link from "next/link";
 import { RecommendationsDbPage } from "@/components/recora/recommendations-page";
 import {
+  Activity,
+  AlertTriangle,
   ArrowRight,
+  BarChart3,
+  CheckCircle2,
   Crown,
   Download,
   ExternalLink,
+  FileText,
   Filter,
+  ListChecks,
   RefreshCw,
   Search,
-  Share2
+  Share2,
+  ShieldCheck
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,7 +50,7 @@ import {
 } from "@/lib/recora/sample-data";
 import { createTemporaryReportViewModel, type TemporaryReportViewModel } from "@/lib/recora/report-view-model";
 import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-config";
-import type { RecoraConversationsDbData, RecoraDashboardDbData, RecoraHomeDataCautionFlag, RecoraHomeReadModelDbData, RecoraLeaderboardDbData, RecoraRecommendationRow, RecoraRecommendationsDbData, RecoraSourcesDbData, RecoraTrendHomePoint } from "@/lib/recora/db";
+import type { RecoraConversationsDbData, RecoraCumulativeSourceDomainRank, RecoraDashboardDbData, RecoraHomeDataCautionFlag, RecoraHomeReadModelDbData, RecoraLeaderboardDbData, RecoraRecommendationRow, RecoraRecommendationsDbData, RecoraSourcesDbData, RecoraTrendHomePoint } from "@/lib/recora/db";
 import {
   AlertBanner,
   DashboardCard,
@@ -181,34 +188,6 @@ const roadmapSteps = [
   }
 ];
 
-const dashboardKpiCardTemplates = [
-  {
-    label: "AI表示率",
-    helper: "AI回答でRecoraが表示された割合",
-    tone: "blue" as const
-  },
-  {
-    label: "AI言及数",
-    helper: "対象プロンプト内のブランド言及",
-    tone: "blue" as const
-  },
-  {
-    label: "参照回数",
-    helper: "AI回答に参照された回数",
-    tone: "blue" as const
-  },
-  {
-    label: "競合差分",
-    helper: "首位ブランドとのAI表示率の差",
-    tone: "amber" as const
-  },
-  {
-    label: "改善優先度",
-    helper: "優先提案から算出",
-    tone: "green" as const
-  }
-];
-
 const dashboardAlerts = [
   {
     title: "AI表示率の低下",
@@ -279,9 +258,23 @@ type DashboardHomeCountMetric = {
   value: string;
   helper?: string;
 };
+type DashboardLatestReportStat = {
+  label: string;
+  value: string;
+  helper?: string;
+};
 type DashboardHomeTrendRow = {
   label: string;
   value: string;
+};
+type DashboardSourceDomainRankRow = {
+  domain: string;
+  sourceTypeLabel: string;
+  occurrenceCount: number;
+  occurrenceValue: string;
+  citationUrlValue: string;
+  citationRowValue: string;
+  share: number;
 };
 type DashboardHomeReadModelView = {
   hasHomeReadModel: boolean;
@@ -299,6 +292,8 @@ type DashboardHomeReadModelView = {
   trendBars: number[];
   trendRows: DashboardHomeTrendRow[];
   trendMax: number;
+  sourceDomainRanking: DashboardSourceDomainRankRow[];
+  sourceDomainRankingMax: number;
 };
 type DashboardRankingRow = {
   brandId: string;
@@ -319,6 +314,8 @@ type DashboardRankingRow = {
 };
 type DashboardHomeViewModel = {
   hasDbData: boolean;
+  hasLatestReportMetrics: boolean;
+  hasLeaderboardData: boolean;
   projectName: string;
   period: string;
   comparisonPeriod: string;
@@ -335,6 +332,7 @@ type DashboardHomeViewModel = {
   homeReadModel: DashboardHomeReadModelView;
   kpiCards: DashboardKpiCardData[];
   rankingRows: DashboardRankingRow[];
+  latestReportStats: DashboardLatestReportStat[];
   priorityTasks: DashboardTask[];
 };
 
@@ -354,17 +352,19 @@ function createDashboardHomeViewModel(
   const brandSnapshots = data.metricSnapshots.filter((snapshot) => snapshot.scope_type === "brand" && snapshot.brand_id);
   const projectSnapshot = data.metricSnapshots.find((snapshot) => snapshot.scope_type === "project") ?? brandSnapshots.find((snapshot) => snapshot.brand_id === primaryBrand?.id) ?? null;
   const primarySnapshot = brandSnapshots.find((snapshot) => snapshot.brand_id === primaryBrand?.id) ?? projectSnapshot;
+  const hasLatestReportMetrics = Boolean(projectSnapshot || primarySnapshot);
+  const latestAiVisibility = primarySnapshot?.ai_visibility ?? projectSnapshot?.ai_visibility ?? null;
+  const latestMentionCount = projectSnapshot?.ai_mention_count ?? primarySnapshot?.ai_mention_count ?? null;
+  const latestCitationCount = projectSnapshot?.citation_count ?? primarySnapshot?.citation_count ?? null;
   const sortedBrandSnapshots = [...brandSnapshots].sort((a, b) => b.ai_visibility - a.ai_visibility);
   const topCompetitorSnapshot = sortedBrandSnapshots.find((snapshot) => snapshot.brand_id !== primaryBrand?.id);
-  const brandVisibilityNumber = Math.round(primarySnapshot?.ai_visibility ?? projectSnapshot?.ai_visibility ?? 0);
+  const brandVisibilityNumber = typeof latestAiVisibility === "number" ? Math.round(latestAiVisibility) : 0;
   const competitiveGap = projectSnapshot?.competitive_gap ?? primarySnapshot?.competitive_gap ?? null;
   const absoluteGap = Math.abs(Math.round(competitiveGap ?? Math.max(0, (topCompetitorSnapshot?.ai_visibility ?? 0) - brandVisibilityNumber)));
-  const topRecommendationImpact = Math.round(data.recommendations[0]?.impact_score ?? 0);
   const latestRun = data.latestRun;
-  const mentionCount = projectSnapshot?.ai_mention_count ?? primarySnapshot?.ai_mention_count ?? data.counts.aiConversations;
-  const citationCount = Math.round(Number(projectSnapshot?.citation_count ?? data.counts.citations ?? 0));
+  const mentionCount = typeof latestMentionCount === "number" ? latestMentionCount : data.counts.aiConversations;
+  const citationCount = Math.round(Number(latestCitationCount ?? data.counts.citations ?? 0));
   const displayCompetitiveGap = competitiveGap ?? -absoluteGap;
-  const displayImprovementPriority = topRecommendationImpact > 0 ? topRecommendationImpact : data.recommendations.length;
   const temporaryReportView = createTemporaryReportViewModel({
     run: latestRun
       ? {
@@ -388,21 +388,15 @@ function createDashboardHomeViewModel(
     sources: []
   });
 
-  const kpiCards: DashboardKpiCardData[] = homeReadModel.hasHomeReadModel ? createHomeReadModelKpiCards(homeReadModel) : dashboardKpiCardTemplates.map((card, index) => {
-    if (index === 0) {
-      return { ...card, value: formatPercent(brandVisibilityNumber), helper: (primaryBrand?.name ?? brand.name) + "のAI表示率", delta: competitiveGap ?? undefined, deltaLabel: competitiveGap === null ? undefined : formatSignedPt(competitiveGap), sparkline: buildSparkline(brandVisibilityNumber) };
-    }
-    if (index === 1) {
-      return { ...card, value: String(mentionCount), helper: "AI回答ログから集計", delta: mentionCount, deltaLabel: String(mentionCount), sparkline: buildSparkline(mentionCount) };
-    }
-    if (index === 2) {
-      return { ...card, value: String(citationCount), helper: "集計済み指標から表示", delta: citationCount, deltaLabel: String(citationCount), sparkline: buildSparkline(citationCount) };
-    }
-    if (index === 3) {
-      return { ...card, value: formatSignedPt(displayCompetitiveGap), helper: "首位ブランドとの差分", delta: displayCompetitiveGap, deltaLabel: formatSignedPt(displayCompetitiveGap), sparkline: buildSparkline(Math.abs(displayCompetitiveGap)) };
-    }
-    return { ...card, value: String(displayImprovementPriority), helper: "優先提案から算出", delta: data.recommendations.length, deltaLabel: String(data.recommendations.length), sparkline: buildSparkline(displayImprovementPriority) };
-  });
+  const kpiCards: DashboardKpiCardData[] = createHomeReadModelKpiCards(homeReadModel);
+  const latestReportStats: DashboardLatestReportStat[] = [
+    { label: "AI回答数", value: formatNullableCount(data.counts.aiConversations), helper: "最新レポート内の回答数" },
+    { label: "ブランド表示数", value: formatNullableCount(latestMentionCount), helper: "最新レポートの観測値" },
+    { label: "参照出現数", value: formatNullableCount(latestCitationCount ?? data.counts.citations), helper: "根拠確認済み数ではありません" },
+    { label: "改善候補数", value: formatNullableCount(data.recommendations.length), helper: "実行確定済みの施策数ではありません" },
+    { label: "比較ブランド数", value: formatNullableCount(competitorCount), helper: "最新レポートの比較対象" },
+    { label: "レポート期間", value: latestRun ? latestRun.period_start + " - " + latestRun.period_end : "-", helper: "最新レポートの対象期間" }
+  ];
 
   const leaderVisibility = Math.round(sortedBrandSnapshots[0]?.ai_visibility ?? brandVisibilityNumber);
   const rankingRows = sortedBrandSnapshots.map((snapshot) => {
@@ -426,13 +420,15 @@ function createDashboardHomeViewModel(
   return {
     projectName: data.project.name,
     hasDbData: true,
+    hasLatestReportMetrics,
+    hasLeaderboardData: brandSnapshots.length > 0,
     period: latestRun ? latestRun.period_start + " - " + latestRun.period_end : data.project.default_period ?? "-",
     comparisonPeriod: latestRun?.comparison_start && latestRun.comparison_end ? latestRun.comparison_start + " - " + latestRun.comparison_end : "-",
     lastUpdated: formatDateTime(latestRun?.completed_at ?? data.project.updated_at),
     primaryBrandName: primaryBrand?.name ?? brand.name,
     competitorCount,
     aiConversationCount: data.counts.aiConversations,
-    brandVisibilityValue: formatPercent(brandVisibilityNumber),
+    brandVisibilityValue: hasLatestReportMetrics ? formatPercent(brandVisibilityNumber) : "-",
     brandVisibilityNumber,
     aiMentionCount: mentionCount,
     citationCount,
@@ -440,7 +436,8 @@ function createDashboardHomeViewModel(
     temporaryReportView,
     homeReadModel,
     kpiCards,
-    rankingRows: rankingRows.length > 0 ? rankingRows : createZeroRankingRowsFromBrands(data.brands, primaryBrand?.id),
+    rankingRows,
+    latestReportStats,
     priorityTasks: tasksFromDb
   };
 }
@@ -450,6 +447,8 @@ function createEmptyDashboardHomeViewModel(
 ): DashboardHomeViewModel {
   return {
     hasDbData: false,
+    hasLatestReportMetrics: false,
+    hasLeaderboardData: false,
     projectName: "Recora",
     period: "-",
     comparisonPeriod: "-",
@@ -457,7 +456,7 @@ function createEmptyDashboardHomeViewModel(
     primaryBrandName: "Recora",
     competitorCount: 0,
     aiConversationCount: 0,
-    brandVisibilityValue: formatPercent(0),
+    brandVisibilityValue: "-",
     brandVisibilityNumber: 0,
     aiMentionCount: 0,
     citationCount: 0,
@@ -470,12 +469,16 @@ function createEmptyDashboardHomeViewModel(
       sources: []
     }),
     homeReadModel,
-    kpiCards: homeReadModel.hasHomeReadModel ? createHomeReadModelKpiCards(homeReadModel) : dashboardKpiCardTemplates.map((card, index) => ({
-      ...card,
-      value: index === 0 ? "0%" : index === 3 ? "0pt" : "0",
-      sparkline: buildSparkline(0)
-    })),
+    kpiCards: createHomeReadModelKpiCards(homeReadModel),
     rankingRows: [],
+    latestReportStats: [
+      { label: "AI回答数", value: "-", helper: "最新レポート取得後に表示" },
+      { label: "ブランド表示数", value: "-", helper: "最新レポート取得後に表示" },
+      { label: "参照出現数", value: "-", helper: "根拠確認済み数ではありません" },
+      { label: "改善候補数", value: "-", helper: "実行確定済みの施策数ではありません" },
+      { label: "比較ブランド数", value: "-", helper: "最新レポート取得後に表示" },
+      { label: "レポート期間", value: "-", helper: "最新レポート取得後に表示" }
+    ],
     priorityTasks: []
   };
 }
@@ -507,11 +510,17 @@ function createHomeReadModelView(data?: RecoraHomeReadModelDbData | null): Dashb
       cautionMessages,
       trendBars,
       trendRows: [],
-      trendMax
+      trendMax,
+      sourceDomainRanking: [],
+      sourceDomainRankingMax: 1
     };
   }
 
   const latestPoint = trend && trend.points.length > 0 ? trend.points[trend.points.length - 1] : null;
+  const sourceDomainRanking = createSourceDomainRankingRows(
+    cumulative.sourceDomainRanking,
+    cumulative.citationOccurrenceCount
+  );
 
   return {
     hasHomeReadModel: true,
@@ -563,14 +572,31 @@ function createHomeReadModelView(data?: RecoraHomeReadModelDbData | null): Dashb
       {
         label: "改善候補数",
         value: formatHomeCount(cumulative.recommendationCandidateCount),
-        helper: "承認済み施策数ではありません"
+        helper: "実行確定済みの施策数ではありません"
       }
     ],
     cautionMessages,
     trendBars,
     trendRows: latestPoint ? createHomeTrendRows(latestPoint) : [],
-    trendMax
+    trendMax,
+    sourceDomainRanking,
+    sourceDomainRankingMax: Math.max(1, ...sourceDomainRanking.map((row) => row.occurrenceCount))
   };
+}
+
+function createSourceDomainRankingRows(
+  rows: RecoraCumulativeSourceDomainRank[],
+  totalOccurrences: number
+): DashboardSourceDomainRankRow[] {
+  return rows.map((row) => ({
+    domain: row.domain,
+    sourceTypeLabel: getSourceTypeLabel(row.sourceType),
+    occurrenceCount: row.occurrenceCount,
+    occurrenceValue: formatNullableCount(row.occurrenceCount),
+    citationUrlValue: formatNullableCount(row.citationUrlCount),
+    citationRowValue: formatNullableCount(row.citationRowCount),
+    share: totalOccurrences > 0 ? Math.round((row.occurrenceCount / totalOccurrences) * 100) : 0
+  }));
 }
 
 function createHomeReadModelKpiCards(view: DashboardHomeReadModelView): DashboardKpiCardData[] {
@@ -603,7 +629,7 @@ function createHomeReadModelKpiCards(view: DashboardHomeReadModelView): Dashboar
     {
       label: "改善候補数",
       value: view.recommendationCandidateCount,
-      helper: "承認済み施策数ではありません",
+      helper: "実行確定済みの施策数ではありません",
       tone: "slate"
     }
   ];
@@ -629,7 +655,7 @@ function formatHomeCautionFlag(flag: RecoraHomeDataCautionFlag) {
   const messages: Record<string, string> = {
     latest_aggregate_not_cumulative: "最新集計は通算値ではありません。",
     citation_count_not_source_to_claim_support: "参照として出現した数です。根拠確認済み件数ではありません。",
-    recommendation_count_not_approved_actions: "改善候補数です。承認済み施策数ではありません。",
+    recommendation_count_not_approved_actions: "改善候補数です。実行確定済みの施策数ではありません。",
     parse_status_needs_verification: "parse error の専用判定列は追加確認が必要です。",
     provider_error_needs_verification: "provider error は現行DBで確認できる範囲に限定して除外しています。",
     seed_measurements_excluded: "seedを含む測定は organic discovery の証拠として扱いません。",
@@ -655,6 +681,10 @@ function formatHomePeriod(start: string | null, end: string | null) {
 }
 
 function formatHomeCount(value: number | null | undefined) {
+  return typeof value === "number" ? `${value}件` : "-";
+}
+
+function formatNullableCount(value: number | null | undefined) {
   return typeof value === "number" ? `${value}件` : "-";
 }
 
@@ -991,41 +1021,656 @@ export function DashboardHomePage({
   const dashboardView = createDashboardHomeViewModel(dashboardData, homeReadModelData);
 
   return (
-    <>
-      <PageHeader
-        eyebrow="Recora ダッシュボード"
-        title="ダッシュボード"
-        description="AI検索での現状、競合との差、次に取るべき改善アクションをひと目で確認します。"
-        meta={<ReportFilters dashboardView={dashboardView} />}
-        actions={<HeaderActions />}
-      />
+    <div className="min-w-0 space-y-6">
+      <HomeLatestReportHero dashboardView={dashboardView} />
 
-      <TemporaryReportStatusCard view={dashboardView.temporaryReportView} />
+      <HomeObservationSafetyStrip view={dashboardView.homeReadModel} />
 
-      <HomeReadModelStatusCard view={dashboardView.homeReadModel} />
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+        <HomeLatestLeaderboardPanel dashboardView={dashboardView} />
+        <HomeCumulativeSourcesPanel view={dashboardView.homeReadModel} />
+      </div>
+    </div>
+  );
+}
 
-      <DashboardSnapshotHero dashboardView={dashboardView} />
+function HomeLatestReportHero({ dashboardView }: { dashboardView: DashboardHomeViewModel }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-[#003F36]/20 bg-[#003F36] text-white shadow-[0_22px_70px_rgba(15,23,42,0.18)]">
+      <div className="grid min-w-0 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
+        <div className="min-w-0 p-5 sm:p-6 lg:p-8">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-bold text-[#DDF7EF]">
+              <Activity className="h-3.5 w-3.5" />
+              最新レポート
+            </span>
+            <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-bold text-white/72">
+              AI回答内の表示率
+            </span>
+          </div>
 
-      <DashboardKpiGrid cards={dashboardView.kpiCards} />
+          <div className="mt-6 grid min-w-0 gap-6 md:grid-cols-[220px_minmax(0,1fr)] md:items-center">
+            <HomeVisibilityGauge dashboardView={dashboardView} />
 
-      <div className="mt-5 grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="grid min-w-0 gap-5">
-          <div className="grid min-w-0 gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-            <VisibilityTrendCard dashboardView={dashboardView} />
-            <CompetitiveRankingCard rows={dashboardView.rankingRows} />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[#9CE2D0]">AI検索でどれだけ候補に入れているか</p>
+              <h1 className="mt-2 max-w-2xl text-3xl font-bold leading-tight tracking-normal text-white sm:text-4xl lg:text-5xl">
+                最新レポートのAI表示率
+              </h1>
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-white/74 sm:text-base">
+                最新レポートで観測したAI回答内のブランド存在感です。公式スコアや成果保証ではなく、Recoraの観測範囲に基づく表示です。
+              </p>
+              <div className="mt-5 flex flex-wrap gap-2 text-xs font-semibold">
+                <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-white/80">測定日 {dashboardView.lastUpdated}</span>
+                <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-white/80">期間 {dashboardView.period}</span>
+                <span className="rounded-full border border-amber-200/35 bg-amber-100/10 px-3 py-1 text-amber-100">最新レポートの観測値</span>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="grid min-w-0 gap-5 content-start">
-          <NextActionsCard tasks={dashboardView.priorityTasks} />
-          <QuickLinksCard />
+
+        <div className="min-w-0 border-t border-white/10 bg-white/10 p-5 backdrop-blur sm:p-6 lg:border-l lg:border-t-0 lg:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase text-white/50">latest report numbers</p>
+              <h2 className="mt-2 text-xl font-bold tracking-normal text-white">主要数字</h2>
+            </div>
+            <Link
+              href={reportBase}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-[#003F36] shadow-sm transition hover:bg-[#E6F4F1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#003F36]"
+            >
+              最新レポートへ
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {dashboardView.latestReportStats.map((stat) => (
+              <HomeLatestStatTile key={stat.label} stat={stat} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HomeVisibilityGauge({ dashboardView }: { dashboardView: DashboardHomeViewModel }) {
+  const value = Math.max(0, Math.min(100, dashboardView.brandVisibilityNumber));
+
+  if (!dashboardView.hasLatestReportMetrics) {
+    return (
+      <div className="flex h-56 min-w-0 items-center justify-center rounded-2xl border border-white/10 bg-white/10 p-4">
+        <EmptyDashboardState message="最新レポートのAI表示率を取得後に表示します。" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-0 rounded-2xl border border-white/10 bg-white/10 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+      <div className="mx-auto flex h-44 w-44 items-center justify-center rounded-full p-3"
+        style={{ background: `conic-gradient(#9CE2D0 ${value * 3.6}deg, rgba(255,255,255,0.16) 0deg)` }}
+        aria-label={`AI表示率 ${dashboardView.brandVisibilityValue}`}
+      >
+        <div className="flex h-full w-full flex-col items-center justify-center rounded-full border border-white/10 bg-[#003F36] text-center">
+          <span className="text-xs font-bold text-white/52">AI表示率</span>
+          <span className="mt-1 text-5xl font-bold tracking-normal text-white">{dashboardView.brandVisibilityValue}</span>
+          <span className="mt-2 text-[11px] font-semibold text-[#9CE2D0]">最新レポート</span>
+        </div>
+      </div>
+      <div className="mt-4 rounded-xl border border-white/10 bg-white/10 p-3">
+        <div className="flex items-center justify-between gap-3 text-xs font-bold text-white/70">
+          <span>AI回答内でのブランド存在感</span>
+          <span>{dashboardView.brandVisibilityValue}</span>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full rounded-full bg-[#9CE2D0]" style={{ width: `${value}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomeLatestStatTile({ stat }: { stat: DashboardLatestReportStat }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-white/10 bg-white/10 px-4 py-3">
+      <p className="truncate text-xs font-semibold text-white/55" title={stat.label}>{stat.label}</p>
+      <p className="mt-1 truncate text-2xl font-bold tracking-normal text-white" title={stat.value}>{stat.value}</p>
+      {stat.helper ? (
+        <p className="mt-1 line-clamp-2 text-xs leading-5 text-white/62">{stat.helper}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function HomeObservationSafetyStrip({ view }: { view: DashboardHomeReadModelView }) {
+  const cautions = view.cautionMessages.length > 0
+    ? view.cautionMessages.slice(0, 3)
+    : ["最新レポートの値はRecoraの観測範囲に基づく参考値です。"];
+
+  return (
+    <section className="rounded-2xl border border-amber-200 bg-amber-50/75 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-5">
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="flex min-w-[220px] items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+            <AlertTriangle className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="text-sm font-bold text-slate-950">表示の前提</p>
+            <p className="mt-1 text-xs font-semibold text-amber-700">保証表現は使わず、観測値として表示</p>
+          </div>
+        </div>
+        <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-3">
+          {cautions.map((caution) => (
+            <div key={caution} className="rounded-xl border border-amber-200/70 bg-white/80 px-3 py-2 text-xs font-semibold leading-5 text-slate-700">
+              {caution}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HomeLatestLeaderboardPanel({ dashboardView }: { dashboardView: DashboardHomeViewModel }) {
+  const rows = dashboardView.rankingRows.slice(0, 5);
+  const maxVisibility = Math.max(1, ...rows.map((row) => row.visibility));
+
+  return (
+    <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_48px_rgba(15,23,42,0.06)] sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-[#00796B]/15 bg-[#E6F4F1] px-3 py-1 text-xs font-bold text-[#005C50]">
+            <Crown className="h-3.5 w-3.5" />
+            業界リーダーボード
+          </div>
+          <h2 className="mt-3 text-xl font-bold tracking-normal text-slate-950">AI回答内ブランドランキング 上位5位</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+            最新レポート内の観測順位です。外部ランキングや成果評価ではありません。
+          </p>
+        </div>
+        <Link
+          href={`${reportBase}/leaderboard`}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
+        >
+          ブランド比較へ
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+
+      {dashboardView.hasLeaderboardData && rows.length > 0 ? (
+        <div className="mt-5 grid gap-3">
+          {rows.map((row, index) => (
+            <HomeLeaderboardRow key={row.brandId} row={row} rank={index + 1} maxVisibility={maxVisibility} />
+          ))}
+        </div>
+      ) : (
+        <div className="mt-5">
+          <EmptyDashboardState message="最新レポートのブランド比較データを取得後に表示します。" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HomeLeaderboardRow({
+  row,
+  rank,
+  maxVisibility
+}: {
+  row: DashboardRankingRow;
+  rank: number;
+  maxVisibility: number;
+}) {
+  const barWidth = Math.max(6, Math.min(100, (row.visibility / Math.max(1, maxVisibility)) * 100));
+
+  return (
+    <div className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-slate-200 bg-[#FAFBFB] px-4 py-3">
+      <div className={cn(
+        "flex h-9 w-9 items-center justify-center rounded-lg text-sm font-bold",
+        row.isPrimary ? "bg-[#00796B] text-white" : "bg-slate-100 text-slate-700"
+      )}>
+        {rank}
+      </div>
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="truncate text-sm font-bold text-slate-950" title={row.name}>{row.name}</p>
+          <span className={cn(
+            "rounded-full border px-2 py-0.5 text-[11px] font-bold",
+            row.isPrimary ? "border-emerald-200 bg-emerald-50 text-[#00796B]" : "border-slate-200 bg-white text-slate-600"
+          )}>
+            {row.isPrimary ? "自社ブランド" : "比較ブランド"}
+          </span>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div className={cn("h-full rounded-full", row.isPrimary ? "bg-[#00796B]" : "bg-slate-400")} style={{ width: `${barWidth}%` }} />
+        </div>
+      </div>
+      <div className="text-right">
+        <p className="text-lg font-bold tabular-nums text-slate-950">{formatPercent(row.visibility)}</p>
+        <p className="text-[11px] font-semibold text-slate-500">AI表示率</p>
+      </div>
+    </div>
+  );
+}
+
+function HomeCumulativeSourcesPanel({ view }: { view: DashboardHomeReadModelView }) {
+  const rows = view.sourceDomainRanking;
+
+  return (
+    <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
+            <ExternalLink className="h-3.5 w-3.5 text-[#00796B]" />
+            通算引用元
+          </div>
+          <h2 className="mt-3 text-xl font-bold tracking-normal text-slate-950">よく参照されている情報源</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            通算で参照として出現したドメイン順位です。回答内容を支持する確認済み件数ではありません。
+          </p>
         </div>
       </div>
 
-      <div className="mt-5 grid min-w-0 gap-5 2xl:grid-cols-[360px_minmax(0,1fr)]">
-        <ImprovementPanel tasks={dashboardView.priorityTasks} />
-        <PriorityTasksCard tasks={dashboardView.priorityTasks} />
+      {rows.length > 0 ? (
+        <div className="mt-5 grid gap-3">
+          {rows.map((row, index) => (
+            <HomeSourceRankRow
+              key={row.domain}
+              row={row}
+              rank={index + 1}
+              maxOccurrences={view.sourceDomainRankingMax}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="mt-5">
+          <EmptyDashboardState message="通算引用元ランキングは、表示可能な参照ドメインが蓄積された後に表示します。" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HomeSourceRankRow({
+  row,
+  rank,
+  maxOccurrences
+}: {
+  row: DashboardSourceDomainRankRow;
+  rank: number;
+  maxOccurrences: number;
+}) {
+  const barWidth = Math.max(6, Math.min(100, (row.occurrenceCount / Math.max(1, maxOccurrences)) * 100));
+
+  return (
+    <div className="min-w-0 rounded-xl border border-slate-200 bg-[#FAFBFB] px-4 py-3">
+      <div className="grid min-w-0 grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3">
+        <span className="text-sm font-bold tabular-nums text-slate-500">{rank}</span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-slate-950" title={row.domain}>{row.domain}</p>
+          <div className="mt-1 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-500">
+            <span>{row.sourceTypeLabel}</span>
+            <span>URL {row.citationUrlValue}</span>
+            <span>行 {row.citationRowValue}</span>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-base font-bold tabular-nums text-slate-950">{row.occurrenceValue}</p>
+          <p className="text-[11px] font-semibold text-slate-500">参照出現</p>
+        </div>
       </div>
-    </>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+        <div className="h-full rounded-full bg-[#00796B]" style={{ width: `${barWidth}%` }} />
+      </div>
+      <p className="mt-2 text-[11px] font-semibold text-slate-500">通算参照出現のうち約{row.share}%</p>
+    </div>
+  );
+}
+
+function HomeCommandHeader({ dashboardView }: { dashboardView: DashboardHomeViewModel }) {
+  const view = dashboardView.homeReadModel;
+
+  return (
+    <section className="relative overflow-hidden rounded-2xl border border-[#003F36]/20 bg-[#003F36] p-5 text-white shadow-[0_18px_60px_rgba(15,23,42,0.16)] sm:p-6 lg:p-7">
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] lg:items-end">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-bold text-[#DDF7EF]">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              ホーム
+            </span>
+            <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-bold text-white/75">
+              通算状態 + count系推移
+            </span>
+          </div>
+          <h1 className="mt-5 max-w-3xl text-3xl font-bold leading-tight tracking-normal text-white sm:text-4xl lg:text-5xl">
+            Recora全体の観測量を、安全な範囲で確認する
+          </h1>
+          <p className="mt-4 max-w-3xl text-sm leading-7 text-white/74 sm:text-base">
+            このホームは選択レポートの詳細ではなく、完了済み測定から足し上げても意味が壊れにくいcount系項目と、比較注意付きの推移を見る場所です。
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2 text-xs font-semibold">
+            <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-white/78">AI表示率は通算化しません</span>
+            <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-white/78">競合差分は詳細側で確認</span>
+            <span className="rounded-full border border-amber-200/35 bg-amber-100/10 px-3 py-1 text-amber-100">注意文を先に表示</span>
+          </div>
+        </div>
+
+        <div className="min-w-0 rounded-xl border border-white/12 bg-white/10 p-4">
+          <div className="flex items-center gap-2 text-xs font-bold text-white/62">
+            <Activity className="h-4 w-4 text-[#9CE2D0]" />
+            現在のホーム集計
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <HomeHeaderStat label="集計対象期間" value={view.aggregationPeriod} />
+            <HomeHeaderStat label="有効観測数" value={view.validObservationCount} />
+            <HomeHeaderStat label="完了済み測定数" value={view.completedMeasurementCount} />
+            <HomeHeaderStat label="改善候補数" value={view.recommendationCandidateCount} />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link
+              href="/dashboard/reports"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-[#003F36] shadow-sm transition hover:bg-[#E6F4F1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#003F36]"
+            >
+              レポート一覧
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+            <Link
+              href={reportBase}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/5 px-3 text-xs font-bold text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#003F36]"
+            >
+              最新レポート詳細
+              <FileText className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HomeHeaderStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/10 px-3 py-2">
+      <p className="text-[11px] font-semibold text-white/56">{label}</p>
+      <p className="mt-1 truncate text-sm font-bold text-white" title={value}>{value}</p>
+    </div>
+  );
+}
+
+function HomeCumulativeLedger({ view }: { view: DashboardHomeReadModelView }) {
+  const metrics = view.countMetrics;
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_48px_rgba(15,23,42,0.06)]">
+      <div className="border-b border-slate-200 bg-[#F6FAF9] px-5 py-4 sm:px-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#00796B]/15 bg-white px-3 py-1 text-xs font-bold text-[#005C50]">
+              <ListChecks className="h-3.5 w-3.5" />
+              通算台帳
+            </div>
+            <h2 className="mt-3 text-xl font-bold tracking-normal text-slate-950 sm:text-2xl">足し上げても意味が壊れにくいcount系項目</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              最新スナップショットのAI表示率や競合差分ではなく、ホーム用の通算集計から件数だけを表示します。
+            </p>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+            <p className="text-xs font-semibold text-slate-500">集計対象期間</p>
+            <p className="mt-1 font-bold text-slate-950">{view.aggregationPeriod}</p>
+          </div>
+        </div>
+      </div>
+
+      {metrics.length > 0 ? (
+        <div className="grid min-w-0 gap-0 lg:grid-cols-[minmax(260px,0.72fr)_minmax(0,1.28fr)]">
+          <div className="border-b border-slate-200 bg-slate-950 p-5 text-white lg:border-b-0 lg:border-r lg:border-slate-200 sm:p-6">
+            <p className="text-xs font-bold uppercase text-emerald-100/70">primary count</p>
+            <p className="mt-3 text-sm font-semibold text-white/66">有効観測数</p>
+            <p className="mt-2 text-5xl font-bold tracking-normal text-white">{view.validObservationCount}</p>
+            <p className="mt-4 text-sm leading-6 text-white/68">
+              失敗・partial・error の可能性がある観測を可能な範囲で除外した、ホーム通算の中心値です。
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+              <HomeDarkStat label="完了済み測定数" value={view.completedMeasurementCount} />
+              <HomeDarkStat label="AI回答観測数" value={view.aiConversationCount} />
+            </div>
+          </div>
+
+          <div className="grid min-w-0 gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-3">
+            {metrics.map((metric) => (
+              <HomeLedgerMetric key={metric.label} metric={metric} />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="p-5 sm:p-6">
+          <EmptyDashboardState message="追加測定後に、集計対象期間内のcount系項目を表示します。" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HomeDarkStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/10 px-3 py-2">
+      <p className="text-[11px] font-semibold text-white/50">{label}</p>
+      <p className="mt-1 text-lg font-bold text-white">{value}</p>
+    </div>
+  );
+}
+
+function HomeLedgerMetric({ metric }: { metric: DashboardHomeCountMetric }) {
+  return (
+    <div className="min-w-0 bg-white p-4 sm:p-5">
+      <p className="text-xs font-bold text-slate-500">{metric.label}</p>
+      <p className="mt-2 text-2xl font-bold tracking-normal text-slate-950">{metric.value}</p>
+      {metric.helper ? (
+        <p className="mt-2 text-xs leading-5 text-slate-500">{metric.helper}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function HomeTrendPanel({ view }: { view: DashboardHomeReadModelView }) {
+  const hasTrendData = view.trendBars.length > 0;
+
+  return (
+    <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
+            <BarChart3 className="h-3.5 w-3.5 text-[#00796B]" />
+            count系推移
+          </div>
+          <h2 className="mt-3 text-xl font-bold tracking-normal text-slate-950">有効観測数の推移</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+            比較条件の完全一致は追加確認が必要です。AI可視性や競合差分の推移はP0では表示していません。
+          </p>
+        </div>
+        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+          comparison caution
+        </span>
+      </div>
+
+      {hasTrendData ? (
+        <div className="mt-6 grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="min-w-0 rounded-xl border border-slate-200 bg-[#F6FAF9] p-4">
+            <div className="flex h-56 items-end gap-2 rounded-lg bg-white p-3">
+              {view.trendBars.map((value, index) => (
+                <HomeTrendBar key={`${value}-${index}`} value={value} max={view.trendMax} index={index} />
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-5 text-slate-500">
+              棒は各期間の有効観測数です。値が少ない期間は傾向の解釈に注意が必要です。
+            </p>
+          </div>
+
+          <div className="grid content-start gap-2">
+            <HomeTrendSummaryRow label="集計対象期間" value={view.aggregationPeriod} />
+            {view.trendRows.map((row) => (
+              <HomeTrendSummaryRow key={row.label} label={row.label} value={row.value} />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-6">
+          <EmptyDashboardState message="追加測定後にcount系推移を表示します。グラフは既存データがある範囲だけで表示します。" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HomeTrendBar({ value, max, index }: { value: number; max: number; index: number }) {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
+      <div className="flex h-40 w-full items-end rounded-md bg-slate-100">
+        <div
+          className="w-full rounded-md bg-[#00796B]"
+          style={{ height: value > 0 ? `${Math.max(8, Math.min((value / Math.max(1, max)) * 100, 100))}%` : "0%" }}
+        />
+      </div>
+      <span className="text-xs font-bold text-slate-500">{index + 1}</span>
+    </div>
+  );
+}
+
+function HomeTrendSummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <p className="text-[11px] font-semibold text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-bold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function HomeRoutePanel({ dashboardView }: { dashboardView: DashboardHomeViewModel }) {
+  return (
+    <aside className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-6">
+      <div className="inline-flex items-center gap-2 rounded-full border border-[#00796B]/15 bg-[#E6F4F1] px-3 py-1 text-xs font-bold text-[#005C50]">
+        <FileText className="h-3.5 w-3.5" />
+        補助導線
+      </div>
+      <h2 className="mt-3 text-lg font-bold tracking-normal text-slate-950">詳細はレポート側で確認</h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">
+        ホームは全体の観測量を見る場所です。AI回答、ブランド比較、参照元の詳細はレポートを選択して確認します。
+      </p>
+
+      <div className="mt-5 grid gap-2">
+        <HomeActionLink href="/dashboard/reports" title="レポート一覧" description="過去レポートから1件を選択" />
+        <HomeActionLink href={reportBase} title="最新レポート詳細" description={`最終更新: ${dashboardView.lastUpdated}`} />
+      </div>
+
+      <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <p className="text-xs font-bold uppercase text-slate-400">homeでは強調しない指標</p>
+        <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate-600">
+          <li>AI表示率・平均順位は通算値にしません。</li>
+          <li>競合差分は条件が揃うまでP0推移にしません。</li>
+          <li>参照出現数は根拠確認済み数ではありません。</li>
+        </ul>
+      </div>
+    </aside>
+  );
+}
+
+function HomeActionLink({ href, title, description }: { href: string; title: string; description: string }) {
+  return (
+    <Link
+      href={href}
+      className="group flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-[#00796B]/30 hover:bg-[#F6FAF9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-bold text-slate-950">{title}</span>
+        <span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span>
+      </span>
+      <ArrowRight className="h-4 w-4 shrink-0 text-[#00796B] transition group-hover:translate-x-0.5" />
+    </Link>
+  );
+}
+
+function HomeRecommendationPanel({ tasks = [] }: { tasks?: DashboardTask[] }) {
+  return (
+    <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
+            <ListChecks className="h-3.5 w-3.5 text-[#00796B]" />
+            改善候補
+          </div>
+          <h2 className="mt-3 text-lg font-bold tracking-normal text-slate-950">確認が必要な候補</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">承認済み施策や効果保証ではありません。</p>
+        </div>
+        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600">
+          {tasks.length}件
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-3">
+        {tasks.length > 0 ? (
+          tasks.slice(0, 3).map((task) => (
+            <div key={task.task} className="rounded-xl border border-slate-200 bg-[#F6FAF9] p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <PriorityPill value={task.priority} />
+                <span className="rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-xs font-bold text-[#00796B]">
+                  {task.impact}
+                </span>
+              </div>
+              <p className="mt-3 text-sm font-bold leading-6 text-slate-950">{task.task}</p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">{task.reason}</p>
+            </div>
+          ))
+        ) : (
+          <EmptyDashboardState message="現在表示できる改善候補はありません。" />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function HomeLatestSnapshotPanel({ dashboardView }: { dashboardView: DashboardHomeViewModel }) {
+  return (
+    <section className="min-w-0 rounded-2xl border border-slate-200 bg-[#FAFBFB] p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-6">
+      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700">
+        <CheckCircle2 className="h-3.5 w-3.5 text-[#00796B]" />
+        レポート詳細に残すもの
+      </div>
+      <h2 className="mt-3 text-lg font-bold tracking-normal text-slate-950">最新状態は参考導線として扱う</h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">
+        AI表示率、ブランド比較、競合差分、平均順位は、選択した1レポートに閉じた詳細として確認します。ホームでは通算値として扱いません。
+      </p>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <HomeDetailBoundaryItem label="AI回答" />
+        <HomeDetailBoundaryItem label="ブランド比較" />
+        <HomeDetailBoundaryItem label="参照元詳細" />
+        <HomeDetailBoundaryItem label="改善候補の理由" />
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        <Link
+          href={reportBase}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#00796B] px-4 text-xs font-bold text-white transition hover:bg-[#005C50] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
+        >
+          レポート詳細へ
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+        <span className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-500">
+          最終更新: {dashboardView.lastUpdated}
+        </span>
+      </div>
+    </section>
+  );
+}
+
+function HomeDetailBoundaryItem({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+      <CheckCircle2 className="h-4 w-4 shrink-0 text-[#00796B]" />
+      {label}
+    </div>
   );
 }
 
@@ -1113,46 +1758,36 @@ function HomeReadModelStatusCard({ view }: { view: DashboardHomeReadModelView })
     : ["追加測定後にホーム集計の注意事項を表示します。"];
 
   return (
-    <section className="mt-5 rounded-lg border border-amber-200 bg-amber-50/55 p-4 shadow-[0_8px_28px_rgba(15,23,42,0.035)]">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-bold text-slate-950">ホーム集計の注意</h2>
-            <Badge variant="outline" className="rounded-sm border-amber-200 bg-white text-xs text-amber-700">
-              count系のみ
-            </Badge>
+    <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="grid min-w-0 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="border-b border-amber-200 bg-white p-5 lg:border-b-0 lg:border-r">
+          <div className="flex items-center gap-2">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+              <AlertTriangle className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-bold text-slate-950">先に確認する注意</p>
+              <p className="mt-1 text-xs font-semibold text-amber-700">dataCautionFlags</p>
+            </div>
           </div>
-          <p className="mt-1 text-sm leading-6 text-slate-700">
-            集計対象期間: {view.aggregationPeriod}
+          <p className="mt-4 text-sm leading-6 text-slate-600">
+            ホームの数値は、正式評価・保証・承認済み施策ではなく、Recoraの観測範囲に基づく注意付きの集計です。
           </p>
         </div>
-        <div className="grid min-w-[260px] gap-2 text-xs font-bold text-slate-600 sm:grid-cols-2">
-          <TemporaryReportStatusValue label="有効観測数" value={view.validObservationCount} isMuted={!view.hasHomeReadModel} />
-          <TemporaryReportStatusValue label="改善候補数" value={view.recommendationCandidateCount} isMuted={!view.hasHomeReadModel} />
-        </div>
-      </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1.1fr]">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">count summary</p>
-          {view.countMetrics.length > 0 ? (
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              {view.countMetrics.map((metric) => (
-                <HomeReadModelMetric key={metric.label} metric={metric} />
-              ))}
-            </div>
-          ) : (
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              追加測定後に、集計対象期間内のcount系項目を表示します。
-            </p>
-          )}
-        </div>
+        <div className="p-5">
+          <div className="grid gap-3 md:grid-cols-3">
+            <HomeCautionFact label="集計対象期間" value={view.aggregationPeriod} />
+            <HomeCautionFact label="表示範囲" value="count系のみ" />
+            <HomeCautionFact label="状態" value={view.hasHomeReadModel ? "read model接続済み" : "追加測定後に表示"} />
+          </div>
 
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">data cautions</p>
-          <ul className="mt-2 grid gap-1.5 text-sm leading-6 text-slate-700">
+          <ul className="mt-4 grid gap-2 text-sm leading-6 text-slate-700 md:grid-cols-2">
             {cautions.map((caution) => (
-              <li key={caution}>{"- "}{caution}</li>
+              <li key={caution} className="flex gap-2 rounded-lg border border-amber-200/70 bg-white/80 px-3 py-2">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                <span>{caution}</span>
+              </li>
             ))}
           </ul>
         </div>
@@ -1161,14 +1796,11 @@ function HomeReadModelStatusCard({ view }: { view: DashboardHomeReadModelView })
   );
 }
 
-function HomeReadModelMetric({ metric }: { metric: DashboardHomeCountMetric }) {
+function HomeCautionFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-      <p className="text-[11px] font-bold text-slate-500">{metric.label}</p>
-      <p className="mt-1 text-sm font-bold text-slate-950">{metric.value}</p>
-      {metric.helper ? (
-        <p className="mt-1 text-xs leading-5 text-slate-500">{metric.helper}</p>
-      ) : null}
+    <div className="rounded-lg border border-amber-200/70 bg-white px-3 py-2">
+      <p className="text-[11px] font-bold text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-bold text-slate-950">{value}</p>
     </div>
   );
 }

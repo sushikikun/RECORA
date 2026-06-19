@@ -327,6 +327,14 @@ export type RecoraHomeAggregationPeriod = {
   end: string | null;
 };
 
+export type RecoraCumulativeSourceDomainRank = {
+  domain: string;
+  sourceType: RecoraSourceType;
+  occurrenceCount: number;
+  citationUrlCount: number;
+  citationRowCount: number;
+};
+
 export type RecoraLatestAggregateSummary = {
   periodStart: string;
   periodEnd: string;
@@ -344,6 +352,7 @@ export type RecoraCumulativeHomeSummary = {
   citationOccurrenceCount: number;
   citationUrlCount: number;
   sourceDomainCount: number;
+  sourceDomainRanking: RecoraCumulativeSourceDomainRank[];
   recommendationCandidateCount: number;
   dataCautionFlags: RecoraHomeDataCautionFlag[];
 };
