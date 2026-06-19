@@ -9,7 +9,7 @@ import type { RecoraNavGroup, RecoraNavItem, RecoraNavSection } from "@/lib/reco
 import { buildRecoraNavGroups } from "@/lib/recora/nav-config";
 
 const defaultReportId = "recora-kenzai-q2";
-const alwaysVisibleSection: RecoraNavSection = "ダッシュボード";
+const alwaysVisibleSection: RecoraNavSection = "全体";
 
 function getReportId(pathname: string) {
   const match = pathname.match(/^\/dashboard\/reports\/([^/]+)/);

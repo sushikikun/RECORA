@@ -1,14 +1,9 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  AlertTriangle,
-  BrainCircuit,
   ClipboardList,
   Cpu,
   Database,
-  Download,
-  FileText,
   Gauge,
-  History,
   Home,
   Layers3,
   Lightbulb,
@@ -16,22 +11,17 @@ import {
   Link2,
   MessageSquareText,
   Radar,
-  Scale,
-  Search,
   Settings,
-  ShieldCheck,
   Swords,
-  Users,
-  Workflow
+  Users
 } from "lucide-react";
 
 export type RecoraNavStatus = "ready" | "preparing";
 
 export type RecoraNavSection =
-  | "ダッシュボード"
+  | "全体"
   | "レポート"
-  | "モニタリング"
-  | "改善"
+  | "測定管理"
   | "設定";
 
 export type RecoraNavItem = {
@@ -49,142 +39,83 @@ export type RecoraNavGroup = {
 };
 
 const sectionOrder: RecoraNavSection[] = [
-  "ダッシュボード",
+  "全体",
   "レポート",
-  "モニタリング",
-  "改善",
+  "測定管理",
   "設定"
 ];
 
+// P1/Pending:
+// - 「測定条件」「根拠確認」はレポート配下の専用route作成後に追加する。
+// - 「新しい測定」は現行runs画面に同居しているため、sidebarでは「実行履歴」を優先する。
+// - 「測定プロファイル」はP1扱いのため、今回のnavには出さない。
 export function buildRecoraNavItems(reportId: string): RecoraNavItem[] {
   const reportBase = `/dashboard/reports/${reportId}`;
 
   return [
     {
-      label: "ダッシュボード",
+      label: "概要",
       href: "/dashboard",
-      section: "ダッシュボード",
+      section: "全体",
       status: "ready",
       icon: Gauge
     },
     {
-      label: "レポート概要",
+      label: "推移",
+      href: `${reportBase}/trends`,
+      section: "全体",
+      status: "ready",
+      icon: LineChart
+    },
+    {
+      label: "レポート一覧",
       href: "/dashboard/reports",
       section: "レポート",
       status: "ready",
       icon: Home
     },
     {
-      label: "レポート履歴",
-      href: "/dashboard/reports/history",
-      section: "レポート",
-      status: "preparing",
-      icon: History
-    },
-    {
-      label: "測定結果",
-      href: `${reportBase}/runs`,
-      section: "レポート",
-      status: "preparing",
-      icon: ClipboardList
-    },
-    {
-      label: "エクスポート",
-      href: `${reportBase}/export`,
-      section: "レポート",
-      status: "preparing",
-      icon: Download
-    },
-    {
-      label: "概要",
+      label: "レポート概要",
       href: `${reportBase}/overview`,
-      section: "モニタリング",
+      section: "レポート",
       status: "ready",
       icon: Radar
     },
     {
-      label: "AI回答ログ",
+      label: "AI回答",
       href: `${reportBase}/conversations`,
-      section: "モニタリング",
+      section: "レポート",
       status: "ready",
       icon: MessageSquareText
     },
     {
-      label: "プロンプト分析",
-      href: `${reportBase}/prompts`,
-      section: "モニタリング",
-      status: "preparing",
-      icon: Search
-    },
-    {
-      label: "競合ランキング",
+      label: "ブランド比較",
       href: `${reportBase}/leaderboard`,
-      section: "モニタリング",
+      section: "レポート",
       status: "ready",
       icon: Swords
     },
     {
-      label: "参照元分析",
+      label: "参照元",
       href: `${reportBase}/sources`,
-      section: "モニタリング",
+      section: "レポート",
       status: "ready",
       icon: Database
     },
     {
-      label: "推移",
-      href: `${reportBase}/trends`,
-      section: "モニタリング",
-      status: "ready",
-      icon: LineChart
-    },
-    {
-      label: "選定基準分析",
-      href: `${reportBase}/buyer-criteria`,
-      section: "モニタリング",
-      status: "ready",
-      icon: Scale
-    },
-    {
-      label: "ブランド認識",
-      href: `${reportBase}/brand-perception`,
-      section: "モニタリング",
-      status: "ready",
-      icon: BrainCircuit
-    },
-    {
-      label: "改善提案",
+      label: "改善候補",
       href: `${reportBase}/recommendations`,
-      section: "改善",
-      status: "preparing",
+      section: "レポート",
+      status: "ready",
       icon: Lightbulb
     },
     {
-      label: "コンテンツ改善案",
-      href: `${reportBase}/content-opportunities`,
-      section: "改善",
+      label: "実行履歴",
+      href: `${reportBase}/runs`,
+      section: "測定管理",
       status: "ready",
-      icon: FileText
-    },
-    {
-      label: "サイト技術診断",
-      href: `${reportBase}/technical-audit`,
-      section: "改善",
-      status: "ready",
-      icon: ShieldCheck
-    },
-    {
-      label: "誤情報リスク",
-      href: `${reportBase}/misinformation-risks`,
-      section: "改善",
-      status: "preparing",
-      icon: AlertTriangle
-    },
-    {
-      label: "改善プラン",
-      href: `${reportBase}/action-plan`,
-      section: "改善",
-      status: "preparing",
-      icon: Workflow
+      icon: ClipboardList,
+      description: "現行画面では新しい測定と実行履歴が同居しているため、実行履歴として表示します。"
     },
     {
       label: "プロジェクト設定",
@@ -208,7 +139,7 @@ export function buildRecoraNavItems(reportId: string): RecoraNavItem[] {
       icon: Layers3
     },
     {
-      label: "競合",
+      label: "比較ブランド",
       href: "/dashboard/config/competitors",
       section: "設定",
       status: "ready",
@@ -248,14 +179,14 @@ export function buildRecoraNavGroups(reportId: string): RecoraNavGroup[] {
 }
 
 export const reportDetailTabs = {
-  overview: ["概要", "AIモデル別の違い"],
-  conversations: ["AI回答ログ", "AIモデル別の違い"],
+  overview: ["レポート概要"],
+  conversations: ["AI回答"],
   prompts: ["プロンプト分析", "プロンプト分類"],
-  leaderboard: ["競合ランキング", "AI内シェア", "新規競合候補"],
-  sources: ["参照元分析", "参照ページ", "ドメイン分析", "参照元の差分", "参照分析"],
+  leaderboard: ["ブランド比較", "AI内シェア", "比較ブランド候補"],
+  sources: ["参照元", "参照ページ", "ドメイン分析", "参照元の差分"],
   brandPerception: ["ブランド認識", "強み・弱み分析", "文脈・感情分析"],
-  recommendations: ["改善提案", "スコア内訳"],
-  contentOpportunities: ["コンテンツ改善案", "ページ改善案", "改善マップ", "コンテンツ不足"],
+  recommendations: ["改善候補", "根拠サマリー"],
+  contentOpportunities: ["コンテンツ改善候補", "ページ改善候補", "改善マップ", "コンテンツ不足"],
   technicalAudit: ["サイト技術診断", "FAQ・構造化データ提案"],
   actionPlan: ["改善プラン", "30/60/90日プラン", "タスク管理"]
 } as const;
@@ -266,8 +197,8 @@ export const placeholderRouteSummaries = {
     description: "過去に作成したAI検索レポートを、期間・プロジェクト・測定状態で確認する画面です。"
   },
   runResults: {
-    title: "測定結果",
-    description: "ペルソナ、トピック、プロンプト、AIモデルごとの取得結果を測定単位で確認する画面です。"
+    title: "実行履歴",
+    description: "測定runの状態、開始・完了時刻、除外された観測を実行単位で確認する画面です。"
   },
   export: {
     title: "エクスポート",
@@ -278,8 +209,8 @@ export const placeholderRouteSummaries = {
     description: "プロンプト分類、意図、AI表示率、競合差分を整理し、AI回答での露出改善に使う画面です。"
   },
   recommendations: {
-    title: "改善提案",
-    description: "AI表示率の低下や競合差分の要因を分解し、優先度順に改善提案を確認する画面です。"
+    title: "改善候補",
+    description: "観測結果から抽出された改善候補を、優先度や根拠とともに確認する画面です。根拠確認が必要な項目は未確定の候補として扱います。"
   },
   misinformationRisks: {
     title: "誤情報リスク",
