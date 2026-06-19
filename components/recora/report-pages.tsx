@@ -43,7 +43,7 @@ import {
 } from "@/lib/recora/sample-data";
 import { createTemporaryReportViewModel, type TemporaryReportViewModel } from "@/lib/recora/report-view-model";
 import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-config";
-import type { RecoraConversationsDbData, RecoraDashboardDbData, RecoraLeaderboardDbData, RecoraRecommendationRow, RecoraRecommendationsDbData, RecoraSourcesDbData } from "@/lib/recora/db";
+import type { RecoraConversationsDbData, RecoraDashboardDbData, RecoraHomeDataCautionFlag, RecoraHomeReadModelDbData, RecoraLeaderboardDbData, RecoraRecommendationRow, RecoraRecommendationsDbData, RecoraSourcesDbData, RecoraTrendHomePoint } from "@/lib/recora/db";
 import {
   AlertBanner,
   DashboardCard,
@@ -274,6 +274,32 @@ type DashboardTask = {
   expectedImpact: string;
   due: string;
 };
+type DashboardHomeCountMetric = {
+  label: string;
+  value: string;
+  helper?: string;
+};
+type DashboardHomeTrendRow = {
+  label: string;
+  value: string;
+};
+type DashboardHomeReadModelView = {
+  hasHomeReadModel: boolean;
+  aggregationPeriod: string;
+  completedMeasurementCount: string;
+  validObservationCount: string;
+  aiConversationCount: string;
+  brandDisplayObservationCount: string;
+  citationOccurrenceCount: string;
+  citationUrlCount: string;
+  sourceDomainCount: string;
+  recommendationCandidateCount: string;
+  countMetrics: DashboardHomeCountMetric[];
+  cautionMessages: string[];
+  trendBars: number[];
+  trendRows: DashboardHomeTrendRow[];
+  trendMax: number;
+};
 type DashboardRankingRow = {
   brandId: string;
   name: string;
@@ -306,14 +332,20 @@ type DashboardHomeViewModel = {
   citationCount: number;
   competitiveGapDelta: number;
   temporaryReportView: TemporaryReportViewModel;
+  homeReadModel: DashboardHomeReadModelView;
   kpiCards: DashboardKpiCardData[];
   rankingRows: DashboardRankingRow[];
   priorityTasks: DashboardTask[];
 };
 
-function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): DashboardHomeViewModel {
+function createDashboardHomeViewModel(
+  data?: RecoraDashboardDbData | null,
+  homeReadModelData?: RecoraHomeReadModelDbData | null
+): DashboardHomeViewModel {
+  const homeReadModel = createHomeReadModelView(homeReadModelData);
+
   if (!data?.project) {
-    return createEmptyDashboardHomeViewModel();
+    return createEmptyDashboardHomeViewModel(homeReadModel);
   }
 
   const primaryBrand = data.brands.find((item) => item.brand_type === "primary");
@@ -356,7 +388,7 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
     sources: []
   });
 
-  const kpiCards: DashboardKpiCardData[] = dashboardKpiCardTemplates.map((card, index) => {
+  const kpiCards: DashboardKpiCardData[] = homeReadModel.hasHomeReadModel ? createHomeReadModelKpiCards(homeReadModel) : dashboardKpiCardTemplates.map((card, index) => {
     if (index === 0) {
       return { ...card, value: formatPercent(brandVisibilityNumber), helper: (primaryBrand?.name ?? brand.name) + "のAI表示率", delta: competitiveGap ?? undefined, deltaLabel: competitiveGap === null ? undefined : formatSignedPt(competitiveGap), sparkline: buildSparkline(brandVisibilityNumber) };
     }
@@ -406,13 +438,16 @@ function createDashboardHomeViewModel(data?: RecoraDashboardDbData | null): Dash
     citationCount,
     competitiveGapDelta: displayCompetitiveGap,
     temporaryReportView,
+    homeReadModel,
     kpiCards,
     rankingRows: rankingRows.length > 0 ? rankingRows : createZeroRankingRowsFromBrands(data.brands, primaryBrand?.id),
     priorityTasks: tasksFromDb
   };
 }
 
-function createEmptyDashboardHomeViewModel(): DashboardHomeViewModel {
+function createEmptyDashboardHomeViewModel(
+  homeReadModel: DashboardHomeReadModelView = createHomeReadModelView(null)
+): DashboardHomeViewModel {
   return {
     hasDbData: false,
     projectName: "Recora",
@@ -434,7 +469,8 @@ function createEmptyDashboardHomeViewModel(): DashboardHomeViewModel {
       candidates: [],
       sources: []
     }),
-    kpiCards: dashboardKpiCardTemplates.map((card, index) => ({
+    homeReadModel,
+    kpiCards: homeReadModel.hasHomeReadModel ? createHomeReadModelKpiCards(homeReadModel) : dashboardKpiCardTemplates.map((card, index) => ({
       ...card,
       value: index === 0 ? "0%" : index === 3 ? "0pt" : "0",
       sparkline: buildSparkline(0)
@@ -442,6 +478,184 @@ function createEmptyDashboardHomeViewModel(): DashboardHomeViewModel {
     rankingRows: [],
     priorityTasks: []
   };
+}
+
+function createHomeReadModelView(data?: RecoraHomeReadModelDbData | null): DashboardHomeReadModelView {
+  const cumulative = data?.cumulativeHomeSummary ?? null;
+  const trend = data?.trendHomeSummary ?? null;
+  const trendBars = trend?.points.map((point) => point.validObservationCount) ?? [];
+  const trendMax = trendBars.length > 0 ? Math.max(1, ...trendBars) : 1;
+  const cautionMessages = createHomeCautionMessages([
+    ...(data?.latestAggregateSummary?.dataCautionFlags ?? []),
+    ...(cumulative?.dataCautionFlags ?? []),
+    ...(trend?.dataCautionFlags ?? [])
+  ]);
+
+  if (!cumulative) {
+    return {
+      hasHomeReadModel: false,
+      aggregationPeriod: "-",
+      completedMeasurementCount: "-",
+      validObservationCount: "-",
+      aiConversationCount: "-",
+      brandDisplayObservationCount: "-",
+      citationOccurrenceCount: "-",
+      citationUrlCount: "-",
+      sourceDomainCount: "-",
+      recommendationCandidateCount: "-",
+      countMetrics: [],
+      cautionMessages,
+      trendBars,
+      trendRows: [],
+      trendMax
+    };
+  }
+
+  const latestPoint = trend && trend.points.length > 0 ? trend.points[trend.points.length - 1] : null;
+
+  return {
+    hasHomeReadModel: true,
+    aggregationPeriod: formatHomePeriod(cumulative.aggregationPeriod.start, cumulative.aggregationPeriod.end),
+    completedMeasurementCount: formatHomeCount(cumulative.completedMeasurementCount),
+    validObservationCount: formatHomeCount(cumulative.validObservationCount),
+    aiConversationCount: formatHomeCount(cumulative.aiConversationCount),
+    brandDisplayObservationCount: formatHomeCount(cumulative.brandDisplayObservationCount),
+    citationOccurrenceCount: formatHomeCount(cumulative.citationOccurrenceCount),
+    citationUrlCount: formatHomeCount(cumulative.citationUrlCount),
+    sourceDomainCount: formatHomeCount(cumulative.sourceDomainCount),
+    recommendationCandidateCount: formatHomeCount(cumulative.recommendationCandidateCount),
+    countMetrics: [
+      {
+        label: "完了済み測定数",
+        value: formatHomeCount(cumulative.completedMeasurementCount),
+        helper: "集計対象期間内の completed measurement"
+      },
+      {
+        label: "有効観測数",
+        value: formatHomeCount(cumulative.validObservationCount),
+        helper: "失敗・partial・error を可能な範囲で除外"
+      },
+      {
+        label: "AI回答観測数",
+        value: formatHomeCount(cumulative.aiConversationCount),
+        helper: "有効観測に紐づくAI回答"
+      },
+      {
+        label: "ブランド表示観測数",
+        value: formatHomeCount(cumulative.brandDisplayObservationCount),
+        helper: "organic discovery の証明ではありません"
+      },
+      {
+        label: "参照出現数",
+        value: formatHomeCount(cumulative.citationOccurrenceCount),
+        helper: "根拠確認済み件数ではありません"
+      },
+      {
+        label: "参照URL数",
+        value: formatHomeCount(cumulative.citationUrlCount),
+        helper: "重複を除いたURL数"
+      },
+      {
+        label: "参照ドメイン数",
+        value: formatHomeCount(cumulative.sourceDomainCount),
+        helper: "表示可能な参照ドメイン"
+      },
+      {
+        label: "改善候補数",
+        value: formatHomeCount(cumulative.recommendationCandidateCount),
+        helper: "承認済み施策数ではありません"
+      }
+    ],
+    cautionMessages,
+    trendBars,
+    trendRows: latestPoint ? createHomeTrendRows(latestPoint) : [],
+    trendMax
+  };
+}
+
+function createHomeReadModelKpiCards(view: DashboardHomeReadModelView): DashboardKpiCardData[] {
+  return [
+    {
+      label: "完了済み測定数",
+      value: view.completedMeasurementCount,
+      helper: "集計対象期間内の測定数",
+      tone: "blue"
+    },
+    {
+      label: "有効観測数",
+      value: view.validObservationCount,
+      helper: "失敗・partial・errorを可能な範囲で除外",
+      tone: "green",
+      sparkline: view.trendBars
+    },
+    {
+      label: "AI回答観測数",
+      value: view.aiConversationCount,
+      helper: "有効観測に紐づくAI回答",
+      tone: "blue"
+    },
+    {
+      label: "参照出現数",
+      value: view.citationOccurrenceCount,
+      helper: "根拠確認済み件数ではありません",
+      tone: "amber"
+    },
+    {
+      label: "改善候補数",
+      value: view.recommendationCandidateCount,
+      helper: "承認済み施策数ではありません",
+      tone: "slate"
+    }
+  ];
+}
+
+function createHomeTrendRows(point: RecoraTrendHomePoint): DashboardHomeTrendRow[] {
+  return [
+    { label: "完了済み測定数", value: formatHomeCount(point.completedMeasurementCount) },
+    { label: "有効観測数", value: formatHomeCount(point.validObservationCount) },
+    { label: "ブランド表示観測数", value: formatHomeCount(point.brandDisplayObservationCount) },
+    { label: "参照出現数", value: formatHomeCount(point.citationOccurrenceCount) },
+    { label: "参照URL数", value: formatHomeCount(point.citationUrlCount) },
+    { label: "参照ドメイン数", value: formatHomeCount(point.sourceDomainCount) }
+  ];
+}
+
+function createHomeCautionMessages(flags: RecoraHomeDataCautionFlag[]) {
+  const messages = flags.map(formatHomeCautionFlag);
+  return Array.from(new Set(messages));
+}
+
+function formatHomeCautionFlag(flag: RecoraHomeDataCautionFlag) {
+  const messages: Record<string, string> = {
+    latest_aggregate_not_cumulative: "最新集計は通算値ではありません。",
+    citation_count_not_source_to_claim_support: "参照として出現した数です。根拠確認済み件数ではありません。",
+    recommendation_count_not_approved_actions: "改善候補数です。承認済み施策数ではありません。",
+    parse_status_needs_verification: "parse error の専用判定列は追加確認が必要です。",
+    provider_error_needs_verification: "provider error は現行DBで確認できる範囲に限定して除外しています。",
+    seed_measurements_excluded: "seedを含む測定は organic discovery の証拠として扱いません。",
+    aggregate_runs_excluded_from_cumulative: "aggregate run は通算ホームのcountから除外しています。",
+    non_measurement_run_kind_excluded: "measurement run_kind が確認できないrunは除外しています。",
+    unsafe_run_items_excluded: "失敗・partial・error の可能性がある観測はcountから除外しています。",
+    citation_status_not_evidence_quality: "citation status は証拠品質ではありません。",
+    primary_brand_missing: "対象ブランドの表示観測数は追加確認が必要です。",
+    small_sample_caution: "少数観測のため、追加測定で傾向が変わる可能性があります。",
+    trend_comparability_needs_verification: "推移はcount系のみです。測定条件の完全一致は追加確認が必要です。",
+    no_ai_visibility_or_competitive_gap_trend_p0: "AI可視性や競合差分の推移はP0では表示していません。"
+  };
+
+  if (messages[flag.code]) return messages[flag.code];
+  if (flag.severity === "needs_verification") return "一部の集計条件は追加確認が必要です。";
+  if (flag.severity === "warning") return "集計値は注意付きで確認してください。";
+  return "表示値はRecoraの観測範囲に基づく参考値です。";
+}
+
+function formatHomePeriod(start: string | null, end: string | null) {
+  if (!start && !end) return "-";
+  return `${start ?? "-"} - ${end ?? "-"}`;
+}
+
+function formatHomeCount(value: number | null | undefined) {
+  return typeof value === "number" ? `${value}件` : "-";
 }
 
 function createZeroRankingRowsFromBrands(brands: RecoraDashboardDbData["brands"], primaryBrandId?: string): DashboardRankingRow[] {
@@ -732,15 +946,14 @@ function truncateText(value: string, maxLength: number) {
 }
 
 function toDashboardTask(item: RecoraRecommendationRow): DashboardTask {
-  const impact = Math.round(item.impact_score) + "pt";
   return {
     priority: toDashboardPriority(item.priority),
     task: item.title,
-    impact,
+    impact: "表示候補",
     category: recommendationTypeLabel(item.type),
-    action: item.reason ?? item.target_url ?? "詳細な改善アクションを確認する",
-    reason: item.reason ?? "AI回答内での表示・参照に不足が見つかっています。",
-    expectedImpact: `AI表示率 ${impact} 改善見込み`,
+    action: item.reason ?? item.target_url ?? "改善候補の内容を確認してください。",
+    reason: item.reason ?? "観測データから表示された改善候補です。根拠確認が必要です。",
+    expectedImpact: "承認済み施策や効果保証ではありません",
     due: "-"
   };
 }
@@ -768,8 +981,14 @@ function formatDateTime(value: string | null | undefined) {
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Tokyo" }).format(date);
 }
-export function DashboardHomePage({ dashboardData = null }: { dashboardData?: RecoraDashboardDbData | null }) {
-  const dashboardView = createDashboardHomeViewModel(dashboardData);
+export function DashboardHomePage({
+  dashboardData = null,
+  homeReadModelData = null
+}: {
+  dashboardData?: RecoraDashboardDbData | null;
+  homeReadModelData?: RecoraHomeReadModelDbData | null;
+}) {
+  const dashboardView = createDashboardHomeViewModel(dashboardData, homeReadModelData);
 
   return (
     <>
@@ -782,6 +1001,8 @@ export function DashboardHomePage({ dashboardData = null }: { dashboardData?: Re
       />
 
       <TemporaryReportStatusCard view={dashboardView.temporaryReportView} />
+
+      <HomeReadModelStatusCard view={dashboardView.homeReadModel} />
 
       <DashboardSnapshotHero dashboardView={dashboardView} />
 
@@ -886,6 +1107,72 @@ function TemporaryReportStatusValue({ label, value, isMuted }: { label: string; 
   );
 }
 
+function HomeReadModelStatusCard({ view }: { view: DashboardHomeReadModelView }) {
+  const cautions = view.cautionMessages.length > 0
+    ? view.cautionMessages
+    : ["追加測定後にホーム集計の注意事項を表示します。"];
+
+  return (
+    <section className="mt-5 rounded-lg border border-amber-200 bg-amber-50/55 p-4 shadow-[0_8px_28px_rgba(15,23,42,0.035)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-bold text-slate-950">ホーム集計の注意</h2>
+            <Badge variant="outline" className="rounded-sm border-amber-200 bg-white text-xs text-amber-700">
+              count系のみ
+            </Badge>
+          </div>
+          <p className="mt-1 text-sm leading-6 text-slate-700">
+            集計対象期間: {view.aggregationPeriod}
+          </p>
+        </div>
+        <div className="grid min-w-[260px] gap-2 text-xs font-bold text-slate-600 sm:grid-cols-2">
+          <TemporaryReportStatusValue label="有効観測数" value={view.validObservationCount} isMuted={!view.hasHomeReadModel} />
+          <TemporaryReportStatusValue label="改善候補数" value={view.recommendationCandidateCount} isMuted={!view.hasHomeReadModel} />
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1.1fr]">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">count summary</p>
+          {view.countMetrics.length > 0 ? (
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {view.countMetrics.map((metric) => (
+                <HomeReadModelMetric key={metric.label} metric={metric} />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              追加測定後に、集計対象期間内のcount系項目を表示します。
+            </p>
+          )}
+        </div>
+
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">data cautions</p>
+          <ul className="mt-2 grid gap-1.5 text-sm leading-6 text-slate-700">
+            {cautions.map((caution) => (
+              <li key={caution}>{"- "}{caution}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HomeReadModelMetric({ metric }: { metric: DashboardHomeCountMetric }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+      <p className="text-[11px] font-bold text-slate-500">{metric.label}</p>
+      <p className="mt-1 text-sm font-bold text-slate-950">{metric.value}</p>
+      {metric.helper ? (
+        <p className="mt-1 text-xs leading-5 text-slate-500">{metric.helper}</p>
+      ) : null}
+    </div>
+  );
+}
+
 function DashboardSnapshotHero({ dashboardView }: { dashboardView: DashboardHomeViewModel }) {
   return (
     <div className="mt-6 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
@@ -931,8 +1218,8 @@ function DashboardSnapshotHero({ dashboardView }: { dashboardView: DashboardHome
       <section className="min-w-0 rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-bold tracking-tight text-[#0F172A]">優先改善アクション</p>
-            <p className="mt-1 text-sm leading-6 text-[#64748B]">保存済みの改善提案</p>
+            <p className="text-sm font-bold tracking-tight text-[#0F172A]">改善候補</p>
+            <p className="mt-1 text-sm leading-6 text-[#64748B]">確認が必要な表示候補</p>
           </div>
           <span className="rounded-full bg-[#E6F4F1] px-2.5 py-1 text-xs font-bold text-[#00796B]">
             {dashboardView.priorityTasks.length}件
@@ -941,13 +1228,13 @@ function DashboardSnapshotHero({ dashboardView }: { dashboardView: DashboardHome
         {dashboardView.priorityTasks[0] ? (
           <ActionSummaryCard task={dashboardView.priorityTasks[0]} />
         ) : (
-          <EmptyDashboardState message="現在表示できる改善提案はありません。" />
+          <EmptyDashboardState message="現在表示できる改善候補はありません。" />
         )}
         <Link
           href={`${reportBase}/action-plan`}
           className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]"
         >
-          アクションプランを見る
+          改善候補を確認する
           <ArrowRight className="h-4 w-4" />
         </Link>
       </section>
@@ -979,8 +1266,8 @@ function ActionSummaryCard({ task }: { task: DashboardTask }) {
       <p className="font-bold leading-5 text-[#0F172A]">{task.task}</p>
       <p className="mt-2 text-sm leading-6 text-[#64748B]">{task.reason}</p>
       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-        <TaskFact label="期待インパクト" value={task.expectedImpact} />
-        <TaskFact label="次の作業" value={task.action} />
+        <TaskFact label="表示上の注意" value={task.expectedImpact} />
+        <TaskFact label="確認する内容" value={task.action} />
       </div>
     </div>
   );
@@ -1078,12 +1365,13 @@ function DashboardKpiGrid({ cards }: { cards: DashboardKpiCardData[] }) {
 
 function VisibilityTrendCard({ dashboardView }: { dashboardView?: DashboardHomeViewModel }) {
   const view = dashboardView ?? createEmptyDashboardHomeViewModel();
-  const visibilitySparkline = buildSparkline(view.brandVisibilityNumber);
+  const homeView = view.homeReadModel;
+  const hasTrendData = homeView.trendBars.length > 0;
 
   return (
     <DataCard
-      title="AI表示率"
-      description={view.hasDbData ? "最新aggregate snapshot由来の現在値です。" : "表示できる測定結果がありません。"}
+      title="観測量の推移"
+      description={hasTrendData ? "有効観測数などのcount系推移です。比較条件は注意付きで確認します。" : "追加測定後にcount系推移を表示します。"}
       action={
         <Link href={`${reportBase}/trends`} className="text-xs font-semibold text-[#00796B]">
           詳細
@@ -1094,22 +1382,31 @@ function VisibilityTrendCard({ dashboardView }: { dashboardView?: DashboardHomeV
         <div className="min-w-0 rounded-[18px] border border-[#DDE8E5] bg-[#F6FAF9] p-5">
           <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-medium text-[#64748B]">RecoraのAI表示率</p>
-              <p className="mt-1 text-4xl font-bold tracking-tight text-[#0F172A]">{view.brandVisibilityValue}</p>
+              <p className="text-sm font-medium text-[#64748B]">有効観測数の推移</p>
+              <p className="mt-1 text-4xl font-bold tracking-tight text-[#0F172A]">{homeView.validObservationCount}</p>
             </div>
             <Badge variant="outline" className="w-fit whitespace-nowrap rounded-full border-amber-200 bg-amber-50 px-2.5 py-1 text-[#B7791F]">
-              首位との差 {formatSignedPt(view.competitiveGapDelta)}
+              count系のみ
             </Badge>
           </div>
-          <CurrentValueBars values={visibilitySparkline} max={100} />
+          {hasTrendData ? (
+            <CurrentValueBars values={homeView.trendBars} max={homeView.trendMax} />
+          ) : (
+            <div className="mt-5">
+              <EmptyDashboardState message="追加測定後にcount系推移を表示します。" />
+            </div>
+          )}
           <p className="mt-4 text-sm leading-6 text-[#64748B]">
-            測定結果の現在値をもとに補助表示しています。
+            AI可視性や競合差分の推移はP0では表示していません。
           </p>
         </div>
         <div className="grid min-w-0 gap-3 content-start">
-          <DashboardScopeRow label="AI言及数" value={String(view.aiMentionCount)} tone="blue" />
-          <DashboardScopeRow label="参照回数" value={String(view.citationCount)} tone="green" />
-          <DashboardScopeRow label="分析済みAI回答" value={`${view.aiConversationCount}件`} tone="slate" />
+          <DashboardScopeRow label="集計対象期間" value={homeView.aggregationPeriod} tone="slate" />
+          <DashboardScopeRow label="完了済み測定数" value={homeView.completedMeasurementCount} tone="blue" />
+          <DashboardScopeRow label="参照出現数" value={homeView.citationOccurrenceCount} tone="green" />
+          {homeView.trendRows.map((row) => (
+            <DashboardScopeRow key={row.label} label={row.label} value={row.value} tone="slate" />
+          ))}
         </div>
       </div>
     </DataCard>
@@ -1137,11 +1434,11 @@ function CurrentValueBars({ values, max }: { values: number[]; max: number }) {
 function NextActionsCard({ tasks = [] }: { tasks?: DashboardTask[] }) {
   return (
     <DataCard
-      title="次にやる3つ"
-      description="AI表示率の回復に直結する優先アクション"
+      title="確認する改善候補"
+      description="表示候補です。承認済み施策や効果保証ではありません。"
       action={
         <Link href={`${reportBase}/action-plan`} className="text-xs font-semibold text-[#00796B]">
-          改善プランへ
+          改善候補へ
         </Link>
       }
     >
@@ -1167,7 +1464,7 @@ function NextActionsCard({ tasks = [] }: { tasks?: DashboardTask[] }) {
             </div>
           ))
         ) : (
-          <EmptyDashboardState message="現在表示できる改善提案はありません。" />
+          <EmptyDashboardState message="現在表示できる改善候補はありません。" />
         )}
       </div>
     </DataCard>
@@ -3062,8 +3359,8 @@ function ImprovementPanel({ tasks }: { tasks: DashboardTask[] }) {
     <aside className="min-w-0 rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold tracking-tight text-[#0F172A]">改善提案（優先度順）</h2>
-          <p className="mt-1 text-sm leading-6 text-[#64748B]">AI表示率低下の要因に近い順で並べています。</p>
+          <h2 className="text-base font-bold tracking-tight text-[#0F172A]">改善候補</h2>
+          <p className="mt-1 text-sm leading-6 text-[#64748B]">承認済み施策ではなく、確認が必要な表示候補です。</p>
         </div>
       </div>
       <div className="mt-4 space-y-3">
@@ -3080,14 +3377,14 @@ function ImprovementPanel({ tasks }: { tasks: DashboardTask[] }) {
             />
           ))
         ) : (
-          <EmptyDashboardState message="現在表示できる改善提案はありません。" />
+          <EmptyDashboardState message="現在表示できる改善候補はありません。" />
         )}
       </div>
       <Link
         href={`${reportBase}/content-opportunities`}
         className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[#00796B]"
       >
-        すべての提案を見る
+        改善候補を確認する
         <ArrowRight className="h-4 w-4" />
       </Link>
     </aside>
@@ -3096,7 +3393,7 @@ function ImprovementPanel({ tasks }: { tasks: DashboardTask[] }) {
 
 function PriorityTasksCard({ tasks = [] }: { tasks?: DashboardTask[] }) {
   return (
-    <DashboardCard title="改善提案（優先タスク）" description="すぐに着手すべき改善タスクです。">
+    <DashboardCard title="改善候補（確認中）" description="承認済み施策や効果保証ではありません。">
       {tasks.length > 0 ? (
         <div className="grid gap-4 lg:grid-cols-3">
           {tasks.map((task) => (
@@ -3110,21 +3407,21 @@ function PriorityTasksCard({ tasks = [] }: { tasks?: DashboardTask[] }) {
             <p className="mt-4 text-base font-bold leading-6 text-[#0F172A]">{task.task}</p>
             <p className="mt-2 text-sm leading-6 text-[#64748B]">{task.reason}</p>
             <div className="mt-4 space-y-2 text-sm">
-              <TaskFact label="推奨アクション" value={task.action} />
-              <TaskFact label="期待インパクト" value={task.expectedImpact} />
+              <TaskFact label="候補内容" value={task.action} />
+              <TaskFact label="注意" value={task.expectedImpact} />
               <TaskFact label="関連カテゴリ" value={task.category} />
             </div>
           </div>
           ))}
         </div>
       ) : (
-        <EmptyDashboardState message="現在表示できる改善タスクはありません。" />
+        <EmptyDashboardState message="現在表示できる改善候補はありません。" />
       )}
       <Link
         href={`${reportBase}/content-opportunities`}
         className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[#00796B]"
       >
-        すべての改善タスクを見る
+        改善候補を確認する
         <ArrowRight className="h-4 w-4" />
       </Link>
     </DashboardCard>

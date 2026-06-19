@@ -1,12 +1,15 @@
 import { DashboardHomePage } from "@/components/recora/report-pages";
-import { getRecoraDashboardData } from "@/lib/recora/db";
+import { getRecoraDashboardData, getRecoraHomeReadModelData } from "@/lib/recora/db";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const dashboardData = await getDashboardDataOrNull();
+  const [dashboardData, homeReadModelData] = await Promise.all([
+    getDashboardDataOrNull(),
+    getHomeReadModelDataOrNull()
+  ]);
 
-  return <DashboardHomePage dashboardData={dashboardData} />;
+  return <DashboardHomePage dashboardData={dashboardData} homeReadModelData={homeReadModelData} />;
 }
 
 async function getDashboardDataOrNull() {
@@ -15,6 +18,16 @@ async function getDashboardDataOrNull() {
     return data.project ? data : null;
   } catch (error) {
     console.warn("Failed to load Recora dashboard data.", error);
+    return null;
+  }
+}
+
+async function getHomeReadModelDataOrNull() {
+  try {
+    const data = await getRecoraHomeReadModelData();
+    return data.project ? data : null;
+  } catch (error) {
+    console.warn("Failed to load Recora home read model data.", error);
     return null;
   }
 }
