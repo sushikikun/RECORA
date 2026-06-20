@@ -1,4 +1,4 @@
-﻿import { spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -6,14 +6,23 @@ import process from "node:process";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const DEFAULT_AGGREGATE_SEARCH_MODE: AggregateSearchMode = "combined";
+const DEFAULT_MEASUREMENT_SEARCH_MODE: MeasurementSearchMode = "both";
+const DEFAULT_PROMPT_LIMIT = 1;
 const LOCAL_DATABASE_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
+type MeasurementSearchMode = "no-search" | "web-search" | "both";
 type AggregateSearchMode = "combined" | "no-search" | "web-search" | "both";
 type JsonRecord = Record<string, unknown>;
+type PhaseStatus = "not_requested" | "planned_not_executed" | "completed" | "skipped_no_candidates";
 
 type Options = {
   projectSlug: string;
-  measurementRunId: string;
+  measurementRunId: string | null;
+  executeMeasurement: boolean;
+  promptLimit: number;
+  promptLimitProvided: boolean;
+  profileId: string | null;
+  measurementSearchMode: MeasurementSearchMode;
   plan: boolean;
   applyAggregate: boolean;
   generateRecommendations: boolean;
@@ -40,13 +49,37 @@ type LocalDatabase = {
   port: string;
 };
 
+type ManifestCommand = ReturnType<typeof describeChildCommand>;
+
 type CycleManifest = {
   mode: string;
   generatedAt: string;
   projectSlug: string;
-  measurementRunId: string;
+  measurementRunId: string | null;
   aggregateRunId: string | null;
+  measurementSearchMode: MeasurementSearchMode;
   aggregateSearchMode: AggregateSearchMode;
+  demoSeedCheck: {
+    status: PhaseStatus;
+    note: string;
+  };
+  measurement: {
+    status: PhaseStatus;
+    runStatus: string | null;
+    openAiApiExecuted: boolean;
+    promptLimit: number | null;
+    promptCount: number | null;
+    expectedRunItems: number | null;
+    insertedCounts: {
+      runItemsCreated: number | null;
+      aiConversationsInserted: number | null;
+      brandMentionsInserted: number | null;
+      citationsInserted: number | null;
+      sourceDomainsUpserted: number | null;
+      failedItems: number | null;
+      skippedDuplicates: number | null;
+    } | null;
+  };
   counts: {
     aiConversations: number | null;
     brandMentions: number | null;
@@ -54,6 +87,7 @@ type CycleManifest = {
     sourceDomains: number | null;
   };
   metricSnapshots: {
+    status: PhaseStatus;
     mode: string | null;
     databaseWriteAllowed: boolean | null;
     databaseWritePerformed: boolean | null;
@@ -64,7 +98,7 @@ type CycleManifest = {
     after: number | null;
   };
   recommendationCandidates: {
-    status: "not_requested" | "skipped_no_candidates" | "generated";
+    status: PhaseStatus;
     candidateCount: number | null;
     outputJson: string | null;
     outputMarkdown: string | null;
@@ -79,7 +113,7 @@ type CycleManifest = {
     databaseWritePerformed: boolean | null;
   };
   recommendationSaveApply: {
-    status: "not_requested" | "skipped_no_candidates" | "completed";
+    status: PhaseStatus;
     insertedCount: number | null;
     savedCandidateIds: string[];
     recommendationsBefore: number | null;
@@ -88,20 +122,22 @@ type CycleManifest = {
   };
   dashboardUrls: ReturnType<typeof buildDashboardUrls>;
   safety: {
-    openAiApiExecuted: false;
+    openAiApiExecuted: boolean;
     localDatabaseOnly: true;
     databaseHost: string;
     databasePort: string;
     planDefault: boolean;
+    executeMeasurementRequiredForOpenAi: boolean;
     applyAggregateRequiredForMetricSnapshotWrite: boolean;
     applyRecommendationsRequiredForRecommendationWrite: boolean;
     recommendationPolicy: string;
   };
   commands: {
-    aggregate: ReturnType<typeof describeChildCommand>;
-    generateRecommendations: ReturnType<typeof describeChildCommand> | null;
-    saveRecommendationsDryRun: ReturnType<typeof describeChildCommand> | null;
-    saveRecommendationsApply: ReturnType<typeof describeChildCommand> | null;
+    measurement: ManifestCommand | null;
+    aggregate: ManifestCommand | null;
+    generateRecommendations: ManifestCommand | null;
+    saveRecommendationsDryRun: ManifestCommand | null;
+    saveRecommendationsApply: ManifestCommand | null;
   };
   manifestPath: string;
 };
@@ -118,12 +154,19 @@ async function main() {
 
   await fs.mkdir(outputDir, { recursive: true });
 
-  const aggregateCommand = buildAggregateCommand(options, path.join(outputDir, "aggregate.json"));
-  const aggregateResult = await runJsonCommand(aggregateCommand, childEnv);
-  assertAggregateSourceMatches(aggregateResult.output, options.measurementRunId);
+  const measurementCommand = buildMeasurementCommand(options);
+  let measurementResult: CommandResult | null = null;
+  let selectedMeasurementRunId = options.measurementRunId;
 
-  const aggregateRunId = resolveAggregateRunId(aggregateResult.output);
-  const candidateOutputDir = path.join(outputDir, "recommendation-candidates");
+  if (options.executeMeasurement) {
+    measurementResult = await runJsonCommand(measurementCommand, childEnv);
+    selectedMeasurementRunId = getString(measurementResult.output, "measurementRunId");
+    assertExecutedMeasurementIsUsable(measurementResult.output, selectedMeasurementRunId);
+  }
+
+  let aggregateCommand: ChildScriptCommand | null = null;
+  let aggregateResult: CommandResult | null = null;
+  let aggregateRunId: string | null = null;
   let generateCommand: ChildScriptCommand | null = null;
   let generateResult: CommandResult | null = null;
   let saveDryRunCommand: ChildScriptCommand | null = null;
@@ -131,18 +174,29 @@ async function main() {
   let saveApplyCommand: ChildScriptCommand | null = null;
   let saveApplyResult: CommandResult | null = null;
 
+  if (selectedMeasurementRunId) {
+    aggregateCommand = buildAggregateCommand(options, selectedMeasurementRunId, path.join(outputDir, "aggregate.json"));
+    aggregateResult = await runJsonCommand(aggregateCommand, childEnv);
+    assertAggregateSourceMatches(aggregateResult.output, selectedMeasurementRunId);
+    aggregateRunId = resolveAggregateRunId(aggregateResult.output);
+  }
+
   if (options.generateRecommendations) {
+    if (!selectedMeasurementRunId) {
+      throw new Error("Recommendation generation requires a measurement run. Use --measurement-run-id or --execute-measurement.");
+    }
     if (!aggregateRunId) {
       throw new Error(
         "Recommendation generation requires an aggregate run linked by source_run_id. Run with --apply-aggregate or use a measurement run that already has an aggregate."
       );
     }
-    generateCommand = buildGenerateRecommendationsCommand(options, aggregateRunId, candidateOutputDir);
+    const candidateOutputDir = path.join(outputDir, "recommendation-candidates");
+    generateCommand = buildGenerateRecommendationsCommand(options, selectedMeasurementRunId, aggregateRunId, candidateOutputDir);
     generateResult = await runJsonCommand(generateCommand, childEnv);
 
     const candidateCount = getNumber(generateResult.output, "candidateCount") ?? 0;
     if (candidateCount > 0) {
-      const candidateInputPath = getGeneratedCandidateInputPath(generateResult.output, candidateOutputDir, options.measurementRunId);
+      const candidateInputPath = getGeneratedCandidateInputPath(generateResult.output, candidateOutputDir, selectedMeasurementRunId);
       saveDryRunCommand = buildSaveRecommendationsCommand(candidateInputPath, false);
       saveDryRunResult = await runJsonCommand(saveDryRunCommand, childEnv);
 
@@ -156,8 +210,11 @@ async function main() {
   const manifest = buildManifest({
     options,
     database,
+    measurementCommand,
+    measurementOutput: measurementResult?.output ?? null,
+    measurementRunId: selectedMeasurementRunId,
     aggregateCommand,
-    aggregateOutput: aggregateResult.output,
+    aggregateOutput: aggregateResult?.output ?? null,
     aggregateRunId,
     generateCommand,
     generateOutput: generateResult?.output ?? null,
@@ -175,7 +232,12 @@ async function main() {
 function parseArgs(args: string[]): Options {
   const options: Options = {
     projectSlug: "",
-    measurementRunId: "",
+    measurementRunId: null,
+    executeMeasurement: false,
+    promptLimit: DEFAULT_PROMPT_LIMIT,
+    promptLimitProvided: false,
+    profileId: null,
+    measurementSearchMode: DEFAULT_MEASUREMENT_SEARCH_MODE,
     plan: false,
     applyAggregate: false,
     generateRecommendations: false,
@@ -208,6 +270,46 @@ function parseArgs(args: string[]): Options {
     }
     if (arg.startsWith("--measurement-run-id=")) {
       options.measurementRunId = arg.slice("--measurement-run-id=".length);
+      continue;
+    }
+    if (arg === "--execute-measurement") {
+      options.executeMeasurement = true;
+      continue;
+    }
+    if (arg === "--prompt-limit" && next) {
+      const parsed = Number(next);
+      if (!Number.isInteger(parsed) || parsed < 1) throw new Error("--prompt-limit must be a positive integer.");
+      options.promptLimit = parsed;
+      options.promptLimitProvided = true;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--prompt-limit=")) {
+      const parsed = Number(arg.slice("--prompt-limit=".length));
+      if (!Number.isInteger(parsed) || parsed < 1) throw new Error("--prompt-limit must be a positive integer.");
+      options.promptLimit = parsed;
+      options.promptLimitProvided = true;
+      continue;
+    }
+    if (arg === "--profile" && next) {
+      options.profileId = next;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--profile=")) {
+      options.profileId = arg.slice("--profile=".length);
+      continue;
+    }
+    if (arg === "--search-mode" && next) {
+      if (!isMeasurementSearchMode(next)) throw new Error("--search-mode must be no-search, web-search, or both.");
+      options.measurementSearchMode = next;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--search-mode=")) {
+      const value = arg.slice("--search-mode=".length);
+      if (!isMeasurementSearchMode(value)) throw new Error("--search-mode must be no-search, web-search, or both.");
+      options.measurementSearchMode = value;
       continue;
     }
     if (arg === "--aggregate-search-mode" && next) {
@@ -256,9 +358,17 @@ function parseArgs(args: string[]): Options {
   }
 
   if (!options.projectSlug) throw new Error("--project-slug is required.");
-  if (!options.measurementRunId) throw new Error("--measurement-run-id is required.");
-  if (options.plan && (options.applyAggregate || options.generateRecommendations || options.applyRecommendations)) {
-    throw new Error("--plan cannot be combined with apply or generation flags.");
+  if (options.measurementRunId && options.executeMeasurement) {
+    throw new Error("--measurement-run-id and --execute-measurement cannot be used together.");
+  }
+  if (!options.measurementRunId && !options.executeMeasurement && !options.plan) {
+    throw new Error("Use --measurement-run-id, --execute-measurement, or --plan.");
+  }
+  if (options.profileId && options.promptLimitProvided) {
+    throw new Error("--profile and --prompt-limit cannot be used together.");
+  }
+  if (options.plan && (options.applyAggregate || options.generateRecommendations || options.applyRecommendations || options.executeMeasurement)) {
+    throw new Error("--plan cannot be combined with execute, apply, or generation flags.");
   }
   if (options.applyRecommendations && !options.generateRecommendations) {
     throw new Error("--apply-recommendations requires --generate-recommendations.");
@@ -271,7 +381,7 @@ function resolveLocalDatabase(): LocalDatabase {
   const url = process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
   const parsed = parseDatabaseUrl(url);
   if (!LOCAL_DATABASE_HOSTS.has(parsed.hostname)) {
-    throw new Error("Refusing to run against a non-local RECORA_DATABASE_URL. This MVP orchestrator is local-only.");
+    throw new Error("Refusing to run against a non-local RECORA_DATABASE_URL. This orchestrator is local-only.");
   }
   return {
     url,
@@ -296,16 +406,29 @@ function parseDatabaseUrl(value: string) {
 function resolveOutputDir(options: Options) {
   if (options.outputDir) return options.outputDir;
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const runShort = options.measurementRunId.slice(0, 8);
+  const runShort = options.measurementRunId ? options.measurementRunId.slice(0, 8) : "new-run";
   return path.join(process.cwd(), "output", "report-cycles", `${options.projectSlug}-${runShort}-${timestamp}`);
 }
 
-function buildAggregateCommand(options: Options, outputJsonPath: string) {
+function buildMeasurementCommand(options: Options) {
+  const promptSelectionArgs = options.profileId
+    ? ["--profile", options.profileId]
+    : ["--prompt-limit", String(options.promptLimit)];
+  return buildChildScriptCommand("OpenAI measurement", "scripts/run-openai-measurement.ts", [
+    "--project-slug",
+    options.projectSlug,
+    ...promptSelectionArgs,
+    "--search-mode",
+    options.measurementSearchMode
+  ]);
+}
+
+function buildAggregateCommand(options: Options, measurementRunId: string, outputJsonPath: string) {
   const args = [
     "--project-slug",
     options.projectSlug,
     "--source-run-id",
-    options.measurementRunId,
+    measurementRunId,
     "--search-mode",
     options.aggregateSearchMode,
     "--output-json",
@@ -315,12 +438,12 @@ function buildAggregateCommand(options: Options, outputJsonPath: string) {
   return buildChildScriptCommand("metric snapshot aggregate", "scripts/recalculate-metric-snapshots.ts", args);
 }
 
-function buildGenerateRecommendationsCommand(options: Options, aggregateRunId: string, outputDir: string) {
+function buildGenerateRecommendationsCommand(options: Options, measurementRunId: string, aggregateRunId: string, outputDir: string) {
   return buildChildScriptCommand("recommendation candidates generation", "scripts/generate-recommendation-candidates.ts", [
     "--project-slug",
     options.projectSlug,
     "--measurement-run-id",
-    options.measurementRunId,
+    measurementRunId,
     "--aggregate-run-id",
     aggregateRunId,
     "--output-dir",
@@ -397,8 +520,11 @@ async function runJsonCommand(command: ChildScriptCommand, env: NodeJS.ProcessEn
 function buildManifest(input: {
   options: Options;
   database: LocalDatabase;
-  aggregateCommand: ChildScriptCommand;
-  aggregateOutput: JsonRecord;
+  measurementCommand: ChildScriptCommand;
+  measurementOutput: JsonRecord | null;
+  measurementRunId: string | null;
+  aggregateCommand: ChildScriptCommand | null;
+  aggregateOutput: JsonRecord | null;
   aggregateRunId: string | null;
   generateCommand: ChildScriptCommand | null;
   generateOutput: JsonRecord | null;
@@ -411,31 +537,57 @@ function buildManifest(input: {
   const { options, aggregateOutput, generateOutput, saveDryRunOutput, saveApplyOutput } = input;
   const candidateCount = generateOutput ? getNumber(generateOutput, "candidateCount") ?? 0 : null;
   const noCandidates = candidateCount === 0;
+  const measurementTotals = input.measurementOutput ? asRecord(input.measurementOutput.totals) : {};
   return {
     mode: resolveMode(options),
     generatedAt: new Date().toISOString(),
     projectSlug: options.projectSlug,
-    measurementRunId: options.measurementRunId,
+    measurementRunId: input.measurementRunId,
     aggregateRunId: input.aggregateRunId,
+    measurementSearchMode: options.measurementSearchMode,
     aggregateSearchMode: options.aggregateSearchMode,
+    demoSeedCheck: {
+      status: resolveDemoSeedCheckStatus(options, input.measurementRunId),
+      note: "Demo seed/project readiness is validated by run-openai-measurement.ts before any OpenAI call: project, prompts, personas, and brands must exist. This orchestrator does not create or mix seed data."
+    },
+    measurement: {
+      status: input.measurementOutput ? "completed" : options.executeMeasurement ? "not_requested" : "planned_not_executed",
+      runStatus: input.measurementOutput ? getString(input.measurementOutput, "runStatus") : null,
+      openAiApiExecuted: Boolean(input.measurementOutput),
+      promptLimit: input.measurementOutput ? getNumber(input.measurementOutput, "promptLimit") : options.profileId ? null : options.promptLimit,
+      promptCount: input.measurementOutput ? getNumber(input.measurementOutput, "promptCount") : null,
+      expectedRunItems: input.measurementOutput ? getNumber(input.measurementOutput, "expectedRunItems") : null,
+      insertedCounts: input.measurementOutput
+        ? {
+            runItemsCreated: getNumber(measurementTotals, "runItemsCreated"),
+            aiConversationsInserted: getNumber(measurementTotals, "aiConversationsInserted"),
+            brandMentionsInserted: getNumber(measurementTotals, "brandMentionsInserted"),
+            citationsInserted: getNumber(measurementTotals, "citationsInserted"),
+            sourceDomainsUpserted: getNumber(measurementTotals, "sourceDomainsUpserted"),
+            failedItems: getNumber(measurementTotals, "failedItems"),
+            skippedDuplicates: getNumber(measurementTotals, "skippedDuplicates")
+          }
+        : null
+    },
     counts: {
-      aiConversations: getNumber(aggregateOutput, "conversationCount"),
-      brandMentions: getNumber(aggregateOutput, "brandMentionCount"),
-      citations: getNumber(aggregateOutput, "citationCount"),
-      sourceDomains: getNumber(aggregateOutput, "sourceDomainCount")
+      aiConversations: aggregateOutput ? getNumber(aggregateOutput, "conversationCount") : null,
+      brandMentions: aggregateOutput ? getNumber(aggregateOutput, "brandMentionCount") : null,
+      citations: aggregateOutput ? getNumber(aggregateOutput, "citationCount") : null,
+      sourceDomains: aggregateOutput ? getNumber(aggregateOutput, "sourceDomainCount") : null
     },
     metricSnapshots: {
-      mode: getString(aggregateOutput, "mode"),
-      databaseWriteAllowed: getBoolean(aggregateOutput, "databaseWriteAllowed"),
-      databaseWritePerformed: getBoolean(aggregateOutput, "databaseWritePerformed"),
-      insertedSnapshotCount: getNumber(aggregateOutput, "insertedSnapshotCount"),
-      updatedSnapshotCount: getNumber(aggregateOutput, "updatedSnapshotCount"),
-      writtenSnapshotCount: getNumber(aggregateOutput, "writtenSnapshotCount"),
-      before: getNumber(aggregateOutput, "metricSnapshotsBefore"),
-      after: getNumber(aggregateOutput, "metricSnapshotsAfter")
+      status: aggregateOutput ? "completed" : "planned_not_executed",
+      mode: aggregateOutput ? getString(aggregateOutput, "mode") : null,
+      databaseWriteAllowed: aggregateOutput ? getBoolean(aggregateOutput, "databaseWriteAllowed") : null,
+      databaseWritePerformed: aggregateOutput ? getBoolean(aggregateOutput, "databaseWritePerformed") : null,
+      insertedSnapshotCount: aggregateOutput ? getNumber(aggregateOutput, "insertedSnapshotCount") : null,
+      updatedSnapshotCount: aggregateOutput ? getNumber(aggregateOutput, "updatedSnapshotCount") : null,
+      writtenSnapshotCount: aggregateOutput ? getNumber(aggregateOutput, "writtenSnapshotCount") : null,
+      before: aggregateOutput ? getNumber(aggregateOutput, "metricSnapshotsBefore") : null,
+      after: aggregateOutput ? getNumber(aggregateOutput, "metricSnapshotsAfter") : null
     },
     recommendationCandidates: {
-      status: generateOutput ? noCandidates ? "skipped_no_candidates" : "generated" : "not_requested",
+      status: generateOutput ? noCandidates ? "skipped_no_candidates" : "completed" : options.generateRecommendations ? "planned_not_executed" : "not_requested",
       candidateCount,
       outputJson: generateOutput ? getOutputPath(generateOutput, "run_json") : null,
       outputMarkdown: generateOutput ? getOutputPath(generateOutput, "run_markdown") : null
@@ -450,7 +602,7 @@ function buildManifest(input: {
       databaseWritePerformed: saveDryRunOutput ? getBoolean(saveDryRunOutput, "databaseWritePerformed") : null
     },
     recommendationSaveApply: {
-      status: saveApplyOutput ? "completed" : noCandidates ? "skipped_no_candidates" : "not_requested",
+      status: saveApplyOutput ? "completed" : noCandidates ? "skipped_no_candidates" : options.applyRecommendations ? "planned_not_executed" : "not_requested",
       insertedCount: saveApplyOutput ? getNumber(saveApplyOutput, "insertedCount") : null,
       savedCandidateIds: saveApplyOutput ? getStringArray(saveApplyOutput, "savedCandidateIds") : [],
       recommendationsBefore: saveApplyOutput ? getNumber(saveApplyOutput, "recommendationsBefore") : null,
@@ -459,17 +611,19 @@ function buildManifest(input: {
     },
     dashboardUrls: buildDashboardUrls(options.projectSlug),
     safety: {
-      openAiApiExecuted: false,
+      openAiApiExecuted: Boolean(input.measurementOutput),
       localDatabaseOnly: true,
       databaseHost: input.database.host,
       databasePort: input.database.port,
-      planDefault: !options.applyAggregate && !options.generateRecommendations && !options.applyRecommendations,
+      planDefault: isPlanOnly(options),
+      executeMeasurementRequiredForOpenAi: true,
       applyAggregateRequiredForMetricSnapshotWrite: true,
       applyRecommendationsRequiredForRecommendationWrite: true,
       recommendationPolicy: "Only display_decision=show and should_save_to_recommendations=review_required candidates can be saved by the child save script."
     },
     commands: {
-      aggregate: describeChildCommand(input.aggregateCommand),
+      measurement: describeChildCommand(input.measurementCommand),
+      aggregate: input.aggregateCommand ? describeChildCommand(input.aggregateCommand) : null,
       generateRecommendations: input.generateCommand ? describeChildCommand(input.generateCommand) : null,
       saveRecommendationsDryRun: input.saveDryRunCommand ? describeChildCommand(input.saveDryRunCommand) : null,
       saveRecommendationsApply: input.saveApplyCommand ? describeChildCommand(input.saveApplyCommand) : null
@@ -479,11 +633,25 @@ function buildManifest(input: {
 }
 
 function resolveMode(options: Options) {
-  if (options.plan || (!options.applyAggregate && !options.generateRecommendations && !options.applyRecommendations)) return "plan";
+  if (isPlanOnly(options)) return "plan";
+  if (options.executeMeasurement && options.applyRecommendations) return "execute-measurement-aggregate-generate-and-save";
+  if (options.executeMeasurement && options.generateRecommendations) return "execute-measurement-aggregate-and-generate";
+  if (options.executeMeasurement) return options.applyAggregate ? "execute-measurement-and-apply-aggregate" : "execute-measurement-aggregate-dry-run";
   if (options.applyRecommendations) return "apply-aggregate-generate-and-save";
   if (options.generateRecommendations) return options.applyAggregate ? "apply-aggregate-and-generate" : "aggregate-dry-run-and-generate";
   if (options.applyAggregate) return "apply-aggregate";
   return "plan";
+}
+
+function isPlanOnly(options: Options) {
+  return options.plan || (!options.measurementRunId && !options.executeMeasurement && !options.applyAggregate && !options.generateRecommendations && !options.applyRecommendations);
+}
+
+function resolveDemoSeedCheckStatus(options: Options, measurementRunId: string | null): PhaseStatus {
+  if (options.plan) return "planned_not_executed";
+  if (options.executeMeasurement && measurementRunId) return "completed";
+  if (measurementRunId) return "completed";
+  return "not_requested";
 }
 
 function resolveAggregateRunId(output: JsonRecord) {
@@ -491,6 +659,17 @@ function resolveAggregateRunId(output: JsonRecord) {
   if (direct) return direct;
   const existing = asRecord(output.existingAggregate);
   return getString(existing, "id");
+}
+
+function assertExecutedMeasurementIsUsable(output: JsonRecord, measurementRunId: string | null) {
+  if (!measurementRunId) throw new Error("OpenAI measurement completed without measurementRunId in output.");
+  const runStatus = getString(output, "runStatus");
+  if (runStatus !== "completed") throw new Error(`OpenAI measurement did not complete successfully. runStatus=${runStatus ?? "unknown"}.`);
+  const totals = asRecord(output.totals);
+  const insertedConversations = getNumber(totals, "aiConversationsInserted") ?? 0;
+  if (insertedConversations <= 0) {
+    throw new Error("OpenAI measurement produced no new ai_conversations. Stopping before aggregate to avoid an empty source run.");
+  }
 }
 
 function assertAggregateSourceMatches(output: JsonRecord, measurementRunId: string) {
@@ -609,6 +788,10 @@ function getStringArray(record: JsonRecord, key: string) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function isMeasurementSearchMode(value: string): value is MeasurementSearchMode {
+  return value === "no-search" || value === "web-search" || value === "both";
+}
+
 function isAggregateSearchMode(value: string): value is AggregateSearchMode {
   return value === "combined" || value === "no-search" || value === "web-search" || value === "both";
 }
@@ -621,12 +804,16 @@ function printHelp() {
   console.log(`Usage:
   npx tsx scripts/run-recora-report-cycle.ts --project-slug mieruca-seo-demo --measurement-run-id <id> --plan
   npx tsx scripts/run-recora-report-cycle.ts --project-slug mieruca-seo-demo --measurement-run-id <id> --apply-aggregate --generate-recommendations
-  npx tsx scripts/run-recora-report-cycle.ts --project-slug mieruca-seo-demo --measurement-run-id <id> --apply-aggregate --generate-recommendations --apply-recommendations
+  npx tsx scripts/run-recora-report-cycle.ts --project-slug mieruca-seo-demo --execute-measurement --prompt-limit 8 --search-mode both --apply-aggregate --generate-recommendations --apply-recommendations
 
 Options:
   --project-slug <slug>           Required Recora project slug.
-  --measurement-run-id <id>       Required completed OpenAI measurement run id.
-  --plan                          Validate and write a plan manifest only. This is the default when no action flags are set.
+  --measurement-run-id <id>       Reuse an existing completed OpenAI measurement run.
+  --execute-measurement           Create a new OpenAI measurement run before aggregate. Mutually exclusive with --measurement-run-id.
+  --prompt-limit <number>         Prompt count for new measurement. Default: 1.
+  --profile <id>                  Measurement profile for new measurement. Cannot be combined with --prompt-limit.
+  --search-mode <mode>            Measurement search mode: no-search, web-search, or both. Default: both.
+  --plan                          Write a plan manifest only. No OpenAI call and no DB write.
   --apply-aggregate               Persist metric_snapshots through recalculate-metric-snapshots.ts.
   --generate-recommendations      Generate recommendation candidate JSON/Markdown output.
   --apply-recommendations         Persist recommendations after a dry-run save check. Requires --generate-recommendations.
@@ -634,7 +821,7 @@ Options:
   --output-dir <path>             Optional manifest/output directory.
 
 Safety:
-  This MVP never runs OpenAI measurement. It forces RECORA_DATABASE_URL to a local PostgreSQL URL for child scripts and refuses non-local RECORA_DATABASE_URL values.
+  This orchestrator runs OpenAI only with --execute-measurement. It forces RECORA_DATABASE_URL to a local PostgreSQL URL for child scripts and refuses non-local RECORA_DATABASE_URL values.
 `);
 }
 
