@@ -3,7 +3,9 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { createRecoraSupabaseClient } from "@/lib/supabase/server";
 import {
   getDefaultRecoraProjectSlug,
-  getRecoraProject
+  getLatestRunWithMetricSnapshots,
+  getRecoraProject,
+  getSourceMeasurementRunId
 } from "./dashboard";
 import {
   isDisplayableCitation,
@@ -42,13 +44,19 @@ export async function getRecoraSourcesData(
     return emptySourcesData();
   }
 
-  const [sourceDomains, completedRuns] = await Promise.all([
+  const [sourceDomains, completedRuns, latestAggregateRun] = await Promise.all([
     getSourceDomains(project.id, supabase),
-    getCompletedRuns(project.id, supabase)
+    getCompletedRuns(project.id, supabase),
+    getLatestRunWithMetricSnapshots(project.id, supabase)
   ]);
-  const candidateRunIds = completedRuns
+  const measurementRunIds = completedRuns
     .filter((run) => !isSeedMeasurementRunId(run.id) && !isOpenAiAggregateRun(run))
     .map((run) => run.id);
+  const sourceMeasurementRunId = getSourceMeasurementRunId(latestAggregateRun);
+  const candidateRunIds =
+    sourceMeasurementRunId && measurementRunIds.includes(sourceMeasurementRunId)
+      ? [sourceMeasurementRunId]
+      : measurementRunIds;
 
   if (candidateRunIds.length === 0) {
     return { ...emptySourcesData(), project, latestRun: null, sourceDomains };

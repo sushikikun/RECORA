@@ -16,6 +16,7 @@ import type {
   RecoraCitationRow,
   RecoraLeaderboardDbData,
   RecoraMetricSnapshotRow,
+  RecoraPersonaRow,
   RecoraPromptRow,
   RecoraRunItemRow,
   RecoraTopicRow
@@ -31,6 +32,8 @@ const CITATION_COLUMNS =
   "id, conversation_id, brand_id, source_domain_id, url, domain, title, source_type, supports_claim, occurrence_count, created_at, updated_at, canonical_url, start_index, end_index, cited_text, brand_related";
 const PROMPT_COLUMNS =
   "id, project_id, topic_id, persona_id, text, intent, buyer_stage, priority, is_active, created_at, updated_at";
+const PERSONA_COLUMNS =
+  "id, project_id, name, segment, weight, jobs, pain_points, is_active, created_at, updated_at";
 const TOPIC_COLUMNS = "id, project_id, name, intent, priority, weight, is_active, created_at, updated_at";
 const METRIC_SNAPSHOT_COLUMNS =
   "id, run_id, scope_type, scope_id, brand_id, ai_visibility, ai_mention_count, citation_count, share_of_voice, competitive_gap, average_position, calculated_at, created_at, updated_at";
@@ -77,7 +80,13 @@ export async function getRecoraLeaderboardData(
     getPrompts(uniqueIds(runItems.map((item) => item.prompt_id)), supabase)
   ]);
 
-  const topics = await getTopics(uniqueIds(prompts.map((item) => item.topic_id)), supabase);
+  const [personas, topics] = await Promise.all([
+    getPersonas(uniqueIds([
+      ...runItems.map((item) => item.persona_id),
+      ...prompts.map((item) => item.persona_id)
+    ]), supabase),
+    getTopics(uniqueIds(prompts.map((item) => item.topic_id)), supabase)
+  ]);
 
   return {
     project,
@@ -88,6 +97,7 @@ export async function getRecoraLeaderboardData(
     conversations,
     brandMentions,
     citations,
+    personas,
     prompts,
     topics
   };
@@ -103,6 +113,7 @@ function emptyLeaderboardData(): RecoraLeaderboardDbData {
     conversations: [],
     brandMentions: [],
     citations: [],
+    personas: [],
     prompts: [],
     topics: []
   };
@@ -174,6 +185,15 @@ async function getPrompts(promptIds: string[], supabase: RecoraSupabaseClient) {
 
   throwIfSupabaseError("prompts", error);
   return (data ?? []) as RecoraPromptRow[];
+}
+
+async function getPersonas(personaIds: string[], supabase: RecoraSupabaseClient) {
+  if (personaIds.length === 0) return [];
+
+  const { data, error } = await supabase.from("personas").select(PERSONA_COLUMNS).in("id", personaIds);
+
+  throwIfSupabaseError("personas", error);
+  return (data ?? []) as RecoraPersonaRow[];
 }
 
 async function getTopics(topicIds: string[], supabase: RecoraSupabaseClient) {

@@ -55,7 +55,6 @@ import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-co
 import {
   getRecoraDashboardData,
   getRecoraLeaderboardData,
-  getRecoraRecommendationsData,
   type RecoraBrandRow,
   type RecoraConversationsDbData,
   type RecoraCumulativeSourceDomainRank,
@@ -89,7 +88,7 @@ import {
   formatPercent
 } from "@/components/recora/ui";
 
-const currentReportSlug = "recora-kenzai-q2";
+const currentReportSlug = "mieruca-seo-demo";
 const reportBase = `/dashboard/reports/${currentReportSlug}`;
 
 function DetailTabs({ items, active = 0 }: { items: readonly string[]; active?: number }) {
@@ -343,6 +342,8 @@ type DashboardHomeViewModel = {
   reportBase: string;
   projectName: string;
   period: string;
+  periodLabel: string;
+  periodHelper: string;
   comparisonPeriod: string;
   lastUpdated: string;
   primaryBrandName: string;
@@ -414,13 +415,14 @@ function createDashboardHomeViewModel(
   });
 
   const kpiCards: DashboardKpiCardData[] = createHomeReadModelKpiCards(homeReadModel);
+  const latestReportDateScope = getReportDateScope(latestRun?.period_start, latestRun?.period_end);
   const latestReportStats: DashboardLatestReportStat[] = [
     { label: "AI回答数", value: formatNullableCount(data.counts.aiConversations), helper: "最新レポート内の回答数" },
     { label: "ブランド表示数", value: formatNullableCount(latestMentionCount), helper: "最新レポートの観測値" },
     { label: "参照出現数", value: formatNullableCount(latestCitationCount ?? data.counts.citations), helper: "根拠確認済み数ではありません" },
     { label: "改善候補数", value: formatNullableCount(data.recommendations.length), helper: "実行確定済みの施策数ではありません" },
     { label: "比較ブランド数", value: formatNullableCount(competitorCount), helper: "最新レポートの比較対象" },
-    { label: "レポート期間", value: latestRun ? latestRun.period_start + " - " + latestRun.period_end : "-", helper: "最新レポートの対象期間" }
+    { label: latestReportDateScope.label, value: latestReportDateScope.value, helper: latestReportDateScope.helper }
   ];
 
   const leaderVisibility = Math.round(sortedBrandSnapshots[0]?.ai_visibility ?? brandVisibilityNumber);
@@ -449,7 +451,9 @@ function createDashboardHomeViewModel(
     hasDbData: true,
     hasLatestReportMetrics,
     hasLeaderboardData: brandSnapshots.length > 0,
-    period: latestRun ? latestRun.period_start + " - " + latestRun.period_end : data.project.default_period ?? "-",
+    period: latestReportDateScope.value,
+    periodLabel: latestReportDateScope.label,
+    periodHelper: latestReportDateScope.helper,
     comparisonPeriod: latestRun?.comparison_start && latestRun.comparison_end ? latestRun.comparison_start + " - " + latestRun.comparison_end : "-",
     lastUpdated: formatDateTime(latestRun?.completed_at ?? data.project.updated_at),
     primaryBrandName: primaryBrand?.name ?? brand.name,
@@ -480,6 +484,8 @@ function createEmptyDashboardHomeViewModel(
     reportBase,
     projectName: "Recora",
     period: "-",
+    periodLabel: "測定日",
+    periodHelper: "最新レポート取得後に表示",
     comparisonPeriod: "-",
     lastUpdated: "-",
     primaryBrandName: "Recora",
@@ -506,7 +512,7 @@ function createEmptyDashboardHomeViewModel(
       { label: "参照出現数", value: "-", helper: "根拠確認済み数ではありません" },
       { label: "改善候補数", value: "-", helper: "実行確定済みの施策数ではありません" },
       { label: "比較ブランド数", value: "-", helper: "最新レポート取得後に表示" },
-      { label: "レポート期間", value: "-", helper: "最新レポート取得後に表示" }
+      { label: "測定日", value: "-", helper: "最新レポート取得後に表示" }
     ],
     priorityTasks: []
   };
@@ -1145,7 +1151,7 @@ function HomeLatestReportHero({ dashboardView }: { dashboardView: DashboardHomeV
             </p>
             <div className="mt-7 grid gap-3 sm:grid-cols-2">
               <HomeHeroFact icon={CalendarDays} label="測定日" value={dashboardView.lastUpdated} />
-              <HomeHeroFact icon={FileText} label="対象期間" value={dashboardView.period} />
+              <HomeHeroFact icon={FileText} label={dashboardView.periodLabel} value={dashboardView.period} />
             </div>
           </div>
 
@@ -2436,7 +2442,6 @@ export function ReportsIndexPage({ dashboardData = null }: { dashboardData?: Rec
 type ReportOverviewDataBundle = {
   dashboardData: RecoraDashboardDbData | null;
   leaderboardData: RecoraLeaderboardDbData | null;
-  recommendationsData: RecoraRecommendationsDbData | null;
 };
 
 type ReportOverviewStat = {
@@ -2461,15 +2466,14 @@ type ReportOverviewNextLink = {
   icon: LucideIcon;
 };
 
-type ReportOverviewNextCheck = {
-  label: string;
-  title: string;
-  value: string;
-  helper: string;
-  href: string;
-  icon: LucideIcon;
-  tone: "green" | "amber" | "slate";
-  needsVerification?: boolean;
+type ReportOverviewAudienceRow = {
+  id: string;
+  name: string;
+  displayAnswerCount: number;
+  totalAnswerCount: number;
+  displayRate: number;
+  displayAnswerValue: string;
+  totalAnswerValue: string;
 };
 
 type ReportOverviewViewModel = {
@@ -2477,6 +2481,8 @@ type ReportOverviewViewModel = {
   reportBase: string;
   projectName: string;
   period: string;
+  periodLabel: string;
+  periodHelper: string;
   comparisonPeriod: string;
   lastUpdated: string;
   primaryBrandName: string;
@@ -2485,8 +2491,8 @@ type ReportOverviewViewModel = {
   summaryStats: ReportOverviewStat[];
   leaderboardRows: DashboardRankingRow[];
   sourceRows: ReportOverviewSourceRow[];
-  recommendationCountValue: string;
-  nextChecks: ReportOverviewNextCheck[];
+  personaRows: ReportOverviewAudienceRow[];
+  topicRows: ReportOverviewAudienceRow[];
   detailLinks: ReportOverviewNextLink[];
 };
 
@@ -2503,16 +2509,14 @@ export async function OverviewPage({ projectSlug = currentReportSlug }: { projec
 }
 
 async function getReportOverviewData(projectSlug = currentReportSlug): Promise<ReportOverviewDataBundle> {
-  const [dashboardData, leaderboardData, recommendationsData] = await Promise.all([
+  const [dashboardData, leaderboardData] = await Promise.all([
     safelyLoadReportData("dashboard", () => getRecoraDashboardData(projectSlug)),
-    safelyLoadReportData("leaderboard", () => getRecoraLeaderboardData(projectSlug)),
-    safelyLoadReportData("recommendations", () => getRecoraRecommendationsData(projectSlug))
+    safelyLoadReportData("leaderboard", () => getRecoraLeaderboardData(projectSlug))
   ]);
 
   return {
     dashboardData,
-    leaderboardData,
-    recommendationsData
+    leaderboardData
   };
 }
 
@@ -2532,13 +2536,11 @@ async function safelyLoadReportData<T extends { project: unknown | null }>(
 function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSlug = currentReportSlug): ReportOverviewViewModel {
   const dashboardData = data.dashboardData;
   const leaderboardData = data.leaderboardData;
-  const recommendationsData = data.recommendationsData;
   const leaderboardView = createLeaderboardViewModel(leaderboardData);
   const dashboardProject = dashboardData?.project ?? null;
   const leaderboardProject = leaderboardData?.project ?? null;
-  const recommendationProject = recommendationsData?.project ?? null;
-  const project = dashboardProject ?? leaderboardProject ?? recommendationProject;
-  const latestRun = dashboardData?.latestRun ?? leaderboardData?.latestRun ?? recommendationsData?.latestRun ?? null;
+  const project = dashboardProject ?? leaderboardProject;
+  const latestRun = dashboardData?.latestRun ?? leaderboardData?.latestRun ?? null;
   const brands = dashboardData?.brands.length ? dashboardData.brands : leaderboardData?.brands ?? [];
   const primaryBrand = brands.find((item) => item.brand_type === "primary") ?? brands[0] ?? null;
   const dashboardSnapshots = dashboardData?.metricSnapshots ?? [];
@@ -2552,40 +2554,39 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
   const aiVisibilityNumber = getRoundedNumber(primarySnapshot?.ai_visibility ?? projectSnapshot?.ai_visibility)
     ?? (typeof primaryRankingRow?.visibility === "number" ? primaryRankingRow.visibility : null);
   const competitorCount = brands.length > 0 ? brands.filter((item) => item.brand_type === "competitor").length : null;
-  const observationCount = leaderboardData?.runItems.filter((item) => item.status === "completed").length ?? null;
   const aiAnswerCount = leaderboardData?.conversations.length ?? dashboardData?.counts.aiConversations ?? null;
-  const brandDisplayCount = primaryRankingRow?.aiMentionCount ?? getRoundedNumber(primarySnapshot?.ai_mention_count ?? projectSnapshot?.ai_mention_count);
+  const brandDisplayedAnswerCount = getPrimaryBrandDisplayedAnswerCount(leaderboardData, primaryBrand?.id);
+  const brandMentionCount = getRoundedNumber(primarySnapshot?.ai_mention_count ?? projectSnapshot?.ai_mention_count) ?? primaryRankingRow?.aiMentionCount ?? null;
   const citationOccurrenceCount = getReportCitationOccurrenceCount(leaderboardData);
-  const recommendationCount = recommendationsData?.recommendations.length ?? dashboardData?.recommendations.length ?? null;
   const sourceRows = createReportOverviewSourceRows(leaderboardData);
+  const personaRows = createReportOverviewAudienceRows(leaderboardData, primaryBrand?.id, "persona");
+  const topicRows = createReportOverviewAudienceRows(leaderboardData, primaryBrand?.id, "topic");
   const currentReportBase = `/dashboard/reports/${projectSlug}`;
+  const reportDateScope = getReportDateScope(latestRun?.period_start, latestRun?.period_end, project?.default_period);
 
   return {
     hasReportData: Boolean(project),
     reportBase: currentReportBase,
     projectName: project?.name ?? "Recora",
-    period: formatReportPeriod(latestRun?.period_start, latestRun?.period_end, project?.default_period),
+    period: reportDateScope.value,
+    periodLabel: reportDateScope.label,
+    periodHelper: reportDateScope.helper,
     comparisonPeriod: formatReportPeriod(latestRun?.comparison_start, latestRun?.comparison_end),
     lastUpdated: formatDateTime(latestRun?.completed_at ?? project?.updated_at),
     primaryBrandName: primaryBrand?.name ?? leaderboardView.primaryBrandName,
     aiVisibilityValue: formatReportOverviewPercent(aiVisibilityNumber),
     aiVisibilityNumber,
     summaryStats: [
-      { label: "観測数", value: formatReportOverviewCount(observationCount), helper: "このレポート内の測定対象", icon: Activity },
       { label: "AI回答数", value: formatReportOverviewCount(aiAnswerCount), helper: "取得できたAI回答", icon: Search },
-      { label: "ブランド表示数", value: formatReportOverviewCount(brandDisplayCount), helper: "AI回答内での表示観測", icon: ShieldCheck },
-      { label: "参照出現数", value: formatReportOverviewCount(citationOccurrenceCount), helper: "根拠確認済み数ではありません", icon: ExternalLink },
-      { label: "比較ブランド数", value: formatReportOverviewCount(competitorCount), helper: "このレポートの比較対象", icon: BarChart3 },
-      { label: "改善候補数", value: formatReportOverviewCount(recommendationCount), helper: "承認済み施策ではありません", icon: ListChecks }
+      { label: "ブランド表示回答数", value: formatReportOverviewCount(brandDisplayedAnswerCount), helper: "ブランドが表示された回答", icon: ShieldCheck },
+      { label: "ブランド言及数", value: formatReportOverviewCount(brandMentionCount), helper: "AI回答内での言及回数", icon: Activity },
+      { label: "参照出現数", value: formatReportOverviewCount(citationOccurrenceCount), helper: "AI回答で参照として出現", icon: ExternalLink },
+      { label: "比較ブランド数", value: formatReportOverviewCount(competitorCount), helper: "このレポートの比較対象", icon: BarChart3 }
     ],
     leaderboardRows: leaderboardView.rankingRows.slice(0, 5),
     sourceRows,
-    recommendationCountValue: formatReportOverviewCount(recommendationCount),
-    nextChecks: createReportOverviewNextChecks({
-      leaderboardData,
-      recommendationsData,
-      reportBase: currentReportBase
-    }),
+    personaRows,
+    topicRows,
     detailLinks: [
       {
         title: "AI回答",
@@ -2604,143 +2605,8 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
         description: "AI回答が参照した情報源を確認する",
         href: `/dashboard/reports/${projectSlug}/sources`,
         icon: ExternalLink
-      },
-      {
-        title: "改善候補",
-        description: "次に確認すべき改善候補を見る",
-        href: `/dashboard/reports/${projectSlug}/recommendations`,
-        icon: ListChecks
       }
     ]
-  };
-}
-
-function createReportOverviewNextChecks({
-  leaderboardData,
-  recommendationsData,
-  reportBase
-}: {
-  leaderboardData: RecoraLeaderboardDbData | null;
-  recommendationsData: RecoraRecommendationsDbData | null;
-  reportBase: string;
-}): ReportOverviewNextCheck[] {
-  return [
-    createTopicGapNextCheck(leaderboardData, reportBase),
-    createWeakOwnedSourceCategoryNextCheck(leaderboardData, reportBase),
-    createPreQualityGateNextCheck(recommendationsData, reportBase)
-  ];
-}
-
-function createTopicGapNextCheck(
-  leaderboardData: RecoraLeaderboardDbData | null,
-  reportBase: string
-): ReportOverviewNextCheck {
-  const topicById = new Map((leaderboardData?.topics ?? []).map((topic) => [topic.id, topic]));
-  const topicGapSnapshot = (leaderboardData?.metricSnapshots ?? [])
-    .filter((snapshot) => snapshot.scope_type === "topic" && typeof snapshot.competitive_gap === "number")
-    .sort((a, b) => Math.abs(b.competitive_gap ?? 0) - Math.abs(a.competitive_gap ?? 0))[0];
-
-  if (!topicGapSnapshot) {
-    return {
-      label: "競合差が大きいトピック",
-      title: "トピック別の競合差は追加確認",
-      value: "未接続",
-      helper: "topic scope の competitive_gap がないため NEEDS_VERIFICATION です。",
-      href: `${reportBase}/leaderboard`,
-      icon: BarChart3,
-      tone: "amber",
-      needsVerification: true
-    };
-  }
-
-  return {
-    label: "競合差が大きいトピック",
-    title: topicGapSnapshot.scope_id ? topicById.get(topicGapSnapshot.scope_id)?.name ?? "トピック未設定" : "トピック未設定",
-    value: formatSignedPt(topicGapSnapshot.competitive_gap),
-    helper: "このレポート内の topic scope 差分です。公式順位や市場シェアではありません。",
-    href: `${reportBase}/leaderboard`,
-    icon: BarChart3,
-    tone: "amber"
-  };
-}
-
-function createWeakOwnedSourceCategoryNextCheck(
-  leaderboardData: RecoraLeaderboardDbData | null,
-  reportBase: string
-): ReportOverviewNextCheck {
-  const categoryStats = new Map<string, { total: number; owned: number }>();
-
-  for (const citation of leaderboardData?.citations ?? []) {
-    const sourceType = citation.source_type ?? "unknown";
-    const appearances = Math.max(1, citation.occurrence_count ?? 1);
-    const current = categoryStats.get(sourceType) ?? { total: 0, owned: 0 };
-    current.total += appearances;
-    if (sourceType === "owned" || citation.brand_related === "target_brand") {
-      current.owned += appearances;
-    }
-    categoryStats.set(sourceType, current);
-  }
-
-  const weakestCategory = Array.from(categoryStats.entries())
-    .filter(([, value]) => value.total > 0)
-    .map(([sourceType, value]) => ({
-      sourceType,
-      ...value,
-      ownedShare: Math.round((value.owned / value.total) * 100)
-    }))
-    .sort((a, b) => a.ownedShare - b.ownedShare || b.total - a.total)[0];
-
-  if (!weakestCategory) {
-    return {
-      label: "自社参照が弱い情報源カテゴリ",
-      title: "参照元カテゴリは追加確認",
-      value: "未接続",
-      helper: "参照元の出現データがないため NEEDS_VERIFICATION です。",
-      href: `${reportBase}/sources`,
-      icon: ExternalLink,
-      tone: "green",
-      needsVerification: true
-    };
-  }
-
-  return {
-    label: "自社参照が弱い情報源カテゴリ",
-    title: getSourceTypeLabel(weakestCategory.sourceType),
-    value: `${weakestCategory.ownedShare}%`,
-    helper: `参照出現${weakestCategory.total}件中、自社関連として扱える出現は${weakestCategory.owned}件です。根拠確認済み数ではありません。`,
-    href: `${reportBase}/sources`,
-    icon: ExternalLink,
-    tone: weakestCategory.ownedShare < 35 ? "amber" : "green"
-  };
-}
-
-function createPreQualityGateNextCheck(
-  recommendationsData: RecoraRecommendationsDbData | null,
-  reportBase: string
-): ReportOverviewNextCheck {
-  const count = recommendationsData?.preQualityGateCandidateCount;
-
-  if (typeof count !== "number") {
-    return {
-      label: "品質ゲート通過前の改善候補数",
-      title: "候補数は追加確認",
-      value: "未接続",
-      helper: "latest standard-v01 の候補数を取得できないため NEEDS_VERIFICATION です。",
-      href: `${reportBase}/recommendations`,
-      icon: ListChecks,
-      tone: "slate",
-      needsVerification: true
-    };
-  }
-
-  return {
-    label: "品質ゲート通過前の改善候補数",
-    title: "確認待ちの改善候補",
-    value: formatReportOverviewCount(count),
-    helper: "品質ゲート通過前の候補数です。承認済み施策や効果保証ではありません。",
-    href: `${reportBase}/recommendations`,
-    icon: ListChecks,
-    tone: count > 0 ? "amber" : "slate"
   };
 }
 
@@ -2751,12 +2617,26 @@ function ReportOverviewTab({ data, projectSlug = currentReportSlug }: { data: Re
     <div className="min-w-0 space-y-5">
       <ReportOverviewHero view={view} />
 
-      <ReportOverviewNextChecks view={view} />
+      <div className="grid min-w-0 gap-5 xl:grid-cols-2">
+        <ReportOverviewAudienceRanking
+          title="ペルソナごとの表示ランキング"
+          description="ペルソナ別に、AI回答内で自社ブランドが表示された割合を確認します。"
+          rows={view.personaRows}
+          emptyTitle="まだペルソナ別ランキングを表示できません"
+          emptyDescription="ペルソナに紐づく測定データが揃うと表示されます。"
+        />
+        <ReportOverviewAudienceRanking
+          title="トピックごとの表示ランキング"
+          description="トピック別に、AI回答内で自社ブランドが表示された割合を確認します。"
+          rows={view.topicRows}
+          emptyTitle="まだトピック別ランキングを表示できません"
+          emptyDescription="トピックに紐づく測定データが揃うと表示されます。"
+        />
+      </div>
 
-      <div className="grid min-w-0 gap-5 xl:grid-cols-3">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-2">
         <ReportOverviewLeaderboard view={view} />
         <ReportOverviewSources view={view} />
-        <ReportOverviewRecommendations view={view} />
       </div>
 
       <ReportOverviewNextSteps links={view.detailLinks} />
@@ -2766,7 +2646,7 @@ function ReportOverviewTab({ data, projectSlug = currentReportSlug }: { data: Re
 
 function ReportOverviewHero({ view }: { view: ReportOverviewViewModel }) {
   const heroStats: ReportOverviewStat[] = [
-    { label: "測定期間", value: view.period, helper: "このレポートの対象期間", icon: FileText },
+    { label: view.periodLabel, value: view.period, helper: view.periodHelper, icon: FileText },
     { label: "最終更新", value: view.lastUpdated, helper: "測定データの更新時刻", icon: RefreshCw },
     ...view.summaryStats
   ];
@@ -2902,58 +2782,48 @@ function ReportOverviewHeroMetric({ stat }: { stat: ReportOverviewStat }) {
   );
 }
 
-function ReportOverviewNextChecks({ view }: { view: ReportOverviewViewModel }) {
+function ReportOverviewAudienceRanking({
+  title,
+  description,
+  rows,
+  emptyTitle,
+  emptyDescription
+}: {
+  title: string;
+  description: string;
+  rows: ReportOverviewAudienceRow[];
+  emptyTitle: string;
+  emptyDescription: string;
+}) {
   return (
     <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs font-bold text-[#00796B]">次に見るべき3つ</p>
-          <h2 className="mt-1 text-xl font-bold tracking-normal text-[#0F172A]">このレポートで深掘りする論点</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#64748B]">
-            競合差、参照元カテゴリ、品質ゲート前の候補数を、誤認しない範囲で次の確認導線にまとめます。
-          </p>
-        </div>
-        <span className="w-fit rounded-full border border-[#DDE8E5] bg-[#F6FAF9] px-3 py-1 text-xs font-bold text-[#64748B]">
-          client-safe
-        </span>
+      <div>
+        <p className="text-xs font-bold text-[#00796B]">表示ランキング</p>
+        <h2 className="mt-1 text-lg font-bold text-[#0F172A]">{title}</h2>
+        <p className="mt-1 text-sm leading-6 text-[#64748B]">{description}</p>
       </div>
 
-      <div className="mt-5 grid gap-3 lg:grid-cols-3">
-        {view.nextChecks.map((item) => {
-          const Icon = item.icon;
-
-          return (
-            <Link
-              key={item.label}
-              href={item.href}
-              className="group rounded-[20px] border border-[#DDE8E5] bg-[#F6FAF9] p-4 transition hover:-translate-y-0.5 hover:border-[#00796B]/30 hover:bg-[#E6F4F1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <span className={cn(
-                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white shadow-sm",
-                  item.tone === "green" && "text-[#00796B]",
-                  item.tone === "amber" && "text-amber-700",
-                  item.tone === "slate" && "text-slate-600"
-                )}>
-                  <Icon className="h-5 w-5" />
-                </span>
-                {item.needsVerification ? (
-                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700">
-                    NEEDS_VERIFICATION
-                  </span>
-                ) : null}
+      <div className="mt-5 space-y-3">
+        {rows.length > 0 ? rows.map((row, index) => (
+          <div key={row.id} className="rounded-[18px] border border-[#E3ECE9] bg-[#F6FAF9] px-4 py-3">
+            <div className="flex min-w-0 items-center justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold", index === 0 ? "bg-[#005C50] text-white" : "bg-white text-[#64748B]")}>{index + 1}</span>
+                <div className="min-w-0">
+                  <p className="truncate font-bold text-[#0F172A]">{row.name}</p>
+                  <p className="mt-1 text-xs font-semibold text-[#64748B]">表示回答 {row.displayAnswerValue} / AI回答 {row.totalAnswerValue}</p>
+                </div>
               </div>
-              <p className="mt-4 text-xs font-bold text-[#00796B]">{item.label}</p>
-              <h3 className="mt-1 text-base font-bold leading-6 text-[#0F172A]">{item.title}</h3>
-              <p className="mt-3 text-3xl font-bold tracking-normal text-[#073F39]">{item.value}</p>
-              <p className="mt-3 text-sm leading-6 text-[#64748B]">{item.helper}</p>
-              <div className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-[#00796B]">
-                詳細で確認
-                <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
+              <div className="shrink-0 text-right">
+                <p className="text-2xl font-bold tracking-normal text-[#0F172A]">{formatReportOverviewPercent(row.displayRate)}</p>
+                <p className="text-xs font-semibold text-[#64748B]">表示率</p>
               </div>
-            </Link>
-          );
-        })}
+            </div>
+            <ProgressBar value={row.displayRate} className="mt-3" tone={index === 0 ? "blue" : "green"} />
+          </div>
+        )) : (
+          <EmptyStateBlock title={emptyTitle} description={emptyDescription} />
+        )}
       </div>
     </section>
   );
@@ -3023,7 +2893,7 @@ function ReportOverviewSources({ view }: { view: ReportOverviewViewModel }) {
           <p className="text-xs font-bold text-[#00796B]">参照元</p>
           <h2 className="mt-1 text-lg font-bold text-[#0F172A]">よく参照されている情報源</h2>
           <p className="mt-1 text-sm leading-6 text-[#64748B]">
-            参照として出現した数です。根拠確認済み件数ではありません。
+            このレポートのAI回答でよく出ている参照元ドメインです。
           </p>
         </div>
         <Link href={`${view.reportBase}/sources`} className="inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]">
@@ -3055,26 +2925,6 @@ function ReportOverviewSources({ view }: { view: ReportOverviewViewModel }) {
   );
 }
 
-function ReportOverviewRecommendations({ view }: { view: ReportOverviewViewModel }) {
-  return (
-    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
-      <p className="text-xs font-bold text-[#00796B]">改善候補</p>
-      <h2 className="mt-1 text-lg font-bold text-[#0F172A]">次に確認したい改善候補</h2>
-      <div className="mt-5 rounded-[20px] border border-[#DDE8E5] bg-[#F6FAF9] p-5">
-        <p className="text-xs font-semibold text-[#64748B]">改善候補の発見数</p>
-        <p className="mt-2 text-5xl font-bold tracking-normal text-[#0F172A]">{view.recommendationCountValue}</p>
-        <p className="mt-3 text-sm leading-6 text-[#64748B]">
-          個別理由や具体アクションは概要では出しすぎず、改善候補タブで確認します。承認済み施策や効果保証ではありません。
-        </p>
-      </div>
-      <Link href={`${view.reportBase}/recommendations`} className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]">
-        改善候補を確認する
-        <ArrowRight className="h-4 w-4" />
-      </Link>
-    </section>
-  );
-}
-
 function ReportOverviewNextSteps({ links }: { links: ReportOverviewNextLink[] }) {
   return (
     <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
@@ -3082,7 +2932,7 @@ function ReportOverviewNextSteps({ links }: { links: ReportOverviewNextLink[] })
         <p className="text-xs font-bold text-[#00796B]">次に見る詳細</p>
         <h2 className="mt-1 text-lg font-bold text-[#0F172A]">要点から、根拠の確認へ進む</h2>
         <p className="mt-1 text-sm leading-6 text-[#64748B]">
-          概要で気になった数字を、回答・比較・参照元・改善候補の各タブで掘り下げます。
+          概要で気になった数字を、回答・比較・参照元の各タブで掘り下げます。
         </p>
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -3112,6 +2962,62 @@ function ReportOverviewNextSteps({ links }: { links: ReportOverviewNextLink[] })
         })}
       </div>
     </section>
+  );
+}
+
+function getPrimaryBrandDisplayedAnswerCount(data: RecoraLeaderboardDbData | null, primaryBrandId?: string | null) {
+  if (!data?.project || !primaryBrandId) return null;
+  return getPrimaryBrandDisplayedConversationIds(data, primaryBrandId).size;
+}
+
+function createReportOverviewAudienceRows(
+  data: RecoraLeaderboardDbData | null,
+  primaryBrandId: string | null | undefined,
+  scope: "persona" | "topic"
+): ReportOverviewAudienceRow[] {
+  if (!data?.project || !primaryBrandId || data.conversations.length === 0) return [];
+
+  const displayedConversationIds = getPrimaryBrandDisplayedConversationIds(data, primaryBrandId);
+  const runItemById = new Map(data.runItems.map((item) => [item.id, item]));
+  const promptById = new Map(data.prompts.map((item) => [item.id, item]));
+  const personaById = new Map(data.personas.map((item) => [item.id, item]));
+  const topicById = new Map(data.topics.map((item) => [item.id, item]));
+  const rows = new Map<string, { id: string; name: string; displayAnswerCount: number; totalAnswerCount: number }>();
+
+  for (const conversation of data.conversations) {
+    const runItem = runItemById.get(conversation.run_item_id);
+    const prompt = runItem ? promptById.get(runItem.prompt_id) : undefined;
+    const key = scope === "persona" ? runItem?.persona_id ?? prompt?.persona_id : prompt?.topic_id;
+    const name = scope === "persona"
+      ? key ? personaById.get(key)?.name ?? "未分類ペルソナ" : "未分類ペルソナ"
+      : key ? topicById.get(key)?.name ?? "未分類トピック" : "未分類トピック";
+    const id = key ?? `${scope}-unknown`;
+    const row = rows.get(id) ?? { id, name, displayAnswerCount: 0, totalAnswerCount: 0 };
+
+    row.totalAnswerCount += 1;
+    if (displayedConversationIds.has(conversation.id)) {
+      row.displayAnswerCount += 1;
+    }
+    rows.set(id, row);
+  }
+
+  return Array.from(rows.values())
+    .filter((row) => row.totalAnswerCount > 0)
+    .map((row) => ({
+      ...row,
+      displayRate: Math.round((row.displayAnswerCount / row.totalAnswerCount) * 100),
+      displayAnswerValue: formatReportOverviewCount(row.displayAnswerCount),
+      totalAnswerValue: formatReportOverviewCount(row.totalAnswerCount)
+    }))
+    .sort((a, b) => b.displayRate - a.displayRate || b.displayAnswerCount - a.displayAnswerCount || a.name.localeCompare(b.name))
+    .slice(0, 5);
+}
+
+function getPrimaryBrandDisplayedConversationIds(data: RecoraLeaderboardDbData, primaryBrandId: string) {
+  return new Set(
+    data.brandMentions
+      .filter((mention) => mention.brand_id === primaryBrandId && mention.mentioned)
+      .map((mention) => mention.conversation_id)
   );
 }
 
@@ -3172,6 +3078,30 @@ function formatReportOverviewPercent(value: number | null | undefined) {
 
 function formatReportOverviewCount(value: number | null | undefined) {
   return typeof value === "number" ? `${value}件` : "-";
+}
+
+function getReportDateScope(start?: string | null, end?: string | null, fallback?: string | null) {
+  if (start && end && start === end) {
+    return {
+      label: "測定日",
+      value: start,
+      helper: "単発測定の日付"
+    };
+  }
+
+  if (start || end) {
+    return {
+      label: "測定期間",
+      value: `${start ?? "-"} - ${end ?? "-"}`,
+      helper: "このレポートの対象期間"
+    };
+  }
+
+  return {
+    label: "測定日",
+    value: fallback ?? "-",
+    helper: "測定日が取得できない場合は既定値を表示"
+  };
 }
 
 function formatReportPeriod(start?: string | null, end?: string | null, fallback?: string | null) {
@@ -4893,10 +4823,12 @@ type ReportFilterSource = {
 
 function createReportFilterProps(data?: ReportFilterSource | null) {
   const latestRun = data?.latestRun;
+  const dateScope = getReportDateScope(latestRun?.period_start, latestRun?.period_end, data?.project?.default_period);
 
   return {
     projectName: data?.project?.name ?? "Recora",
-    period: latestRun ? latestRun.period_start + " - " + latestRun.period_end : data?.project?.default_period ?? "-",
+    period: dateScope.value,
+    periodLabel: dateScope.label,
     comparisonPeriod: latestRun?.comparison_start && latestRun.comparison_end ? latestRun.comparison_start + " - " + latestRun.comparison_end : "-",
     lastUpdated: formatDateTime(latestRun?.completed_at ?? data?.project?.updated_at)
   };
@@ -4907,6 +4839,7 @@ function ReportFilters({
   dashboardView,
   projectName,
   period,
+  periodLabel,
   comparisonPeriod,
   lastUpdated
 }: {
@@ -4914,18 +4847,20 @@ function ReportFilters({
   dashboardView?: DashboardHomeViewModel;
   projectName?: string;
   period?: string;
+  periodLabel?: string;
   comparisonPeriod?: string;
   lastUpdated?: string;
 }) {
   const displayProjectName = dashboardView?.projectName ?? projectName ?? "Recora";
   const displayPeriod = dashboardView?.period ?? period ?? "-";
+  const displayPeriodLabel = dashboardView?.periodLabel ?? periodLabel ?? "測定日";
   const displayComparisonPeriod = dashboardView?.comparisonPeriod ?? comparisonPeriod ?? "-";
   const displayLastUpdated = dashboardView?.lastUpdated ?? lastUpdated ?? "-";
 
   return (
     <div className="grid gap-3 rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)] md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_0.7fr_auto]">
       <FilterBox label="プロジェクト" value={displayProjectName} />
-      <FilterBox label="期間" value={displayPeriod} />
+      <FilterBox label={displayPeriodLabel} value={displayPeriod} />
       <FilterBox label="比較期間" value={displayComparisonPeriod} />
       <FilterBox label="地域" value="日本語（日本）" />
       <div className="flex items-center gap-2 rounded-[14px] bg-[#F6FAF9] px-3 py-2 text-xs font-semibold text-[#64748B]">

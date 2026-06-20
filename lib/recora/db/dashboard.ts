@@ -13,7 +13,7 @@ import type {
 } from "./types";
 import { getMetadataRecord, getMetadataString, isDisplayableRecommendation, isOpenAiAggregateRun } from "./display-filters";
 
-const DEFAULT_PROJECT_SLUG = "recora-kenzai-q2";
+const DEFAULT_PROJECT_SLUG = "mieruca-seo-demo";
 
 const PROJECT_COLUMNS =
   "id, slug, name, workspace_name, language, region, default_period, created_at, updated_at";

@@ -38,7 +38,7 @@ type ApiResponse = {
   error?: string;
 };
 
-const DEFAULT_PROJECT_SLUG = "recora-kenzai-q2";
+const DEFAULT_PROJECT_SLUG = "mieruca-seo-demo";
 
 export function RunCyclePanel({ projectSlug = DEFAULT_PROJECT_SLUG }: { projectSlug?: string }) {
   const normalizedProjectSlug = projectSlug || DEFAULT_PROJECT_SLUG;

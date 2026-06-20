@@ -53,10 +53,7 @@ export async function getRecoraRecommendationsData(
   );
   const recommendations = allRecommendationCandidates.filter(isShowRecommendationCandidate);
   const preQualityGateCandidateCount = recommendationSource.measurementRunId
-    ? allRecommendationCandidates.filter((item) => {
-        const metadata = getMetadataRecord(item.metadata);
-        return getMetadataString(metadata, "display_decision") !== "show";
-      }).length
+    ? allRecommendationCandidates.filter(isReviewRequiredRecommendationCandidate).length
     : null;
 
   const [topics, prompts] = await Promise.all([
@@ -160,6 +157,14 @@ function isOpenAiRecommendationCandidate(
 function isShowRecommendationCandidate(item: RecoraRecommendationRow) {
   const metadata = getMetadataRecord(item.metadata);
   return getMetadataString(metadata, "display_decision") === "show";
+}
+
+function isReviewRequiredRecommendationCandidate(item: RecoraRecommendationRow) {
+  const metadata = getMetadataRecord(item.metadata);
+  return (
+    getMetadataString(metadata, "display_decision") === "show" &&
+    getMetadataString(metadata, "should_save_to_recommendations") === "review_required"
+  );
 }
 
 function isAllowedMeasurementProfileId(profileId: string | null) {

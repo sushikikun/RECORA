@@ -325,6 +325,7 @@ export type RecoraLeaderboardDbData = {
   conversations: RecoraAiConversationRow[];
   brandMentions: RecoraBrandMentionRow[];
   citations: RecoraCitationRow[];
+  personas: RecoraPersonaRow[];
   prompts: RecoraPromptRow[];
   topics: RecoraTopicRow[];
 };

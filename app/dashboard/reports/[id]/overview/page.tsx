@@ -1,6 +1,6 @@
 import { OverviewPage } from "@/components/recora/report-pages";
 
-const CURRENT_REPORT_SLUG = "recora-kenzai-q2";
+const CURRENT_REPORT_SLUG = "mieruca-seo-demo";
 const LEGACY_REPORT_SLUG = "recora-growth-q2";
 
 type ReportOverviewPageProps = {

@@ -13,7 +13,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEFAULT_PROJECT_SLUG = "recora-kenzai-q2";
+const DEFAULT_PROJECT_SLUG = "mieruca-seo-demo";
 const DEFAULT_PROMPT_LIMIT = 1;
 const DEFAULT_SEARCH_MODE = "both";
 const MAX_PROMPT_LIMIT = 3;

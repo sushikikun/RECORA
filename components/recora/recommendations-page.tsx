@@ -240,13 +240,13 @@ function HeaderActions() {
 function ReportFilters({ compact = false, data }: { compact?: boolean; data?: RecoraRecommendationsDbData | null }) {
   const latestRun = data?.latestRun;
   const projectName = data?.project?.name ?? "Recora";
-  const period = latestRun ? latestRun.period_start + " - " + latestRun.period_end : data?.project?.default_period ?? "-";
+  const dateScope = getRecommendationDateScope(latestRun?.period_start, latestRun?.period_end, data?.project?.default_period);
   const comparisonPeriod = latestRun?.comparison_start && latestRun.comparison_end ? latestRun.comparison_start + " - " + latestRun.comparison_end : "-";
 
   return (
     <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-[0_8px_28px_rgba(15,23,42,0.035)] md:grid-cols-2 xl:grid-cols-[1.1fr_1.1fr_1.1fr_0.8fr_auto]">
       <FilterBox label="プロジェクト" value={projectName} />
-      <FilterBox label="期間" value={period} />
+      <FilterBox label={dateScope.label} value={dateScope.value} />
       {!compact ? <FilterBox label="比較期間" value={comparisonPeriod} /> : <FilterBox label="比較期間" value={comparisonPeriod} />}
       <FilterBox label="地域" value={"\u65e5\u672c\u8a9e\uff08\u65e5\u672c\uff09"} />
       <div className="flex items-center justify-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
@@ -255,6 +255,18 @@ function ReportFilters({ compact = false, data }: { compact?: boolean; data?: Re
       </div>
     </div>
   );
+}
+
+function getRecommendationDateScope(start?: string | null, end?: string | null, fallback?: string | null) {
+  if (start && end && start === end) {
+    return { label: "測定日", value: start };
+  }
+
+  if (start || end) {
+    return { label: "測定期間", value: `${start ?? "-"} - ${end ?? "-"}` };
+  }
+
+  return { label: "測定日", value: fallback ?? "-" };
 }
 
 function FilterBox({ label, value }: { label: string; value: string }) {
