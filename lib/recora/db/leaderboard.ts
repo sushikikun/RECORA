@@ -6,7 +6,8 @@ import {
   getDefaultRecoraProjectSlug,
   getLatestRunWithMetricSnapshots,
   getRecoraBrands,
-  getRecoraProject
+  getRecoraProject,
+  getSourceMeasurementRunId
 } from "./dashboard";
 import { isDisplayableCitation, isOpenAiMeasuredConversation } from "./display-filters";
 import type {
@@ -56,10 +57,12 @@ export async function getRecoraLeaderboardData(
     return { ...emptyLeaderboardData(), project, latestRun, brands };
   }
 
+  const sourceMeasurementRunId = getSourceMeasurementRunId(latestRun);
+
   const [brands, metricSnapshots, runItems] = await Promise.all([
     brandsPromise,
     getBrandMetricSnapshots(latestRun.id, supabase),
-    getRunItems(latestRun.id, supabase)
+    getRunItems(sourceMeasurementRunId ?? latestRun.id, supabase)
   ]);
 
   const conversations = (await getAiConversations(

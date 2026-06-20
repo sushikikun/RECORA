@@ -1,7 +1,7 @@
 import { TopicsPromptsDbPage } from "@/components/recora/topics-prompts-page";
 import { getRecoraTopicsPromptsData } from "@/lib/recora/db";
 
-const CURRENT_PROJECT_SLUG = "recora-kenzai-q2";
+const CURRENT_PROJECT_SLUG = "mieruca-seo-demo";
 
 export const dynamic = "force-dynamic";
 

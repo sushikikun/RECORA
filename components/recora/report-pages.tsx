@@ -339,6 +339,8 @@ type DashboardHomeViewModel = {
   hasDbData: boolean;
   hasLatestReportMetrics: boolean;
   hasLeaderboardData: boolean;
+  projectSlug: string;
+  reportBase: string;
   projectName: string;
   period: string;
   comparisonPeriod: string;
@@ -441,6 +443,8 @@ function createDashboardHomeViewModel(
   const tasksFromDb = data.recommendations.slice(0, 3).map((item) => toDashboardTask(item));
 
   return {
+    projectSlug: data.project.slug,
+    reportBase: `/dashboard/reports/${data.project.slug}`,
     projectName: data.project.name,
     hasDbData: true,
     hasLatestReportMetrics,
@@ -472,6 +476,8 @@ function createEmptyDashboardHomeViewModel(
     hasDbData: false,
     hasLatestReportMetrics: false,
     hasLeaderboardData: false,
+    projectSlug: currentReportSlug,
+    reportBase,
     projectName: "Recora",
     period: "-",
     comparisonPeriod: "-",
@@ -1116,7 +1122,7 @@ function HomeLatestReportHero({ dashboardView }: { dashboardView: DashboardHomeV
           ホーム
         </div>
         <Link
-          href={reportBase}
+          href={dashboardView.reportBase}
           className="inline-flex h-10 w-fit items-center justify-center gap-2 rounded-xl border border-[#DDE8E5] bg-white px-3 text-xs font-bold text-[#005C50] transition hover:border-[#00796B]/30 hover:bg-[#E6F4F1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
         >
           最新レポートへ
@@ -1281,7 +1287,7 @@ function HomeLatestLeaderboardPanel({ dashboardView }: { dashboardView: Dashboar
           </p>
         </div>
         <Link
-          href={`${reportBase}/leaderboard`}
+          href={`${dashboardView.reportBase}/leaderboard`}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
         >
           ブランド比較へ

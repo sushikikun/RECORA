@@ -1,6 +1,8 @@
 import { DashboardHomePage } from "@/components/recora/report-pages";
 import { getRecoraDashboardData, getRecoraHomeReadModelData } from "@/lib/recora/db";
 
+const CURRENT_PROJECT_SLUG = "mieruca-seo-demo";
+
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
@@ -14,7 +16,7 @@ export default async function DashboardPage() {
 
 async function getDashboardDataOrNull() {
   try {
-    const data = await getRecoraDashboardData();
+    const data = await getRecoraDashboardData(CURRENT_PROJECT_SLUG);
     return data.project ? data : null;
   } catch (error) {
     console.warn("Failed to load Recora dashboard data.", error);
@@ -24,7 +26,7 @@ async function getDashboardDataOrNull() {
 
 async function getHomeReadModelDataOrNull() {
   try {
-    const data = await getRecoraHomeReadModelData();
+    const data = await getRecoraHomeReadModelData(CURRENT_PROJECT_SLUG);
     return data.project ? data : null;
   } catch (error) {
     console.warn("Failed to load Recora home read model data.", error);
