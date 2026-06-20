@@ -8,6 +8,7 @@ const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/pos
 const DEFAULT_PROJECT_SLUG = process.env.RECORA_DEFAULT_PROJECT_SLUG ?? "recora-kenzai-q2";
 const DEFAULT_OUTPUT_DIR = path.join(process.cwd(), "output", "recommendation-candidates");
 const SEED_MEASUREMENT_RUN_ID = "70000000-0000-4000-8000-000000000001";
+const CUSTOM_OPENAI_MEASUREMENT_PROFILE_ID = "custom-openai-run";
 const MAX_CANDIDATES = 3;
 const TABLES = [
   "measurement_runs",
@@ -52,7 +53,7 @@ type Priority = "P1" | "P2";
 type Confidence = "high" | "medium" | "low";
 type SaveDecision = "review_required";
 type DisplayDecision = "show";
-type DisplayCategory = "改善提案" | "引用確認事項" | "サンプル不足" | "確認事項";
+type DisplayCategory = "改善候補" | "引用確認事項" | "サンプル不足" | "確認事項";
 type QualityScoreBreakdownItem = {
   key: string;
   label: string;
@@ -500,7 +501,7 @@ async function loadContext(db: LocalPostgresClient, options: Options): Promise<C
     : await getLatestMeasurementRunByProfile(db, project.id, options.latestProfile ?? "standard-v01");
   const measurementMetadata = parseMetadata(measurementRun.metadata);
 
-  assertMeasurementRun(measurementRun, measurementMetadata);
+  assertMeasurementRun(measurementRun, measurementMetadata, options);
 
   const aggregateRun = options.aggregateRunId
     ? await getAggregateRunById(db, project.id, options.aggregateRunId, measurementRun.id)
@@ -524,7 +525,7 @@ async function loadContext(db: LocalPostgresClient, options: Options): Promise<C
   const filteredCitations = citations.filter(isDisplayableCitation);
   const excludedExampleCitationCount = citations.length - filteredCitations.length;
   const selectedPromptIds = readMetadataStringArray(measurementMetadata, "selected_prompt_ids", unique(runItems.map((item) => item.prompt_id)));
-  const measurementProfileId = readMetadataString(measurementMetadata, "measurement_profile_id") ?? "unknown";
+  const measurementProfileId = resolveMeasurementProfileId(measurementMetadata);
   const measurementProfileLabel = getMeasurementProfileLabel(measurementProfileId, readMetadataString(measurementMetadata, "measurement_profile_label"));
   const observations = buildObservations(openaiConversations, runItems, mentions, primaryBrand);
 
@@ -555,7 +556,7 @@ async function loadContext(db: LocalPostgresClient, options: Options): Promise<C
   };
 }
 
-function assertMeasurementRun(run: MeasurementRunRow, metadata: Record<string, JsonValue | undefined>) {
+function assertMeasurementRun(run: MeasurementRunRow, metadata: Record<string, JsonValue | undefined>, options: Options) {
   if (run.id === SEED_MEASUREMENT_RUN_ID) {
     throw new Error("Seed measurement run cannot be used for recommendation candidates.");
   }
@@ -569,8 +570,22 @@ function assertMeasurementRun(run: MeasurementRunRow, metadata: Record<string, J
     throw new Error("Selected measurement run is not openai_measurement.");
   }
   const profileId = readMetadataString(metadata, "measurement_profile_id");
-  if (profileId !== "standard-v01") {
-    throw new Error(`Selected measurement run must be standard-v01. Actual profile: ${profileId ?? "unknown"}`);
+  if (profileId && profileId !== "standard-v01") {
+    throw new Error(`Selected measurement run must be standard-v01 or an explicit unprofiled OpenAI run. Actual profile: ${profileId}`);
+  }
+  if (!profileId) {
+    if (!options.measurementRunId) {
+      throw new Error("Unprofiled OpenAI measurement runs must be selected by explicit --measurement-run-id.");
+    }
+    const selectedPromptIds = readMetadataStringArray(metadata, "selected_prompt_ids", []);
+    const promptCount = readMetadataNumber(metadata, "prompt_count");
+    const expectedRunItems = readMetadataNumber(metadata, "expected_run_items");
+    if (selectedPromptIds.length === 0 && (!promptCount || promptCount < 1)) {
+      throw new Error("Unprofiled OpenAI measurement run is missing selected_prompt_ids or prompt_count metadata.");
+    }
+    if (expectedRunItems !== null && expectedRunItems < 1) {
+      throw new Error("Unprofiled OpenAI measurement run has invalid expected_run_items metadata.");
+    }
   }
 }
 
@@ -1041,7 +1056,7 @@ function getTypeCap(type: CandidateType, evidence: CandidateEvidence) {
 }
 
 function getDisplayCategory(type: CandidateType): DisplayCategory {
-  if (type === "brand_visibility_gap") return "改善提案";
+  if (type === "brand_visibility_gap") return "改善候補";
   if (type === "citation_evidence_review") return "引用確認事項";
   if (type === "case_study_evidence_gap") return "サンプル不足";
   return "確認事項";
@@ -1362,9 +1377,14 @@ async function writeOutputs(context: Context, candidates: Candidate[], before: C
   return payload;
 }
 
+function getDisplayPolicyNote(profileId: string) {
+  if (profileId === "standard-v01") return "latest standard-v01 run candidates are shown for review.";
+  return "explicit OpenAI measurement run candidates are shown as review_required drafts; quality score caps remain active.";
+}
+
 function renderMarkdown(payload: CandidatesPayload) {
   const lines = [
-    "# Recora 改善提案候補",
+    "# Recora 改善候補",
     "",
     `- 生成日時: ${payload.generated_at}`,
     `- プロジェクト: ${payload.project_name} (${payload.project_slug})`,
@@ -1373,7 +1393,7 @@ function renderMarkdown(payload: CandidatesPayload) {
     `- profile: \`${payload.measurement_profile_id}\``,
     `- 観測範囲: ${payload.prompt_count} prompts / ${payload.observation_count} observations`,
     `- 候補数: ${payload.candidate_count}`,
-    "- 表示方針: latest standard-v01由来の候補は全件表示",
+    `- 表示方針: ${getDisplayPolicyNote(payload.measurement_profile_id)}`,
     `- DB書き込み: ${payload.db_write_status}`,
     `- recommendations件数: ${payload.db_write_check.recommendations_before} -> ${payload.db_write_check.recommendations_after}`,
     `- 注意: ${payload.recora_metric_notice}`,
@@ -1691,6 +1711,11 @@ function readMetadataString(metadata: Record<string, JsonValue | undefined>, key
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function readMetadataNumber(metadata: Record<string, JsonValue | undefined>, key: string) {
+  const value = metadata[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function readMetadataStringArray(metadata: Record<string, JsonValue | undefined>, key: string, fallback: string[]) {
   const value = metadata[key];
   if (!Array.isArray(value)) return fallback;
@@ -1698,9 +1723,14 @@ function readMetadataStringArray(metadata: Record<string, JsonValue | undefined>
   return values.length > 0 ? values : fallback;
 }
 
+function resolveMeasurementProfileId(metadata: Record<string, JsonValue | undefined>) {
+  return readMetadataString(metadata, "measurement_profile_id") ?? CUSTOM_OPENAI_MEASUREMENT_PROFILE_ID;
+}
+
 function getMeasurementProfileLabel(profileId: string, metadataLabel: string | null) {
   if (profileId === "standard-v01") return "標準測定";
   if (profileId === "small-v01") return "小規模測定";
+  if (profileId === CUSTOM_OPENAI_MEASUREMENT_PROFILE_ID) return "Custom OpenAI measurement run";
   return metadataLabel ?? profileId;
 }
 
