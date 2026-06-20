@@ -1,6 +1,6 @@
 ---
 name: recora-persona-discovery
-description: "Recora persona discovery for AI search and GEO diagnosis preparation. Use when Codex needs to infer multiple persona candidates from a brand URL and brand name; organize who may search in AI before a Recora diagnosis; decide personas before designing diagnostic prompts; separate B2B decision makers, end users, evaluators, influencers, and agency/consultant roles; or separate B2C buyers, users, and comparison shoppers. Do not use for modifying Recora app code, accessing secrets, or claiming real customer segments without verified customer data."
+description: "Recora persona discovery for AI search and GEO diagnosis preparation. Use when Codex needs to infer high-quality persona hypotheses from brand_name, url, site_text, observed_claims, pricing signals, CTA, case studies, features, target audiences, or customer-data availability; separate B2B decision makers, economic buyers, end users, evaluators, influencers, and agency/consultant roles; separate B2C purchasers, users, comparators, recommenders/influencers, and repeat users; classify B2B, B2C, marketplace, or agency-support targets; and produce prompt-angle handoff for recora-prompt-topic-designer. Do not use for modifying Recora app code, accessing secrets, or claiming real customer segments without verified customer data."
 ---
 
 # Recora Persona Discovery
@@ -21,104 +21,143 @@ Do not present a persona as a confirmed primary customer segment from URL and br
 
 Do not generate personas that cannot produce useful AI-search diagnosis prompts.
 
+## Reference Map
+
+For full persona discovery, read these references before final output:
+
+- `references/persona-discovery-rubric.md`: candidate quality rubric, hypothesis levels, role split rules, priority scoring, and confidence rules.
+- `references/prompt-angle-handoff-contract.md`: required handoff fields for `recora-prompt-topic-designer`.
+- `references/persona-anti-patterns.md`: failure examples, banned shortcuts, and final QA checks.
+
 ## Input Contract
 
-Expect:
+Require or derive these fields:
 
-- Brand URL
-- Brand name
+- `brand_name`: brand, service, product, or company name.
+- `url`: canonical site URL to inspect when available.
+- `site_text` / `observed_claims`: supplied page text, screenshots, extracted claims, headings, meta copy, or user-provided observations.
+- `pricing_signals`: free trial, quote request, plan tiers, enterprise pricing, one-time purchase, subscription, usage-based pricing, marketplace fees, or unknown.
+- `target_adoption`: stated target users, company sizes, industries, consumer groups, implementation targets, or deployment contexts.
+- `cta_signals`: demo request, contact sales, sign up, buy now, download, book consultation, request quote, compare, learn more, or trial.
+- `case_studies_or_proof`: customer logos, testimonials, case studies, reviews, awards, numbers, screenshots, or none observed.
+- `feature_signals`: product capabilities, workflows, integrations, services, support, onboarding, reporting, governance, or category features.
+- `service_model`: classify as `B2B`, `B2C`, `marketplace`, `agency_service`, `mixed`, or `unclear`.
+- `customer_data_status`: `available`, `not_available`, or `unknown`.
 
-Use optional context when provided:
+If URL and brand name are the only inputs, inspect the site if browsing is available. If the site cannot be inspected, mark all persona candidates `weak_hypothesis` or `needs_customer_data` and list missing evidence.
 
-- Known business model
-- Country or language market
-- Pricing or plan notes
-- Existing customer segments
-- Competitors
-- Product category
-
-If only URL and brand name are available, inspect the site if browsing is available. If the site cannot be inspected, produce low-confidence hypotheses and clearly list what must be verified.
+If real customer data is unavailable, never label a persona as a real primary customer segment.
 
 ## Workflow
 
-1. Identify the service type as `B2B`, `B2C`, `marketplace`, `agency/service`, `media/content`, `local business`, or `mixed/unclear`.
-2. Extract site signals: offer, jobs-to-be-done, feature set, pricing motion, sales motion, CTA intent, industries, company sizes, use cases, examples, proof points, and comparison language.
-3. Separate confirmed site facts from inferred audience hypotheses.
-4. Build multiple persona candidates. Prefer 3 to 7 useful candidates over many shallow segments.
-5. For B2B, always include separate hypotheses for at least the decision maker and the end user when the product supports that split.
-6. For B2C, separate the buyer, user, and comparison shopper. Map buyer to `decision_maker`, user to `end_user`, and comparison shopper to `evaluator`.
-7. Add influencers and agency/consultant roles only when they create distinct search intent or buying influence.
-8. For each persona, connect pain, search intent, AI-search questions, comparison criteria, objections, and what they need to see.
-9. Create a prompt angle that `recora-prompt-topic-designer` can use directly.
-10. Assign confidence and verification needs.
+1. Summarize inputs and missing inputs. Do not fill gaps silently.
+2. Extract observed site evidence from URL, site text, claims, CTA, pricing, adoption targets, case studies, and features.
+3. Assign hypothesis levels with the exact values in `Hypothesis Levels`.
+4. Classify service model as `B2B`, `B2C`, `marketplace`, `agency_service`, `mixed`, or `unclear`.
+5. Build 3 to 7 persona candidates that can each generate useful Recora diagnosis prompts.
+6. Split roles by business model. For B2B, separate decision maker, economic buyer, end user, evaluator, influencer, and agency/consultant. For B2C, separate purchaser, user, comparator, recommender/influencer, and repeat user.
+7. For each persona, specify search intent, AI-search questions, comparison targets, comparison criteria, concerns, required proof, and prompt angle.
+8. Prioritize personas by diagnostic value, evidence strength, buying influence, and ability to produce distinct prompt angles.
+9. Produce `Handoff to recora-prompt-topic-designer` using the required handoff fields.
+10. List unsupported or excluded personas instead of quietly dropping weak ideas.
 
 ## Role Classification
 
-Use these role labels exactly:
+For B2B, use these role labels exactly:
 
-- `decision_maker`: Owns budget, approval, risk, procurement, or final purchase.
-- `end_user`: Uses the product directly or owns the daily workflow.
-- `influencer`: Shapes requirements or internal consensus but may not buy or use daily.
-- `evaluator`: Compares options, shortlists vendors, checks fit, or validates claims.
-- `agency_or_consultant`: Advises, implements, resells, audits, or recommends on behalf of the customer.
+- `decision_maker`: Approves adoption, owns strategic fit, accepts business risk, or signs off.
+- `economic_buyer`: Controls budget, ROI case, contract size, renewal, or procurement economics.
+- `end_user`: Uses the product or service in daily work and feels workflow pain directly.
+- `evaluator`: Compares options, validates vendor fit, runs trials, checks security/technical fit, or builds the shortlist.
+- `influencer`: Shapes requirements, internal consensus, or category framing without final authority.
+- `agency_or_consultant`: Advises, implements, audits, resells, or recommends on behalf of the customer.
 
-For B2C:
+Always split B2B decision maker and end user. If the same person likely holds two roles, show two rows or state `same_person_possible` while keeping role-specific search intent separate.
 
-- Buyer or parent/household purchaser -> `decision_maker`
-- Direct user or beneficiary -> `end_user`
-- Review seeker or option comparer -> `evaluator`
-- Friend, expert, creator, advisor -> `influencer`
-- Broker, stylist, planner, consultant, agent -> `agency_or_consultant`
+For B2C, use these role labels exactly:
+
+- `purchaser`: Pays, subscribes, orders, books, or chooses where money goes.
+- `user`: Uses, consumes, attends, receives, or benefits from the product/service.
+- `comparator`: Reads reviews, compares alternatives, checks price, quality, trust, or fit.
+- `recommender_influencer`: Suggests, gifts, advises, reviews, influences, or socially validates the choice.
+- `repeat_user`: Returns, renews, replenishes, upgrades, or decides whether to keep using.
+
+Always split B2C purchaser and user when they may differ, such as parent/child, buyer/gift recipient, family purchaser/patient, or owner/operator.
+
+For marketplaces, split supply-side and demand-side personas. For agency-support targets, split the agency buyer, agency operator, client-side buyer, and client-side evaluator when relevant.
 
 ## Persona Quality Bar
 
 Each persona must include decision logic, not just demographics.
 
-Good persona candidates include:
+Every usable persona candidate must include:
 
 - What role they play in adoption or purchase
 - What moment triggers their search
-- What they compare
-- What risk or objection blocks them
-- What proof or page content would reduce uncertainty
-- What AI search question they might ask
-- What prompt angle Recora should test
+- Search intent
+- AI-search question examples
+- Comparison targets
+- Comparison criteria
+- Objections or anxieties
+- Information they need before adoption or purchase
+- Evidence they need to trust the brand
+- Recora diagnosis prompt angle
+- Handoff fields for `recora-prompt-topic-designer`
 
-Avoid shallow labels such as "20s women", "small businesses", "marketing teams", or "busy people" unless connected to a concrete decision, workflow, pain, and comparison axis.
+Avoid shallow labels such as "20s women", "small businesses", "marketing teams", "founders", or "executives" unless connected to a concrete decision, workflow, pain, comparison axis, anxiety, and required proof.
+
+Limit persona quantity. Prefer 3 to 7 diagnostically useful personas over a long list that cannot become distinct prompts.
+
+## Hypothesis Levels
+
+Use these values exactly:
+
+- `confirmed_from_site`: The site explicitly states the segment, use case, customer type, industry, CTA target, pricing motion, feature use, or proof signal.
+- `inferred_from_site`: Multiple site signals reasonably imply the persona, but the site does not explicitly name it.
+- `weak_hypothesis`: The persona follows from category knowledge or thin signals, but evidence is weak.
+- `needs_customer_data`: The persona cannot be validated without CRM, analytics, sales notes, interviews, support logs, or real customer records.
+- `not_supported`: The persona is tempting but not supported by supplied or inspected evidence. Put these in `Excluded / Unsupported Personas`.
+
+Assign one primary hypothesis level to every persona and to every major evidence claim. Use lower confidence when customer data is absent.
 
 ## Evidence Discipline
 
-Use evidence labels in notes when useful:
-
-- `SITE_CONFIRMED`: visible claim, CTA, feature, pricing, customer type, or case-study signal on the inspected site.
-- `USER_PROVIDED`: fact supplied by the user.
-- `SITE_INFERRED`: reasonable hypothesis from visible site positioning.
-- `NEEDS_VERIFICATION`: missing, ambiguous, not inspected, or customer-data-dependent.
-
-Never invent customer counts, revenue, market share, conversion impact, AI visibility, citations, rankings, or real search behavior.
+Never invent customer counts, revenue, market share, conversion impact, AI visibility, citations, rankings, implementation customers, industries, case studies, or real search behavior.
 
 Never say a persona "will search" or "must be the main buyer." Say they "may search", "could evaluate", or "is a site-informed candidate."
+
+When site evidence conflicts or is thin, explain the ambiguity and downgrade confidence.
 
 ## AI Search Prompt Angle Rules
 
 For every persona, include at least one `AI Search Prompt Angle` that can be passed to `recora-prompt-topic-designer`.
 
-Use this shape:
+Use this shape in the persona section:
 
 ```md
 - angle_label:
 - prompt_angle:
-- likely_ai_questions:
+- sample_ai_questions:
   - "..."
   - "..."
+- comparison_targets:
 - comparison_axis:
-- page_or_proof_needed:
+- pre_purchase_information_needed:
+- proof_needed:
 ```
 
-Write `prompt_angle` as a reusable testing direction, not as one final prompt. Example:
+Write `prompt_angle` as a reusable testing direction, not as one final prompt. It must include persona context, situation, comparison need, and evidence need.
+
+Good prompt angle:
 
 ```md
 Test prompts where an operations manager compares tools for reducing manual reporting work, asks whether the brand fits a mid-sized team, and looks for proof such as integrations, workflow examples, pricing clarity, and case studies.
+```
+
+Bad prompt angle:
+
+```md
+Marketing manager prompt.
 ```
 
 ## Default Output Format
@@ -128,103 +167,151 @@ Use this format:
 ```md
 # Recora Persona Discovery
 
-## 1. Persona Candidates
+## 1. Input Summary
 
-| ID | Persona candidate | Role | Site-informed rationale | Confidence | Needs verification |
-|---|---|---|---|---|---|
+- brand_name:
+- url:
+- site_text / observed_claims available: yes/no
+- pricing_signals:
+- target_adoption:
+- cta_signals:
+- case_studies_or_proof:
+- feature_signals:
+- service_model: B2B / B2C / marketplace / agency_service / mixed / unclear
+- customer_data_status: available / not_available / unknown
+- missing_inputs:
 
-## 2. Role Classification
+## 2. Evidence Observed from Site
 
-### decision_maker
-- Persona IDs:
-- Why this role matters:
+| Evidence ID | Signal type | Observed evidence | Source or page | Hypothesis level | Persona implication | Gaps |
+|---|---|---|---|---|---|---|
 
-### end_user
-- Persona IDs:
-- Why this role matters:
+Use hypothesis levels: `confirmed_from_site`, `inferred_from_site`, `weak_hypothesis`, `needs_customer_data`, `not_supported`.
 
-### influencer
-- Persona IDs:
-- Why this role matters:
+## 3. Persona Candidates
 
-### evaluator
-- Persona IDs:
-- Why this role matters:
+| Persona ID | Persona candidate | Role type | Business model side | Hypothesis level | Site-informed rationale | Diagnostic priority | Confidence |
+|---|---|---|---|---|---|---|---|
 
-### agency_or_consultant
-- Persona IDs:
-- Why this role matters:
+## 4. Role Classification
 
-## 3. Buyer Stage
+For B2B, include:
 
-| Persona ID | Stage | Trigger moment |
-|---|---|---|
+- `decision_maker`
+- `economic_buyer`
+- `end_user`
+- `evaluator`
+- `influencer`
+- `agency_or_consultant`
 
-Use stages such as awareness, problem-aware, solution-aware, comparison, validation, procurement, purchase, onboarding, renewal, or advocacy.
+For B2C, include:
 
-## 4. Main Pain
+- `purchaser`
+- `user`
+- `comparator`
+- `recommender_influencer`
+- `repeat_user`
 
-| Persona ID | Main pain | Why it matters |
-|---|---|---|
+| Role type | Persona IDs | Why this role matters | Role-specific search behavior |
+|---|---|---|---|
 
-## 5. Search Intent
+## 5. Buyer Stage
 
-| Persona ID | Search intent | Likely AI-search question examples |
-|---|---|---|
+| Persona ID | Buyer stage | Trigger moment | Stage-specific information need |
+|---|---|---|---|
 
-Include 2 to 4 likely AI-search question examples per persona.
+Use `recora-prompt-topic-designer` buyer stage values: `early_research`, `solution_exploration`, `comparison_shortlist`, `purchase_validation`, `implementation_planning`.
 
-## 6. AI Search Prompt Angle
+## 6. Main Pain
 
-### P1 - [Persona Name]
+| Persona ID | Main pain | Job to be done | Why it matters |
+|---|---|---|---|
+
+## 7. Search Intent
+
+| Persona ID | Search intent | Query posture | What they are trying to decide |
+|---|---|---|---|
+
+## 8. AI Search Prompt Angle
+
+### [Persona ID] - [Persona Name]
+
 - angle_label:
 - prompt_angle:
-- likely_ai_questions:
-  - "..."
-  - "..."
+- comparison_targets:
 - comparison_axis:
-- page_or_proof_needed:
+- pre_purchase_information_needed:
+- proof_needed:
 
 Repeat for each persona.
 
-## 7. Comparison Criteria
+## 9. Sample AI Search Questions
 
-| Persona ID | Comparison criteria |
+| Persona ID | Sample AI-search questions |
 |---|---|
 
-## 8. Objections / Concerns
+Include 2 to 4 questions per persona. Phrase them as natural AI-search questions, not keyword lists.
 
-| Persona ID | Objections or concerns |
-|---|---|
+## 10. Comparison Criteria
 
-## 9. What They Need to See
+| Persona ID | Comparison targets | Comparison criteria | Why these criteria matter |
+|---|---|---|---|
 
-| Persona ID | Required proof, page, or message |
-|---|---|
+## 11. Objections / Concerns
 
-## 10. Confidence Level
+| Persona ID | Objections or concerns | Risk behind the concern | Evidence needed to reduce concern |
+|---|---|---|---|
 
-| Persona ID | Confidence | Reason |
-|---|---|---|
+## 12. What They Need to See
+
+| Persona ID | Required information | Required proof | Site page or asset that should provide it |
+|---|---|---|---|
+
+## 13. Handoff to recora-prompt-topic-designer
+
+| persona_id | role_type | buyer_stage | pain | prompt_angle | sample_ai_questions | priority | confidence | needs_verification |
+|---|---|---|---|---|---|---|---|---|
+
+Required handoff fields:
+
+- `persona_id`
+- `role_type`
+- `buyer_stage`
+- `pain`
+- `prompt_angle`
+- `sample_ai_questions`
+- `priority`: high / medium / low
+- `confidence`: high / medium / low
+- `needs_verification`
+
+## 14. Confidence Level
+
+| Persona ID | Confidence | Hypothesis level | Reason |
+|---|---|---|---|
 
 Use `high`, `medium`, or `low`.
 
 - `high`: multiple specific site signals support the persona and role.
 - `medium`: several site signals exist, but the role or buying stage is partly inferred.
-- `low`: URL/brand-only, thin site evidence, inaccessible pages, or mostly category-level inference.
+- `low`: URL/brand-only, thin site evidence, inaccessible pages, no customer data, or mostly category-level inference.
 
-## 11. Needs Verification
+## 15. Needs Verification
 
 - Customer data needed:
 - Site pages or claims to verify:
 - Sales or support questions to ask:
 - Risks if used as-is for Recora diagnosis:
+
+## 16. Excluded / Unsupported Personas
+
+| Excluded persona | Why considered | Reason excluded | What evidence would be needed |
+|---|---|---|---|
 ```
 
 ## Relationship To Other Recora Skills
 
-Use `recora-persona-discovery` before `recora-prompt-topic-designer` when personas are undefined or when the diagnosis needs separate angles for decision makers, users, evaluators, influencers, or agencies.
+Use `recora-persona-discovery` before `recora-prompt-topic-designer` when personas are undefined or when the diagnosis needs separate angles for decision makers, economic buyers, users, evaluators, influencers, agencies, purchasers, comparators, recommenders, or repeat users.
 
-Do not replace `recora-prompt-topic-designer`; produce persona-specific prompt angles for it.
+Do not replace `recora-prompt-topic-designer`; produce persona-specific prompt angles and the handoff table it can consume.
 
 Do not replace recommendation quality-gate or implementation-architecture skills. This skill stops at persona hypotheses and prompt-angle preparation.
