@@ -1,4 +1,4 @@
-﻿interface:
+interface:
   display_name: "Recora Copy Brand Voice"
-  short_description: "Recora copy guardrails for credible Japanese BtoB wording"
-  default_prompt: "Use $recora-copy-brand-voice to rewrite Recora copy into clear, evidence-led Japanese BtoB SaaS language."
+  short_description: "Recora brand voice, claim-risk, and UX microcopy gate"
+  default_prompt: "Use $recora-copy-brand-voice to rewrite Recora copy into evidence-led Japanese BtoB SaaS wording, UX microcopy, and claim-risk labels."

@@ -1,0 +1,51 @@
+# Prompt Design Failure Diagnosis
+
+Use this reference after the coverage matrix, quality gate, bias audit, or measurement-readiness evals find a problem.
+
+Each failure diagnosis should produce a repair path. Do not stop at a red flag. If a prompt or prompt set is not ready, provide a revised prompt pattern or a prompt-set adjustment.
+
+## Failure Types
+
+| failure_type | symptom | detection_rule | likely_cause | repair_strategy | revised_prompt_pattern | related_reference_file | quality_gate_result |
+|---|---|---|---|---|---|---|---|
+| `branded_overfit` | Most prompts include the client brand, so measurement mostly observes prompted recall. | `brand_included` exceeds the goal-adjusted ratio or branded prompts appear before non-branded discovery prompts. | The prompt set was written from the client's sales narrative instead of buyer search behavior. | Rebalance toward `brand_excluded` discovery, problem-solution, and category prompts; keep branded prompts for validation only. | "What tools or services do companies in [category] compare when they need to [buyer job]?" | `prompt-coverage-matrix.md`, `prompt-quality-rubric.md` | `revise_before_measurement` or `reject` when over-branding is severe. |
+| `non_branded_undercoverage` | The set lacks enough natural category, problem, or solution discovery prompts. | `non_branded` is missing or far below the target ratio without a stated diagnosis-goal exception. | The design focuses on brand confirmation instead of market visibility. | Add awareness and exploration prompts with `brand_excluded` and observable category/competitor signals. | "For [persona], what are realistic ways to solve [problem] in [region/category]?" | `prompt-coverage-matrix.md`, `measurement-readiness-evals.md` | `revise_before_measurement`. |
+| `weak_expected_signal` | Prompts exist, but the reason for measuring each prompt is vague or not observable. | `expected_signal` says "check visibility" or "see response quality" without measurable mention, citation, comparison, risk, or recommendation indicators. | The prompt was designed as content ideation, not measurement. | Rewrite expected signals to name observable answer elements. | expected_signal: "Observe whether the answer names the client, which competitor categories appear, and which evaluation axes are used." | `prompt-quality-rubric.md`, `measurement-readiness-evals.md` | `revise_before_measurement`; `reject` if no diagnostic purpose remains. |
+| `duplicate_prompt_cluster` | Multiple prompts ask nearly the same thing with small wording changes. | Same category, persona, buyer stage, intent, and expected signal repeat without a distinct diagnostic reason. | The set was padded to reach a prompt count. | Merge duplicates or vary the category, buyer stage, persona, signal, or competitor rule. | "Split one generic comparison prompt into one category-discovery prompt and one validation-stage evidence prompt." | `prompt-quality-rubric.md`, `prompt-set-iteration-loop.md` | `revise_before_measurement` or `reject` for filler prompts. |
+| `buyer_stage_collapse` | Most prompts sit in comparison or decision stages. | Fewer than the mode minimum buyer stages are represented, or stage labels do not match prompt wording. | The design assumes buyers are already vendor-aware. | Add awareness, exploration, validation, and decision prompts with stage-specific language. | "At the awareness stage, what signs tell a [persona] they need a solution for [problem]?" | `prompt-coverage-matrix.md`, `measurement-readiness-evals.md` | `revise_before_measurement`. |
+| `persona_flattening` | Persona labels appear, but prompt wording is the same for every role. | Persona changes do not alter vocabulary, concern, buying task, risk, or expected signal. | Personas were added as labels after the prompt list was written. | Rewrite by role: economic buyer, evaluator, end user, implementer, and executive sponsor where relevant. | "As a [role], what evidence would you look for before shortlisting [category] tools?" | `prompt-quality-rubric.md`, `measurement-readiness-evals.md` | `revise_before_measurement`; hand off to `recora-persona-discovery` if roles are weak. |
+| `competitor_overconstraint` | Comparison prompts force a narrow competitor set or imply the client should win. | Most competitor prompts use `named_competitors` and no `category_competitors` or `unknown_competitor_discovery`. | Known competitors were treated as the full market. | Mix named, category, and unknown competitor discovery; remove winner assumptions. | "Which tools are usually considered alternatives to [category solution] for [buyer role], and why?" | `prompt-coverage-matrix.md`, `prompt-anti-patterns.md` | `revise_before_measurement`; `reject` if leading. |
+| `citation_check_missing` | The set cannot show how AI handles sources or evidence. | No `citation_check` category or `evidence_seeking` intent appears when source analysis is part of the goal. | The design focuses only on mentions and recommendations. | Add source-observable prompts and handoff to citation analysis. | "What sources would you use to compare [category] vendors, and what evidence do they provide?" | `prompt-coverage-matrix.md`, `measurement-readiness-evals.md` | `revise_before_measurement` for citation-oriented goals. |
+| `seo_keyword_dumping` | A prompt is just keywords or query fragments. | Prompt lacks a natural question, buyer context, or conversational phrasing. | SEO keyword research was pasted into AI-search design. | Convert keywords into realistic buyer questions with stage and expected signal. | Bad: "[keyword] [industry] [region]"; Better: "What should a [persona] compare when choosing [category] tools in [region]?" | `prompt-anti-patterns.md`, `prompt-quality-rubric.md` | `reject` or `revise_before_measurement`. |
+| `leading_question_bias` | The prompt asks why the client is best, trusted, cited, or recommended. | Wording presumes a positive outcome or asks AI to validate the client's claim. | Sales copy was turned directly into a prompt. | Replace with neutral evaluation wording and remove outcome assumptions. | "How do buyers evaluate [category] vendors for [use case]?" | `prompt-anti-patterns.md`, `prompt-quality-rubric.md` | `reject` when strongly leading. |
+| `measurement_unready` | The prompt cannot be compared across AI engines or parsed into Recora fields. | Multi-question prompt, unclear entity target, provider-specific instruction, missing ID, missing labels, or unobservable signal. | Drafting prioritized human readability over measurement structure. | Split into one measurable question, assign all labels, and confirm extractor-friendly signals. | "prompt_id: [stable_id]; prompt: one buyer-realistic question; expected_signal: named observable elements." | `measurement-readiness-evals.md`, `prompt-set-iteration-loop.md` | `revise_before_measurement` or `reject`. |
+| `unsupported_market_assumption` | The set assumes market facts, customer segments, competitors, or pricing that were not supplied or verified. | Claims appear in prompts or notes without input support, source evidence, or an explicit `assumption`. | The agent filled context gaps too aggressively. | Mark assumptions, weaken claims, request/handoff missing context, and avoid unsupported competitor or URL analysis. | "Assumption: [category] buyers include [role]. Validate with `recora-persona-discovery` before final measurement." | `public-skill-pattern-research.md`, `measurement-readiness-evals.md` | `internal_only` until assumptions are validated. |
+| `missing_handoff` | Prompts produce signals that should be analyzed by another Recora skill, but no handoff is assigned. | `handoff_skill` is empty or `none` despite citation, competitor, persona, schema, or client-facing recommendation implications. | Prompt design stopped before downstream analysis planning. | Add one primary handoff per prompt and mention secondary handoffs in `risk_or_bias`. | handoff_skill: "`recora-ai-citation-analysis` for citation/source behavior" | `SKILL.md`, `prompt-set-iteration-loop.md` | `revise_before_measurement`. |
+| `machine_readability_failure` | The output is useful prose but cannot become rows for measurement. | Missing stable `id`, inconsistent field names, mixed labels, nested prose, or labels outside the allowed values. | The output was written as a narrative deliverable instead of a prompt library. | Normalize field names, allowed labels, stable IDs, and one prompt per row. | Use the `Prompt List` schema from `SKILL.md` and the JSON examples in `prompt-coverage-matrix.md`. | `prompt-coverage-matrix.md`, `measurement-readiness-evals.md` | `revise_before_measurement`. |
+| `vague_topic_set` | Topic names are broad and do not clarify buyer, problem, stage, or diagnostic goal. | `topic_name` or `topic_goal` could apply to many clients and does not connect to categories or signals. | Topics were generated before market category and buyer jobs were defined. | Rewrite topic set around category, buyer job, stage, and observable signal. | topic_name: "[category] vendor discovery for [persona] at [stage]"; topic_goal: "Observe [mention/comparison/citation/risk signal]." | `prompt-coverage-matrix.md`, `prompt-set-examples.md` | `revise_before_measurement`. |
+
+## Diagnosis Output Template
+
+```md
+## Failure Diagnosis
+
+- failure_type:
+- affected_prompt_ids:
+- symptom:
+- detection_rule:
+- likely_cause:
+- repair_strategy:
+- revised_prompt_pattern:
+- related_reference_file:
+- quality_gate_result:
+```
+
+## Repair Priority
+
+1. Reject or revise prompts that are leading, unsupported, or machine-unreadable.
+2. Restore `non_branded` coverage before adding more branded prompts.
+3. Fix weak `expected_signal` values so each prompt has an observable purpose.
+4. Remove duplicate clusters before increasing prompt count.
+5. Repair persona and buyer-stage coverage.
+6. Add citation and handoff coverage when diagnosis goals require it.
+7. Re-run coverage matrix, quality gate, bias audit, and measurement readiness checks.

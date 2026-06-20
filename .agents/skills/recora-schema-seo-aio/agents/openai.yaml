@@ -1,4 +1,4 @@
-interface:
+﻿interface:
   display_name: "Recora Schema SEO AIO"
-  short_description: "Recora SEO/AIO/schema page-structure audits"
-  default_prompt: "Use $recora-schema-seo-aio to audit a Recora LP or client page for SEO, schema, AIO, and AI-citation-friendly page structure."
+  short_description: "Recora SEO/AIO/schema and page-structure audits"
+  default_prompt: "Use $recora-schema-seo-aio to convert Recora SEO, schema, source-gap, and AI-search observations into safe page-structure recommendations."

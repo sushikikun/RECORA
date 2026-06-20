@@ -1,4 +1,4 @@
 interface:
   display_name: "Recora Persona Discovery"
-  short_description: "Persona hypotheses for Recora AI-search diagnosis"
-  default_prompt: "Use $recora-persona-discovery to turn a brand URL, brand name, and site signals into persona hypotheses and prompt-angle handoff for Recora diagnosis."
+  short_description: "Traceable JTBD persona hypotheses for Recora diagnosis"
+  default_prompt: "Use $recora-persona-discovery to research-gate persona hypotheses with evidence traceability, validation questions, ICP/Anti-ICP fit, confidence-upgrade data, switching forces, AI-search journey, problem narrative, vocabulary, alternatives, and prompt-angle handoff for Recora diagnosis."

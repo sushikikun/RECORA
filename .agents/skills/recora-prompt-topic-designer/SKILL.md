@@ -1,203 +1,265 @@
 ---
 name: recora-prompt-topic-designer
-description: "Design Recora GEO/AI search diagnosis topics and prompt sets from a client's industry, brand, competitors, target customers, personas, buyer stages, and diagnostic goals. Use when creating Recora diagnosis prompt sets, turning a client URL/brand/industry into AI search queries, designing persona-based, buying-stage-based, comparison-stage-based, branded, non-branded, competitor, problem-solution, alternative, pricing/reputation, or citation-check prompts, and reducing topic bias. Do not use for Recora app implementation, production changes, secrets, API keys, crawler execution, or claiming AI answer results before measurement."
+description: "Recora GEO and AI search diagnosis prompt-set and topic-design skill. Use when Codex needs to design measurement-ready Recora prompt sets, AI search diagnosis topics, non-branded discovery prompts, buyer-stage and persona coverage, competitor comparison prompts, citation check prompts, prompt quality gates, prompt revisions, coverage matrices, and handoff-ready prompt libraries. Do not use for Recora app implementation, production changes, secrets, API keys, crawler execution, or claiming AI answer results before measurement."
 ---
 
 # Recora Prompt Topic Designer
 
+## Overview
+
 Act as Recora's Prompt Topic Designer for GEO / AI search diagnostics.
 
-Design diagnosis topics and AI-search prompts that reveal how AI systems describe a market, surface competitors, mention the client brand, use evidence, and answer buyer questions. Keep the output measurement-ready: every prompt must have intent, buyer stage, persona, brand/competitor mention rules, expected signal, and risk/bias notes.
+Design diagnosis topics and AI-search prompts as a measurement plan, not a question list. Keep `SKILL.md` focused on the core flow; load reference files only when detailed scoring, coverage, anti-pattern repair, examples, or eval scenarios are needed.
 
-This skill is strategy and prompt design only. Do not modify Recora app code, run production diagnostics, access secrets, inspect `.env`, execute external providers, or state that a brand will appear before real measurements exist.
+Use external and sibling skills only as structure inspiration. Do not copy license-unclear text, code, examples, brand claims, or long passages from outside this skill.
 
-## Default Workflow
+## When To Use
 
-1. Confirm the client inputs: industry, brand name, URL if provided, product category, target customers, competitors, geography/language, and diagnostic goal.
-2. Check persona readiness. If personas are missing, recommend using `recora-persona-discovery` first, then proceed with clear assumptions if the user asks to continue.
-3. Build a balanced `Topic Set` from market pains, buying jobs, alternatives, evaluation criteria, competitor landscape, reputation/pricing questions, and evidence/citation checks.
-4. Convert topics into natural AI-search prompts, not raw SEO keyword lists.
-5. Classify each prompt by category, intent type, buyer stage, persona, brand mention rule, competitor mention rule, expected signal, and risks/biases.
-6. Check mix and bias: include non-branded prompts, persona-based prompts, multiple buyer stages, and citation/evidence checks.
-7. Prepare handoff notes for downstream citation or competitor analysis skills when relevant.
+Use this skill for:
 
-## Required Prompt Categories
+- Recora GEO / AI search diagnosis prompt-set design.
+- Topic design from client, industry, product, target customer, buyer role, competitor, region, and diagnosis goal inputs.
+- Non-branded discovery, competitor comparison, branded validation, pricing/reputation, citation/evidence, and persona-based prompt creation.
+- Prompt set mode selection: `lite`, `standard`, or `deep`.
+- Prompt quality gating before measurement.
+- Prompt revision when wording is leading, too branded, vague, duplicated, or not measurable.
+- Handoff-ready prompt libraries for measurement, citation analysis, competitor benchmark, recommendation QA, and schema/page-structure work.
 
-Use these category IDs exactly:
+Do not use this skill to run AI providers, crawl sites, edit app code, access secrets, or state measurement results before a real diagnostic run.
 
-- `non_branded`: natural search prompts without the client brand name.
-- `branded`: prompts that explicitly include the client brand to check known-brand treatment.
-- `competitor_comparison`: prompts that compare the client, competitors, or market alternatives.
-- `problem_solution`: prompts framed around a customer's pain, job, risk, or desired outcome.
-- `alternative_search`: prompts asking for substitute tools, agencies, services, or approaches.
-- `pricing_reputation`: prompts about price, reviews, trust, ROI, implementation risk, or vendor selection.
-- `citation_check`: prompts designed to observe whether AI answers cite sources, name evidence, or expose source quality.
-- `persona_based`: prompts customized by role, seniority, expertise level, budget owner, operator, or evaluator context.
+## Inputs
 
-Recommended starting mix for a broad diagnosis:
+Expected input fields:
 
-- 60% `non_branded` natural search.
-- 20% `competitor_comparison`.
-- 10% `branded`.
-- 10% `citation_check` / evidence-check prompts.
+- `client_name`
+- `website_url`
+- `industry`
+- `business_model`
+- `product_or_service`
+- `target_customers`
+- `competitors`
+- `regions`
+- `buyer_roles`
+- `known_strengths`
+- `known_risks`
+- `diagnosis_goal`
 
-This ratio is a starting guardrail, not a hard quota. Preserve coverage over arithmetic perfection.
+Minimum viable input for a confident set:
 
-## Intent And Buyer Stage
+- `client_name`
+- `industry`
+- `product_or_service`
+- `target_customers`
+- `diagnosis_goal`
 
-Assign one primary `Intent Type` to each prompt:
+Missing-input rules:
 
-- `purchase_intent`: the user is evaluating what to buy, hire, or adopt.
-- `comparison_intent`: the user is comparing vendors, categories, or approaches.
-- `problem_solution_intent`: the user starts from a problem and wants possible solutions.
-- `alternative_search_intent`: the user wants substitutes or "instead of X" options.
-- `branded_validation_intent`: the user asks whether a named brand is credible or relevant.
-- `pricing_reputation_intent`: the user wants pricing, reviews, risk, ROI, or trust signals.
-- `citation_evidence_intent`: the user asks for sources, proof, examples, or evidence quality.
-- `learning_intent`: the user is trying to understand a category before vendor selection.
+- If required fields are missing, produce a cautious starter set and mark `missing_input`; do not call it final measurement-ready.
+- If optional fields are missing, state explicit `assumption` values.
+- If persona or `buyer_roles` are weak, recommend `recora-persona-discovery`.
+- If `competitors` are missing, use `unknown_competitor_discovery`.
+- If `website_url` is missing, avoid URL, page-content, schema, crawlability, and brand-site evidence claims.
+- If `regions` are missing, mark locale/language as assumed.
 
-Assign one buyer stage:
+## Required Workflow
 
-- `early_research`: problem discovery, category education, initial options.
-- `solution_exploration`: solution types, use cases, requirements, and tradeoffs.
-- `comparison_shortlist`: vendor/category comparison and shortlist building.
-- `purchase_validation`: pricing, reputation, trust, rollout risk, internal approval.
-- `implementation_planning`: onboarding, migration, operations, measurement, and success criteria.
+1. Define the client's market category, adjacent categories, substitute solutions, and ambiguous category labels.
+2. Identify natural buyer questions by role, expertise level, and buying stage.
+3. Create `non_branded` exploration prompts first.
+4. Create `competitor_comparison` and `alternative_search` prompts.
+5. Create `branded` validation prompts.
+6. Create `pricing_reputation` and purchase-decision prompts.
+7. Create `citation_check` / evidence-behavior prompts.
+8. Expand by persona and buyer stage.
+9. Build a coverage matrix.
+10. Run the prompt quality gate.
+11. Diagnose failure modes when coverage, gate, or bias checks fail.
+12. Revise weak prompts before measurement and rerun the checks.
+13. Add handoff targets for downstream Recora skills.
+14. Freeze a prompt-set version only after measurement readiness is clear.
 
-Include multiple stages in every substantial prompt set. Do not collapse everything into purchase-ready prompts.
+## Output Format
 
-## Persona Design
-
-Include persona-specific prompts. Vary role, expertise, and decision context:
-
-- Role examples: founder, marketing leader, SEO manager, sales leader, RevOps, product marketer, agency consultant, procurement, technical evaluator, executive sponsor.
-- Expertise examples: beginner, informed buyer, domain expert, skeptical evaluator.
-- Context examples: small team, enterprise team, regulated industry, local business, agency serving clients, budget-constrained buyer.
-
-If persona data is missing or weak, state: `Persona input is incomplete; use recora-persona-discovery first or treat personas as assumptions.` Then label assumed personas clearly.
-
-## Brand And Competitor Mention Rules
-
-Use `Brand Mention Rule` values:
-
-- `exclude_client_brand`: the client brand must not appear in the prompt.
-- `include_client_brand`: the client brand must appear.
-- `optional_client_brand`: brand may appear only if natural for the diagnostic goal.
-- `alias_or_product_name`: use known product names, abbreviations, or Japanese/English variants only when provided.
-
-Use `Competitor Mention Rule` values:
-
-- `exclude_competitors`: no named competitors in the prompt.
-- `include_named_competitors`: include specific competitor names provided by the user.
-- `ask_for_market_options`: ask AI to identify options without seeding competitor names.
-- `compare_category_alternatives`: compare service categories or approaches, not only brands.
-
-Avoid over-seeding prompts with the client brand or competitor names. Seeded names can contaminate visibility, mention, and citation observations.
-
-## Expected Signal
-
-Every prompt must state what the diagnostic run should observe, without predicting the result. Useful signals include:
-
-- Whether the client brand appears unprompted in a non-branded answer.
-- Which competitors or categories appear first.
-- Whether the answer frames the problem in the same language buyers use.
-- Whether the answer cites sources, names specific pages, or stays source-free.
-- Whether the answer recommends categories, vendors, comparison criteria, or next actions.
-- Whether pricing, reputation, trust, implementation risk, or procurement concerns appear.
-- Whether persona context changes recommendations, criteria, or source choices.
-- Whether brand mentions are supported by evidence or only generic statements.
-
-Write expected signals as observations to look for, never as guaranteed outcomes.
-
-## Prompt Quality Rules
-
-Must do:
-
-- Include `non_branded` prompts in every diagnosis.
-- Include persona-based questions.
-- Split buyer stages across early research, comparison, and purchase validation.
-- Make each prompt a natural AI-search question or instruction.
-- State a diagnostic purpose for every prompt.
-- Include citation/evidence checks when the user wants source or claim analysis.
-- Separate broad discovery prompts from seeded brand and competitor checks.
-
-Must not do:
-
-- Do not output only a keyword list.
-- Do not paste SEO keywords as AI-search prompts without rewriting them into buyer questions.
-- Do not use only branded prompts.
-- Do not claim the client will appear, be cited, rank, or be recommended before measurement.
-- Do not mass-produce prompts with unclear diagnostic intent.
-- Do not use secrets, private customer data, API keys, `.env`, cookies, or logged-in sessions.
-
-## Downstream Skill Connections
-
-- Use `recora-persona-discovery` first when personas, roles, expertise levels, or buyer contexts are undefined.
-- Design `citation_check` prompts so outputs can be handed to `recora-ai-citation-analysis` for source quality, citation integrity, and source-to-claim review.
-- Design `competitor_comparison` prompts so outputs can be handed to `recora-competitor-benchmark` for competitor visibility and comparison analysis.
-- Keep prompt IDs and category IDs stable so later measurement, citation analysis, competitor benchmarking, and quality gates can reference them.
-
-If a downstream skill is not installed or not visible, still make the handoff fields explicit.
-
-## Default Output Format
-
-For compact work, output a table. For substantial prompt sets, use these sections:
+For substantial outputs, use these sections:
 
 ```md
-# Recora Prompt Topic Design
+## Topic Set
 
-## 1. Topic Set
+- topic_name:
+- topic_goal:
+- target_buyer:
+- buyer_stage:
+- included_categories:
+- risk_notes:
 
-| Topic ID | Topic | Diagnostic Purpose | Primary Personas | Buyer Stages | Notes |
-|---|---|---|---|---|---|
+## Prompt Categories
 
-## 2. Prompt Categories
+- category:
+- purpose:
+- recommended_ratio:
+- when_to_use:
+- caution:
 
-| Category | Target Share | Actual Count | Coverage Notes |
-|---|---:|---:|---|
+## Coverage Matrix
 
-## 3. Prompt List
+- category_coverage:
+- buyer_stage_coverage:
+- persona_coverage:
+- intent_coverage:
+- signal_coverage:
+- brand_vs_nonbrand_balance:
+- competitor_balance:
+- evidence_check_coverage:
+- missing_required_area:
+- revision_needed:
 
-| Prompt ID | Prompt | Category | Intent Type | Buyer Stage | Persona | Brand Mention Rule | Competitor Mention Rule | Expected Signal | Risks / Biases |
-|---|---|---|---|---|---|---|---|---|---|
+## Prompt List
 
-## 4. Intent Type
-
-Summarize the intent distribution and any missing intent.
-
-## 5. Buyer Stage
-
-Summarize coverage across early research, solution exploration, comparison, purchase validation, and implementation planning.
-
-## 6. Persona
-
-List included personas, expertise levels, assumed personas, and missing persona inputs.
-
-## 7. Brand Mention Rule
-
-Explain which prompts exclude, include, optionally mention, or alias the client brand.
-
-## 8. Competitor Mention Rule
-
-Explain which prompts seed competitors, ask for market options, compare category alternatives, or exclude competitors.
-
-## 9. Expected Signal
-
-Summarize the main observations the diagnosis should capture.
-
-## 10. Risks / Biases
-
-List seed contamination, brand over-weighting, competitor over-seeding, persona gaps, regional/language bias, prompt ambiguity, and evidence/citation risks.
+- id:
+- prompt:
+- category:
+- intent_type:
+- buyer_stage:
+- persona:
+- brand_mention_rule:
+- competitor_mention_rule:
+- expected_signal:
+- risk_or_bias:
+- handoff_skill:
+- quality_score:
+- gate_decision:
+- gate_reason:
 ```
+
+For machine-readable output, preserve the same field names.
+
+## Prompt Set Modes
+
+| mode | suitable_use_case | minimum_prompt_count | required_categories | minimum_persona_coverage | minimum_buyer_stage_coverage | recommended_when | not_recommended_when |
+|---|---|---:|---|---|---|---|---|
+| `lite` | fast scoping, sales precheck, early discovery | 8 | `non_branded`, `competitor_comparison`, `branded`, `citation_check`, `persona_based` | 2 personas or roles | 3 stages | context is thin or time is limited | final benchmark, paid report, or deep citation analysis |
+| `standard` | normal Recora diagnosis design | 16 | all required categories | 3 personas or roles | 4 stages | enough client context exists for measurement | personas, category, or goal are unclear |
+| `deep` | full benchmark, multi-persona, source intelligence, report-grade prompt map | 32 | all required categories plus multiple variants per key category | 5 personas or roles | all 5 stages | competitor/citation/report quality is a major goal | no persona, competitor, or region inputs are available |
+
+Default ratio for broad diagnosis:
+
+- 60% `non_branded`
+- 20% `competitor_comparison`
+- 10% `branded`
+- 10% `citation_check` / evidence check
+
+Adjust the ratio to the diagnosis goal and state the adjustment.
+
+## Required Label Values
+
+Use these category values:
+
+- `non_branded`
+- `branded`
+- `competitor_comparison`
+- `problem_solution`
+- `alternative_search`
+- `pricing_reputation`
+- `citation_check`
+- `persona_based`
+
+Use these `buyer_stage` values:
+
+- `awareness`
+- `exploration`
+- `comparison`
+- `validation`
+- `decision`
+
+Use these `intent_type` values:
+
+- `informational`
+- `commercial_investigation`
+- `comparison`
+- `transactional`
+- `reputational`
+- `evidence_seeking`
+- `risk_checking`
+
+Use these mention-rule values:
+
+- `brand_mention_rule`: `brand_excluded`, `brand_included`, `brand_optional`, `competitor_only`
+- `competitor_mention_rule`: `no_competitor`, `named_competitors`, `category_competitors`, `unknown_competitor_discovery`
+
+## Coverage Matrix
+
+For detailed coverage checks, read `references/prompt-coverage-matrix.md`.
+
+Always report:
+
+- `category_coverage`
+- `buyer_stage_coverage`
+- `persona_coverage`
+- `intent_coverage`
+- `signal_coverage`
+- `brand_vs_nonbrand_balance`
+- `competitor_balance`
+- `evidence_check_coverage`
+- `missing_required_area`
+- `revision_needed`
+
+Set `revision_needed` to `yes` when non-branded coverage is thin, branded prompts dominate, expected signals are unclear, personas are missing, prompt IDs are duplicated, or measurement readiness is weak.
+
+## Prompt Quality Gate
+
+For detailed scoring, read `references/prompt-quality-rubric.md`.
+
+Every prompt needs:
+
+- `quality_score`: 0-100 or high / medium / low, depending on the output format requested.
+- `gate_decision`: `ready_for_measurement`, `revise_before_measurement`, `internal_only`, or `reject`.
+- `gate_reason`: use concrete reasons such as `too_leading`, `too_branded`, `unclear_signal`, `duplicate_prompt`, `weak_buyer_realism`, `not_actionable`, or `unsupported_assumption`.
+
+If a prompt is not `ready_for_measurement`, provide:
+
+- `original_prompt`
+- `issue`
+- `revised_prompt`
+- `why_better`
+- `expected_signal_after_revision`
+
+## Handoff Rules
+
+- `recora-persona-discovery`: persona / `buyer_roles` are missing, shallow, or not role-separated.
+- `recora-ai-citation-analysis`: `citation_check` / `evidence_seeking` results need source and source-to-claim analysis.
+- `recora-competitor-benchmark`: `competitor_comparison` / `alternative_search` results need competitor, tier, visibility, or source-gap analysis.
+- `recora-recommendation-quality-gate-auditor`: prompt results generate improvement suggestions that may become client-facing.
+- `recora-schema-seo-aio`: findings point to owned-page structure, FAQ, schema, comparison page, evidence section, or citation-readiness improvements.
+- `none`: no immediate handoff is needed.
+
+Use one primary handoff per prompt and mention secondary handoffs in `risk_or_bias`.
+
+## References
+
+Load references only when needed:
+
+- Read `references/public-skill-pattern-research.md` when explaining which public and sibling skill design patterns were reviewed and how they were adapted without copying text or code.
+- Read `references/prompt-quality-rubric.md` for detailed scoring, gate decisions, and low-quality prompt revision rules.
+- Read `references/prompt-coverage-matrix.md` when coverage balance, mode readiness, missing areas, or machine-readable coverage output is needed.
+- Read `references/prompt-anti-patterns.md` when prompts are low-quality, leading, too branded, duplicated, vague, or need safer rewrites.
+- Read `references/prompt-design-failure-diagnosis.md` when a prompt set fails coverage, quality gate, bias, measurement readiness, or machine-readability checks.
+- Read `references/prompt-set-iteration-loop.md` when the prompt set needs versioned revision, regression checks, or a freeze/reopen decision.
+- Read `references/prompt-set-examples.md` when the user asks for sample output or when a concrete Japanese B2B SaaS pattern helps.
+- Read `references/measurement-readiness-evals.md` when validating whether this skill's output is good enough for Recora measurement.
 
 ## Final Checklist
 
-Before delivering, verify:
+Before delivering:
 
-- The set is not dominated by branded prompts.
-- At least one `non_branded` prompt is present.
-- Persona-based prompts are present.
-- Early, comparison, and purchase-validation stages are represented.
-- Each prompt has an `Expected Signal`.
-- Prompt wording does not assert unmeasured AI answer behavior.
-- Handoff notes exist for citation and competitor analysis when relevant.
+- Only files under `recora-prompt-topic-designer` are changed.
+- Frontmatter has `name` and a trigger-oriented `description`.
+- Reference files are readable and linked from `SKILL.md`.
+- External or sibling skills were used for structure only, not copied text.
+- Public skill research records `copied_text: no` and no third-party scripts were executed.
+- `non_branded`, `buyer_stage`, `persona`, `expected_signal`, `quality_score`, `gate_decision`, and `measurement_readiness` are present.
+- No prompt claims visibility, citation, recommendation, ranking, traffic, revenue, or conversion before measurement.
+- Weak prompts have revisions.
+- Failure diagnosis and the iteration loop are used when a prompt set is not ready.
+- Output can become machine-readable rows.
+- Handoff targets are explicit when downstream analysis is useful.
+- No placeholder items remain.
