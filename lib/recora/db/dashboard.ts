@@ -16,7 +16,7 @@ import { getMetadataRecord, getMetadataString, isDisplayableRecommendation, isOp
 const DEFAULT_PROJECT_SLUG = "mieruca-seo-demo";
 
 const PROJECT_COLUMNS =
-  "id, slug, name, workspace_name, language, region, default_period, created_at, updated_at";
+  "id, organization_id, slug, name, workspace_name, language, region, default_period, created_at, updated_at";
 const BRAND_COLUMNS =
   "id, project_id, brand_type, name, reading, domain, aliases, category, description, is_active, created_at, updated_at";
 const MEASUREMENT_RUN_COLUMNS =

@@ -37,6 +37,8 @@ type PublicPagePreview = PublicPageSeed & {
 };
 
 type ProjectSeed = {
+  organizationSlug: string;
+  organizationName: string;
   slug: string;
   name: string;
   workspaceName: string;
@@ -101,7 +103,9 @@ type DemoSeed = {
 };
 
 type ApplySummary = {
+  organizationId: string;
   projectId: string;
+  organizationsUpserted: number;
   projectUpserted: number;
   brandsUpserted: number;
   personasUpserted: number;
@@ -143,6 +147,8 @@ async function main() {
 function buildDemoSeed(projectSlug: string): DemoSeed {
   const today = toTokyoDateOnly(new Date());
   const project: ProjectSeed = {
+    organizationSlug: "recora-internal-demo",
+    organizationName: "Recora Internal Demo",
     slug: projectSlug,
     name: "ミエルカSEO AI検索分析デモ",
     workspaceName: "ミエルカSEO Demo Workspace",
@@ -538,7 +544,7 @@ function renderPreviewPayload(seed: DemoSeed, publicPages: PublicPagePreview[], 
     projectSlug: seed.project.slug,
     dbWritePolicy: {
       writesOnDryRun: 0,
-      writesOnApply: ["projects", "brands", "personas", "topics", "prompts", "source_domains"],
+      writesOnApply: ["organizations", "projects", "brands", "personas", "topics", "prompts", "source_domains"],
       neverWritesHere: [
         "measurement_runs",
         "run_items",
@@ -566,7 +572,8 @@ function renderPreviewPayload(seed: DemoSeed, publicPages: PublicPagePreview[], 
 async function applySeed(db: LocalPostgresClient, seed: DemoSeed): Promise<ApplySummary> {
   await db.query("begin");
   try {
-    const projectId = await upsertProject(db, seed.project);
+    const organizationId = await upsertOrganization(db, seed.project);
+    const projectId = await upsertProject(db, organizationId, seed.project);
     const brandIds = new Map<string, string>();
 
     for (const brand of seed.brands) {
@@ -588,7 +595,9 @@ async function applySeed(db: LocalPostgresClient, seed: DemoSeed): Promise<Apply
 
     await db.query("commit");
     return {
+      organizationId,
       projectId,
+      organizationsUpserted: 1,
       projectUpserted: 1,
       brandsUpserted: seed.brands.length,
       personasUpserted: seed.personas.length,
@@ -603,10 +612,36 @@ async function applySeed(db: LocalPostgresClient, seed: DemoSeed): Promise<Apply
   }
 }
 
-async function upsertProject(db: LocalPostgresClient, project: ProjectSeed): Promise<string> {
+async function upsertOrganization(db: LocalPostgresClient, project: ProjectSeed): Promise<string> {
   const rows = await db.query<{ id: string }>(`
-    insert into public.projects (slug, name, workspace_name, language, region, default_period)
+    insert into public.organizations (
+      slug, name, organization_type, data_environment, is_internal, is_demo
+    )
     values (
+      ${lit(project.organizationSlug)},
+      ${lit(project.organizationName)},
+      'internal',
+      'demo',
+      true,
+      true
+    )
+    on conflict (slug)
+    do update set
+      name = excluded.name,
+      organization_type = excluded.organization_type,
+      data_environment = excluded.data_environment,
+      is_internal = excluded.is_internal,
+      is_demo = excluded.is_demo
+    returning id::text as id
+  `);
+  return single(rows, `upsert organization ${project.organizationSlug}`).id;
+}
+
+async function upsertProject(db: LocalPostgresClient, organizationId: string, project: ProjectSeed): Promise<string> {
+  const rows = await db.query<{ id: string }>(`
+    insert into public.projects (organization_id, slug, name, workspace_name, language, region, default_period)
+    values (
+      ${uuid(organizationId)},
       ${lit(project.slug)},
       ${lit(project.name)},
       ${lit(project.workspaceName)},
@@ -616,6 +651,7 @@ async function upsertProject(db: LocalPostgresClient, project: ProjectSeed): Pro
     )
     on conflict (slug)
     do update set
+      organization_id = excluded.organization_id,
       name = excluded.name,
       workspace_name = excluded.workspace_name,
       language = excluded.language,

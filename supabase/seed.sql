@@ -25,11 +25,36 @@ truncate table
   public.personas,
   public.brands,
   public.ai_models,
-  public.projects
+  public.projects,
+  public.organization_members,
+  public.organizations
 restart identity cascade;
+
+insert into public.organizations (
+  id,
+  slug,
+  name,
+  organization_type,
+  data_environment,
+  is_internal,
+  is_demo,
+  created_at,
+  updated_at
+) values (
+  '00000000-0000-4000-8000-000000000001',
+  'recora-internal-demo',
+  'Recora Internal Demo',
+  'internal',
+  'demo',
+  true,
+  true,
+  '2026-06-16 09:00:00+09',
+  '2026-06-16 09:00:00+09'
+);
 
 insert into public.projects (
   id,
+  organization_id,
   slug,
   name,
   workspace_name,
@@ -40,6 +65,7 @@ insert into public.projects (
   updated_at
 ) values (
   '10000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000001',
   'recora-kenzai-q2',
   'レコラ建材 AI検索分析レポート',
   'レコラ建材 Growth',

@@ -41,6 +41,7 @@ export type RecoraRecommendationType =
   | "risk"
   | "competitive";
 export type RecoraRecommendationState = "open" | "planned" | "done" | "dismissed";
+export type RecoraOrganizationMemberRole = "owner" | "admin" | "member" | "viewer";
 export type RecoraCitationStatus = "unknown" | "not_requested" | "unavailable" | "available" | "partial" | "error";
 export type RecoraExtractionConfidence = "unknown" | "low" | "medium" | "high";
 export type RecoraBrandRelatedness = "unknown" | "target_brand" | "competitor" | "unknown_competitor" | "category" | "general" | "unrelated";
@@ -58,8 +59,33 @@ export type RecoraSourceFreshnessStatus =
   | "unknown"
   | "not_checked";
 
+export type RecoraOrganizationRow = {
+  id: string;
+  slug: string;
+  name: string;
+  organization_type: string;
+  data_environment: string;
+  is_internal: boolean;
+  is_demo: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RecoraOrganizationMemberRow = {
+  id: string;
+  organization_id: string;
+  user_id: string | null;
+  email: string | null;
+  role: RecoraOrganizationMemberRole;
+  invited_at: string | null;
+  accepted_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type RecoraProjectRow = {
   id: string;
+  organization_id: string;
   slug: string;
   name: string;
   workspace_name: string | null;
