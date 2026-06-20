@@ -18,6 +18,9 @@ const DEFAULT_PROMPT_LIMIT = 1;
 const DEFAULT_SEARCH_MODE = "both";
 const MAX_PROMPT_LIMIT = 3;
 const EXECUTION_TIMEOUT_MS = 180_000;
+const ENABLE_RUN_CYCLE_API_ENV = "RECORA_ENABLE_RUN_CYCLE_API";
+const ENABLE_RUN_CYCLE_API_VALUE = "true";
+const LOCAL_RUN_CYCLE_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 type RequestMode = "dry-run" | "execute";
 type SearchMode = "no-search" | "web-search" | "both";
@@ -31,6 +34,18 @@ type NormalizedInput = {
 };
 
 export async function POST(request: Request) {
+  const apiAccess = getRunCycleApiAccess(request);
+  if (!apiAccess.allowed) {
+    return Response.json(
+      {
+        ok: false,
+        error: apiAccess.message,
+        code: apiAccess.code
+      },
+      { status: apiAccess.status }
+    );
+  }
+
   try {
     const body = await readJsonBody(request);
     const input = normalizeInput(body);
@@ -51,6 +66,65 @@ export async function POST(request: Request) {
       },
       { status: 400 }
     );
+  }
+}
+
+function getRunCycleApiAccess(request: Request) {
+  const nodeEnv = process.env.NODE_ENV?.trim().toLowerCase() ?? null;
+  const vercelEnv = process.env.VERCEL_ENV?.trim().toLowerCase() ?? null;
+
+  if (nodeEnv === "production" || vercelEnv === "production") {
+    return {
+      allowed: false,
+      status: 403,
+      code: "run_cycle_api_disabled_in_production",
+      message: "This endpoint is disabled in production. Use the trusted Recora CLI report cycle instead."
+    } as const;
+  }
+
+  if (process.env[ENABLE_RUN_CYCLE_API_ENV]?.trim().toLowerCase() !== ENABLE_RUN_CYCLE_API_VALUE) {
+    return {
+      allowed: false,
+      status: 403,
+      code: "run_cycle_api_not_enabled",
+      message: `This endpoint is disabled by default. Enable it only for local development with ${ENABLE_RUN_CYCLE_API_ENV}=true.`
+    } as const;
+  }
+
+  if (!isLocalRunCycleRequest(request)) {
+    return {
+      allowed: false,
+      status: 403,
+      code: "run_cycle_api_local_only",
+      message: "This endpoint can only run from a local development host."
+    } as const;
+  }
+
+  return { allowed: true } as const;
+}
+
+function isLocalRunCycleRequest(request: Request) {
+  const hostHeader = request.headers.get("host");
+  const requestHost = getRequestHostname(request.url);
+  const host = normalizeHostname(hostHeader) ?? requestHost;
+  return Boolean(host && LOCAL_RUN_CYCLE_HOSTS.has(host));
+}
+
+function getRequestHostname(value: string) {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHostname(value: string | null) {
+  if (!value) return null;
+
+  try {
+    return new URL(value.includes("://") ? value : `http://${value}`).hostname.toLowerCase();
+  } catch {
+    return value.split(":")[0]?.trim().toLowerCase() || null;
   }
 }
 
