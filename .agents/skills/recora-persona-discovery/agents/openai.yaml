@@ -1,0 +1,4 @@
+interface:
+  display_name: "Recora Persona Discovery"
+  short_description: "Recora persona discovery for AI search prompt design"
+  default_prompt: "Use $recora-persona-discovery to infer persona candidates from a brand URL and name before designing Recora AI-search diagnosis prompts."

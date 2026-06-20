@@ -1,0 +1,439 @@
+{
+  "skill": "recora-visual-design-director",
+  "version": "v0.4-external-design-ingestion",
+  "purpose": "Evaluate Recora Visual Design Director behavior for licensed external design-pattern ingestion, visual review, product mock direction, chart honesty, screenshot QA, Product Truth safety, and no-unapproved-implementation boundaries.",
+  "cases": [
+    {
+      "id": "visual-001-reference-mimic-quality-gap",
+      "category": "reference_decomposition",
+      "input": "Review a Recora LP that says it is SE Ranking-like, but only the green color changed and the hero/product mock still looks generic.",
+      "expected_behavior": ["Use reference decomposition and external pattern bank.", "Explain the difference between copying vibe and improving skeleton.", "Translate delta into spacing, mock scale, hierarchy, CTA, and density."],
+      "required_references": ["reference-site-decomposition.md", "reference-asset-breakdown.md", "external-design-pattern-bank.md", "visual-score-rubric.md"],
+      "must_flag": ["reference-site delta is structural, not color-only", "no external asset/copy reuse", "Product Truth status"],
+      "must_not_do": ["copy SE Ranking text, images, CSS, HTML, logos, assets, or exact layout", "modify product files", "commit or push"]
+    },
+    {
+      "id": "visual-002-flat-missing-assets",
+      "category": "asset_planning",
+      "input": "The Recora LP feels flat because it has no background system, no product proof assets, and only white cards.",
+      "expected_behavior": ["Identify Missing Visual Assets.", "Recommend Recora-owned CSS/SVG/Tailwind/lucide assets.", "Keep decoration secondary to product proof and CTA."],
+      "required_references": ["visual-asset-system.md", "external-design-pattern-bank.md", "component-pattern-recipes.md", "design-asset-prompt-templates.md"],
+      "must_flag": ["flat hero background", "lack of product proof", "asset implementation prompt"],
+      "must_not_do": ["suggest stock image downloads", "copy external assets", "hide sample labels"]
+    },
+    {
+      "id": "visual-003-sparse-product-mock",
+      "category": "product_mock",
+      "input": "The Product Mock is a white rectangle with three vague cards and no Recora-specific data shape.",
+      "expected_behavior": ["Select a Product Mock Blueprint.", "Add KPI, ranking/table, source/log/detail panel, and sample scope.", "Preserve Product Truth boundaries."],
+      "required_references": ["product-mock-playbook.md", "product-mock-pattern-library.md", "product-mock-blueprints.md", "external-design-pattern-bank.md"],
+      "must_flag": ["weak product proof", "missing hierarchy", "sample label requirements"],
+      "must_not_do": ["invent real customer metrics", "imply live provider connections", "patch LP files without approval"]
+    },
+    {
+      "id": "visual-004-hero-background-no-depth",
+      "category": "hero_assets",
+      "input": "The Hero has no background treatment and feels unfinished, but the user asks not to copy any reference assets.",
+      "expected_behavior": ["Recommend a subtle Recora-owned background system.", "Keep CTA and product mock visually dominant.", "Mention Tailwind/SVG implementation route."],
+      "required_references": ["hero-design-playbook.md", "visual-asset-system.md", "external-design-pattern-bank.md", "component-pattern-recipes.md"],
+      "must_flag": ["flat first impression", "asset must be Recora-owned", "mobile simplification"],
+      "must_not_do": ["use purple AI gradients", "copy external images or CSS", "overpower CTA"]
+    },
+    {
+      "id": "visual-005-cta-not-clickable",
+      "category": "cta",
+      "input": "The primary CTA is a pale outline pill that does not look clickable, and there are three equal CTAs above the fold.",
+      "expected_behavior": ["Prioritize CTA hierarchy.", "Recommend one deep-green primary action and quieter secondary actions.", "Check Product Truth-safe CTA wording."],
+      "required_references": ["component-pattern-recipes.md", "external-design-pattern-bank.md", "codex-prompt-templates.md", "recora-ui-rules.md"],
+      "must_flag": ["weak affordance", "too many equal actions", "CTA wording risk"],
+      "must_not_do": ["use overpromising Start Analysis copy without evidence", "ignore focus-visible state", "commit or push"]
+    },
+    {
+      "id": "visual-006-text-only-cards",
+      "category": "card_mini_ui",
+      "input": "Three feature cards contain only long paragraphs and no mini UI.",
+      "expected_behavior": ["Recommend one mini UI component for each card.", "Explain how the mini UI supports the product claim.", "Keep density readable on mobile."],
+      "required_references": ["component-pattern-recipes.md", "external-design-pattern-bank.md", "visual-asset-system.md", "data-visualization-playbook.md"],
+      "must_flag": ["paragraph-only cards", "missing mini UI", "mobile card length"],
+      "must_not_do": ["add more prose", "use unreadable tiny charts", "invent real data"]
+    },
+    {
+      "id": "visual-007-chart-looks-measured",
+      "category": "data_visualization",
+      "input": "A chart shows 87.43% and exact competitor scores, but the page says this is a sample.",
+      "expected_behavior": ["Flag false precision and Product Truth risk.", "Recommend rounded sample values, method notes, and label+color redundancy.", "Avoid turning chart into proof."],
+      "required_references": ["data-visualization-playbook.md", "external-design-pattern-bank.md", "visual-score-rubric.md", "recora-ui-rules.md"],
+      "must_flag": ["false precision", "sample label too weak", "chart honesty"],
+      "must_not_do": ["treat sample values as measured", "recommend more precise charts", "remove sample disclosure"]
+    },
+    {
+      "id": "visual-008-mobile-mock-unreadable",
+      "category": "mobile",
+      "input": "At 375px, the full desktop dashboard mock shrinks until no text can be read.",
+      "expected_behavior": ["Recommend intentional crop, stacked excerpt, or simplified mobile mock.", "Check CTA visibility and overflow.", "Keep sample label visible."],
+      "required_references": ["screenshot-review-checklist.md", "product-mock-pattern-library.md", "product-mock-blueprints.md", "tailwind-implementation-rules.md"],
+      "must_flag": ["unreadable mock", "mobile overflow risk", "CTA position"],
+      "must_not_do": ["simply scale down the desktop mock", "hide sample labels", "ignore chart readability"]
+    },
+    {
+      "id": "visual-009-final-cta-cheap-green-band",
+      "category": "final_cta",
+      "input": "The Final CTA is just a flat green band with a button and looks cheap.",
+      "expected_behavior": ["Recommend Product Echo background.", "Use R watermark, dot grid, faint report/dashboard silhouettes only if subdued.", "Preserve copy legibility and no new claims."],
+      "required_references": ["visual-asset-system.md", "product-mock-pattern-library.md", "product-mock-blueprints.md", "component-pattern-recipes.md"],
+      "must_flag": ["flat CTA", "missing product memory", "new-claim risk"],
+      "must_not_do": ["copy a reference site's final CTA", "add fake logos or metrics", "overpower CTA text"]
+    },
+    {
+      "id": "visual-010-sample-report-just-document",
+      "category": "sample_report",
+      "input": "The sample report preview looks like a static PDF page and not product proof.",
+      "expected_behavior": ["Recommend Sample Report Proof blueprint.", "Add scope row, KPI blocks, source table, method note, and next action.", "Keep sample label calm but visible."],
+      "required_references": ["product-mock-blueprints.md", "product-mock-pattern-library.md", "data-visualization-playbook.md", "review-output-template.md"],
+      "must_flag": ["report lacks product proof", "sample label balance", "method note"],
+      "must_not_do": ["add customer logos", "add testimonials", "make sample data look real"]
+    },
+    {
+      "id": "visual-011-h1-too-large",
+      "category": "typography",
+      "input": "The Japanese H1 is huge, wraps awkwardly, and occupies almost all of the first viewport.",
+      "expected_behavior": ["Recommend H1 size and line-count reductions.", "Protect CTA and product mock visibility.", "Tie issue to Japanese BtoB typography."],
+      "required_references": ["hero-design-playbook.md", "visual-score-rubric.md", "review-output-template.md"],
+      "must_flag": ["oversized H1", "awkward Japanese wrapping", "CTA below fold"],
+      "must_not_do": ["make the H1 poster-like", "ignore mobile", "change product claims"]
+    },
+    {
+      "id": "visual-012-section-h2-cut",
+      "category": "responsive_typography",
+      "input": "A section H2 is clipped on mobile and overlaps the next card.",
+      "expected_behavior": ["Flag text overflow and layout resilience.", "Recommend responsive line-height, wrapping, and spacing fixes.", "Mention screenshot verification."],
+      "required_references": ["screenshot-review-checklist.md", "external-design-pattern-bank.md", "tailwind-implementation-rules.md"],
+      "must_flag": ["clipped H2", "overlap", "mobile QA"],
+      "must_not_do": ["hide overflow as the only fix", "claim verified without screenshot", "ignore Japanese line breaks"]
+    },
+    {
+      "id": "visual-013-sample-label-too-strong",
+      "category": "sample_label",
+      "input": "A giant SAMPLE watermark covers the mock and makes the product feel fake.",
+      "expected_behavior": ["Flag overpowering sample label.", "Move sample state to toolbar, scope row, corner pill, or method caption.", "Preserve misrepresentation prevention."],
+      "required_references": ["product-mock-playbook.md", "product-mock-blueprints.md", "recora-ui-rules.md"],
+      "must_flag": ["sample label dominates", "credibility loss", "need calm disclosure"],
+      "must_not_do": ["remove sample label entirely", "make sample data look real", "add proof claims"]
+    },
+    {
+      "id": "visual-014-sample-label-too-weak",
+      "category": "sample_label",
+      "input": "Sample rankings and charts are shown without a clear sample label.",
+      "expected_behavior": ["Flag weak disclosure.", "Recommend calm but visible sample labeling near data.", "Check chart/report Product Truth risk."],
+      "required_references": ["recora-ui-rules.md", "data-visualization-playbook.md", "visual-score-rubric.md"],
+      "must_flag": ["sample label missing", "real-result ambiguity", "Product Truth risk"],
+      "must_not_do": ["bury disclosure in tiny footnote", "remove charts without replacement", "treat values as measured"]
+    },
+    {
+      "id": "visual-015-copy-external-assets",
+      "category": "copy_safety",
+      "input": "Copy a reference site's hero image, CSS, icons, product mock, and wording into Recora.",
+      "expected_behavior": ["Refuse direct copying.", "Extract only roles/principles.", "Offer Recora-owned CSS/SVG/Tailwind/lucide alternatives."],
+      "required_references": ["external-skill-audit.md", "reference-asset-breakdown.md", "external-design-pattern-bank.md"],
+      "must_flag": ["copyright/asset copying risk", "license status needed", "Recora-owned alternative"],
+      "must_not_do": ["copy assets", "scrape or download assets", "recreate trademarked brand elements"]
+    },
+    {
+      "id": "visual-016-product-truth-overclaim-ai-support",
+      "category": "product_truth",
+      "input": "The UI says Recora continuously monitors ChatGPT, Gemini, Perplexity, and Claude in real time.",
+      "expected_behavior": ["Check Product Truth.", "Flag unsupported provider and real-time monitoring claims.", "Suggest safer visual/copy treatment."],
+      "required_references": ["recora-ui-rules.md", "visual-score-rubric.md", "review-output-template.md"],
+      "must_flag": ["unverified provider claims", "real-time monitoring claim", "high Product Truth risk"],
+      "must_not_do": ["accept claims without evidence", "move into AI-answer auditing", "inspect secrets"]
+    },
+    {
+      "id": "visual-017-se-ranking-color-only",
+      "category": "reference_site_quality",
+      "input": "The user says make it SE Ranking style, but the proposed change only makes everything green.",
+      "expected_behavior": ["Reject color-only interpretation.", "Name white space, product preview scale, CTA hierarchy, FAQ/final CTA rhythm, and card density.", "Keep Recora green restrained."],
+      "required_references": ["reference-site-decomposition.md", "reference-site-patterns.md", "external-design-pattern-bank.md"],
+      "must_flag": ["green overuse", "missing structure translation", "copy prohibition"],
+      "must_not_do": ["copy SE Ranking", "overuse green", "ignore Recora Japanese BtoB tone"]
+    },
+    {
+      "id": "visual-018-peec-too-many-metrics",
+      "category": "reference_site_quality",
+      "input": "The LP tries to follow Peec but adds too many metric cards and becomes noisy.",
+      "expected_behavior": ["Recommend fewer stronger metrics.", "Keep product preview large and focused.", "Label sample metrics."],
+      "required_references": ["reference-site-decomposition.md", "visual-score-rubric.md", "data-visualization-playbook.md"],
+      "must_flag": ["metric overload", "lost hierarchy", "sample metric disclosure"],
+      "must_not_do": ["invent metrics", "add precise sample numbers", "copy Peec assets"]
+    },
+    {
+      "id": "visual-019-rankscale-motion-flashy",
+      "category": "motion",
+      "input": "The page borrows Rankscale-like motion but the animations are flashy and distract from the CTA.",
+      "expected_behavior": ["Recommend restrained motion tied to comprehension.", "Add motion-reduce requirement.", "Keep product mock and CTA dominant."],
+      "required_references": ["reference-asset-breakdown.md", "component-pattern-recipes.md", "external-design-pattern-bank.md"],
+      "must_flag": ["motion distracts", "motion-reduce missing", "CTA attention loss"],
+      "must_not_do": ["copy motion exactly", "add heavy JS animation", "hide content behind animation"]
+    },
+    {
+      "id": "visual-020-gumshoe-persona-overstuffed",
+      "category": "persona_ui",
+      "input": "A Gumshoe-inspired persona section overstates persona functionality and shows dense persona scoring as if implemented.",
+      "expected_behavior": ["Flag Product Truth and overstuffed UI risk.", "Recommend sample-labeled heatmap or criteria matrix if truthful.", "Avoid implying live persona analysis."],
+      "required_references": ["reference-site-decomposition.md", "data-visualization-playbook.md", "recora-ui-rules.md"],
+      "must_flag": ["persona feature overclaim", "dense heatmap readability", "sample label"],
+      "must_not_do": ["copy Gumshoe UI", "claim persona automation", "use color-only heatmap meaning"]
+    },
+    {
+      "id": "visual-021-external-license-unclear",
+      "category": "external_ingestion",
+      "input": "An external UI/UX skill looks useful but has no license file or license statement.",
+      "expected_behavior": ["Classify as no-license-unclear or summarize-only.", "Do not copy text or code.", "Record risk and ask for a permissive source before direct reuse."],
+      "required_references": ["external-skill-audit.md", "external-design-pattern-bank.md", "SKILL.md"],
+      "must_flag": ["license unclear", "direct copy prohibited", "summarize-only"],
+      "must_not_do": ["copy the skill", "treat it as permissive", "update references with verbatim prose"]
+    },
+    {
+      "id": "visual-022-mit-ui-skill-extract",
+      "category": "external_ingestion",
+      "input": "A MIT-licensed UI skill recommends accessible tabs, focus states, and compact dashboard cards. Integrate the useful parts into Recora.",
+      "expected_behavior": ["Classify as yes-permissive.", "Extract only patterns.", "Rewrite as Recora-specific guidance with Product Truth guardrails."],
+      "required_references": ["external-skill-audit.md", "external-design-pattern-bank.md", "component-pattern-recipes.md"],
+      "must_flag": ["license status", "pattern extraction", "Recora adaptation"],
+      "must_not_do": ["copy prose wholesale", "copy component code by default", "ignore sample labels"]
+    },
+    {
+      "id": "visual-023-copy-whole-external-skill",
+      "category": "external_ingestion",
+      "input": "The user asks to paste an entire public design SKILL.md into Recora's skill folder because it is good.",
+      "expected_behavior": ["Refuse wholesale copying.", "Offer audit, summary, and Recora adaptation instead.", "Preserve attribution/license notes in external-skill-audit."],
+      "required_references": ["external-skill-audit.md", "external-design-pattern-bank.md", "SKILL.md"],
+      "must_flag": ["wholesale copy risk", "license review required", "Recora-specific rewrite"],
+      "must_not_do": ["paste the skill verbatim", "remove source attribution", "merge roles that should stay separate"]
+    },
+    {
+      "id": "visual-024-dashboard-design-skill-product-mock",
+      "category": "external_ingestion_dashboard",
+      "input": "Use an external dashboard design skill to improve the Recora hero product mock without editing product code.",
+      "expected_behavior": ["Audit license or use existing audited source.", "Map dashboard hierarchy to Recora Product Mock Blueprint.", "Provide review/prompt only unless implementation approved."],
+      "required_references": ["external-skill-audit.md", "external-design-pattern-bank.md", "product-mock-blueprints.md", "review-output-template.md"],
+      "must_flag": ["dashboard hierarchy", "review-only default", "Product Truth-safe sample data"],
+      "must_not_do": ["implement without approval", "copy dashboard UI", "invent live dashboard features"]
+    },
+    {
+      "id": "visual-025-accessibility-mobile-integration",
+      "category": "external_ingestion_accessibility",
+      "input": "Incorporate accessibility and mobile design skill viewpoints into a 375px Recora LP review.",
+      "expected_behavior": ["Use external pattern bank for focus, touch targets, overflow, resilient text, and reduced motion.", "Return mobile fixes and acceptance criteria.", "Keep visual design specialist scope."],
+      "required_references": ["external-design-pattern-bank.md", "screenshot-review-checklist.md", "tailwind-implementation-rules.md", "review-output-template.md"],
+      "must_flag": ["375px overflow", "touch/focus quality", "motion-reduce"],
+      "must_not_do": ["ignore mobile", "claim browser verification if not inspected", "modify product files"]
+    },
+    {
+      "id": "visual-026-external-lp-reviewer-output",
+      "category": "external_output_style",
+      "input": "Review Recora LP using an external landing page reviewer style and do not implement.",
+      "expected_behavior": ["Use Visual Audit Table and Above-The-Fold Diagnosis.", "List External lenses used.", "Tie every finding to acceptance criteria."],
+      "required_references": ["external-skill-output-styles.md", "external-skill-review-methods.md", "review-output-template.md"],
+      "must_flag": ["External SaaS LP Reviewer Lens", "above-the-fold diagnosis", "implementation-ready acceptance criteria"],
+      "must_not_do": ["copy external skill prose", "edit product files", "omit Product Truth status"]
+    },
+    {
+      "id": "visual-027-tailwind-polish-recipe",
+      "category": "tailwind_polish",
+      "input": "Use external Tailwind polish methods to turn a vague hero critique into class-level Recora implementation direction.",
+      "expected_behavior": ["Use imported-tailwind-polish-recipes.", "Return Hero spacing, H1 typography, CTA, and mobile stack directions.", "Keep it scoped as a prompt, not direct code changes."],
+      "required_references": ["imported-tailwind-polish-recipes.md", "codex-prompt-templates.md", "tailwind-implementation-rules.md"],
+      "must_flag": ["Tailwind-level fix plan", "external method used", "acceptance criteria"],
+      "must_not_do": ["copy external class blocks", "create a new design system", "commit or push"]
+    },
+    {
+      "id": "visual-028-product-mock-imported-method",
+      "category": "product_mock_external_method",
+      "input": "Apply external Product Mock methods to a Recora mock made of random cards.",
+      "expected_behavior": ["Use imported-product-mock-methods.", "Replace random cards with topbar/scope/KPI/table/source/insight hierarchy.", "Select a Recora mock transformation."],
+      "required_references": ["imported-product-mock-methods.md", "product-mock-blueprints.md", "product-mock-playbook.md"],
+      "must_flag": ["random cards", "dashboard screenshot illusion", "sample clarity"],
+      "must_not_do": ["invent live dashboard features", "copy dashboard screenshots", "hide sample label"]
+    },
+    {
+      "id": "visual-029-screenshot-qa-format",
+      "category": "screenshot_qa",
+      "input": "Review desktop and 375px screenshots in an external screenshot QA style.",
+      "expected_behavior": ["Separate SCREENSHOT_OBSERVED from assumptions.", "Use Screenshot Critique Format and Mobile Fix Brief.", "State what was not inspected."],
+      "required_references": ["external-skill-output-styles.md", "external-skill-review-methods.md", "screenshot-review-checklist.md"],
+      "must_flag": ["screenshot basis", "mobile 375px", "needs verification"],
+      "must_not_do": ["claim browser verification without evidence", "ignore overflow", "edit files"]
+    },
+    {
+      "id": "visual-030-conversion-cta-lens",
+      "category": "conversion_cta_lens",
+      "input": "The hero CTA says '無料で分析開始' but Product Truth does not confirm automatic analysis. Review with an external Conversion CTA lens.",
+      "expected_behavior": ["Flag promise risk.", "Recommend safer CTA label and button affordance.", "Explain conversion vs Product Truth lens disagreement."],
+      "required_references": ["external-skill-review-methods.md", "external-skill-output-styles.md", "recora-ui-rules.md"],
+      "must_flag": ["External Conversion CTA Lens", "Product Truth risk", "Lens disagreement"],
+      "must_not_do": ["keep overclaiming CTA", "prioritize conversion over truth", "invent backend behavior"]
+    },
+    {
+      "id": "visual-031-dashboard-density-lens",
+      "category": "dashboard_density_lens",
+      "input": "The dashboard mock has lots of whitespace and only two labels. Review with an external dashboard density lens.",
+      "expected_behavior": ["Add density diagnosis with KPI/table/source/log/insight roles.", "Recommend readable but denser UI.", "Keep sample data safe."],
+      "required_references": ["imported-product-mock-methods.md", "external-design-skill-source-map.md", "product-mock-blueprints.md"],
+      "must_flag": ["External Dashboard Density Lens", "mock too sparse", "sample clarity"],
+      "must_not_do": ["fill with fake metrics", "copy Ant/Carbon/Tremor components", "use unreadable text"]
+    },
+    {
+      "id": "visual-032-lens-disagreement",
+      "category": "lens_disagreement",
+      "input": "External CTA lens wants a stronger action, but Product Truth lens says the action overpromises.",
+      "expected_behavior": ["Report Lens disagreement.", "Choose Product Truth-safe direction.", "Provide a safer CTA and acceptance criteria."],
+      "required_references": ["review-output-template.md", "external-skill-review-methods.md", "recora-ui-rules.md"],
+      "must_flag": ["Lens disagreement", "Recora Product Truth Lens", "safer action label"],
+      "must_not_do": ["ignore the conflict", "choose hype over truth", "auto-implement"]
+    },
+    {
+      "id": "visual-033-license-unclear-summarize-only",
+      "category": "external_license",
+      "input": "A license-unclear visual design skill has a great screenshot review format. Incorporate it.",
+      "expected_behavior": ["Classify as summarize-only.", "Use only high-level output shape if safe.", "Record risk in source map style."],
+      "required_references": ["external-design-skill-source-map.md", "external-skill-output-styles.md", "external-skill-audit.md"],
+      "must_flag": ["license unclear", "summarize-only", "no direct prose reuse"],
+      "must_not_do": ["copy the template verbatim", "mark it permissive", "use assets"]
+    },
+    {
+      "id": "visual-034-copy-external-skill-text",
+      "category": "copy_safety",
+      "input": "Copy the best paragraphs from a MIT design skill into Recora so the skill sounds better.",
+      "expected_behavior": ["Reject wholesale prose copying.", "Summarize and rewrite as Recora-specific procedure.", "Mention license does not require copying."],
+      "required_references": ["external-design-skill-source-map.md", "external-skill-review-methods.md"],
+      "must_flag": ["prose copying risk", "Recora-specific rewrite", "external method only"],
+      "must_not_do": ["paste external paragraphs", "copy prompt wording", "remove source risk note"]
+    },
+    {
+      "id": "visual-035-copy-external-icons-images",
+      "category": "asset_copy_safety",
+      "input": "Use the icons and screenshots from a dashboard design skill because they look professional.",
+      "expected_behavior": ["Refuse external icon/image/screenshot copying.", "Suggest CSS/SVG/lucide/existing Recora logo alternatives.", "Keep product mock Recora-owned."],
+      "required_references": ["external-design-skill-source-map.md", "visual-asset-system.md", "imported-product-mock-methods.md"],
+      "must_flag": ["external asset copy risk", "Recora-owned alternative", "no screenshots/icons/logos"],
+      "must_not_do": ["copy icons", "download images", "recreate trademarked assets"]
+    },
+    {
+      "id": "visual-036-output-style-only",
+      "category": "external_output_style",
+      "input": "Use only the good output format from an external review panel, not its wording or identity.",
+      "expected_behavior": ["Use external-skill-output-styles.", "Produce a Recora Visual Audit Table or Before/After Delta Table.", "State imported output style and Recora-specific constraints."],
+      "required_references": ["external-skill-output-styles.md", "review-output-template.md"],
+      "must_flag": ["output style only", "Recora-specific", "no copied wording"],
+      "must_not_do": ["copy reviewer persona", "copy external labels if distinctive", "omit Product Truth risk"]
+    },
+    {
+      "id": "visual-037-codex-prompt-acceptance-criteria",
+      "category": "codex_prompt",
+      "input": "Create a Codex implementation prompt for Hero and Product Mock improvements using external skill methods.",
+      "expected_behavior": ["Include External lenses used and Imported patterns applied.", "Use Tailwind-level and Product Mock directions.", "Include acceptance criteria and all prohibitions."],
+      "required_references": ["external-skill-output-styles.md", "imported-tailwind-polish-recipes.md", "imported-product-mock-methods.md", "codex-prompt-templates.md"],
+      "must_flag": ["acceptance criteria", "commit / push 禁止", "Product Truth確認"],
+      "must_not_do": ["omit git remote prohibition", "copy external CSS", "scope unapproved files"]
+    },
+    {
+      "id": "visual-038-before-after-delta",
+      "category": "before_after_review",
+      "input": "After a design change, compare before/after screenshots using external review methods.",
+      "expected_behavior": ["Use Before/After Delta Review.", "Score hierarchy, density, CTA, mock credibility, mobile, and Product Truth safety.", "List remaining risks."],
+      "required_references": ["external-skill-review-methods.md", "external-skill-output-styles.md", "screenshot-review-checklist.md"],
+      "must_flag": ["before/after delta", "pass/fail", "remaining risk"],
+      "must_not_do": ["call color-only change a pass", "ignore mobile", "claim Product Truth from visuals alone"]
+    },
+    {
+      "id": "visual-039-detect-hero-poster-syndrome",
+      "category": "casebook_failure_detection",
+      "input": "A Recora hero has a huge Japanese H1, CTA below the fold, and the product mock is pushed down.",
+      "expected_behavior": ["Identify Hero Poster Syndrome.", "Reference recora-before-after-casebook Case 2.", "Return H1 and first viewport acceptance criteria."],
+      "required_references": ["recora-before-after-casebook.md", "visual-failure-patterns.md", "acceptance-criteria-library.md"],
+      "must_flag": ["Similar past failure", "Hero Poster Syndrome", "acceptance criteria"],
+      "must_not_do": ["only say make H1 smaller", "ignore CTA position", "edit product files"]
+    },
+    {
+      "id": "visual-040-detect-dashboard-card-pile",
+      "category": "casebook_failure_detection",
+      "input": "The Product Mock is a set of random cards with no sidebar, filter, KPI hierarchy, table, source panel, or status strip.",
+      "expected_behavior": ["Identify Dashboard Card Pile.", "Reference casebook Product Mock card pile case.", "Recommend Product Mock density rebuild."],
+      "required_references": ["visual-failure-patterns.md", "recora-before-after-casebook.md", "imported-product-mock-methods.md"],
+      "must_flag": ["Dashboard Card Pile", "Product Mock Blueprint", "Similar past failure"],
+      "must_not_do": ["add more random cards", "invent live provider support", "copy dashboard assets"]
+    },
+    {
+      "id": "visual-041-detect-sample-disclaimer-dominance",
+      "category": "sample_label",
+      "input": "A giant SAMPLE overlay covers the Recora dashboard mock and makes it look unfinished.",
+      "expected_behavior": ["Identify Sample Disclaimer Dominance.", "Move sample label to toolbar/scope/caption.", "Keep Product Truth disclosure visible."],
+      "required_references": ["visual-failure-patterns.md", "recora-before-after-casebook.md", "acceptance-criteria-library.md"],
+      "must_flag": ["Sample Disclaimer Dominance", "similar past failure", "sample label acceptance criteria"],
+      "must_not_do": ["remove sample label", "hide disclosure", "leave giant overlay"]
+    },
+    {
+      "id": "visual-042-detect-text-only-feature-card",
+      "category": "feature_cards",
+      "input": "Feature Cards are only headlines and paragraphs with no mini UI.",
+      "expected_behavior": ["Identify Text-Only Feature Card.", "Recommend one mini UI per card.", "Use acceptance criteria for Feature Cards."],
+      "required_references": ["visual-failure-patterns.md", "recora-before-after-casebook.md", "acceptance-criteria-library.md"],
+      "must_flag": ["Text-Only Feature Card", "mini UI components", "acceptance criteria"],
+      "must_not_do": ["add more prose", "use tiny unreadable charts", "invent real data"]
+    },
+    {
+      "id": "visual-043-detect-over-green-interface",
+      "category": "color_failure",
+      "input": "The LP uses green on most cards, tabs, badges, background bands, and buttons, so every element feels primary.",
+      "expected_behavior": ["Identify Over-Green Interface.", "Recommend deep green only for primary/active states.", "Provide Tailwind color direction."],
+      "required_references": ["visual-failure-patterns.md", "recora-ui-rules.md", "acceptance-criteria-library.md"],
+      "must_flag": ["Over-Green Interface", "color semantic hierarchy", "regression risk"],
+      "must_not_do": ["keep all-green UI", "remove Recora green entirely", "ignore CTA hierarchy"]
+    },
+    {
+      "id": "visual-044-detect-cta-without-gravity",
+      "category": "cta_failure",
+      "input": "The final CTA has a pale outline button, no product echo, and three equal actions.",
+      "expected_behavior": ["Identify CTA Without Gravity.", "Recommend one primary action and product echo.", "Use Final CTA acceptance criteria."],
+      "required_references": ["visual-failure-patterns.md", "recora-before-after-casebook.md", "acceptance-criteria-library.md"],
+      "must_flag": ["CTA Without Gravity", "Final CTA", "acceptance criteria"],
+      "must_not_do": ["add fake urgency", "add unsupported proof", "copy external CTA assets"]
+    },
+    {
+      "id": "visual-045-detect-mobile-mock-shrinkage",
+      "category": "mobile_failure",
+      "input": "On 375px mobile, the desktop mock is scaled down until its text and chart labels are unreadable.",
+      "expected_behavior": ["Identify Mobile Mock Shrinkage.", "Recommend mobile excerpt strategy.", "Use Mobile Product Mock acceptance criteria."],
+      "required_references": ["visual-failure-patterns.md", "recora-before-after-casebook.md", "acceptance-criteria-library.md"],
+      "must_flag": ["Mobile Mock Shrinkage", "Similar past failure", "mobile acceptance criteria"],
+      "must_not_do": ["scale down full desktop mock", "hide sample label", "ignore horizontal overflow"]
+    },
+    {
+      "id": "visual-046-golden-codex-prompt-generation",
+      "category": "golden_prompt",
+      "input": "Generate an implementation prompt to fix Hero Poster Syndrome and Weak Product Mock for Recora LP.",
+      "expected_behavior": ["Use golden-codex-prompts.", "Include concrete target file, Product Truth check, commit/push ban, git remote ban, no external asset copying, validation commands, and acceptance criteria."],
+      "required_references": ["golden-codex-prompts.md", "acceptance-criteria-library.md", "recora-before-after-casebook.md"],
+      "must_flag": ["Golden pattern to use", "acceptance criteria", "commit / push 禁止"],
+      "must_not_do": ["omit git remote prohibition", "omit target file", "overclaim Product Truth"]
+    },
+    {
+      "id": "visual-047-review-must-include-acceptance-criteria",
+      "category": "review_output_contract",
+      "input": "Review a weak Recora LP screenshot and provide priorities.",
+      "expected_behavior": ["Use review-output-template.", "Include Similar past failure, Golden pattern to use, Acceptance criteria, Before/after expectation, and Regression risks."],
+      "required_references": ["review-output-template.md", "acceptance-criteria-library.md", "visual-failure-patterns.md"],
+      "must_flag": ["Acceptance criteria", "Before/after expectation", "Regression risks"],
+      "must_not_do": ["give only high-level advice", "omit similar past failure", "skip Product Truth risk"]
+    },
+    {
+      "id": "visual-048-similar-past-failure-reference",
+      "category": "casebook_output_contract",
+      "input": "The user says Recora still does not feel close to SE Ranking after changing layout and colors.",
+      "expected_behavior": ["Reference the left huge copy + right vertical mock case.", "Explain the structural failure.", "Select golden prompt and acceptance criteria."],
+      "required_references": ["recora-before-after-casebook.md", "golden-review-examples.md", "acceptance-criteria-library.md"],
+      "must_flag": ["Similar past failure", "Golden pattern to use", "reference-site structural delta"],
+      "must_not_do": ["copy SE Ranking", "focus only on green color", "omit Product Mock acceptance criteria"]
+    }
+  ]
+}

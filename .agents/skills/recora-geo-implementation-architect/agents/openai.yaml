@@ -1,0 +1,4 @@
+interface:
+  display_name: "RECORA GEO Implementation Architect"
+  short_description: "RECORA GEO implementation reviews"
+  default_prompt: "Use $recora-geo-implementation-architect to review RECORA GEO measurement code, crawler/extraction architecture, technical SEO audit logic, provider adapters, parsers, citation/source-to-claim handling, candidate generation, retries, cost controls, quality-gate handoff, and fixtures without editing files unless explicitly authorized."

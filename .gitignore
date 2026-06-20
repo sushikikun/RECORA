@@ -1,4 +1,4 @@
-# dependencies
+﻿# dependencies
 node_modules/
 
 # next.js
@@ -34,3 +34,12 @@ Thumbs.db
 .idea/
 
 output/
+
+# Ignore local agent workspace by default.
+.agents/**
+
+# Keep project-scoped Codex Skills version-controlled.
+!.agents/
+!.agents/skills/
+!.agents/skills/**
+

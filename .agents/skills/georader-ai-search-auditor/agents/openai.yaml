@@ -1,0 +1,4 @@
+interface:
+  display_name: "GEORADER GEO/SEO Specialist"
+  short_description: "Evidence-based GEO, SEO, and AI search strategy for GEORADER."
+  default_prompt: "Use $georader-ai-search-auditor to create an evidence-labeled GEO/SEO/AI search strategy or audit for GEORADER."

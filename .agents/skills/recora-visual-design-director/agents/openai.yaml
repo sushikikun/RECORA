@@ -1,0 +1,4 @@
+interface:
+  display_name: "Recora Visual Design Director"
+  short_description: "Recora LP/UI design review for premium BtoB SaaS quality"
+  default_prompt: "Use $recora-visual-design-director to review Recora LP or dashboard UI and produce prioritized visual design improvements."

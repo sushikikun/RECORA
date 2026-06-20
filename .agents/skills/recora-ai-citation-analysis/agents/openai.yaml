@@ -1,0 +1,4 @@
+interface:
+  display_name: "Recora AI Citation Analysis"
+  short_description: "Analyze AI answer citations and source gaps for Recora"
+  default_prompt: "Use $recora-ai-citation-analysis to classify AI answer citation URLs, identify source gaps, and recommend evidence-based page or third-party source actions."

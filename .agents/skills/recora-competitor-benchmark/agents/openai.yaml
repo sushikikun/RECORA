@@ -1,0 +1,4 @@
+interface:
+  display_name: "Recora Competitor Benchmark"
+  short_description: "Recora AI search competitor benchmarking"
+  default_prompt: "Use $recora-competitor-benchmark to classify competitors and benchmark AI visibility, share of voice, recommendation rank, citations, positioning gaps, and counter-moves for a Recora client."
