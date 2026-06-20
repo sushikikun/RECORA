@@ -1,6 +1,11 @@
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import net from "node:net";
 import process from "node:process";
+import {
+  assertRecoraDbWriteAllowed,
+  createRecoraDbWriteGuardCliOptions,
+  parseRecoraDbWriteGuardArg
+} from "./recora-db-write-guard";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const PROJECT_SLUG = "recora-kenzai-q2";
@@ -46,6 +51,12 @@ type CountRow = {
   prompts: string;
   metric_snapshots: string;
   recommendations: string;
+};
+type Options = {
+  apply: boolean;
+  dryRun: boolean;
+  allowNonLocalDb: boolean;
+  confirmNonLocalDbWrite: string | null;
 };
 
 type Plan = {
@@ -127,9 +138,9 @@ const promptSeeds: PromptSeed[] = [
 ];
 
 async function main() {
-  const apply = process.argv.includes("--apply");
+  const options = parseArgs(process.argv.slice(2));
 
-  if (apply) {
+  if (options.apply) {
     console.log("Mode: apply");
   } else {
     console.log("Mode: dry-run (no DB writes)");
@@ -137,12 +148,21 @@ async function main() {
   console.log(`Project slug: ${PROJECT_SLUG}`);
   console.log("Database URL: RECORA_DATABASE_URL or local default (value hidden)");
 
-  const db = new LocalPostgresClient(process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL);
+  const databaseUrl = process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
+  assertRecoraDbWriteAllowed({
+    databaseUrl,
+    operation: "upsert-recora-prompt-library --apply",
+    projectSlug: PROJECT_SLUG,
+    isWrite: options.apply,
+    allowNonLocalDb: options.allowNonLocalDb,
+    confirmNonLocalDbWrite: options.confirmNonLocalDbWrite
+  });
+  const db = new LocalPostgresClient(databaseUrl);
 
   try {
     await db.connect();
   } catch (error) {
-    if (apply) {
+    if (options.apply) {
       throw error;
     }
     console.log("DB connection: unavailable");
@@ -157,7 +177,7 @@ async function main() {
 
     printPlan(plan, beforeCounts);
 
-    if (!apply) {
+    if (!options.apply) {
       const afterCounts = await getCounts(db);
       console.log("Dry-run DB writes: 0");
       console.log(`Counts unchanged: ${sameCounts(beforeCounts, afterCounts) ? "yes" : "no"}`);
@@ -176,6 +196,46 @@ async function main() {
   } finally {
     db.end();
   }
+}
+
+function parseArgs(args: string[]): Options {
+  const guardOptions = createRecoraDbWriteGuardCliOptions();
+  const options: Options = {
+    apply: false,
+    dryRun: true,
+    allowNonLocalDb: guardOptions.allowNonLocalDb,
+    confirmNonLocalDbWrite: guardOptions.confirmNonLocalDbWrite
+  };
+  let applyRequested = false;
+  let dryRunRequested = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const guardConsumed = parseRecoraDbWriteGuardArg(args, index, options);
+    if (guardConsumed > 0) {
+      index += guardConsumed - 1;
+      continue;
+    }
+
+    if (arg === "--apply") {
+      applyRequested = true;
+      options.apply = true;
+      options.dryRun = false;
+      continue;
+    }
+
+    if (arg === "--dry-run") {
+      dryRunRequested = true;
+      options.apply = false;
+      options.dryRun = true;
+      continue;
+    }
+
+    throw new Error(`Unknown argument: ${arg}`);
+  }
+
+  if (applyRequested && dryRunRequested) throw new Error("--apply and --dry-run cannot be used together.");
+  return options;
 }
 
 async function buildPlan(db: LocalPostgresClient): Promise<Plan> {

@@ -10,7 +10,9 @@ import {
   type MeasurementProfile,
   type MeasurementProfileId
 } from "../lib/recora/measurement-profiles";
+import { assertRecoraDbWriteAllowed } from "./recora-db-write-guard";
 
+const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const DEFAULT_PROJECT_SLUG = "recora-kenzai-q2";
 const DEFAULT_PROMPT_LIMIT = 1;
 const DEFAULT_SEARCH_MODE: SearchMode = "both";
@@ -46,6 +48,14 @@ type CommandResult = {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  assertRecoraDbWriteAllowed({
+    databaseUrl: process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL,
+    operation: "run-recora-cycle --execute",
+    projectSlug: options.projectSlug,
+    isWrite: options.execute,
+    allowNonLocalDb: false,
+    confirmNonLocalDbWrite: null
+  });
   const profile = options.profileId ? getMeasurementProfile(options.profileId) : null;
   const measurementCommand = buildMeasurementCommand(options);
   const aggregateCommandWithoutSourceRun = buildAggregateCommand(options, null);

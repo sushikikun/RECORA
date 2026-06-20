@@ -1,6 +1,11 @@
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import net from "node:net";
 import process from "node:process";
+import {
+  assertRecoraDbWriteAllowed,
+  createRecoraDbWriteGuardCliOptions,
+  parseRecoraDbWriteGuardArg
+} from "./recora-db-write-guard";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const DEFAULT_PROJECT_SLUG = "mieruca-seo-demo";
@@ -20,6 +25,7 @@ type CliOptions = {
   maxPages: number;
   fetchPublicPages: boolean;
   allowNonLocalDb: boolean;
+  confirmNonLocalDbWrite: string | null;
 };
 
 type PublicPageSeed = {
@@ -133,7 +139,14 @@ async function main() {
     return;
   }
 
-  assertLocalDatabaseUrl(options.databaseUrl, options.allowNonLocalDb);
+  assertRecoraDbWriteAllowed({
+    databaseUrl: options.databaseUrl,
+    operation: "prepare-mieruca-demo-data --apply",
+    projectSlug: options.projectSlug,
+    isWrite: true,
+    allowNonLocalDb: options.allowNonLocalDb,
+    confirmNonLocalDbWrite: options.confirmNonLocalDbWrite
+  });
   const db = new LocalPostgresClient(options.databaseUrl);
   await db.connect();
   try {
@@ -563,7 +576,7 @@ function renderPreviewPayload(seed: DemoSeed, publicPages: PublicPagePreview[], 
     productionSafety: [
       "本番DBへ直接applyしません。まずdry-runのJSONをレビューします。",
       "本番投入が必要な場合は、対象projectSlug、投入先DB、バックアップ、ロールバック手順を明示して承認後に実行します。",
-      "非ローカルDBへのapplyはデフォルトで拒否します。承認済みの接続先だけ --allow-non-local-db を使います。",
+      "非ローカルDBへのapplyはデフォルトで拒否します。承認済みの接続先だけ --allow-non-local-db と --confirm-non-local-db-write write:<projectSlug> を使います。",
       "実測データはrun-openai-measurement.tsで作成し、準備データとは分けます。"
     ]
   };
@@ -804,17 +817,24 @@ async function upsertSourceDomain(
 }
 
 function parseArgs(args: string[]): CliOptions {
+  const guardOptions = createRecoraDbWriteGuardCliOptions();
   const options: CliOptions = {
     apply: false,
     projectSlug: DEFAULT_PROJECT_SLUG,
     databaseUrl: process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL,
     maxPages: DEFAULT_MAX_PAGES,
     fetchPublicPages: true,
-    allowNonLocalDb: false
+    allowNonLocalDb: guardOptions.allowNonLocalDb,
+    confirmNonLocalDbWrite: guardOptions.confirmNonLocalDbWrite
   };
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    const guardConsumed = parseRecoraDbWriteGuardArg(args, index, options);
+    if (guardConsumed > 0) {
+      index += guardConsumed - 1;
+      continue;
+    }
     if (arg === "--apply") {
       options.apply = true;
       continue;
@@ -854,10 +874,6 @@ function parseArgs(args: string[]): CliOptions {
       options.fetchPublicPages = false;
       continue;
     }
-    if (arg === "--allow-non-local-db") {
-      options.allowNonLocalDb = true;
-      continue;
-    }
     throw new Error(`Unknown argument: ${arg}`);
   }
 
@@ -878,16 +894,6 @@ function parsePositiveInt(value: string, arg: string) {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${arg} must be a non-negative integer.`);
   return parsed;
-}
-
-function assertLocalDatabaseUrl(databaseUrl: string, allowNonLocalDb: boolean) {
-  const url = new URL(databaseUrl);
-  const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
-  if (localHosts.has(url.hostname)) return;
-  if (allowNonLocalDb) return;
-  throw new Error(
-    "Refusing to apply to a non-local database. Review the dry-run output first, then pass --allow-non-local-db only for an explicitly approved target."
-  );
 }
 
 function stableUuid(namespace: string, name: string) {

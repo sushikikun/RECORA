@@ -3,6 +3,11 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
+import {
+  assertRecoraDbWriteAllowed,
+  createRecoraDbWriteGuardCliOptions,
+  parseRecoraDbWriteGuardArg
+} from "./recora-db-write-guard";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const PROJECT_SLUG = process.env.RECORA_DEFAULT_PROJECT_SLUG ?? "recora-kenzai-q2";
@@ -31,6 +36,10 @@ type BrandRow = { id: string; name: string; brand_type: "primary" | "competitor"
 type SourceDomainRow = { id: string; domain: string };
 type VariantImportResult = { label: string; responseId: string; skipped: boolean; measurementRuns: number; runItems: number; aiConversations: number; brandMentions: number; sourceDomains: number; citations: number };
 type ImportTotals = Omit<VariantImportResult, "label" | "responseId" | "skipped">;
+type Options = {
+  allowNonLocalDb: boolean;
+  confirmNonLocalDbWrite: string | null;
+};
 
 const variants: InspectionVariant[] = [
   { label: "openai-no-search", rawFile: "openai-no-search-raw.json", textFile: "openai-no-search-text.txt", analysisFile: "openai-no-search-analysis.json" },
@@ -39,7 +48,18 @@ const variants: InspectionVariant[] = [
 
 async function main() {
   await loadEnvLocal();
-  const db = new LocalPostgresClient(process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL);
+  const options = parseArgs(process.argv.slice(2));
+  const databaseUrl = process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
+  assertRecoraDbWriteAllowed({
+    databaseUrl,
+    operation: "import-openai-inspection",
+    projectSlug: PROJECT_SLUG,
+    isWrite: true,
+    allowNonLocalDb: options.allowNonLocalDb,
+    confirmNonLocalDbWrite: options.confirmNonLocalDbWrite
+  });
+
+  const db = new LocalPostgresClient(databaseUrl);
   await db.connect();
   try {
     const project = await getProject(db, PROJECT_SLUG);
@@ -53,6 +73,22 @@ async function main() {
   } finally {
     db.end();
   }
+}
+
+function parseArgs(args: string[]): Options {
+  const options = createRecoraDbWriteGuardCliOptions();
+
+  for (let index = 0; index < args.length; index += 1) {
+    const guardConsumed = parseRecoraDbWriteGuardArg(args, index, options);
+    if (guardConsumed > 0) {
+      index += guardConsumed - 1;
+      continue;
+    }
+
+    throw new Error(`Unknown argument: ${args[index]}`);
+  }
+
+  return options;
 }
 
 async function importVariant(input: { db: LocalPostgresClient; project: ProjectRow; prompt: PromptRow; persona: PersonaRow; model: AiModelRow; brands: BrandRow[]; variant: InspectionVariant }): Promise<VariantImportResult> {

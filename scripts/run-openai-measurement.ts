@@ -12,6 +12,11 @@ import {
   type MeasurementProfile,
   type MeasurementProfileId
 } from "../lib/recora/measurement-profiles";
+import {
+  assertRecoraDbWriteAllowed,
+  createRecoraDbWriteGuardCliOptions,
+  parseRecoraDbWriteGuardArg
+} from "./recora-db-write-guard";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const DEFAULT_PROJECT_SLUG = "recora-kenzai-q2";
@@ -40,6 +45,8 @@ type CliOptions = {
   promptLimitProvided: boolean;
   profileId: MeasurementProfileId | null;
   searchMode: SearchModeOption;
+  allowNonLocalDb: boolean;
+  confirmNonLocalDbWrite: string | null;
 };
 
 type ProjectRow = {
@@ -156,7 +163,17 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const measurementProfile = options.profileId ? getMeasurementProfile(options.profileId) : null;
 
-  const db = new LocalPostgresClient(process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL);
+  const databaseUrl = process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
+  assertRecoraDbWriteAllowed({
+    databaseUrl,
+    operation: "run-openai-measurement",
+    projectSlug: options.projectSlug,
+    isWrite: true,
+    allowNonLocalDb: options.allowNonLocalDb,
+    confirmNonLocalDbWrite: options.confirmNonLocalDbWrite
+  });
+
+  const db = new LocalPostgresClient(databaseUrl);
   const startedAt = new Date().toISOString();
 
   await db.connect();
@@ -972,17 +989,25 @@ function buildMeasurementRunMetadata(input: {
 }
 
 function parseArgs(args: string[]): CliOptions {
+  const guardOptions = createRecoraDbWriteGuardCliOptions();
   const options: CliOptions = {
     projectSlug: DEFAULT_PROJECT_SLUG,
     promptLimit: DEFAULT_PROMPT_LIMIT,
     promptLimitProvided: false,
     profileId: null,
-    searchMode: DEFAULT_SEARCH_MODE
+    searchMode: DEFAULT_SEARCH_MODE,
+    allowNonLocalDb: guardOptions.allowNonLocalDb,
+    confirmNonLocalDbWrite: guardOptions.confirmNonLocalDbWrite
   };
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     const next = args[index + 1];
+    const guardConsumed = parseRecoraDbWriteGuardArg(args, index, options);
+    if (guardConsumed > 0) {
+      index += guardConsumed - 1;
+      continue;
+    }
     if (arg === "--project-slug" && next) {
       options.projectSlug = next;
       index += 1;

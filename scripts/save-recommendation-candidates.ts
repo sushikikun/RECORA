@@ -3,6 +3,11 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
+import {
+  assertRecoraDbWriteAllowed,
+  createRecoraDbWriteGuardCliOptions,
+  parseRecoraDbWriteGuardArg
+} from "./recora-db-write-guard";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const DEFAULT_PROJECT_SLUG = process.env.RECORA_DEFAULT_PROJECT_SLUG ?? "recora-kenzai-q2";
@@ -81,7 +86,13 @@ type CandidatesPayload = {
   measurement_profile_id?: string;
   candidates: Candidate[];
 };
-type Options = { inputPath: string; apply: boolean; dryRun: boolean };
+type Options = {
+  inputPath: string;
+  apply: boolean;
+  dryRun: boolean;
+  allowNonLocalDb: boolean;
+  confirmNonLocalDbWrite: string | null;
+};
 type ProjectRow = { id: string; slug: string; name: string };
 type ExistingRecommendationRow = { id: string; title: string; candidate_id: string | null; measurement_run_id: string | null; source: string | null };
 type DbWritePolicy = {
@@ -151,14 +162,23 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const payload = await readPayload(options.inputPath);
   const projectSlug = payload.project_slug || DEFAULT_PROJECT_SLUG;
-  const db = new LocalPostgresClient(process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL);
+  const databaseWriteAllowed = options.apply && !options.dryRun;
+  const databaseUrl = process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
+  assertRecoraDbWriteAllowed({
+    databaseUrl,
+    operation: "save-recommendation-candidates --apply",
+    projectSlug,
+    isWrite: databaseWriteAllowed,
+    allowNonLocalDb: options.allowNonLocalDb,
+    confirmNonLocalDbWrite: options.confirmNonLocalDbWrite
+  });
+  const db = new LocalPostgresClient(databaseUrl);
   await db.connect();
   try {
     const project = await getProject(db, projectSlug);
     const before = await getCounts(db);
     const existing = await getExistingRecommendations(db, project.id, payload.candidates);
     const runVerifications = await getMeasurementRunVerifications(db, project.id, payload.candidates);
-    const databaseWriteAllowed = options.apply && !options.dryRun;
     const plans = buildPlans(payload, existing, runVerifications);
     const insertablePlans = plans.filter((plan) => plan.action === "would_insert");
     const insertedCandidateIds: string[] = [];
@@ -217,11 +237,23 @@ async function main() {
 }
 
 function parseArgs(args: string[]): Options {
-  const options: Options = { inputPath: DEFAULT_INPUT_PATH, apply: false, dryRun: true };
+  const guardOptions = createRecoraDbWriteGuardCliOptions();
+  const options: Options = {
+    inputPath: DEFAULT_INPUT_PATH,
+    apply: false,
+    dryRun: true,
+    allowNonLocalDb: guardOptions.allowNonLocalDb,
+    confirmNonLocalDbWrite: guardOptions.confirmNonLocalDbWrite
+  };
   let applyRequested = false;
   let dryRunRequested = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    const guardConsumed = parseRecoraDbWriteGuardArg(args, index, options);
+    if (guardConsumed > 0) {
+      index += guardConsumed - 1;
+      continue;
+    }
     if (arg === "--input") {
       options.inputPath = path.resolve(readNext(args, index, arg));
       index += 1;
