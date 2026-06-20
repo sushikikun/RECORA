@@ -6,8 +6,7 @@ import {
   getLatestStandardV01MeasurementRun,
   getLatestRunWithMetricSnapshots,
   getRecoraBrands,
-  getRecoraProject,
-  getRecoraRecommendations
+  getRecoraProject
 } from "./dashboard";
 import {
   getMetadataRecord,
@@ -26,6 +25,7 @@ const PROMPT_COLUMNS =
 const TOPIC_COLUMNS = "id, project_id, name, intent, priority, weight, is_active, created_at, updated_at";
 const RECOMMENDATION_COLUMNS =
   "id, project_id, run_id, type, priority, impact_score, effort_score, title, reason, target_url, related_topic_id, related_prompt_id, status, metadata, created_at, updated_at";
+const ALLOWED_MEASUREMENT_PROFILE_IDS = ["standard-v01", "custom-openai-run"] as const;
 
 type RecoraSupabaseClient = SupabaseClient;
 
@@ -44,11 +44,15 @@ export async function getRecoraRecommendationsData(
     getLatestStandardV01MeasurementRun(project.id, supabase),
     getRecoraBrands(project.id, supabase)
   ]);
-  const [recommendations, allRecommendationCandidates] = await Promise.all([
-    getRecoraRecommendations(project.id, latestStandardRun?.id ?? null, supabase),
-    getRecoraRecommendationCandidates(project.id, latestStandardRun?.id ?? null, supabase)
-  ]);
-  const preQualityGateCandidateCount = latestStandardRun
+  const recommendationSource = getRecommendationSource(latestRun, latestStandardRun);
+  const allRecommendationCandidates = await getRecoraRecommendationCandidates(
+    project.id,
+    recommendationSource.measurementRunId,
+    recommendationSource.aggregateRunId,
+    supabase
+  );
+  const recommendations = allRecommendationCandidates.filter(isShowRecommendationCandidate);
+  const preQualityGateCandidateCount = recommendationSource.measurementRunId
     ? allRecommendationCandidates.filter((item) => {
         const metadata = getMetadataRecord(item.metadata);
         return getMetadataString(metadata, "display_decision") !== "show";
@@ -85,36 +89,81 @@ function emptyRecommendationsData(): RecoraRecommendationsDbData {
 
 async function getRecoraRecommendationCandidates(
   projectId: string,
-  latestStandardRunId: string | null,
+  sourceMeasurementRunId: string | null,
+  aggregateRunId: string | null,
   supabase: RecoraSupabaseClient
 ): Promise<RecoraRecommendationRow[]> {
-  if (!latestStandardRunId) return [];
+  if (!sourceMeasurementRunId) return [];
 
   const { data, error } = await supabase
     .from("recommendations")
     .select(RECOMMENDATION_COLUMNS)
     .eq("project_id", projectId)
-    .eq("metadata->>measurement_run_id", latestStandardRunId)
-    .eq("metadata->>measurement_profile_id", "standard-v01")
+    .eq("metadata->>measurement_run_id", sourceMeasurementRunId)
+    .in("metadata->>measurement_profile_id", [...ALLOWED_MEASUREMENT_PROFILE_IDS])
     .eq("metadata->>data_source", "openai_measurement")
     .order("impact_score", { ascending: false })
     .order("created_at", { ascending: false });
 
   throwIfSupabaseError("recommendation candidates", error);
   return ((data ?? []) as RecoraRecommendationRow[])
-    .filter((item) => isLatestStandardV01Candidate(item, latestStandardRunId))
+    .filter((item) => isOpenAiRecommendationCandidate(item, sourceMeasurementRunId, aggregateRunId))
     .filter(isDisplayableRecommendation);
 }
 
-function isLatestStandardV01Candidate(item: RecoraRecommendationRow, latestStandardRunId: string) {
+function getRecommendationSource(
+  latestRun: RecoraRecommendationsDbData["latestRun"],
+  latestStandardRun: RecoraRecommendationsDbData["latestRun"]
+) {
+  if (latestRun) {
+    const metadata = getMetadataRecord(latestRun.metadata);
+    const sourceRunId = getMetadataString(metadata, "source_run_id");
+
+    if (sourceRunId) {
+      return {
+        measurementRunId: sourceRunId,
+        aggregateRunId: latestRun.id
+      };
+    }
+  }
+
+  return {
+    measurementRunId: latestStandardRun?.id ?? null,
+    aggregateRunId: null
+  };
+}
+
+function isOpenAiRecommendationCandidate(
+  item: RecoraRecommendationRow,
+  sourceMeasurementRunId: string,
+  aggregateRunId: string | null
+) {
   const metadata = getMetadataRecord(item.metadata);
+  const profileId = getMetadataString(metadata, "measurement_profile_id");
+  const aggregateRunMatches =
+    profileId !== "custom-openai-run" ||
+    Boolean(aggregateRunId && getMetadataString(metadata, "aggregate_run_id") === aggregateRunId);
+  const reviewRequiredMatches =
+    profileId !== "custom-openai-run" ||
+    getMetadataString(metadata, "should_save_to_recommendations") === "review_required";
 
   return (
     getMetadataString(metadata, "source") === "recommendation_candidate_generator" &&
-    getMetadataString(metadata, "measurement_run_id") === latestStandardRunId &&
-    getMetadataString(metadata, "measurement_profile_id") === "standard-v01" &&
-    getMetadataString(metadata, "data_source") === "openai_measurement"
+    getMetadataString(metadata, "measurement_run_id") === sourceMeasurementRunId &&
+    isAllowedMeasurementProfileId(profileId) &&
+    getMetadataString(metadata, "data_source") === "openai_measurement" &&
+    aggregateRunMatches &&
+    reviewRequiredMatches
   );
+}
+
+function isShowRecommendationCandidate(item: RecoraRecommendationRow) {
+  const metadata = getMetadataRecord(item.metadata);
+  return getMetadataString(metadata, "display_decision") === "show";
+}
+
+function isAllowedMeasurementProfileId(profileId: string | null) {
+  return ALLOWED_MEASUREMENT_PROFILE_IDS.some((allowedProfileId) => allowedProfileId === profileId);
 }
 
 async function getTopics(topicIds: string[], supabase: RecoraSupabaseClient) {

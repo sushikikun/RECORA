@@ -85,7 +85,7 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
       <div className="grid gap-4 lg:grid-cols-4">
         <MetricTile label="改善候補数" value={String(view.items.length)} helper={view.sourceLabel} />
         <MetricTile label="高優先度" value={String(view.highPriorityCount)} helper="priority high" tone="amber" />
-        <MetricTile label="観測数" value={String(view.observationCount)} helper="latest standard-v01" />
+        <MetricTile label="観測数" value={String(view.observationCount)} helper={view.sourceLabel} />
         <MetricTile label="参照URL数" value={String(view.citationUrlCount)} helper="根拠確認済み数ではありません" tone="slate" />
       </div>
 
@@ -95,7 +95,7 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
             {topItems.length > 0 ? topItems.map((item) => (
               <RecommendationActionCard key={item.id} item={item} />
             )) : (
-              <EmptyStateBlock title="表示できる改善候補がありません" description="最新standard-v01由来の表示対象が保存されると、ここに表示されます。" />
+              <EmptyStateBlock title="表示できる改善候補がありません" description="表示対象の改善候補が保存されると、ここに表示されます。" />
             )}
           </div>
         </DataCard>
@@ -106,13 +106,13 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
             <RecommendationStatusRow label="計画中" value={view.plannedCount} tone="amber" />
             <RecommendationStatusRow label="完了" value={view.doneCount} tone="green" />
             <div className="rounded-lg border border-teal-100 bg-teal-50/70 p-3 text-xs leading-5 text-teal-800">
-              {"最新standard-v01由来かつdisplay_decision=showの項目だけを表示しています。Recora独自の観測です。"}
+              {`${view.sourceLabel}由来かつdisplay_decision=showの項目だけを表示しています。承認済み施策ではありません。`}
             </div>
           </div>
         </DataCard>
       </div>
 
-      <DataCard title="改善候補一覧" description="最新standard-v01由来の表示対象だけを、区分と観測根拠付きで表示します。">
+      <DataCard title="改善候補一覧" description={`${view.sourceLabel}由来の表示対象だけを、区分と観測根拠付きで表示します。`}>
         <div className="overflow-x-auto">
           <RecommendationsTable rows={view.items} />
         </div>
@@ -128,7 +128,7 @@ function createRecommendationsViewModel(data?: RecoraRecommendationsDbData | nul
   const citationUrlCount = Math.max(0, ...items.map((item) => item.evidenceMetrics.citationCount));
 
   return {
-    sourceLabel: data?.project ? "最新standard-v01" : "表示できるデータがありません",
+    sourceLabel: data?.project ? getRecommendationSourceLabel(data.recommendations) : "表示できるデータがありません",
     items,
     highPriorityCount,
     observationCount,
@@ -137,6 +137,16 @@ function createRecommendationsViewModel(data?: RecoraRecommendationsDbData | nul
     plannedCount: items.filter((item) => item.statusLabel === "計画中").length,
     doneCount: items.filter((item) => item.statusLabel === "完了").length
   };
+}
+
+function getRecommendationSourceLabel(recommendations: RecoraRecommendationRow[]) {
+  const metadata = getMetadataRecord(recommendations[0]?.metadata);
+  const profileId = getMetadataString(metadata, "measurement_profile_id");
+
+  if (profileId === "custom-openai-run") return "custom OpenAI実測run";
+  if (profileId === "standard-v01") return "最新standard-v01";
+
+  return "OpenAI実測run";
 }
 
 function createDbRecommendationItems(data: RecoraRecommendationsDbData): RecommendationDisplayItem[] {
@@ -416,7 +426,7 @@ function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
         )) : (
           <TableRow>
             <TableCell colSpan={8} className="text-sm text-slate-500">
-              表示できる改善候補がありません。最新standard-v01由来の表示対象が保存されるとここに表示されます。
+              表示できる改善候補がありません。表示対象が保存されるとここに表示されます。
             </TableCell>
           </TableRow>
         )}
