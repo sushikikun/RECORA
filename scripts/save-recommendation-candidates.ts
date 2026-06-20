@@ -10,6 +10,7 @@ const DEFAULT_INPUT_PATH = path.join(process.cwd(), "output", "recommendation-ca
 const SCRIPT_SOURCE = "recommendation_candidate_generator";
 const SAVE_POLICY_VERSION = "recora-display-v01";
 const REQUIRED_PROFILE_ID = "standard-v01";
+const CUSTOM_OPENAI_MEASUREMENT_PROFILE_ID = "custom-openai-run";
 const SEED_MEASUREMENT_RUN_ID = "70000000-0000-4000-8000-000000000001";
 const TABLES = [
   "measurement_runs",
@@ -28,7 +29,9 @@ const DB_WRITE_POLICY: DbWritePolicy = {
   dry_run_default: true,
   requires_apply: true,
   display_decision_show_only: true,
-  standard_v01_only: true,
+  standard_v01_only: false,
+  custom_openai_run_allowed: true,
+  review_required_only: true,
   openai_measurement_only: true,
   save_policy_version: SAVE_POLICY_VERSION
 };
@@ -86,6 +89,8 @@ type DbWritePolicy = {
   requires_apply: boolean;
   display_decision_show_only: boolean;
   standard_v01_only: boolean;
+  custom_openai_run_allowed: boolean;
+  review_required_only: boolean;
   openai_measurement_only: boolean;
   save_policy_version: string;
 };
@@ -134,6 +139,11 @@ type InsertMapping = {
   reason: string;
   metadata: Record<string, unknown>;
 };
+type MeasurementRunVerificationRow = {
+  id: string;
+  status: string;
+  metadata: string | null;
+};
 type PgMessage = { type: string; payload: Buffer };
 
 async function main() {
@@ -147,8 +157,9 @@ async function main() {
     const project = await getProject(db, projectSlug);
     const before = await getCounts(db);
     const existing = await getExistingRecommendations(db, project.id, payload.candidates);
+    const runVerifications = await getMeasurementRunVerifications(db, project.id, payload.candidates);
     const databaseWriteAllowed = options.apply && !options.dryRun;
-    const plans = buildPlans(payload, existing);
+    const plans = buildPlans(payload, existing, runVerifications);
     const insertablePlans = plans.filter((plan) => plan.action === "would_insert");
     const insertedCandidateIds: string[] = [];
 
@@ -282,10 +293,36 @@ async function getExistingRecommendations(db: LocalPostgresClient, projectId: st
   `);
 }
 
-function buildPlans(payload: CandidatesPayload, existing: ExistingRecommendationRow[]): RecommendationPlan[] {
+async function getMeasurementRunVerifications(
+  db: LocalPostgresClient,
+  projectId: string,
+  candidates: Candidate[]
+): Promise<Map<string, MeasurementRunVerificationRow>> {
+  const ids = unique(candidates.flatMap((candidate) => {
+    return [
+      readEvidenceString(candidate, "measurement_run_id"),
+      readEvidenceString(candidate, "aggregate_run_id")
+    ].filter((value): value is string => Boolean(value));
+  }));
+  if (ids.length === 0) return new Map();
+
+  const rows = await db.query<MeasurementRunVerificationRow>(`
+    select id::text as id, status::text as status, metadata::text as metadata
+    from public.measurement_runs
+    where project_id = ${uuid(projectId)}
+      and id in (${litList(ids)})
+  `);
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
+function buildPlans(
+  payload: CandidatesPayload,
+  existing: ExistingRecommendationRow[],
+  runVerifications: Map<string, MeasurementRunVerificationRow>
+): RecommendationPlan[] {
   return payload.candidates.map((candidate) => {
     const mapping = mapCandidate(candidate, payload);
-    const skipReasons = getSkipReasons(candidate);
+    const skipReasons = getSkipReasons(candidate, runVerifications);
     const duplicate = findDuplicate(candidate, existing);
     const base = {
       candidate_id: candidate.id,
@@ -328,20 +365,68 @@ function buildPlans(payload: CandidatesPayload, existing: ExistingRecommendation
   });
 }
 
-function getSkipReasons(candidate: Candidate) {
+function getSkipReasons(candidate: Candidate, runVerifications: Map<string, MeasurementRunVerificationRow>) {
   const reasons: string[] = [];
   const measurementRunId = readEvidenceString(candidate, "measurement_run_id");
   const aggregateRunId = readEvidenceString(candidate, "aggregate_run_id");
   const measurementProfileId = readEvidenceString(candidate, "measurement_profile_id");
   const dataSource = readEvidenceString(candidate, "data_source");
   if (candidate.display_decision !== "show") reasons.push("display_decision_not_show");
+  if (candidate.should_save_to_recommendations !== "review_required") reasons.push("save_decision_not_review_required");
   if (!measurementRunId) reasons.push("missing_measurement_run_id");
   if (!aggregateRunId) reasons.push("missing_aggregate_run_id");
   if (!measurementProfileId) reasons.push("missing_measurement_profile_id");
-  if (measurementProfileId && measurementProfileId !== REQUIRED_PROFILE_ID) reasons.push("measurement_profile_not_standard_v01");
+  if (measurementProfileId && !isAllowedMeasurementProfileId(measurementProfileId)) reasons.push("measurement_profile_not_allowed");
   if (dataSource !== "openai_measurement") reasons.push("data_source_not_openai_measurement");
+  if (measurementRunId === SEED_MEASUREMENT_RUN_ID) reasons.push("seed_measurement_run");
+  if (aggregateRunId === SEED_MEASUREMENT_RUN_ID) reasons.push("seed_aggregate_run");
+  if (measurementRunId) {
+    appendMeasurementRunSkipReasons(reasons, runVerifications.get(measurementRunId), measurementProfileId, "measurement", measurementRunId);
+  }
+  if (aggregateRunId) {
+    appendMeasurementRunSkipReasons(reasons, runVerifications.get(aggregateRunId), null, "aggregate", aggregateRunId, measurementRunId);
+  }
   if (hasSeedSampleOrExampleEvidence(candidate.evidence)) reasons.push("seed_sample_or_example_evidence_detected");
   return reasons;
+}
+
+function isAllowedMeasurementProfileId(profileId: string) {
+  return profileId === REQUIRED_PROFILE_ID || profileId === CUSTOM_OPENAI_MEASUREMENT_PROFILE_ID;
+}
+
+function appendMeasurementRunSkipReasons(
+  reasons: string[],
+  run: MeasurementRunVerificationRow | undefined,
+  candidateProfileId: string | null,
+  expectedKind: "measurement" | "aggregate",
+  runId: string,
+  expectedSourceRunId?: string | null
+) {
+  if (!run) {
+    reasons.push(`${expectedKind}_run_not_found`);
+    return;
+  }
+  const metadata = parseMetadata(run.metadata);
+  const runKind = readMetadataString(metadata, "run_kind") ?? "measurement";
+  const dataSource = readMetadataString(metadata, "data_source");
+  if (run.status !== "completed") reasons.push(`${expectedKind}_run_not_completed`);
+  if (expectedKind === "measurement" && runKind === "aggregate") reasons.push("measurement_run_is_aggregate");
+  if (expectedKind === "aggregate" && runKind !== "aggregate") reasons.push("aggregate_run_not_aggregate");
+  if (dataSource !== "openai_measurement") reasons.push(`${expectedKind}_run_data_source_not_openai_measurement`);
+  if (expectedKind === "measurement") {
+    const runProfileId = readMetadataString(metadata, "measurement_profile_id");
+    if (candidateProfileId === REQUIRED_PROFILE_ID && runProfileId !== REQUIRED_PROFILE_ID) {
+      reasons.push("measurement_run_profile_mismatch");
+    }
+    if (candidateProfileId === CUSTOM_OPENAI_MEASUREMENT_PROFILE_ID && runProfileId) {
+      reasons.push("custom_openai_run_has_profile_metadata");
+    }
+  }
+  if (expectedKind === "aggregate") {
+    const sourceRunId = readMetadataString(metadata, "source_run_id");
+    if (expectedSourceRunId && sourceRunId !== expectedSourceRunId) reasons.push("aggregate_source_run_mismatch");
+  }
+  if (run.id !== runId) reasons.push(`${expectedKind}_run_id_mismatch`);
 }
 
 function findDuplicate(candidate: Candidate, existing: ExistingRecommendationRow[]) {
@@ -399,6 +484,7 @@ function mapCandidate(candidate: Candidate, payload: CandidatesPayload): InsertM
     quality_score_breakdown: candidate.quality_score_breakdown ?? [],
     confidence: candidate.confidence,
     confidence_label: candidate.confidence_label ?? null,
+    should_save_to_recommendations: candidate.should_save_to_recommendations ?? null,
     priority: candidate.priority,
     customer_facing_caution: candidate.customer_facing_caution ?? null,
     score_explanation: candidate.score_explanation ?? null,
@@ -438,6 +524,16 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function readEvidenceString(candidate: Candidate, key: string) {
   return readMetadataString(asRecord(candidate.evidence), key);
+}
+
+function parseMetadata(value: string | null): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return asRecord(parsed);
+  } catch {
+    return {};
+  }
 }
 
 function readMetadataString(record: Record<string, unknown>, key: string) {
