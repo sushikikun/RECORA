@@ -12,22 +12,44 @@ function readEnv(name: string) {
 }
 
 export function hasSupabaseConfig() {
-  return Boolean(
-    readEnv(SUPABASE_URL_ENV) &&
-      (readEnv(SUPABASE_SERVICE_ROLE_KEY_ENV) || readEnv(SUPABASE_ANON_KEY_ENV))
-  );
+  return hasSupabaseReadConfig();
+}
+
+export function hasSupabaseReadConfig() {
+  return Boolean(readEnv(SUPABASE_URL_ENV) && readEnv(SUPABASE_ANON_KEY_ENV));
+}
+
+export function hasSupabaseServiceRoleConfig() {
+  return Boolean(readEnv(SUPABASE_URL_ENV) && readEnv(SUPABASE_SERVICE_ROLE_KEY_ENV));
 }
 
 export function createRecoraSupabaseClient(): SupabaseClient {
   const supabaseUrl = readEnv(SUPABASE_URL_ENV);
-  const supabaseKey = readEnv(SUPABASE_ANON_KEY_ENV) ?? readEnv(SUPABASE_SERVICE_ROLE_KEY_ENV);
+  const supabaseKey = readEnv(SUPABASE_ANON_KEY_ENV);
 
   if (!supabaseUrl || !supabaseKey) {
     throw new Error(
-      `Missing Supabase environment variables: ${SUPABASE_URL_ENV} and either ${SUPABASE_SERVICE_ROLE_KEY_ENV} or ${SUPABASE_ANON_KEY_ENV}.`
+      `Missing Supabase read environment variables: ${SUPABASE_URL_ENV} and ${SUPABASE_ANON_KEY_ENV}. Dashboard reads must not fall back to ${SUPABASE_SERVICE_ROLE_KEY_ENV}.`
     );
   }
 
+  return createRecoraSupabaseClientWithKey(supabaseUrl, supabaseKey);
+}
+
+export function createRecoraSupabaseServiceRoleClient(): SupabaseClient {
+  const supabaseUrl = readEnv(SUPABASE_URL_ENV);
+  const supabaseKey = readEnv(SUPABASE_SERVICE_ROLE_KEY_ENV);
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error(
+      `Missing Supabase service-role environment variables: ${SUPABASE_URL_ENV} and ${SUPABASE_SERVICE_ROLE_KEY_ENV}.`
+    );
+  }
+
+  return createRecoraSupabaseClientWithKey(supabaseUrl, supabaseKey);
+}
+
+function createRecoraSupabaseClientWithKey(supabaseUrl: string, supabaseKey: string): SupabaseClient {
   return createClient(supabaseUrl, supabaseKey, {
     auth: {
       autoRefreshToken: false,
