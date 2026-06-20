@@ -1,194 +1,91 @@
 ---
 name: recora-competitor-benchmark
-description: Recora-specific AI search competitor comparison and benchmark skill. Use when Codex needs to classify a client's AI-search competitors into Direct, Adjacent, Aspirational, and Substitute tiers; compare AI Visibility, Share of Voice, recommendation rank, prompt coverage, citation strength/diversity, source gaps, positioning gaps, buyer-fit, category ownership, threat level, opportunity gaps, or report/dashboard-ready competitor tables. Use for persona-by-persona or prompt-by-prompt competitor differences, client-vs-competitor visibility deltas, and recommended counter-moves based on measured or supplied AI answer evidence. Do not use for app implementation, production changes, secrets, or unsupported claims that a competitor can be beaten.
+description: Recora-specific AI search competitor benchmark audit skill for Recora diagnostics, dashboards, and reports. Use when Codex needs to normalize competitor entities and aliases; classify AI-search competitors into Direct, Adjacent, Aspirational, and Substitute tiers; compare AI Visibility, Share of Voice, recommendation rank, prompt coverage, citation/source gaps, positioning gaps, persona drift, prompt intent, threat level, opportunity gaps, or report-ready benchmark tables. Use for safe benchmarking under thin samples, low-confidence evidence, measured AI answer observations, dashboard/JSON output contracts, and quality-gated counter-moves. Do not use for app implementation, other skill changes, production changes, secrets, or unsupported claims that a competitor can be beaten.
 ---
 
 # Recora Competitor Benchmark
 
 ## Role
 
-Act as Recora's AI Search Competitor Benchmark specialist.
+Act as Recora's AI Search Competitor Benchmark Auditor.
 
-Classify competitors, compare how each appears in AI-generated answers, and turn the benchmark into report- or dashboard-ready tables. Keep the analysis evidence-led and multi-axis: never collapse the outcome into a single winner score.
+Turn measured or supplied AI-search observations into competitor benchmark audits for Recora diagnostics, dashboards, and client reports. Classify competitors, compare how each appears in AI-generated answers, explain why competitors look strong, and produce report- or dashboard-ready outputs.
 
-This skill is analysis-only. Do not edit Recora application code, database files, production configuration, `app/`, `components/`, `lib/`, `supabase/`, package/config files, `.env`, API keys, credentials, cookies, or secrets.
+This is an analysis-only skill. Do not edit Recora application code, databases, production configuration, `app/`, `components/`, `lib/`, `supabase/`, package/config files, `.env`, API keys, credentials, cookies, or secrets.
 
-## Evidence Discipline
+## Input Contract
 
-Use measured or supplied AI-search observations whenever available. If data is missing, mark the field as `not_measured`, `needs_verification`, or `low_confidence`.
+Treat these fields as expected inputs: `client_name`, `client_url`, `industry`, `target_personas`, `prompt_topics`, `observed_ai_answers`, `cited_sources`, `mentioned_competitors`, `known_competitors`, `market_region`, `language`, `engines_checked`, and `observation_date`.
 
-Use evidence labels when useful:
+If an input is missing, do not infer it as fact. Mark it as `missing_input`. If a field is inferred only to keep the analysis moving, label it `NEEDS_VERIFICATION` and keep it out of measured metrics.
 
-- `MEASURED_AI_OBSERVATION`: supplied AI answer export, prompt run, provider response, rank extraction, citation extraction, or dashboard measurement.
-- `SUPPLIED_CLIENT_CONTEXT`: user-provided client, category, persona, prompt, or competitor context.
-- `SOURCE_EVIDENCE`: inspected source URL, citation URL, SERP result, third-party profile, review page, directory page, or official site page.
-- `POSITIONING_INFERENCE`: interpretation of answer wording, category association, use-case framing, or buyer-fit.
-- `NEEDS_VERIFICATION`: plausible but not confirmed by measured observations or reliable source evidence.
+## Core Rules
 
-Do not treat competitor marketing copy as fact. Do not claim Share of Voice, AI Visibility, recommendation rank, category ownership, or citation strength unless the measurement basis is provided.
+- Normalize competitor entities before scoring or classification. Track `raw_name`, `normalized_name`, `brand_aliases`, `company_name`, `product_name`, `domain`, and `confidence`.
+- Always separate `Direct`, `Adjacent`, `Aspirational`, and `Substitute`.
+- Keep domestic direct competitors separate from overseas/global references. Overseas SaaS is usually `Aspirational` or `Adjacent` unless domestic purchase substitution is evidenced.
+- Include substitutes such as SEO agencies, consultants, AI tools, in-house operations, Notion, spreadsheets, BI, manual workflows, and existing business processes.
+- Never assert Share of Voice, recommendation rank, AI Visibility, category ownership, or Threat High without measured evidence and sample context.
+- Use `low_confidence`, `insufficient_data`, `not_measured`, `estimated`, and `insufficient_sample` rather than filling gaps.
+- Do not treat competitor marketing copy, official-site copy, bot access, schema, or a single page type as proof of AI citation or competitive strength.
+- Do not rank competitors by one total score only.
+- Do not use guarantee language such as "will be cited", "can beat", "will rank higher", or "will win".
 
-## Competitor Tiers
+## Workflow
 
-Always separate these tiers:
+1. Confirm scope: client, category, market, language, personas, prompt topics, engines, observation date, and sample size.
+2. Normalize competitor names, aliases, product names, company names, domains, and Japanese/English variants.
+3. Build the competitor set from measured mentions, supplied known competitors, cited sources, AI answer context, and substitute-solution patterns.
+4. Classify each competitor into `Direct`, `Adjacent`, `Aspirational`, or `Substitute` with evidence and confidence.
+5. Benchmark AI Visibility, Share of Voice, recommendation rank, prompt coverage, citation strength/diversity, source authority, answer context, positioning clarity, buyer/persona fit, category ownership, threat level, and opportunity gaps.
+6. Split analysis by persona, prompt topic, prompt intent, engine, market region, and language when the observations support it.
+7. Extract competitor advantages from visibility, rank, citations, source authority, answer context, category association, comparison presence, proof, pricing/plan clarity, reviews, use cases, and page structure.
+8. Convert gaps into counter-moves with `action`, `target_gap`, `target_competitor`, `target_persona`, `target_prompt_topic`, `expected_effect`, `evidence`, `confidence`, `risk`, and `priority`.
+9. For client-facing reports, state "within the observed sample" and include sample size, engines checked, observation date, limitations, and confidence.
 
-- `Direct`: Same customer, same use case, and same buying context.
-- `Adjacent`: Overlaps in some functions, category language, buyer segment, or workflow, but is not the same purchase.
-- `Aspirational`: Not a direct competitor, but useful as a leading reference for category creation, proof design, reporting, or positioning.
-- `Substitute`: Alternative ways to solve the job, including AI tools, in-house work, consultants, SEO agencies, analysts, spreadsheets, or manual workflows.
+## Reference Map
 
-Do not casually classify overseas category leaders as domestic direct competitors. Treat them as `Aspirational` unless evidence shows the same buyer, same market, same language/local context, and same purchase decision.
+Read references only when needed:
 
-Mark weak classifications as `low_confidence` and state what evidence would confirm the tier.
+- `references/benchmark-rubric.md`: Use when competitor tier, Threat Level, confidence, sample quality, or low-confidence handling matters.
+- `references/output-contract.md`: Use when producing JSON, dashboard tables, report-ready tables, or report summaries.
+- `references/test-cases.md`: Use when validating this skill, checking edge cases, or testing for misclassification.
+- `references/anti-patterns.md`: Use before finalizing when output quality, client-safe language, or failure-pattern checks matter.
 
-## Benchmark Axes
+## Output Overview
 
-Compare across multiple axes:
+For substantial outputs, include:
 
-- AI Visibility
-- Share of Voice
-- Recommendation Rank
-- Prompt Coverage
-- Citation Strength
-- Citation Diversity
-- Positioning Clarity
-- Buyer-Fit
-- Category Ownership
-- Threat Level
-- Opportunity Gap
+1. Competitor Set
+2. Tier Classification
+3. Evidence Confidence
+4. Visibility Benchmark
+5. Share of Voice Comparison
+6. Prompt-by-Prompt Comparison
+7. Persona-by-Persona Comparison
+8. Source / Citation Gap
+9. Positioning Gap
+10. Threat Level
+11. Opportunity Gap
+12. Recommended Counter-Moves
+13. Dashboard Table Schema or JSON output when requested
+14. Report Summary
 
-Use `not_measured` rather than inventing values. If a numeric score is useful, keep it per-axis and explain the evidence behind it.
+For dashboards or implementation handoff, use `references/output-contract.md`.
 
-## Default Workflow
+## Final Checklist
 
-1. Identify the client brand, category, market, buyer personas, prompt set, AI providers, date range, and available measurement source.
-2. Normalize competitor names, aliases, product names, domains, and Japanese/English variants.
-3. Build the `Competitor Set` from measured mentions, supplied competitor lists, SERP/source evidence, and substitute-solution patterns.
-4. Classify each competitor into Direct, Adjacent, Aspirational, or Substitute with confidence and evidence.
-5. Compare AI Visibility, Share of Voice, recommendation rank, prompt coverage, citations, source diversity, answer context, and positioning language.
-6. Split analysis by persona when competitors differ by buyer role, maturity, industry, budget, or job-to-be-done.
-7. Split analysis by prompt category when competitors differ across problem-aware, solution-aware, comparison, category, use-case, industry, location, or vendor-selection prompts.
-8. Identify why strong competitors appear strong: visibility rate, citation base, answer wording, positioning clarity, buyer-fit, category association, source authority, and prompt coverage.
-9. Identify client gaps without claiming guaranteed wins.
-10. Translate gaps into recommended counter-moves that can be quality-gated before publication.
+Before finalizing:
 
-## Persona And Prompt Handling
+- Competitor names are normalized and unresolved entities are marked.
+- Direct / Adjacent / Aspirational / Substitute are separated.
+- Overseas references are not treated as Japan Direct without evidence.
+- Substitute competitors are included.
+- Sample size, sample quality, engines, observation date, confidence, and low-confidence reasons are shown.
+- Share of Voice is not asserted without measured data.
+- Persona, prompt topic, prompt intent, engine, market, and language differences are preserved.
+- Competitor strength is decomposed into visibility, rank, sources, context, and positioning.
+- Counter-moves include evidence, expected effect, risk, confidence, and priority.
+- JSON output uses `null`, `estimated`, and `insufficient_sample` correctly.
+- Client-facing wording avoids guarantees and unsupported competitive claims.
 
-When persona data is supplied from `recora-persona-discovery`, use it to segment the benchmark. If no persona data is supplied, infer only minimal provisional personas and mark them `NEEDS_VERIFICATION`.
-
-When prompt categories are supplied from `recora-prompt-topic-designer`, preserve the category names and compare competitors within each category. If prompt categories are missing, group prompts conservatively by intent:
-
-- problem-aware
-- solution-aware
-- comparison
-- category discovery
-- use-case
-- industry
-- location
-- vendor selection
-- implementation or operational concern
-
-Do not average away important persona or prompt differences.
-
-## Citation And Source Gap Handling
-
-When source or citation analysis is supplied from `recora-ai-citation-analysis`, use it as the source gap basis. If no citation analysis is supplied, compare only observed citation URLs/domains and mark missing source support as `needs_verification`.
-
-Separate:
-
-- cited domains
-- cited pages
-- source type
-- source authority or relevance
-- source freshness when known
-- whether the citation actually supports the answer claim
-- client source gaps versus competitor source advantages
-
-Do not use a cited domain count as proof that a competitor is better. Explain what the source appears to support.
-
-## Threat And Opportunity Rules
-
-Assess `Threat Level` as `high`, `medium`, `low`, or `unknown` using multiple signals:
-
-- high visibility across relevant prompts
-- repeated recommendation in top positions
-- strong fit for the same buyer and use case
-- strong source/citation support
-- clear positioning in AI answer wording
-- category ownership language
-- meaningful overlap with client buying context
-
-Assess `Opportunity Gap` by identifying where the client can improve evidence, source readiness, category clarity, content coverage, comparison proof, use-case proof, or citation-worthy assets. Do not state that Recora or the client "will beat" a competitor.
-
-## Required Output Format
-
-Use this structure for substantial outputs:
-
-```md
-## 1. Competitor Set
-
-| Competitor | Normalized name/domain | Observed in AI answers | Evidence basis | Confidence |
-|---|---|---:|---|---|
-
-## 2. Tier Classification
-
-| Competitor | Tier | Rationale | Evidence label | Confidence | What would verify/change this |
-|---|---|---|---|---|---|
-
-## 3. Visibility Benchmark
-
-| Competitor | AI Visibility | Recommendation Rank | Prompt Coverage | Citation Strength | Citation Diversity | Notes |
-|---|---:|---:|---:|---|---|---|
-
-## 4. Share of Voice Comparison
-
-| Competitor | Share of Voice | Measurement basis | Delta vs client | Confidence |
-|---|---:|---|---:|---|
-
-## 5. Prompt-by-Prompt Comparison
-
-| Persona | Prompt category | Prompt | Client result | Competitor results | Rank/context delta | Notes |
-|---|---|---|---|---|---|---|
-
-## 6. Source / Citation Gap
-
-| Competitor | Cited sources | Source types | Claim support | Client gap | Opportunity |
-|---|---|---|---|---|---|
-
-## 7. Positioning Gap
-
-| Competitor | AI answer context | Main appeal | Buyer-fit | Category ownership signal | Client delta |
-|---|---|---|---|---|---|
-
-## 8. Threat Level
-
-| Competitor | Threat level | Why | Confidence | Watch items |
-|---|---|---|---|---|
-
-## 9. Opportunity
-
-| Opportunity | Evidence basis | Persona/prompt affected | Impact | Confidence |
-|---|---|---|---|---|
-
-## 10. Recommended Counter-Moves
-
-| Counter-move | Target gap | Evidence basis | Expected effect wording | Quality-gate risk | Priority |
-|---|---|---|---|---|---|
-```
-
-For executive summaries, include a compact lead table, but keep the detailed sections available.
-
-## Counter-Move Safety
-
-Write counter-moves as testable actions, not guaranteed outcomes. Use language such as "increase the chance of being cited", "close a source gap", "improve category clarity", or "create evidence that AI answers can draw from".
-
-If `recora-recommendation-quality-gate-auditor` exists, treat counter-moves as draft candidates that should be passed through that quality gate before client-facing publication.
-
-## Prohibited Patterns
-
-- Do not rank competitors by a single total score only.
-- Do not classify a competitor as `Direct` without evidence of same buyer, same use case, and same buying context.
-- Do not mix overseas aspirational services with domestic direct competitors.
-- Do not treat competitor website copy as verified fact.
-- Do not say "we can beat this competitor" or guarantee AI recommendation, citation, visibility, traffic, conversion, or revenue.
-- Do not assert Share of Voice without measured prompt/provider data.
-- Do not erase persona-specific or prompt-specific differences by over-averaging.
