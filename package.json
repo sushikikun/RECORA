@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "recora:whereami": "tsx scripts/recora-dev-checks.ts whereami",
+    "recora:human-check": "tsx scripts/recora-dev-checks.ts human-check",
+    "recora:before-codex": "tsx scripts/recora-dev-checks.ts before-codex",
+    "recora:doctor": "tsx scripts/recora-dev-checks.ts doctor",
+    "recora:dashboard-read-model:check": "tsx scripts/recora-dev-checks.ts dashboard-read-model-check"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.0",
