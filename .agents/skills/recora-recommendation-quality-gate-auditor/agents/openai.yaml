@@ -1,0 +1,4 @@
+interface:
+  display_name: "Recora Recommendation Quality Gate"
+  short_description: "Recora recommendation publish/hold/suppress audit"
+  default_prompt: "Use $recora-recommendation-quality-gate-auditor to audit Recora recommendation candidates, decide auto_publish, hold, or suppress, score evidence quality, detect unsupported claims or citation misuse, and rewrite safe client-facing wording without taking over specialist analysis."
