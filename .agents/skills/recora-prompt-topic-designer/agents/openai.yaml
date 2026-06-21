@@ -1,4 +1,4 @@
 interface:
   display_name: "Recora Prompt Topic Designer"
-  short_description: "Recora�f�f�g�s�b�N��AI�����v�����v�g��݌v"
-  default_prompt: "Use $recora-prompt-topic-designer to design Recora diagnosis topics and AI search prompts by persona, intent, buyer stage, brand mention rule, competitor rule, expected signal, and bias risk."
+  short_description: "Recora diagnosis topics and AI-search prompt-set design"
+  default_prompt: "Use $recora-prompt-topic-designer to design topic-first Recora measurement prompt sets with persona, intent, buyer stage, brand/competitor rules, expected signal, metric eligibility, coverage, and bias risk. Do not use it to run measurements, claim AI results, or replace persona discovery."

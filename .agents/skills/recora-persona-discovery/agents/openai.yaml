@@ -1,4 +1,4 @@
 interface:
   display_name: "Recora Persona Discovery"
-  short_description: "Mode-aware persona hypotheses for Recora"
-  default_prompt: "Use $recora-persona-discovery to choose full, full_compact, excerpt, handoff_only, or validation_only output; use 5 Persona Compact Table when needed; map detailed_decision_role to canonical role_type; route industries and agency cases; detect risky intent including D2C/skincare product-effect, home-service, security/compliance, and hospitality guarantee risks; transform unsafe wording into safe high-trust prompt angles; and hand off Recora-ready persona prompt angles."
+  short_description: "Persona hypotheses and prompt-angle handoff for Recora"
+  default_prompt: "Use $recora-persona-discovery to infer evidence-labeled persona hypotheses, split decision roles, classify ICP/anti-ICP fit, transform risky intent into safe prompt angles, and hand off prompt-ready persona rows. Do not use it for final prompt-set design or validated segmentation without customer data."
