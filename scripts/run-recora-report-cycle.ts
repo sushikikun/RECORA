@@ -13,6 +13,11 @@ const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/pos
 const DEFAULT_AGGREGATE_SEARCH_MODE: AggregateSearchMode = "combined";
 const DEFAULT_MEASUREMENT_SEARCH_MODE: MeasurementSearchMode = "both";
 const DEFAULT_PROMPT_LIMIT = 1;
+const DEFAULT_MEASUREMENT_PHASE_TIMEOUT_MS = 120 * 60 * 1000;
+const DEFAULT_AGGREGATE_PHASE_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_RECOMMENDATION_GENERATION_PHASE_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_RECOMMENDATION_SAVE_PHASE_TIMEOUT_MS = 5 * 60 * 1000;
+const CHILD_TERMINATION_GRACE_MS = 5 * 1000;
 const LOCAL_DATABASE_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 type MeasurementSearchMode = "no-search" | "web-search" | "both";
@@ -36,6 +41,8 @@ type Options = {
   outputDir: string | null;
   allowNonLocalDb: boolean;
   confirmNonLocalDbWrite: string | null;
+  phaseTimeoutMs: number | null;
+  expectedDbHost: string | null;
 };
 
 type ChildScriptCommand = {
@@ -43,6 +50,7 @@ type ChildScriptCommand = {
   executable: string;
   args: string[];
   displayCommand: string[];
+  timeoutMs: number;
 };
 
 type CommandResult = {
@@ -141,6 +149,8 @@ type CycleManifest = {
     applyRecommendationsRequiredForRecommendationWrite: boolean;
     nonLocalPlanAllowed: boolean;
     nonLocalWritesRequireConfirmation: boolean;
+    expectedDatabaseHost: string | null;
+    expectedDatabaseHostMatched: boolean | null;
     recommendationPolicy: string;
   };
   commands: {
@@ -164,15 +174,28 @@ async function main() {
   };
 
   await fs.mkdir(outputDir, { recursive: true });
+  let selectedMeasurementRunId = options.measurementRunId;
+  logCycleProgress("cycle_started", {
+    projectSlug: options.projectSlug,
+    mode: resolveMode(options),
+    measurementRunId: selectedMeasurementRunId ?? "new",
+    databaseTarget: database.isLocal ? "local" : "non-local",
+    expectedDbHost: options.expectedDbHost ?? "not_set"
+  });
 
   const measurementCommand = buildMeasurementCommand(options);
   let measurementResult: CommandResult | null = null;
-  let selectedMeasurementRunId = options.measurementRunId;
 
   if (options.executeMeasurement) {
     measurementResult = await runJsonCommand(measurementCommand, childEnv);
     selectedMeasurementRunId = getString(measurementResult.output, "measurementRunId");
     assertExecutedMeasurementIsUsable(measurementResult.output, selectedMeasurementRunId);
+  } else {
+    logCycleProgress("phase_skipped", {
+      phase: "measurement",
+      reason: options.plan ? "plan" : "existing_measurement_run",
+      measurementRunId: selectedMeasurementRunId ?? "none"
+    });
   }
 
   let aggregateCommand: ChildScriptCommand | null = null;
@@ -215,7 +238,19 @@ async function main() {
         saveApplyCommand = buildSaveRecommendationsCommand(candidateInputPath, true, options);
         saveApplyResult = await runJsonCommand(saveApplyCommand, childEnv);
       }
+    } else {
+      logCycleProgress("phase_skipped", {
+        phase: "recommendations save",
+        reason: "no_candidates",
+        measurementRunId: selectedMeasurementRunId
+      });
     }
+  } else {
+    logCycleProgress("phase_skipped", {
+      phase: "recommendation candidates generation",
+      reason: "not_requested",
+      measurementRunId: selectedMeasurementRunId ?? "none"
+    });
   }
 
   const manifest = buildManifest({
@@ -237,6 +272,12 @@ async function main() {
   });
 
   await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  logCycleProgress("cycle_completed", {
+    projectSlug: options.projectSlug,
+    measurementRunId: selectedMeasurementRunId ?? "none",
+    aggregateRunId: aggregateRunId ?? "none",
+    manifestPath: relativeForDisplay(manifestPath)
+  });
   printJson(manifest);
 }
 
@@ -257,7 +298,9 @@ function parseArgs(args: string[]): Options {
     aggregateSearchMode: DEFAULT_AGGREGATE_SEARCH_MODE,
     outputDir: null,
     allowNonLocalDb: guardOptions.allowNonLocalDb,
-    confirmNonLocalDbWrite: guardOptions.confirmNonLocalDbWrite
+    confirmNonLocalDbWrite: guardOptions.confirmNonLocalDbWrite,
+    phaseTimeoutMs: null,
+    expectedDbHost: null
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -356,6 +399,24 @@ function parseArgs(args: string[]): Options {
       options.outputDir = path.resolve(arg.slice("--output-dir=".length));
       continue;
     }
+    if (arg === "--phase-timeout-ms" && next) {
+      options.phaseTimeoutMs = parsePositiveInteger(next, "--phase-timeout-ms");
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--phase-timeout-ms=")) {
+      options.phaseTimeoutMs = parsePositiveInteger(arg.slice("--phase-timeout-ms=".length), "--phase-timeout-ms");
+      continue;
+    }
+    if (arg === "--expected-db-host" && next) {
+      options.expectedDbHost = normalizeExpectedDbHost(next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--expected-db-host=")) {
+      options.expectedDbHost = normalizeExpectedDbHost(arg.slice("--expected-db-host=".length));
+      continue;
+    }
     if (arg === "--plan") {
       options.plan = true;
       continue;
@@ -400,6 +461,7 @@ function resolveDatabase(options: Options): ResolvedDatabase {
   const url = process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
   const parsed = parseDatabaseUrl(url);
   const isLocal = LOCAL_DATABASE_HOSTS.has(parsed.hostname);
+  assertExpectedDbHostMatches(options.expectedDbHost, parsed.hostname);
   assertRecoraDbWriteAllowed({
     databaseUrl: url,
     operation: "run-recora-report-cycle write phase",
@@ -429,6 +491,22 @@ function parseDatabaseUrl(value: string) {
   return parsed;
 }
 
+function normalizeExpectedDbHost(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) throw new Error("--expected-db-host requires a non-empty host.");
+  if (normalized.includes("/") || normalized.includes(":")) {
+    throw new Error("--expected-db-host must be a host name only, not a URL or host:port.");
+  }
+  return normalized;
+}
+
+function assertExpectedDbHostMatches(expectedHost: string | null, actualHost: string) {
+  if (!expectedHost) return;
+  const normalizedActualHost = actualHost.trim().toLowerCase();
+  if (normalizedActualHost === expectedHost) return;
+  throw new Error(`RECORA_DATABASE_URL host mismatch. expectedHost=${expectedHost} actualHost=${normalizedActualHost}`);
+}
+
 function resolveOutputDir(options: Options) {
   if (options.outputDir) return options.outputDir;
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -440,14 +518,19 @@ function buildMeasurementCommand(options: Options) {
   const promptSelectionArgs = options.profileId
     ? ["--profile", options.profileId]
     : ["--prompt-limit", String(options.promptLimit)];
-  return buildChildScriptCommand("OpenAI measurement", "scripts/run-openai-measurement.ts", [
-    "--project-slug",
-    options.projectSlug,
-    ...promptSelectionArgs,
-    "--search-mode",
-    options.measurementSearchMode,
-    ...buildNonLocalDbWriteGuardArgs(options)
-  ]);
+  return buildChildScriptCommand(
+    "OpenAI measurement",
+    "scripts/run-openai-measurement.ts",
+    [
+      "--project-slug",
+      options.projectSlug,
+      ...promptSelectionArgs,
+      "--search-mode",
+      options.measurementSearchMode,
+      ...buildNonLocalDbWriteGuardArgs(options)
+    ],
+    options.phaseTimeoutMs ?? DEFAULT_MEASUREMENT_PHASE_TIMEOUT_MS
+  );
 }
 
 function buildAggregateCommand(options: Options, measurementRunId: string, outputJsonPath: string) {
@@ -464,20 +547,30 @@ function buildAggregateCommand(options: Options, measurementRunId: string, outpu
   if (options.applyAggregate) {
     args.push("--apply", ...buildNonLocalDbWriteGuardArgs(options));
   }
-  return buildChildScriptCommand("metric snapshot aggregate", "scripts/recalculate-metric-snapshots.ts", args);
+  return buildChildScriptCommand(
+    "metric snapshot aggregate",
+    "scripts/recalculate-metric-snapshots.ts",
+    args,
+    options.phaseTimeoutMs ?? DEFAULT_AGGREGATE_PHASE_TIMEOUT_MS
+  );
 }
 
 function buildGenerateRecommendationsCommand(options: Options, measurementRunId: string, aggregateRunId: string, outputDir: string) {
-  return buildChildScriptCommand("recommendation candidates generation", "scripts/generate-recommendation-candidates.ts", [
-    "--project-slug",
-    options.projectSlug,
-    "--measurement-run-id",
-    measurementRunId,
-    "--aggregate-run-id",
-    aggregateRunId,
-    "--output-dir",
-    outputDir
-  ]);
+  return buildChildScriptCommand(
+    "recommendation candidates generation",
+    "scripts/generate-recommendation-candidates.ts",
+    [
+      "--project-slug",
+      options.projectSlug,
+      "--measurement-run-id",
+      measurementRunId,
+      "--aggregate-run-id",
+      aggregateRunId,
+      "--output-dir",
+      outputDir
+    ],
+    options.phaseTimeoutMs ?? DEFAULT_RECOMMENDATION_GENERATION_PHASE_TIMEOUT_MS
+  );
 }
 
 function buildSaveRecommendationsCommand(inputPath: string, apply: boolean, options: Options) {
@@ -487,11 +580,12 @@ function buildSaveRecommendationsCommand(inputPath: string, apply: boolean, opti
   return buildChildScriptCommand(
     apply ? "recommendations save apply" : "recommendations save dry-run",
     "scripts/save-recommendation-candidates.ts",
-    args
+    args,
+    options.phaseTimeoutMs ?? DEFAULT_RECOMMENDATION_SAVE_PHASE_TIMEOUT_MS
   );
 }
 
-function buildChildScriptCommand(label: string, scriptPath: string, scriptArgs: string[]): ChildScriptCommand {
+function buildChildScriptCommand(label: string, scriptPath: string, scriptArgs: string[], timeoutMs: number): ChildScriptCommand {
   const tsxCliPath = resolveTsxCliPath();
   const executable = process.execPath;
   const args = [tsxCliPath, scriptPath, ...scriptArgs];
@@ -499,12 +593,20 @@ function buildChildScriptCommand(label: string, scriptPath: string, scriptArgs: 
     label,
     executable,
     args,
-    displayCommand: ["node", relativeForDisplay(tsxCliPath), scriptPath, ...scriptArgs]
+    displayCommand: ["node", relativeForDisplay(tsxCliPath), scriptPath, ...scriptArgs],
+    timeoutMs
   };
 }
 
 async function runJsonCommand(command: ChildScriptCommand, env: NodeJS.ProcessEnv): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    let isSettled = false;
+    let timedOut = false;
+    logCycleProgress("phase_started", {
+      phase: command.label,
+      timeoutMs: command.timeoutMs
+    });
     const child = spawn(command.executable, command.args, {
       cwd: process.cwd(),
       env,
@@ -514,6 +616,31 @@ async function runJsonCommand(command: ChildScriptCommand, env: NodeJS.ProcessEn
 
     let stdout = "";
     let stderr = "";
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      logCycleProgress("phase_timeout", {
+        phase: command.label,
+        timeoutMs: command.timeoutMs
+      });
+      child.kill("SIGTERM");
+      setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      }, CHILD_TERMINATION_GRACE_MS).unref();
+    }, command.timeoutMs);
+    timeout.unref();
+
+    const settleReject = (error: Error) => {
+      if (isSettled) return;
+      isSettled = true;
+      clearTimeout(timeout);
+      reject(error);
+    };
+    const settleResolve = (result: CommandResult) => {
+      if (isSettled) return;
+      isSettled = true;
+      clearTimeout(timeout);
+      resolve(result);
+    };
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -522,24 +649,47 @@ async function runJsonCommand(command: ChildScriptCommand, env: NodeJS.ProcessEn
     });
     child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
+      process.stderr.write(chunk);
     });
-    child.on("error", reject);
+    child.on("error", (error) => settleReject(error));
     child.on("close", (code) => {
+      const durationMs = Date.now() - startedAt;
+      if (timedOut) {
+        settleReject(new Error(`${command.label} timed out after ${command.timeoutMs}ms. stderrTail=${summarizeText(stderr)}`));
+        return;
+      }
       if (code !== 0) {
-        reject(
+        logCycleProgress("phase_failed", {
+          phase: command.label,
+          durationMs,
+          exitCode: code ?? "unknown"
+        });
+        settleReject(
           new Error(
-            `${command.label} failed. command=${formatCommand(command.displayCommand)} exitCode=${code}. stderr=${summarizeText(stderr)}`
+            `${command.label} failed. exitCode=${code ?? "unknown"}. stderr=${summarizeText(stderr)}`
           )
         );
         return;
       }
 
       try {
-        resolve({ command, output: parseJsonFromStdout(stdout) });
+        const output = parseJsonFromStdout(stdout);
+        logCycleProgress("phase_completed", {
+          phase: command.label,
+          durationMs,
+          measurementRunId: getString(output, "measurementRunId") ?? getString(output, "sourceRunId") ?? "none",
+          aggregateRunId: getString(output, "aggregateRunId") ?? "none"
+        });
+        settleResolve({ command, output });
       } catch (error) {
-        reject(
+        logCycleProgress("phase_failed", {
+          phase: command.label,
+          durationMs,
+          reason: "json_parse_failed"
+        });
+        settleReject(
           new Error(
-            `Failed to parse JSON output from ${command.label}. command=${formatCommand(command.displayCommand)}. ${(error as Error).message} stdoutTail=${summarizeText(stdout.slice(-1000))}`
+            `Failed to parse JSON output from ${command.label}. ${(error as Error).message} stdoutTail=${summarizeText(stdout.slice(-1000))}`
           )
         );
       }
@@ -652,6 +802,8 @@ function buildManifest(input: {
       applyRecommendationsRequiredForRecommendationWrite: true,
       nonLocalPlanAllowed: true,
       nonLocalWritesRequireConfirmation: true,
+      expectedDatabaseHost: options.expectedDbHost,
+      expectedDatabaseHostMatched: options.expectedDbHost ? true : null,
       recommendationPolicy: "Only display_decision=show and should_save_to_recommendations=review_required candidates can be saved by the child save script."
     },
     commands: {
@@ -678,6 +830,12 @@ function resolveMode(options: Options) {
 
 function isPlanOnly(options: Options) {
   return options.plan || (!options.measurementRunId && !options.executeMeasurement && !options.applyAggregate && !options.generateRecommendations && !options.applyRecommendations);
+}
+
+function parsePositiveInteger(value: string, label: string) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${label} must be a positive integer.`);
+  return parsed;
 }
 
 function hasDatabaseWriteIntent(options: Options) {
@@ -784,6 +942,7 @@ function describeChildCommand(command: ChildScriptCommand) {
     executableKind: "process.execPath",
     runner: relativeForDisplay(command.args[0] ?? ""),
     shell: false,
+    timeoutMs: command.timeoutMs,
     displayCommand: formatCommand(command.displayCommand)
   };
 }
@@ -800,6 +959,17 @@ function formatCommand(command: string[]) {
 function summarizeText(value: string) {
   const cleaned = value.trim().replace(/\s+/g, " ");
   return cleaned.length > 600 ? `${cleaned.slice(0, 600)}...` : cleaned;
+}
+
+function logCycleProgress(event: string, details: Record<string, string | number | boolean>) {
+  const detailText = Object.entries(details)
+    .map(([key, value]) => `${key}=${formatLogValue(value)}`)
+    .join(" ");
+  console.error(`[recora-cycle] ${new Date().toISOString()} ${event}${detailText ? ` ${detailText}` : ""}`);
+}
+
+function formatLogValue(value: string | number | boolean) {
+  return typeof value === "string" && /\s/.test(value) ? JSON.stringify(value) : String(value);
 }
 
 function asRecord(value: unknown): JsonRecord {
@@ -865,11 +1035,14 @@ Options:
   --apply-recommendations         Persist recommendations after a dry-run save check. Requires --generate-recommendations.
   --aggregate-search-mode <mode>  combined, no-search, web-search, or both. Default: combined.
   --output-dir <path>             Optional manifest/output directory.
+  --phase-timeout-ms <number>     Override child phase timeout for diagnostics.
+  --expected-db-host <host>        Stop before any phase if RECORA_DATABASE_URL host does not match.
   --allow-non-local-db            Permit non-local DB write phases only with the confirmation flag below.
   --confirm-non-local-db-write    Required confirmation for non-local write phases. Expected: write:<projectSlug>.
 
 Safety:
   --plan is allowed against non-local RECORA_DATABASE_URL for read-only connection checks.
+  --expected-db-host also runs for --plan and prints only expected/actual host names on mismatch.
   OpenAI measurement runs only with --execute-measurement.
   Non-local DB writes require --allow-non-local-db and --confirm-non-local-db-write write:<projectSlug>.
 `);

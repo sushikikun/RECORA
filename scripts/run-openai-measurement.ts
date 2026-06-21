@@ -25,6 +25,7 @@ const DEFAULT_SEARCH_MODE: SearchModeOption = "both";
 const OPENAI_MODEL = process.env.RECORA_OPENAI_MODEL?.trim() || "gpt-4.1-mini";
 const PROVIDER = "openai";
 const AI_MODEL_PROVIDER = "OpenAI";
+const DEFAULT_OPENAI_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue | undefined };
 type Row = Record<string, string | null>;
@@ -47,6 +48,7 @@ type CliOptions = {
   searchMode: SearchModeOption;
   allowNonLocalDb: boolean;
   confirmNonLocalDbWrite: string | null;
+  requestTimeoutMs: number;
 };
 
 type ProjectRow = {
@@ -189,6 +191,13 @@ async function main() {
     const expectedRunItems = getExpectedRunItems({ promptCount: prompts.length }, options.searchMode);
 
     validateMeasurementInput(prompts, brands);
+    logMeasurementProgress("measurement_inputs_loaded", {
+      projectSlug: project.slug,
+      promptCount: prompts.length,
+      searchModes: searchModes.join(","),
+      expectedRunItems,
+      requestTimeoutMs: options.requestTimeoutMs
+    });
 
     if (!process.env.OPENAI_API_KEY) {
       throw new Error("OPENAI_API_KEY is missing. Add it to .env.local before running this script.");
@@ -207,19 +216,59 @@ async function main() {
         searchMode: options.searchMode
       })
     );
+    logMeasurementProgress("measurement_run_created", {
+      projectSlug: project.slug,
+      measurementRunId: run.id,
+      expectedRunItems
+    });
     const results: ItemResult[] = [];
 
-    for (const prompt of prompts) {
-      const persona = await getPersonaForPrompt(db, project.id, prompt);
-      for (const searchMode of searchModes) {
-        results.push(await runMeasurementItem({ db, openai, project, prompt, persona, brands, runId: run.id, searchMode }));
+    try {
+      for (let promptIndex = 0; promptIndex < prompts.length; promptIndex += 1) {
+        const prompt = prompts[promptIndex];
+        const persona = await getPersonaForPrompt(db, project.id, prompt);
+        for (let searchModeIndex = 0; searchModeIndex < searchModes.length; searchModeIndex += 1) {
+          const searchMode = searchModes[searchModeIndex];
+          results.push(
+            await runMeasurementItem({
+              db,
+              openai,
+              project,
+              prompt,
+              persona,
+              brands,
+              runId: run.id,
+              searchMode,
+              promptIndex: promptIndex + 1,
+              promptTotal: prompts.length,
+              searchModeIndex: searchModeIndex + 1,
+              searchModeTotal: searchModes.length,
+              requestTimeoutMs: options.requestTimeoutMs
+            })
+          );
+        }
       }
+    } catch (error) {
+      const message = sanitizeErrorMessage(error);
+      await updateMeasurementRun(db, run.id, "failed", new Date().toISOString());
+      logMeasurementProgress("measurement_run_failed", {
+        measurementRunId: run.id,
+        reason: message
+      });
+      throw error;
     }
 
     const totals = summarizeResults(results);
     const runStatus: RunStatus = totals.aiConversationsInserted > 0 || totals.skippedDuplicates > 0 ? "completed" : "failed";
     const completedAt = new Date().toISOString();
     await updateMeasurementRun(db, run.id, runStatus, completedAt);
+    logMeasurementProgress("measurement_run_completed", {
+      measurementRunId: run.id,
+      runStatus,
+      aiConversationsInserted: totals.aiConversationsInserted,
+      failedItems: totals.failedItems,
+      skippedDuplicates: totals.skippedDuplicates
+    });
     const afterCounts = await getGuardrailCounts(db);
 
     printSummary({
@@ -254,13 +303,28 @@ async function runMeasurementItem(input: {
   brands: BrandRow[];
   runId: string;
   searchMode: SearchMode;
+  promptIndex: number;
+  promptTotal: number;
+  searchModeIndex: number;
+  searchModeTotal: number;
+  requestTimeoutMs: number;
 }): Promise<ItemResult> {
   const { db, openai, project, prompt, persona, brands, runId, searchMode } = input;
   const model = await getOrCreateOpenAiModel(db, searchMode);
   const runItem = await insertRunItem(db, runId, prompt.id, persona.id, model.id);
+  const itemStartedAt = Date.now();
+  logMeasurementProgress("item_started", {
+    measurementRunId: runId,
+    runItemId: runItem.id,
+    promptIndex: `${input.promptIndex}/${input.promptTotal}`,
+    searchModeIndex: `${input.searchModeIndex}/${input.searchModeTotal}`,
+    searchMode,
+    promptPreview: buildPromptPreview(prompt.text),
+    requestTimeoutMs: input.requestTimeoutMs
+  });
 
   try {
-    const measured = await callOpenAi(openai, prompt.text, searchMode, brands);
+    const measured = await callOpenAi(openai, prompt.text, searchMode, brands, input.requestTimeoutMs);
 
     await db.query("begin");
     try {
@@ -268,6 +332,12 @@ async function runMeasurementItem(input: {
       if (existingConversation) {
         await updateRunItem(db, runItem.id, "skipped", measured.measuredAt, measured.responseTimeMs, "Duplicate provider response_id skipped.");
         await db.query("commit");
+        logMeasurementProgress("item_skipped_duplicate", {
+          measurementRunId: runId,
+          runItemId: runItem.id,
+          searchMode,
+          durationMs: Date.now() - itemStartedAt
+        });
         return {
           promptId: prompt.id,
           searchMode,
@@ -297,6 +367,14 @@ async function runMeasurementItem(input: {
 
       await updateRunItem(db, runItem.id, "completed", measured.measuredAt, measured.responseTimeMs, null);
       await db.query("commit");
+      logMeasurementProgress("item_completed", {
+        measurementRunId: runId,
+        runItemId: runItem.id,
+        searchMode,
+        responseTimeMs: measured.responseTimeMs,
+        brandMentions,
+        citations: citationResult.citationsCreated
+      });
 
       return {
         promptId: prompt.id,
@@ -316,6 +394,13 @@ async function runMeasurementItem(input: {
   } catch (error) {
     const message = sanitizeErrorMessage(error);
     await updateRunItem(db, runItem.id, "failed", new Date().toISOString(), null, message);
+    logMeasurementProgress("item_failed", {
+      measurementRunId: runId,
+      runItemId: runItem.id,
+      searchMode,
+      durationMs: Date.now() - itemStartedAt,
+      reason: message
+    });
     return {
       promptId: prompt.id,
       searchMode,
@@ -331,7 +416,13 @@ async function runMeasurementItem(input: {
   }
 }
 
-async function callOpenAi(openai: OpenAI, promptText: string, searchMode: SearchMode, brands: BrandRow[]): Promise<MeasurementResponse> {
+async function callOpenAi(
+  openai: OpenAI,
+  promptText: string,
+  searchMode: SearchMode,
+  brands: BrandRow[],
+  requestTimeoutMs: number
+): Promise<MeasurementResponse> {
   const request = {
     model: OPENAI_MODEL,
     input: promptText,
@@ -345,7 +436,15 @@ async function callOpenAi(openai: OpenAI, promptText: string, searchMode: Search
   };
 
   const started = Date.now();
-  const response = await openai.responses.create(request);
+  let response: Awaited<ReturnType<typeof openai.responses.create>>;
+  try {
+    response = await openai.responses.create(request, { timeout: requestTimeoutMs });
+  } catch (error) {
+    if (isTimeoutLikeError(error)) {
+      throw new Error(`OpenAI request timed out after ${requestTimeoutMs}ms for searchMode=${searchMode}.`);
+    }
+    throw error;
+  }
   const measuredAt = new Date().toISOString();
   const responseTimeMs = Date.now() - started;
   const responseRecord = toJsonValue(response);
@@ -997,7 +1096,8 @@ function parseArgs(args: string[]): CliOptions {
     profileId: null,
     searchMode: DEFAULT_SEARCH_MODE,
     allowNonLocalDb: guardOptions.allowNonLocalDb,
-    confirmNonLocalDbWrite: guardOptions.confirmNonLocalDbWrite
+    confirmNonLocalDbWrite: guardOptions.confirmNonLocalDbWrite,
+    requestTimeoutMs: parseEnvPositiveInteger("RECORA_OPENAI_REQUEST_TIMEOUT_MS", DEFAULT_OPENAI_REQUEST_TIMEOUT_MS)
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -1035,6 +1135,15 @@ function parseArgs(args: string[]): CliOptions {
       index += 1;
       continue;
     }
+    if (arg === "--request-timeout-ms" && next) {
+      options.requestTimeoutMs = parsePositiveInteger(next, "--request-timeout-ms");
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--request-timeout-ms=")) {
+      options.requestTimeoutMs = parsePositiveInteger(arg.slice("--request-timeout-ms=".length), "--request-timeout-ms");
+      continue;
+    }
     throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
 
@@ -1047,6 +1156,17 @@ function parseArgs(args: string[]): CliOptions {
 
 function isSearchModeOption(value: string): value is SearchModeOption {
   return value === "no-search" || value === "web-search" || value === "both";
+}
+
+function parsePositiveInteger(value: string, label: string) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${label} must be a positive integer.`);
+  return parsed;
+}
+
+function parseEnvPositiveInteger(key: string, fallback: number) {
+  const value = process.env[key]?.trim();
+  return value ? parsePositiveInteger(value, key) : fallback;
 }
 
 function expandSearchMode(value: SearchModeOption): SearchMode[] {
@@ -1116,6 +1236,7 @@ function printSummary(summary: {
         measurementRunId: summary.measurementRunId,
         openaiModel: OPENAI_MODEL,
         searchMode: summary.options.searchMode,
+        requestTimeoutMs: summary.options.requestTimeoutMs,
         promptLimit: summary.profile ? null : summary.options.promptLimit,
         promptCount: summary.selectedPromptIds.length,
         expectedRunItems: summary.expectedRunItems,
@@ -1208,6 +1329,27 @@ function buildSnippet(text: string, index: number) {
 
 function containsAny(text: string, needles: string[]) {
   return needles.some((needle) => text.includes(normalizeForMatching(needle)));
+}
+
+function buildPromptPreview(value: string) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 80 ? `${normalized.slice(0, 80)}...` : normalized;
+}
+
+function isTimeoutLikeError(error: unknown) {
+  const message = sanitizeErrorMessage(error).toLowerCase();
+  return message.includes("timeout") || message.includes("timed out") || message.includes("aborted");
+}
+
+function logMeasurementProgress(event: string, details: Record<string, string | number | boolean>) {
+  const detailText = Object.entries(details)
+    .map(([key, value]) => `${key}=${formatLogValue(value)}`)
+    .join(" ");
+  console.error(`[recora-openai-measurement] ${new Date().toISOString()} ${event}${detailText ? ` ${detailText}` : ""}`);
+}
+
+function formatLogValue(value: string | number | boolean) {
+  return typeof value === "string" && /\s/.test(value) ? JSON.stringify(value) : String(value);
 }
 
 function canonicalizeUrl(url: string) {
