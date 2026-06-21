@@ -12,6 +12,7 @@ Do not:
 - Merge B2B decision maker and end user into one persona when their search intent differs.
 - Merge B2C purchaser and user when they may be different people.
 - End without a `prompt_angle` for every included persona.
+- Ignore the requested or inferred `output_mode`, especially by producing an oversized full output when an excerpt or handoff-only output was requested.
 - Include a persona with low `prompt_angle_value` or low `diagnosis_usefulness`.
 - Hand off an excluded persona to `recora-prompt-topic-designer` as if it were valid.
 - End without `Handoff to recora-prompt-topic-designer`.
@@ -42,6 +43,10 @@ Do not:
 - Make medical, legal, financial, real estate, hiring, safety, or outcome claims without evidence.
 - Mark regulated, security, finance, healthcare, legal, public-sector, or other high-trust personas `ready_for_prompt_design` when required trust evidence is missing.
 - Treat urgent-service, emergency, family/caregiver, or local comparison behavior as confirmed without site evidence or a clear category signal.
+- Mix detailed `decision_role` values with canonical `role_type` values in handoff.
+- Merge agency/consultant-side personas with client-side buyer personas unless both sides are supported by site evidence.
+- Infer white-label, resale, or partner business models for agencies without site evidence.
+- Overstate product effects in EC, beauty, healthcare, legal, finance, hiring, real estate, security, or other high-trust contexts.
 
 ## Shallow Persona Examples
 
@@ -101,6 +106,9 @@ Use these reasons when excluding candidates from Recora diagnosis:
 Before finalizing, verify:
 
 - Each included persona has switching forces.
+- The output matches the requested or inferred `output_mode`.
+- `handoff_only` still includes risk flags, prompt readiness, confidence, and needs verification.
+- `validation_only` judges supplied candidates without inventing validated personas.
 - Each included persona has an AI-search journey stage.
 - Each included persona has a problem narrative.
 - Vocabulary connects to prompt angle and sample questions.
@@ -112,11 +120,15 @@ Before finalizing, verify:
 - Each included persona has Persona-to-Prompt Readiness.
 - Each included persona has a Persona Risk Register entry or explicit low-risk note.
 - Business type and industry pattern are supported by observed evidence.
+- Detailed `decision_role` values map cleanly to canonical `role_type` values using `role-mapping-contract.md`.
 - Industry category, industry subtype, decision unit type, buyer/user split, location dependency, urgency level, trust signal requirement, and evidence needed before handoff are present when they affect the prompt angle.
 - BtoB, BtoC, marketplace, agency, local, and high-trust roles are split correctly.
 - BtoB2C, franchise, multi-location, public/nonprofit, platform, supplier, HQ, local branch, and end-customer roles are split when relevant.
+- Agency/consultant-side personas are separated from client-side decision makers, evaluators, and end customers.
 - Local/high-trust personas include trust requirements.
 - Regulated/sensitive personas avoid unsupported claims and strengthen verification.
+- High-trust or regulated personas are not marked `ready_for_prompt_design` when required proof is materially missing.
+- EC, beauty, healthcare, legal, finance, hiring, real estate, and security outputs avoid unsupported effect, eligibility, result, approval, or safety claims.
 - Low and medium confidence personas list the data needed to upgrade confidence.
 - Validated persona and hypothesis are not mixed.
 - URL-only or public-site-only outputs are not called validated personas.
@@ -145,6 +157,7 @@ Before delivering, verify:
 - Confidence upgrade data is listed for low and medium confidence personas.
 - Business Type Classification is present before handoff.
 - Handoff includes `business_type`, `industry_pattern`, `decision_role`, and `trust_requirement`.
+- Handoff uses canonical `role_type` values and includes `role_mapping_reason` for every row.
 - Handoff includes `industry_category`, `industry_subtype`, `regulated_or_high_trust_flag`, `decision_unit_type`, `buyer_user_split`, `trust_signal_required`, `urgency_level`, `location_dependency`, and `evidence_needed_before_prompt_design` when relevant.
 - Excluded / Unsupported Personas includes `industry_mismatch` and `regulated_claim_risk` when relevant.
 - Excluded / Unsupported Personas includes `location_dependency_gap`, `decision_unit_confusion`, `urgency_overclaim_risk`, and `evidence_needed_before_handoff_missing` when relevant.

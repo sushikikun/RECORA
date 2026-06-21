@@ -206,6 +206,64 @@ It lacks purchase/user split, comparison intent, anxiety, proof requirements, an
 
 It does not define the job, trigger, buyer committee, alternatives, prompt readiness, or validation plan.
 
+## Case 4A: Agency / Consultant GEO Platform
+
+### sample_input
+
+- Brand: Example GEO Agency Platform
+- Industry: agency / SEO consultant / AI-search diagnosis support
+- Site signals: client-facing diagnosis reports, AI-search brand visibility checks, competitor comparison, improvement recommendations, document request or demo CTA
+- Customer data: not available
+
+### observed_site_evidence
+
+- Site mentions diagnosis reports for clients.
+- Site mentions checking brand visibility in AI search.
+- Site mentions competitor comparison and improvement recommendations.
+- CTA suggests document request or demo.
+
+### expected_personas
+
+- SEO agency operator who wants client proposal material and repeatable diagnosis workflow.
+- Consultant adding GEO diagnosis to existing SEO advisory work.
+- Agency or consulting manager checking report quality, repeatability, and client-facing credibility.
+- Business owner or practice lead evaluating resale, partnership, or white-label potential only when the site supports that motion.
+
+### expected_excluded_personas
+
+- Client-side buyer stated as confirmed when the site only supports agency-side use.
+- Generic SEO beginner with no client, proposal, or diagnosis workflow.
+- Individual who is merely curious about AI tools.
+- Reseller or white-label persona when the site does not show partner, resale, or white-label evidence.
+
+### expected_validation_questions
+
+- "What client request, proposal deadline, or reporting gap triggered the search?"
+- "Which proof makes the diagnosis credible to clients: sample reports, competitor comparison, source/citation evidence, or improvement examples?"
+- "Is resale, white-label, or partner use actually offered, or only a possible future hypothesis?"
+
+### expected_prompt_readiness
+
+- Agency operator with report/proposal evidence: `ready_for_prompt_design` or `usable_with_caution`.
+- Consultant adding GEO to SEO support: `usable_with_caution` if the exact service motion needs validation.
+- Business owner evaluating resale/white-label: `needs_more_evidence` unless partner or resale evidence is explicit.
+- Generic AI-curious individual: `do_not_handoff`.
+
+### expected_handoff
+
+- Use `decision_role` of `agency_or_consultant` and `role_type` of `agency_or_consultant` for agency-side rows.
+- Connect prompt angles to client proposal, diagnosis report quality, competitor comparison, and improvement recommendations.
+- Keep confidence `medium` or `low` unless customer/research data supports real agency adoption.
+- Include `needs_verification` for agency case studies, sales notes, partner/resale availability, white-label availability, report usage, and client-facing proof needs.
+
+### bad_output_example
+
+"Persona: SEO beginner interested in AI tools. Prompt angle: best GEO tool."
+
+### why_bad_output_fails
+
+It ignores agency decision context, client proposal workflow, report proof, competitor comparison, handoff readiness, and the need to verify resale or white-label assumptions.
+
 ## Expanded Industry Cases
 
 These compact cases calibrate industry routing. They are not customer evidence.

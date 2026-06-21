@@ -1,4 +1,4 @@
 interface:
   display_name: "Recora Persona Discovery"
-  short_description: "Broad industry-aware persona hypotheses for Recora"
-  default_prompt: "Use $recora-persona-discovery to route broad industries, split BtoB/BtoC/local/multi-location decision units, apply high-trust and regulated cautions, and hand off diagnosis-ready persona prompt angles for Recora."
+  short_description: "Mode-aware persona hypotheses for Recora"
+  default_prompt: "Use $recora-persona-discovery to choose full, excerpt, handoff_only, or validation_only output; map detailed decision roles to canonical role types; route broad industries and agency/consultant cases; apply high-trust and regulated cautions; and hand off diagnosis-ready persona prompt angles for Recora."
