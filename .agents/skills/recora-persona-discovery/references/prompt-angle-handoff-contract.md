@@ -4,7 +4,9 @@ Use this contract when producing `Handoff to recora-prompt-topic-designer`.
 
 Only hand off included personas. Do not pass excluded, unsupported, `anti_icp`, `not_enough_evidence`, `not_enough_to_use`, `needs_more_evidence`, or `do_not_handoff` personas downstream unless the handoff purpose is explicitly verification or research planning.
 
-Use `role-mapping-contract.md` before filling `decision_role` and `role_type`.
+Use `role-mapping-contract.md` before filling `detailed_decision_role` and `role_type`.
+
+`detailed_decision_role` is the preferred field for the specific role. `decision_role` is a legacy alias; if it appears in older output, treat it as `detailed_decision_role` unless otherwise specified.
 
 ## Required Fields
 
@@ -17,7 +19,7 @@ Every handoff row must include:
 - `industry_pattern`: Industry pattern used for persona discovery.
 - `regulated_or_high_trust_flag`: `yes`, `no`, or `unclear`.
 - `decision_unit_type`: Decision structure, such as B2B buying committee, B2C family decision, marketplace two-sided unit, franchise HQ/local split, or local high-trust service.
-- `decision_role`: More specific decision role, such as `economic_buyer`, `technical_reviewer`, `family_decision_maker`, or `local_comparator`.
+- `detailed_decision_role`: More specific decision role, such as `procurement`, `technical_reviewer`, `family_decision_maker`, or `local_comparator`.
 - `role_type`: One of the allowed B2B or B2C role values.
 - `role_mapping_reason`: Explain the mapping in one compact phrase. Use `same_as_decision_role` when the detailed and canonical roles are identical.
 - `buyer_user_split`: Compact statement of who buys, who uses, who compares, and who influences.
@@ -104,7 +106,7 @@ Marketplace or agency-support cases may use these values with side labels in the
 
 ## Detailed Decision Role Mapping
 
-Use `decision_role` for detailed roles and `role_type` for canonical downstream buckets. Do not put detailed roles such as `procurement`, `security_reviewer`, `local_comparator`, or `emergency_decider` into `role_type` unless they are allowed canonical values.
+Use `detailed_decision_role` for detailed roles and `role_type` for canonical downstream buckets. Do not put detailed roles such as `procurement`, `security_reviewer`, `local_comparator`, or `emergency_decider` into `role_type` unless they are allowed canonical values. If a legacy `decision_role` field appears, normalize it to `detailed_decision_role` before handoff.
 
 | detailed_decision_role | primary_role_type | fallback_role_type |
 |---|---|---|
@@ -123,6 +125,7 @@ Use `decision_role` for detailed roles and `role_type` for canonical downstream 
 | `family_decision_maker` | `purchaser` | `recommender_influencer` |
 | `caregiver` | `purchaser` | `recommender_influencer` |
 | `gift_purchaser` | `purchaser` | `recommender_influencer` |
+| `gift_or_occasion_planner` | `purchaser` | `recommender_influencer` |
 | `local_comparator` | `comparator` | `purchaser` |
 | `emergency_decider` | `purchaser` | `comparator` |
 | `repeat_buyer` | `repeat_user` | `purchaser` |
@@ -191,7 +194,7 @@ Do not include a persona in normal prompt-design handoff when any of these apply
 - The persona lacks a validation plan or confidence-upgrade condition.
 - Risk register has unresolved high `handoff_contamination_risk`, `no_prompt_angle_risk`, or `invented_persona_risk`.
 - The prompt angle cannot connect persona context, search intent, alternatives, comparison criteria, and proof needs.
-- `decision_role` and `role_type` are mixed, unmapped, or inconsistent with `role-mapping-contract.md`.
+- `detailed_decision_role`, legacy `decision_role`, and `role_type` are mixed, unmapped, or inconsistent with `role-mapping-contract.md`.
 
 ## Handoff Quality Checks
 
@@ -206,8 +209,8 @@ Do not include a persona in normal prompt-design handoff when any of these apply
 - `prompt_readiness` is either `ready_for_prompt_design` or `usable_with_caution`.
 - `readiness_reason` explains why the row is safe for prompt design.
 - `risk_flags` are consistent with the Persona Risk Register.
-- `business_type`, `industry_pattern`, `decision_role`, and `trust_requirement` match the Business Type Classification and relevant industry reference.
-- `decision_role`, `role_type`, and `role_mapping_reason` match `role-mapping-contract.md`.
+- `business_type`, `industry_pattern`, `detailed_decision_role`, and `trust_requirement` match the Business Type Classification and relevant industry reference.
+- `detailed_decision_role`, `role_type`, and `role_mapping_reason` match `role-mapping-contract.md`.
 - `industry_category`, `industry_subtype`, `regulated_or_high_trust_flag`, `decision_unit_type`, `buyer_user_split`, `trust_signal_required`, `urgency_level`, `location_dependency`, and `evidence_needed_before_prompt_design` match the Persona Decision Table.
 - `validation_questions`, `assumptions_to_validate`, and `confidence_upgrade_condition` match the Persona Validation Plan.
 - `questions_to_validate_before_prompt_design` targets the assumptions behind the prompt angle.

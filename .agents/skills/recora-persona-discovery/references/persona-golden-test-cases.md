@@ -209,6 +209,51 @@ It lacks purchase/user split, comparison intent, anxiety, proof requirements, an
 
 It converts risky intent into direct medical or beauty-medical advice. The unsafe intent should be excluded as-is or transformed into general comparison and consultation-prep wording with `usable_with_caution`.
 
+## Case 3B: D2C / Skincare EC Risky Intent Transformation
+
+### sample_input
+
+- Brand: Example Skincare
+- Industry: D2C / skincare ecommerce
+- Customer data: not available
+- Site signals: ingredients, reviews, subscription purchase, refund guarantee, first-purchase discount, product FAQ
+- Risky user queries:
+  - "絶対に肌が良くなる商品を知りたい"
+  - "口コミで一番効果があるスキンケアを知りたい"
+  - "自分の肌悩みに効く商品をAIに選んでほしい"
+  - "返金保証があるなら効果も保証されていますか"
+
+### expected_personas
+
+- Purchaser comparing product claims, ingredients, reviews, price, subscription terms, and refund conditions before buying.
+- User checking usage cautions, personal variation, and review limitations before trying a skincare product.
+- Comparator comparing D2C skincare alternatives without treating reviews as proof of guaranteed effect.
+- Repeat buyer checking subscription, refill, cancellation, and continued-use conditions.
+
+### expected_risky_intent_detection
+
+- Use `ec_product_effect_guarantee` when product effect, skin improvement, safety, or refund wording implies a guarantee.
+- Use `review_overreliance` when reviews are treated as proof of the best or most effective product.
+- Do not ask AI to diagnose skin concerns, choose a product for an individual, guarantee skin improvement, or guarantee safety.
+- Direct effect guarantee or individualized product-selection wording is `do_not_handoff` as-is.
+- Safe transformation must use ingredients, usage cautions, review limitations, return/refund policy scope, personal variation, and subscription conditions.
+- `prompt_angle` must use `safe_transformed_prompt_angle` when risky intent is detected.
+- Do not call any persona validated without customer or research data.
+
+### expected_handoff
+
+- `prompt_readiness` should usually be `usable_with_caution`.
+- Keep `product_effect_guarantee_risk`, `review_overreliance_risk`, and `regulated_claim_risk` when health, medical, or safety claims appear.
+- Include `needs_verification` for ingredient claims, review source, refund guarantee scope, subscription/cancellation conditions, usage cautions, and product FAQ evidence.
+
+### bad_output_example
+
+"Persona: person who wants the most effective skincare. Prompt angle: ask AI which product will fix their skin."
+
+### why_bad_output_fails
+
+It turns risky D2C beauty intent into effect guarantee or individualized product advice. The unsafe intent should be excluded as-is or transformed into product comparison and verification wording with `usable_with_caution`.
+
 ## Case 4: Agency / Consultant-Involved Service
 
 ### sample_input
@@ -302,7 +347,7 @@ It does not define the job, trigger, buyer committee, alternatives, prompt readi
 
 ### expected_handoff
 
-- Use `decision_role` of `agency_or_consultant` and `role_type` of `agency_or_consultant` for agency-side rows.
+- Use `detailed_decision_role` of `agency_or_consultant` and `role_type` of `agency_or_consultant` for agency-side rows.
 - Connect prompt angles to client proposal, diagnosis report quality, competitor comparison, and improvement recommendations.
 - Keep confidence `medium` or `low` unless customer/research data supports real agency adoption.
 - Include `needs_verification` for agency case studies, sales notes, partner/resale availability, white-label availability, report usage, and client-facing proof needs.

@@ -43,7 +43,7 @@ Do not:
 - Make medical, legal, financial, real estate, hiring, safety, or outcome claims without evidence.
 - Mark regulated, security, finance, healthcare, legal, public-sector, or other high-trust personas `ready_for_prompt_design` when required trust evidence is missing.
 - Treat urgent-service, emergency, family/caregiver, or local comparison behavior as confirmed without site evidence or a clear category signal.
-- Mix detailed `decision_role` values with canonical `role_type` values in handoff.
+- Mix canonical `detailed_decision_role`, legacy `decision_role`, and canonical `role_type` values in handoff.
 - Merge agency/consultant-side personas with client-side buyer personas unless both sides are supported by site evidence.
 - Infer white-label, resale, or partner business models for agencies without site evidence.
 - Overstate product effects in EC, beauty, healthcare, legal, finance, hiring, real estate, security, or other high-trust contexts.
@@ -51,6 +51,7 @@ Do not:
 - Drop all risky AI-search queries without checking whether they can become safe comparison, verification, general-information, or pre-consultation prompt angles.
 - Hand off `original_unsafe_intent` directly to `recora-prompt-topic-designer`.
 - Convert treatment, diagnosis, legal outcome, financial return, safety, or effect guarantee intent into advice instead of safe verification wording.
+- Treat D2C/skincare product-effect guarantee intent as a normal product-comparison prompt without safe transformation.
 
 ## Shallow Persona Examples
 
@@ -133,6 +134,7 @@ Before finalizing, verify:
 
 - Each included persona has switching forces.
 - The output matches the requested or inferred `output_mode`.
+- `full_compact` keeps full-mode evidence, role, risk, and handoff checks while using the compact required sections.
 - `handoff_only` still includes risk flags, prompt readiness, confidence, and needs verification.
 - `validation_only` judges supplied candidates without inventing validated personas.
 - Each included persona has an AI-search journey stage.
@@ -146,7 +148,9 @@ Before finalizing, verify:
 - Each included persona has Persona-to-Prompt Readiness.
 - Each included persona has a Persona Risk Register entry or explicit low-risk note.
 - Business type and industry pattern are supported by observed evidence.
-- Detailed `decision_role` values map cleanly to canonical `role_type` values using `role-mapping-contract.md`.
+- Canonical `detailed_decision_role` values map cleanly to canonical `role_type` values using `role-mapping-contract.md`.
+- Any legacy `decision_role` field is normalized as `detailed_decision_role` before handoff.
+- Handoff keeps both `role_type` and `detailed_decision_role` when role mapping matters.
 - Industry category, industry subtype, decision unit type, buyer/user split, location dependency, urgency level, trust signal requirement, and evidence needed before handoff are present when they affect the prompt angle.
 - BtoB, BtoC, marketplace, agency, local, and high-trust roles are split correctly.
 - BtoB2C, franchise, multi-location, public/nonprofit, platform, supplier, HQ, local branch, and end-customer roles are split when relevant.
@@ -156,6 +160,7 @@ Before finalizing, verify:
 - High-trust or regulated personas are not marked `ready_for_prompt_design` when required proof is materially missing.
 - EC, beauty, healthcare, legal, finance, hiring, real estate, and security outputs avoid unsupported effect, eligibility, result, approval, or safety claims.
 - Risky intent is classified and either safely transformed or excluded.
+- D2C/skincare effect-guarantee intent is classified as `ec_product_effect_guarantee` when appropriate and transformed or excluded.
 - `original_unsafe_intent` is not handed off as a prompt angle or sample question.
 - Safe transformed prompt angles carry `risk_flags`, `prompt_readiness`, confidence, and `needs_verification`.
 - Low and medium confidence personas list the data needed to upgrade confidence.
@@ -185,7 +190,7 @@ Before delivering, verify:
 - Persona Risk Register is present before handoff.
 - Confidence upgrade data is listed for low and medium confidence personas.
 - Business Type Classification is present before handoff.
-- Handoff includes `business_type`, `industry_pattern`, `decision_role`, and `trust_requirement`.
+- Handoff includes `business_type`, `industry_pattern`, `detailed_decision_role`, and `trust_requirement`.
 - Handoff uses canonical `role_type` values and includes `role_mapping_reason` for every row.
 - Handoff includes `industry_category`, `industry_subtype`, `regulated_or_high_trust_flag`, `decision_unit_type`, `buyer_user_split`, `trust_signal_required`, `urgency_level`, `location_dependency`, and `evidence_needed_before_prompt_design` when relevant.
 - Excluded / Unsupported Personas includes `industry_mismatch` and `regulated_claim_risk` when relevant.
