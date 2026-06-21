@@ -185,6 +185,38 @@ Guidance:
 - `based_on_inferred_context`: prompt uses inferred business model, persona, buyer stage, raw intent, region, risk, or category context.
 - `needs_client_confirmation`: prompt depends on missing URL, real competitors, pricing, claims, region, proof, or regulated-industry facts.
 
+## Minimum Input Metric Derivation
+
+When generating prompts from only the four minimum inputs, do not mark every `brand_excluded` prompt as visibility or ranking eligible.
+
+Always assign these fields before `metric_eligibility`:
+
+```md
+response_shape:
+candidate_mention_opportunity:
+ranking_opportunity:
+```
+
+Derive eligibility as follows:
+
+- `visibility_rate: eligible` only when `brand_mention_rule: brand_excluded` and `candidate_mention_opportunity` is `direct` or `likely`.
+- `ranking: eligible` only when `brand_mention_rule: brand_excluded` and `ranking_opportunity` is `direct` or `comparable_set`.
+- `sentiment: eligible` only when `brand_mention_rule: brand_included` and `response_shape: branded_sentiment_answer`.
+
+Minimum-input prompts often include useful criteria prompts such as "what should I check?" or "how should I compare?". These should usually be:
+
+```md
+response_shape: evaluation_criteria
+candidate_mention_opportunity: weak
+ranking_opportunity: weak
+metric_eligibility:
+  visibility_rate: excluded
+  ranking: excluded
+  sentiment: excluded
+```
+
+If such a prompt must contribute to visibility or ranking, rewrite it to ask for candidate brands, products, services, vendors, stores, a shortlist, or a comparable set.
+
 ## Production-Quality Criteria
 
 Minimum Input Mode can be treated as close to production quality only when:
@@ -192,6 +224,7 @@ Minimum Input Mode can be treated as close to production quality only when:
 - Topic Set exists.
 - Every prompt has `topic_id`.
 - Every prompt has `metric_eligibility`.
+- Every prompt has `response_shape`, `candidate_mention_opportunity`, and `ranking_opportunity`.
 - Branded prompts are excluded from visibility and ranking.
 - Branded prompts are sentiment-only.
 - Buyer stages are distributed.

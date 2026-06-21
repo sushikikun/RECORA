@@ -185,6 +185,16 @@ Each scenario should be checked against the generated prompt set before it is tr
 - pass_criteria: Inferred and needs-confirmation fields are clearly separated; competitors are handled with `unknown_competitor_discovery` or `category_competitors`; branded prompts are sentiment-only; Measurement Readiness is `production_measurement_ready_with_caveats`; Next Data Needed lists URL, competitors, region, proof, pricing, claims, and persona validation when relevant.
 - failure_signals: No Input Completion Table, inferred context is treated as fact, competitor names are fabricated, missing URL is used to assert site evidence, prompt rows lack `source_status`, or readiness is presented as fully client-verified.
 
+## Scenario 19
+
+- scenario_name: candidate_and_ranking_opportunity_are_correctly_classified
+- input_context: Prompt set mixes candidate-list prompts, criteria/checklist prompts, citation/evidence prompts, and branded sentiment prompts.
+- expected_behavior: Derive visibility/ranking/sentiment from `response_shape`, `candidate_mention_opportunity`, `ranking_opportunity`, and `brand_mention_rule`; do not mark all `brand_excluded` prompts as visibility or ranking eligible.
+- must_include: `response_shape`, `candidate_mention_opportunity`, `ranking_opportunity`, and `metric_eligibility` for each prompt; coverage counts for candidate/ranking opportunity; quality-gate failures when derivation is wrong.
+- must_not_include: criteria-only prompts counted in visibility, criteria-only prompts counted in ranking, citation-only prompts counted in visibility/ranking, branded sentiment prompts counted in visibility/ranking, or meta branded prompts such as "AIはBrandをどう説明しますか？".
+- pass_criteria: Confirmation-item and evaluation-criteria prompts are excluded from visibility; evaluation-axis prompts are excluded from ranking; candidate lists, recommendations, alternatives, and comparable sets are visibility eligible when brand-excluded; only prompts with direct recommendations or comparable candidate sets are ranking eligible; branded sentiment prompts are natural user queries and sentiment-only; metric eligibility is mechanically derived from opportunity labels.
+- failure_signals: `brand_excluded` alone makes a prompt visibility/ranking eligible, `candidate_mention_opportunity: weak` is counted in visibility, `ranking_opportunity: weak` is counted in ranking, branded sentiment uses meta wording, or the coverage matrix reports no derivation errors despite conflicting labels.
+
 ## Compact Pass Checklist
 
 - Non-branded coverage exists and is not crowded out by branded prompts.

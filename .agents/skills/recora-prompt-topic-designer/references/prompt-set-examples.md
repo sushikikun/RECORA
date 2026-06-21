@@ -152,6 +152,28 @@ Machine-readable metric eligibility:
 }
 ```
 
+## Candidate and Ranking Opportunity Example
+
+Use this pattern to prevent criteria-only prompts from distorting AI Visibility Rate or AI Ranking.
+
+| id | prompt | response_shape | candidate_mention_opportunity | ranking_opportunity | metric_eligibility | note |
+|---|---|---|---|---|---|---|
+| PTD-OPP-001 | 通販でコーヒー豆を買うとき、価格、容量、レビューはどう確認すべきですか？ | evaluation_criteria | weak | weak | visibility_rate: excluded; ranking: excluded; sentiment: excluded | Useful criteria prompt, but not a visibility/ranking denominator prompt. |
+| PTD-OPP-002 | 価格・容量・レビューを比較しやすい通販のコーヒー豆ブランドや商品には、どんな候補がありますか？ | candidate_list | direct | comparable_set | visibility_rate: eligible; ranking: eligible; sentiment: excluded | Candidate names can naturally appear and be compared. |
+| PTD-OPP-003 | 自宅用に買えるコーヒー豆の候補を、価格帯と特徴が比較できるように紹介してください。 | comparative_set | direct | comparable_set | visibility_rate: eligible; ranking: eligible; sentiment: excluded | Multiple candidates and comparison order can be observed. |
+| PTD-OPP-004 | コーヒー豆の比較で、公式情報、レビュー、比較記事などの根拠を確認するとき、どんな点を見るとよいですか？ | evidence_answer | none | none | visibility_rate: excluded; ranking: excluded; sentiment: excluded | Citation/evidence prompt only. |
+| PTD-OPP-005 | Example Coffeeの評判は？ | branded_sentiment_answer | none | none | visibility_rate: excluded; ranking: excluded; sentiment: eligible | Natural branded sentiment prompt; do not count in visibility/ranking. |
+
+Branded sentiment prompt set example:
+
+| sentiment_angle | natural_prompt | response_shape | metric_eligibility |
+|---|---|---|---|
+| overall_reputation | Example Coffeeの評判は？ | branded_sentiment_answer | visibility_rate: excluded; ranking: excluded; sentiment: eligible |
+| use_case_fit | Example Coffeeはギフト用に向いてる？ | branded_sentiment_answer | visibility_rate: excluded; ranking: excluded; sentiment: eligible |
+| concern_or_risk | Example Coffeeを買う前に気をつけることはある？ | branded_sentiment_answer | visibility_rate: excluded; ranking: excluded; sentiment: eligible |
+
+If an older or compact example omits `response_shape`, `candidate_mention_opportunity`, or `ranking_opportunity`, re-derive metric eligibility with the stricter rule before using it for measurement. Do not assume `brand_excluded` alone makes the prompt visibility or ranking eligible.
+
 ## Industry Adapter Mini Examples
 
 These are fictional structure examples only. They do not claim actual AI visibility, ranking, citation, or sentiment.

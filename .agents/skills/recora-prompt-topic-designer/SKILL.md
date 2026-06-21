@@ -172,6 +172,9 @@ For substantial outputs, use these sections:
 - brand_mention_rule:
 - competitor_mention_rule:
 - expected_signal:
+- response_shape:
+- candidate_mention_opportunity:
+- ranking_opportunity:
 - metric_eligibility:
   - visibility_rate:
   - ranking:
@@ -295,6 +298,12 @@ Use these mention-rule values:
 - `brand_mention_rule`: `brand_excluded`, `brand_included`, `brand_optional`, `competitor_only`
 - `competitor_mention_rule`: `no_competitor`, `named_competitors`, `category_competitors`, `unknown_competitor_discovery`
 
+Use these response-shape and opportunity values:
+
+- `response_shape`: `candidate_list`, `ranked_recommendation`, `comparative_set`, `evaluation_criteria`, `explanatory_answer`, `evidence_answer`, `branded_sentiment_answer`
+- `candidate_mention_opportunity`: `direct`, `likely`, `weak`, `none`
+- `ranking_opportunity`: `direct`, `comparable_set`, `weak`, `none`
+
 ## Real Persona Query Realism
 
 Recora prompts should sound like realistic AI/search inputs, not only like polished research questions.
@@ -338,11 +347,30 @@ Do not mix branded prompts into Recora AI visibility rate or AI ranking.
 Every prompt can include:
 
 ```md
+response_shape: candidate_list | ranked_recommendation | comparative_set | evaluation_criteria | explanatory_answer | evidence_answer | branded_sentiment_answer
+candidate_mention_opportunity: direct | likely | weak | none
+ranking_opportunity: direct | comparable_set | weak | none
 metric_eligibility:
   visibility_rate: eligible | excluded
   ranking: eligible | excluded
   sentiment: eligible | excluded
 ```
+
+Derive `metric_eligibility` from the opportunity fields, not from `brand_mention_rule` alone.
+
+- `visibility_rate: eligible` only when `brand_mention_rule: brand_excluded`, `candidate_mention_opportunity` is `direct` or `likely`, and the prompt is not citation-only or sentiment-only.
+- `ranking: eligible` only when `brand_mention_rule: brand_excluded`, `ranking_opportunity` is `direct` or `comparable_set`, and the answer can naturally contain multiple candidates, a shortlist, a recommendation order, or a comparable set.
+- `sentiment: eligible` only when `brand_mention_rule: brand_included` and the prompt is a branded sentiment / brand perception query. In that case visibility rate and ranking must be `excluded`.
+
+Response-shape defaults:
+
+- `candidate_list`: visibility eligible; ranking eligible only if candidates can be ordered or compared.
+- `ranked_recommendation`: visibility and ranking eligible.
+- `comparative_set`: visibility and ranking eligible.
+- `evaluation_criteria`: visibility and ranking excluded unless rewritten to ask for candidates.
+- `explanatory_answer`: excluded by default.
+- `evidence_answer`: citation/evidence only.
+- `branded_sentiment_answer`: sentiment only.
 
 Default examples:
 
@@ -350,6 +378,10 @@ Default examples:
 - `competitor_comparison`: visibility_rate `eligible`, ranking `eligible`, sentiment `excluded`.
 - `branded`: visibility_rate `excluded`, ranking `excluded`, sentiment `eligible`.
 - `citation_check`: visibility_rate `excluded` unless brand-excluded and recommendation-oriented; ranking `excluded` unless comparison-oriented; sentiment `excluded` unless brand-included and sentiment-oriented.
+
+If a prompt only asks for evaluation criteria, confirmation items, general explanation, citations, or evidence, do not count it in AI Visibility Rate or AI Ranking even when it is `brand_excluded`. Rewrite it into a candidate-list, ranked-recommendation, or comparable-set prompt when the user wants it to contribute to visibility or ranking metrics.
+
+Branded sentiment prompts should sound like natural brand queries, not meta-questions about AI behavior. Prefer prompts such as "`[Brand]`の評判は？", "`[Brand]`は[use case]向き？", "`[Brand]`って価格に見合う？", or "`[Brand]`を買う前に気をつけることはある？". Keep them sentiment-only and exclude them from visibility and ranking.
 
 ## Sentiment Evaluation Rules
 
@@ -388,6 +420,16 @@ Always report:
 - `visibility_rate_prompt_count`
 - `ranking_prompt_count`
 - `sentiment_prompt_count`
+- `visibility_eligible_prompt_count`
+- `ranking_eligible_prompt_count`
+- `candidate_mention_direct_count`
+- `candidate_mention_likely_count`
+- `weak_candidate_opportunity_excluded_count`
+- `ranking_direct_count`
+- `ranking_comparable_set_count`
+- `evaluation_criteria_excluded_count`
+- `metric_eligibility_derivation_errors`
+- `branded_sentiment_natural_query_count`
 - `branded_prompt_excluded_from_visibility`
 - `branded_prompt_excluded_from_ranking`
 - `industry_adapter_used`
@@ -410,7 +452,7 @@ Every prompt needs:
 
 - `quality_score`: 0-100 or high / medium / low, depending on the output format requested.
 - `gate_decision`: `ready_for_measurement`, `revise_before_measurement`, `internal_only`, or `reject`.
-- `gate_reason`: use concrete reasons such as `too_leading`, `too_branded`, `unclear_signal`, `duplicate_prompt`, `weak_buyer_realism`, `not_actionable`, `unsupported_assumption`, `metric_misclassified`, `over_sanitized_language`, or `consultant_language_bias`.
+- `gate_reason`: use concrete reasons such as `too_leading`, `too_branded`, `unclear_signal`, `duplicate_prompt`, `weak_buyer_realism`, `not_actionable`, `unsupported_assumption`, `metric_misclassified`, `over_sanitized_language`, `consultant_language_bias`, `visibility_without_candidate_opportunity`, `ranking_without_comparable_candidates`, `evaluation_criteria_misclassified_as_visibility`, `evaluation_criteria_misclassified_as_ranking`, `branded_sentiment_meta_question`, or `insufficient_branded_sentiment_coverage`.
 
 If a prompt is not `ready_for_measurement`, provide:
 
@@ -457,10 +499,13 @@ Before delivering:
 - External or sibling skills were used for structure only, not copied text.
 - Public skill research records `copied_text: no` and no third-party scripts were executed.
 - `non_branded`, `buyer_stage`, `persona`, `expected_signal`, `quality_score`, `gate_decision`, and `measurement_readiness` are present.
+- `response_shape`, `candidate_mention_opportunity`, and `ranking_opportunity` are present before deriving metric eligibility.
 - Topic Set, Topic Coverage Matrix, and Topic-to-Prompt Mapping are present for substantial prompt-set design.
 - Every prompt has at least one `topic_id`.
 - Every topic has `expected_signal`, `metric_target`, and a topic quality decision.
 - `metric_eligibility` is present and branded prompts are excluded from visibility rate and ranking.
+- Visibility rate eligibility is limited to brand-excluded prompts with direct or likely candidate mention opportunity.
+- Ranking eligibility is limited to brand-excluded prompts with direct ranking or comparable-set opportunity.
 - Sentiment / brand perception is reported separately from visibility rate and ranking.
 - Industry/business-model adapter fit is checked when the client is not a generic B2B SaaS case.
 - `language_mode` and persona-query realism are checked when BtoC, local, clinic/healthcare, or practical BtoB buyer language matters.

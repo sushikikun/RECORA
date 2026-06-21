@@ -9,6 +9,7 @@ The goal is not to create separate skills per industry. Use these adapters to ad
 ## Global Rules
 
 - Measure AI Visibility Rate and AI Ranking mainly with `non_branded`, `problem_solution`, `alternative_search`, and `competitor_comparison` prompts using `brand_mention_rule: brand_excluded`.
+- Do not treat `brand_excluded` alone as enough for AI Visibility Rate or AI Ranking. First assign `response_shape`, `candidate_mention_opportunity`, and `ranking_opportunity`; only candidate-list, recommendation, alternative, shortlist, or comparable-set prompts should enter visibility/ranking denominators.
 - Exclude `branded` and `brand_mention_rule: brand_included` prompts from AI Visibility Rate and AI Ranking in every industry.
 - Use `branded` / `brand_included` prompts only for sentiment, reputation, brand perception, explanation accuracy, and risk framing.
 - Keep sentiment separate from visibility and ranking in reporting.

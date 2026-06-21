@@ -67,11 +67,13 @@ Use these `topic_type` values:
 
 ## Metric Target Guidance
 
-- `visibility_rate`: use non-branded, problem, alternative, category, local, or competitor topics with `brand_mention_policy: brand_excluded`.
-- `ranking`: use category discovery, vendor shortlist, alternative search, local/regional comparison, and competitor comparison topics with `brand_mention_policy: brand_excluded`.
+- `visibility_rate`: use non-branded, problem, alternative, category, local, or competitor topics with `brand_mention_policy: brand_excluded`, but only mapped prompts with `candidate_mention_opportunity: direct` or `likely` are visibility eligible.
+- `ranking`: use category discovery, vendor shortlist, alternative search, local/regional comparison, and competitor comparison topics with `brand_mention_policy: brand_excluded`, but only mapped prompts with `ranking_opportunity: direct` or `comparable_set` are ranking eligible.
 - `sentiment`: use branded sentiment topics only; exclude these topics from visibility and ranking.
 - `citation_check`: use citation/evidence topics to observe source types, cited URLs, evidence quality, and source-to-claim fit.
 - `risk_check`: use regulated, pricing/reputation, review-risk, safety, legal/financial caution, or hallucination-risk topics.
+
+Do not treat all prompts under a visibility/ranking topic as metric eligible. A topic can contain criteria, safety, or citation prompts that support diagnosis but are excluded from visibility/ranking denominators.
 
 ## Brand Mention Policy
 
@@ -101,6 +103,9 @@ metric_target:
 - prompt_ids:
 - prompt_count:
 - prompt_language_modes:
+- response_shapes:
+- candidate_mention_opportunity_summary:
+- ranking_opportunity_summary:
 - metric_eligibility_summary:
 - coverage_status:
 - missing_prompt_type:
@@ -161,6 +166,9 @@ Use one gate decision per topic:
 - A prompt can map to more than one topic only when it genuinely measures both; avoid using one prompt to fill unrelated coverage gaps.
 - A prompt mapped to a `branded_sentiment_topic` must have `brand_mention_rule: brand_included` and visibility/ranking excluded.
 - A prompt mapped to visibility/ranking topics should usually have `brand_mention_rule: brand_excluded`.
+- A prompt mapped to a visibility topic is visibility eligible only when it also has `candidate_mention_opportunity: direct` or `likely`.
+- A prompt mapped to a ranking topic is ranking eligible only when it also has `ranking_opportunity: direct` or `comparable_set`.
+- Prompts with `response_shape: evaluation_criteria`, `explanatory_answer`, `evidence_answer`, or `branded_sentiment_answer` should not count toward visibility/ranking even when they support the same topic.
 - A `citation_evidence_topic` must have at least one prompt that can produce source/citation behavior for downstream analysis.
 - A `regulated_risk_topic` must avoid diagnosis, treatment, legal judgment, investment advice, guaranteed outcomes, cure claims, and unsupported safety/performance claims.
 - A BtoC, local, or clinic topic should include at least one realistic `language_mode` such as `raw_search_like`, `anxious_user`, or `comparison_shortcut` when appropriate.
@@ -173,6 +181,7 @@ Use one gate decision per topic:
 | orphan_prompt | Prompt has no `topic_id`. | Attach it to a real topic or remove it. |
 | orphan_topic | Topic has no prompts. | Add prompts or remove the topic from the measurement set. |
 | topic_metric_mismatch | Branded topic targets visibility/ranking, or non-branded topic targets sentiment without brand context. | Fix `metric_target` and prompt eligibility. |
+| prompt_metric_derivation_mismatch | Prompt metric eligibility conflicts with `response_shape`, `candidate_mention_opportunity`, or `ranking_opportunity`. | Re-derive metric eligibility; exclude criteria/evidence/sentiment prompts or rewrite them into candidate-list/comparable-set prompts. |
 | topic_overfragmentation | Many topics differ only by wording. | Merge topics and vary prompts within the topic. |
 | topic_undercoverage | Topic has fewer prompts than `minimum_prompt_count`. | Add prompt variants by persona, buyer stage, language mode, or metric target. |
 | weak_topic_signal | `expected_signal` is not observable. | Rewrite expected signal into mention, rank/order, citation, comparison, sentiment, or risk-language signals. |

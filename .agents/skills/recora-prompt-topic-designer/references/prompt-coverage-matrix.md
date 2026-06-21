@@ -23,6 +23,16 @@ Substantial outputs should follow this order: Topic Set, Topic Coverage Matrix, 
 - visibility_rate_prompt_count:
 - ranking_prompt_count:
 - sentiment_prompt_count:
+- visibility_eligible_prompt_count:
+- ranking_eligible_prompt_count:
+- candidate_mention_direct_count:
+- candidate_mention_likely_count:
+- weak_candidate_opportunity_excluded_count:
+- ranking_direct_count:
+- ranking_comparable_set_count:
+- evaluation_criteria_excluded_count:
+- metric_eligibility_derivation_errors:
+- branded_sentiment_natural_query_count:
 - branded_prompt_excluded_from_visibility:
 - branded_prompt_excluded_from_ranking:
 - industry_adapter_used:
@@ -50,6 +60,16 @@ Substantial outputs should follow this order: Topic Set, Topic Coverage Matrix, 
 - `visibility_rate_prompt_count`: count prompts eligible for AI Visibility Rate.
 - `ranking_prompt_count`: count prompts eligible for AI Ranking.
 - `sentiment_prompt_count`: count prompts eligible for sentiment / brand perception.
+- `visibility_eligible_prompt_count`: count prompts with `metric_eligibility.visibility_rate: eligible` after candidate opportunity derivation.
+- `ranking_eligible_prompt_count`: count prompts with `metric_eligibility.ranking: eligible` after ranking opportunity derivation.
+- `candidate_mention_direct_count`: count prompts with `candidate_mention_opportunity: direct`.
+- `candidate_mention_likely_count`: count prompts with `candidate_mention_opportunity: likely`.
+- `weak_candidate_opportunity_excluded_count`: count `weak` candidate-opportunity prompts that are correctly excluded from visibility.
+- `ranking_direct_count`: count prompts with `ranking_opportunity: direct`.
+- `ranking_comparable_set_count`: count prompts with `ranking_opportunity: comparable_set`.
+- `evaluation_criteria_excluded_count`: count `response_shape: evaluation_criteria` prompts correctly excluded from visibility and ranking.
+- `metric_eligibility_derivation_errors`: list prompts where visibility/ranking/sentiment eligibility conflicts with brand rule, response shape, candidate opportunity, or ranking opportunity.
+- `branded_sentiment_natural_query_count`: count branded sentiment prompts written as natural user questions rather than meta-questions about AI behavior.
 - `branded_prompt_excluded_from_visibility`: `yes` only when all `branded` and `brand_included` prompts are excluded from visibility rate.
 - `branded_prompt_excluded_from_ranking`: `yes` only when all `branded` and `brand_included` prompts are excluded from ranking.
 - `industry_adapter_used`: the selected adapter from `industry-business-model-adapters.md`, or `none` when no industry adaptation is needed.
@@ -68,9 +88,24 @@ Use these rules when deciding whether a prompt can be used in Recora metrics.
 
 | metric | eligible prompt types | required conditions | excluded prompts | reason |
 |---|---|---|---|---|
-| `visibility_rate` | `non_branded`, `problem_solution`, `alternative_search`, `competitor_comparison` | Use `brand_mention_rule: brand_excluded` by default. | `branded`, `brand_mention_rule: brand_included` | Brand-seeded prompts can artificially raise mention rate. |
-| `ranking` | `non_branded`, `alternative_search`, `competitor_comparison`, category discovery, vendor shortlist | Use `brand_mention_rule: brand_excluded`; prefer `category_competitors` or `unknown_competitor_discovery`. | `branded`, `brand_mention_rule: brand_included` | Prompted-brand rank is not market ranking. |
+| `visibility_rate` | Candidate-list, ranked-recommendation, comparative-set, category discovery, alternative search, competitor discovery prompts | `brand_mention_rule: brand_excluded`; `candidate_mention_opportunity: direct` or `likely`; not citation-only or sentiment-only. | `branded`, `brand_included`, `candidate_mention_opportunity: weak/none`, `response_shape: evaluation_criteria/explanatory_answer/evidence_answer/branded_sentiment_answer` | Brand exclusion alone is insufficient; visibility needs a natural chance for candidate mentions. |
+| `ranking` | Ranked-recommendation, comparable-set, shortlist, vendor/product comparison prompts | `brand_mention_rule: brand_excluded`; `ranking_opportunity: direct` or `comparable_set`; answer can contain multiple candidates or recommendation order. | `branded`, `brand_included`, `ranking_opportunity: weak/none`, criteria-only prompts | Ranking needs candidates that can be ordered or compared, not just evaluation criteria. |
 | `sentiment` | `branded`, brand perception, reputation, risk, trust, strengths/weakness prompts | Use `brand_mention_rule: brand_included` when evaluating how AI describes the brand. | Non-branded discovery prompts unless they intentionally ask about brand perception after measurement. | Sentiment is a separate brand perception metric. |
+
+## Candidate and Ranking Opportunity Labels
+
+Use these labels before deriving `metric_eligibility`.
+
+| field | value | meaning | metric effect |
+|---|---|---|---|
+| `candidate_mention_opportunity` | `direct` | The prompt directly asks for candidate brands, products, services, stores, companies, or vendors. | Visibility eligible when brand-excluded and not citation/sentiment-only. |
+| `candidate_mention_opportunity` | `likely` | Candidate mentions are natural in the answer because the prompt asks for alternatives, discovery, shortlist, or category options. | Visibility eligible when brand-excluded and not citation/sentiment-only. |
+| `candidate_mention_opportunity` | `weak` | The prompt asks for criteria, how to choose, or what to check; candidate names may not appear. | Visibility excluded. |
+| `candidate_mention_opportunity` | `none` | Evidence, general explanation, citation, or branded sentiment prompt. | Visibility excluded. |
+| `ranking_opportunity` | `direct` | The prompt asks for recommendations, top candidates, candidate list, or "which is good". | Ranking eligible when brand-excluded. |
+| `ranking_opportunity` | `comparable_set` | Multiple candidates are naturally compared or listed in one answer. | Ranking eligible when brand-excluded. |
+| `ranking_opportunity` | `weak` | The prompt asks only for evaluation axes or confirmation items. | Ranking excluded. |
+| `ranking_opportunity` | `none` | Evidence, general explanation, or branded sentiment prompt. | Ranking excluded. |
 
 Default prompt-level mapping:
 
@@ -85,6 +120,8 @@ metric_eligibility:
 - `competitor_comparison`: visibility_rate `eligible`, ranking `eligible`, sentiment `excluded`.
 - `branded`: visibility_rate `excluded`, ranking `excluded`, sentiment `eligible`.
 - `citation_check`: visibility_rate `excluded` unless brand-excluded and recommendation-oriented; ranking `excluded` unless comparison-oriented; sentiment `excluded` unless brand-included and sentiment-oriented.
+
+These defaults are subordinate to opportunity labels. A `brand_excluded` prompt with `response_shape: evaluation_criteria`, `candidate_mention_opportunity: weak`, and `ranking_opportunity: weak` must be excluded from visibility and ranking.
 
 Report-level rule:
 
@@ -138,6 +175,12 @@ Use `prompt-design-failure-diagnosis.md` when the matrix shows these gaps:
 | `non_branded` missing or thin | `non_branded_undercoverage` | Add natural `brand_excluded` discovery prompts before branded validation. |
 | `brand_included` dominates | `branded_overfit` | Reduce brand seeding and rebalance toward category, problem, and alternative prompts. |
 | `branded` eligible for visibility or ranking | `branded_overfit` | Set visibility/ranking eligibility to `excluded` and use the prompt only for sentiment or brand validation. |
+| visibility eligible but no candidate opportunity | `visibility_without_candidate_opportunity` | Set visibility to `excluded` or rewrite the prompt to ask for candidate brands, products, services, stores, or vendors. |
+| ranking eligible but no comparable candidates | `ranking_without_comparable_candidates` | Set ranking to `excluded` or rewrite the prompt to ask for top candidates, a ranked recommendation, or a comparable set. |
+| evaluation criteria counted in visibility | `evaluation_criteria_misclassified_as_visibility` | Keep it as a criteria prompt or rewrite into `candidate_list`. |
+| evaluation criteria counted in ranking | `evaluation_criteria_misclassified_as_ranking` | Keep ranking excluded or rewrite into `ranked_recommendation` / `comparative_set`. |
+| branded sentiment meta wording | `branded_sentiment_meta_question` | Rewrite to a natural brand query and keep sentiment-only. |
+| sentiment goal has too few branded natural queries | `insufficient_branded_sentiment_coverage` | Add overall reputation, use-case fit, and concern/risk branded prompts. |
 | business model and prompt family mismatch | `business_model_mismatch` | Select the correct industry adapter and rewrite persona, stage, and prompt families. |
 | B2B committee language used for B2C/local | `b2b_template_overapplied_to_b2c` | Replace executive/evaluator language with consumer, local, review, price, and convenience angles. |
 | missing local area or near-me intent | `missing_local_intent` | Add area, access, opening hours, booking, nearby alternative, and review prompts. |

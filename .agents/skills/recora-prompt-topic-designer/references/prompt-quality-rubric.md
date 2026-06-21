@@ -20,6 +20,9 @@ Score each dimension as `high`, `medium`, or `low`.
 | `stage_fit` | Buyer stage is explicit and reflected in the prompt. | Stage is inferable but weak. | Stage is missing or mismatched. |
 | `expected_signal_clarity` | Expected signal is observable from answer text, citations, or entities. | Signal is partly observable. | Signal is vague, impossible, or a prediction. |
 | `metric_eligibility_fit` | Visibility/ranking/sentiment eligibility matches prompt category and brand mention rule. | Eligibility is present but one edge case needs review. | Branded or `brand_included` prompt is eligible for visibility rate or ranking. |
+| `candidate_mention_opportunity_fit` | Visibility eligibility is used only when the prompt directly or likely produces candidate brands, products, services, stores, or companies. | Candidate mention is possible but not central; exclude unless rewritten. | Visibility is marked eligible even though the prompt only asks for criteria, explanation, evidence, or sentiment. |
+| `ranking_opportunity_fit` | Ranking eligibility is used only when the prompt asks for recommendations, top candidates, shortlists, or comparable sets. | A comparison may occur but ordering is not natural; exclude unless rewritten. | Ranking is marked eligible for a prompt that only asks how to choose, what to check, or what evidence to inspect. |
+| `response_shape_fit` | `response_shape` matches the expected answer form and metric use. | Response shape is plausible but broad. | Response shape conflicts with metric eligibility, such as `evaluation_criteria` counted as ranking. |
 | `industry_fit` | Prompt angle reflects the selected industry adapter and category reality. | Broadly relevant but partly generic. | B2B SaaS or generic wording is applied to the wrong industry. |
 | `business_model_fit` | Prompt reflects BtoB, BtoC, local, product, service, regulated, marketplace, or hybrid buying logic. | Business model is implied but weak. | Business model logic conflicts with the client context. |
 | `persona_realism_by_industry` | Persona reflects real industry decision roles, such as patient, parent, shopper, local visitor, evaluator, or committee buyer. | Persona is plausible but generic. | Persona is unrealistic for the industry. |
@@ -67,6 +70,12 @@ Use one or more of these values:
 - `missing_raw_search_intent`
 - `missing_emotional_trigger`
 - `professional_persona_overgeneralized`
+- `visibility_without_candidate_opportunity`
+- `ranking_without_comparable_candidates`
+- `evaluation_criteria_misclassified_as_visibility`
+- `evaluation_criteria_misclassified_as_ranking`
+- `branded_sentiment_meta_question`
+- `insufficient_branded_sentiment_coverage`
 
 ## Failure Diagnosis Link
 
@@ -89,6 +98,12 @@ When assigning a gate decision, map the reason to `prompt-design-failure-diagnos
 | `missing_raw_search_intent` | `missing_raw_search_intent` | Add at least one `raw_search_like` or `comparison_shortcut` prompt when the buyer would search that way. |
 | `missing_emotional_trigger` | `missing_emotional_trigger` | Add safe anxiety, price, review, or failure-avoidance wording for BtoC/local/clinic contexts. |
 | `professional_persona_overgeneralized` | `professional_persona_overgeneralized` | Add role-specific practical vocabulary for BtoB and specialist personas. |
+| `visibility_without_candidate_opportunity` | `visibility_without_candidate_opportunity` | Exclude the prompt from visibility or rewrite it to ask for candidate brands, products, services, stores, or companies. |
+| `ranking_without_comparable_candidates` | `ranking_without_comparable_candidates` | Exclude the prompt from ranking or rewrite it to ask for top candidates, a shortlist, recommendations, or a comparable set. |
+| `evaluation_criteria_misclassified_as_visibility` | `evaluation_criteria_misclassified_as_visibility` | Keep as criteria/risk prompt, or rewrite to a candidate-list prompt before marking visibility eligible. |
+| `evaluation_criteria_misclassified_as_ranking` | `evaluation_criteria_misclassified_as_ranking` | Keep ranking excluded unless the prompt asks for ordered/recommended/comparable candidates. |
+| `branded_sentiment_meta_question` | `branded_sentiment_meta_question` | Rewrite from "how does AI describe Brand?" to a natural brand query such as "Brandの評判は？". |
+| `insufficient_branded_sentiment_coverage` | `insufficient_branded_sentiment_coverage` | Add natural branded sentiment prompts for overall reputation, use-case fit, and concern/risk when sentiment is a goal. |
 
 ## Low-Quality Revision Rule
 
@@ -114,7 +129,12 @@ Repair rules:
 - Replace named competitors with `unknown_competitor_discovery` when competitors are missing.
 - Make `expected_signal` observable from answer text, mentions, citations, recommendation order, or risks.
 - Add `metric_eligibility` and exclude `branded` / `brand_included` prompts from AI Visibility Rate and AI Ranking.
+- Add `response_shape`, `candidate_mention_opportunity`, and `ranking_opportunity` before deriving `metric_eligibility`.
+- Do not mark `visibility_rate: eligible` unless the prompt can directly or likely produce candidate mentions.
+- Do not mark `ranking: eligible` unless the prompt can naturally produce multiple candidates, a ranked recommendation, or a comparable set.
+- Exclude `evaluation_criteria`, `explanatory_answer`, `evidence_answer`, and `branded_sentiment_answer` response shapes from visibility/ranking unless rewritten into candidate-seeking forms.
 - Use branded prompts for sentiment / brand perception only, with sentiment reported separately.
+- Rewrite branded sentiment meta-questions into natural user questions such as "[Brand]の評判は？", "[Brand]は[use case]向き？", "[Brand]って価格に見合う？", or "[Brand]を買う前に気をつけることはある？".
 - Select an industry/business model adapter before reusing B2B SaaS prompt patterns.
 - Rewrite B2C, local, EC, education, healthcare, real estate, finance, professional-service, and HR prompts around their real buyer concerns.
 - For regulated industries, remove diagnosis, legal/financial advice, investment advice, guaranteed outcomes, and unsupported safety/performance claims.
