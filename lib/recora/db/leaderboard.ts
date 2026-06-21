@@ -28,9 +28,9 @@ const RUN_ITEM_COLUMNS =
 const AI_CONVERSATION_COLUMNS =
   "id, run_item_id, raw_answer, answer_summary, answer_hash, prompt_text_snapshot, model_snapshot, captured_at, created_at, updated_at, provider, model_requested, model_returned, response_id, web_search_enabled, citation_status, measured_at, response_time_ms";
 const BRAND_MENTION_COLUMNS =
-  "id, conversation_id, brand_id, mentioned, position, recommendation_status, sentiment, answer_score, mention_text, created_at, updated_at";
+  "id, conversation_id, brand_id, mentioned, position, recommendation_status, sentiment, answer_score, mention_text, mention_count, first_mention_index, evidence_snippet, confidence, matched_alias, created_at, updated_at";
 const CITATION_COLUMNS =
-  "id, conversation_id, brand_id, source_domain_id, url, domain, title, source_type, supports_claim, occurrence_count, created_at, updated_at, canonical_url, start_index, end_index, cited_text, brand_related";
+  "id, conversation_id, brand_id, source_domain_id, url, domain, title, source_type, supports_claim, occurrence_count, created_at, updated_at, canonical_url, start_index, end_index, cited_text, brand_related, source_to_claim_status, claim_text, source_to_claim_note, source_retrieved_at, source_published_at, source_last_modified_at, source_freshness_status, source_freshness_days";
 const PROMPT_COLUMNS =
   "id, project_id, topic_id, persona_id, text, intent, buyer_stage, priority, is_active, created_at, updated_at";
 const PERSONA_COLUMNS =

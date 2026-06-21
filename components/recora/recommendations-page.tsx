@@ -33,6 +33,8 @@ type RecommendationDisplayItem = {
   impactScore: number;
   confidence: string;
   confidenceLabel: string;
+  qualityGateLabel: string;
+  qualityGateNote: string;
   customerFacingCaution: string;
   recoraMetricNotice: string;
   sampleSizeCaution: string | null;
@@ -52,6 +54,7 @@ type RecommendationsViewModel = {
   highPriorityCount: number;
   observationCount: number;
   citationUrlCount: number;
+  preQualityGateCandidateCount: number | null;
   openCount: number;
   plannedCount: number;
   doneCount: number;
@@ -83,9 +86,9 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
       <DetailTabs items={reportDetailTabs.recommendations} />
 
       <div className="grid gap-4 lg:grid-cols-4">
-        <MetricTile label="改善候補数" value={String(view.items.length)} helper={view.sourceLabel} />
-        <MetricTile label="高優先度" value={String(view.highPriorityCount)} helper="priority high" tone="amber" />
-        <MetricTile label="観測数" value={String(view.observationCount)} helper={view.sourceLabel} />
+        <MetricTile label="表示候補数" value={String(view.items.length)} helper={view.sourceLabel} />
+        <MetricTile label="高重要度" value={String(view.highPriorityCount)} helper="次に判断したい候補" tone="amber" />
+        <MetricTile label="観測回答数" value={String(view.observationCount)} helper="根拠に使われた回答範囲" />
         <MetricTile label="参照URL数" value={String(view.citationUrlCount)} helper="根拠確認済み数ではありません" tone="slate" />
       </div>
 
@@ -105,8 +108,14 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
             <RecommendationStatusRow label="未着手" value={view.openCount} tone="rose" />
             <RecommendationStatusRow label="計画中" value={view.plannedCount} tone="amber" />
             <RecommendationStatusRow label="完了" value={view.doneCount} tone="green" />
-            <div className="rounded-lg border border-teal-100 bg-teal-50/70 p-3 text-xs leading-5 text-teal-800">
-              {`${view.sourceLabel}由来かつdisplay_decision=showの項目だけを表示しています。承認済み施策ではありません。`}
+            <div className="rounded-lg border border-teal-100 bg-teal-50/70 p-3">
+              <p className="text-xs font-bold text-teal-900">品質ゲート</p>
+              <p className="mt-1 text-2xl font-bold tracking-normal text-teal-950">
+                {view.preQualityGateCandidateCount === null ? "-" : view.preQualityGateCandidateCount}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-teal-800">
+                確認待ち候補です。画面表示対象であっても、承認済み施策や成果保証ではありません。
+              </p>
             </div>
           </div>
         </DataCard>
@@ -133,6 +142,7 @@ function createRecommendationsViewModel(data?: RecoraRecommendationsDbData | nul
     highPriorityCount,
     observationCount,
     citationUrlCount,
+    preQualityGateCandidateCount: data?.preQualityGateCandidateCount ?? null,
     openCount: items.filter((item) => item.statusLabel === "未着手").length,
     plannedCount: items.filter((item) => item.statusLabel === "計画中").length,
     doneCount: items.filter((item) => item.statusLabel === "完了").length
@@ -168,6 +178,7 @@ function createDbRecommendationItems(data: RecoraRecommendationsDbData): Recomme
         getMetadataString(metadata, "display_category") ?? recommendationTypeLabel(item.type)
       );
       const confidence = getMetadataString(metadata, "confidence") ?? "unknown";
+      const qualityGate = getRecommendationQualityGate(metadata);
       const evidenceMetrics = buildEvidenceMetrics(evidence, displayCategory);
 
       return {
@@ -185,6 +196,8 @@ function createDbRecommendationItems(data: RecoraRecommendationsDbData): Recomme
         impactScore: Math.round(item.impact_score),
         confidence,
         confidenceLabel: getMetadataString(metadata, "confidence_label") ?? confidenceLabel(confidence),
+        qualityGateLabel: qualityGate.label,
+        qualityGateNote: qualityGate.note,
         customerFacingCaution: safeRecoraNotice(getMetadataString(metadata, "customer_facing_caution")),
         recoraMetricNotice: safeRecoraNotice(getMetadataString(metadata, "recora_metric_notice")),
         sampleSizeCaution: displayCategory === "サンプル不足"
@@ -211,7 +224,7 @@ function DetailTabs({ items, active = 0 }: { items: readonly string[]; active?: 
             key={item}
             className={cn(
               "rounded-md px-3 py-2 text-xs font-bold text-slate-500",
-              index === active ? "bg-blue-600 text-white shadow-sm" : "hover:bg-slate-50"
+              index === active ? "bg-[#00796B] text-white shadow-sm" : "hover:bg-[#E6F4F1] hover:text-[#005C50]"
             )}
           >
             {item}
@@ -250,7 +263,7 @@ function ReportFilters({ compact = false, data }: { compact?: boolean; data?: Re
       {!compact ? <FilterBox label="比較期間" value={comparisonPeriod} /> : <FilterBox label="比較期間" value={comparisonPeriod} />}
       <FilterBox label="地域" value={"\u65e5\u672c\u8a9e\uff08\u65e5\u672c\uff09"} />
       <div className="flex items-center justify-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
-        <RefreshCw className="h-4 w-4 text-blue-600" />
+        <RefreshCw className="h-4 w-4 text-[#00796B]" />
         最終更新
       </div>
     </div>
@@ -287,6 +300,7 @@ function RecommendationActionCard({ item }: { item: RecommendationDisplayItem })
             <RecommendationPriorityBadge item={item} />
             <DisplayCategoryBadge item={item} />
             <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-white text-slate-600">{item.confidenceLabel}</Badge>
+            <Badge variant="outline" className="whitespace-nowrap rounded-sm border-teal-200 bg-teal-50 text-teal-700">{item.qualityGateLabel}</Badge>
             <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-white text-slate-600">{item.statusLabel}</Badge>
           </div>
           <h2 className="mt-3 text-base font-bold text-slate-950">{item.title}</h2>
@@ -310,12 +324,12 @@ function RecommendationActionCard({ item }: { item: RecommendationDisplayItem })
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <RecommendationMeta label="関連ブランド" value={item.relatedBrand} />
         <RecommendationMeta label="関連トピック" value={item.relatedTopic} />
-        <RecommendationMeta label="推奨アクション" value={item.action} />
+        <RecommendationMeta label="次の判断" value={item.action} />
       </div>
       <RecommendationEvidenceMetrics item={item} />
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <RecommendationNote label="観測根拠の説明" value={item.evidenceDescription} />
-        <RecommendationNote label="注意書き" value={item.customerFacingCaution} />
+        <RecommendationNote label="品質ゲートの扱い" value={item.qualityGateNote} />
       </div>
       {item.sampleSizeCaution ? (
         <div className="mt-3 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-bold leading-5 text-orange-800">
@@ -323,7 +337,7 @@ function RecommendationActionCard({ item }: { item: RecommendationDisplayItem })
         </div>
       ) : null}
       <div className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-500">
-        {item.recoraMetricNotice}
+        {item.customerFacingCaution}
       </div>
     </div>
   );
@@ -335,9 +349,9 @@ function RecommendationEvidenceMetrics({ item }: { item: RecommendationDisplayIt
   return (
     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <RecommendationMetric label={metrics.focusedObservationLabel} value={metrics.focusedObservationCount} />
-      <RecommendationMetric label="引用URL数" value={metrics.citationCount} />
-      <RecommendationMetric label="unique domain数" value={metrics.uniqueDomainCount} />
-      <RecommendationMetric label="matched_clues数" value={metrics.matchedClueCount} />
+      <RecommendationMetric label="参照URL数" value={metrics.citationCount} />
+      <RecommendationMetric label="参照ドメイン数" value={metrics.uniqueDomainCount} />
+      <RecommendationMetric label="根拠clue数" value={metrics.matchedClueCount} />
     </div>
   );
 }
@@ -403,7 +417,7 @@ function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
           <TableHead>観測根拠</TableHead>
           <TableHead>状態</TableHead>
           <TableHead>関連項目</TableHead>
-          <TableHead>アクション</TableHead>
+          <TableHead>次の判断</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -419,7 +433,7 @@ function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
             <TableCell className="min-w-[170px] text-xs leading-5 text-slate-600">
               <div>観測数: <span className="font-bold text-slate-950">{row.evidenceMetrics.observationCount}</span></div>
               <div>{row.evidenceMetrics.focusedObservationLabel}: <span className="font-bold text-slate-950">{row.evidenceMetrics.focusedObservationCount}</span></div>
-              <div>引用URL: <span className="font-bold text-slate-950">{row.evidenceMetrics.citationCount}</span></div>
+              <div>参照URL: <span className="font-bold text-slate-950">{row.evidenceMetrics.citationCount}</span></div>
             </TableCell>
             <TableCell className="whitespace-nowrap">{row.statusLabel}</TableCell>
             <TableCell className="min-w-[220px] text-sm leading-6 text-slate-600">
@@ -428,7 +442,7 @@ function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
             </TableCell>
             <TableCell className="min-w-[260px] text-sm leading-6 text-slate-600">
               {row.targetUrl ? (
-                <Link href={row.targetUrl} className="inline-flex max-w-[240px] items-center gap-1 truncate font-semibold text-blue-700 hover:text-blue-800">
+                <Link href={row.targetUrl} className="inline-flex max-w-[240px] items-center gap-1 truncate font-semibold text-[#00796B] hover:text-[#005C50]">
                   <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate">{row.action}</span>
                 </Link>
@@ -455,7 +469,7 @@ function RecommendationPriorityBadge({ item }: { item: RecommendationDisplayItem
       : "border-slate-200 bg-slate-50 text-slate-600";
   return (
     <Badge variant="outline" className={cn("whitespace-nowrap rounded-sm", className)}>
-      {item.priorityCode} / {item.priority === "High" ? "高" : item.priority === "Medium" ? "中" : "低"}
+      重要度: {item.priority === "High" ? "高" : item.priority === "Medium" ? "中" : "低"}
     </Badge>
   );
 }
@@ -615,8 +629,32 @@ function confidenceLabel(confidence: string) {
   return "要確認";
 }
 
+function getRecommendationQualityGate(metadata: Record<string, unknown>) {
+  const displayDecision = getMetadataString(metadata, "display_decision");
+  const shouldSave = getMetadataString(metadata, "should_save_to_recommendations");
+  const qualityDecision =
+    getMetadataString(metadata, "quality_gate_decision") ??
+    getMetadataString(metadata, "gate_decision") ??
+    getMetadataString(metadata, "decision");
+
+  if (qualityDecision === "suppress") {
+    return { label: "非表示判断", note: "品質ゲートで抑制された候補です。" };
+  }
+  if (qualityDecision === "hold") {
+    return { label: "確認待ち", note: "根拠確認後に表示判断します。" };
+  }
+  if (qualityDecision === "auto_publish" || displayDecision === "show") {
+    return {
+      label: shouldSave === "review_required" ? "表示対象・確認待ち" : "表示対象",
+      note: "顧客向け施策として承認済みではありません。"
+    };
+  }
+
+  return { label: "確認待ち", note: "品質ゲートの状態を追加確認します。" };
+}
+
 function safeRecoraNotice(value: string | undefined) {
-  const fallback = "Recora独自の観測です。少数観測のため、強い結論として扱わず確認材料としてご利用ください。";
+  const fallback = "Recoraの観測範囲に基づく確認材料です。効果保証やAI各社の公式評価ではありません。";
   if (!value) return fallback;
   return value
     .replace("Recora独自の観測であり、AIプラットフォーム公式評価ではありません。", "Recora独自の観測です。AI各社の公式な評価ではありません。")

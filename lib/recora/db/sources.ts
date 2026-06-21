@@ -28,7 +28,7 @@ const MEASUREMENT_RUN_COLUMNS =
 const SOURCE_DOMAIN_COLUMNS =
   "id, project_id, domain, source_type, owner_brand_id, trust_label, created_at, updated_at";
 const CITATION_COLUMNS =
-  "id, conversation_id, brand_id, source_domain_id, url, domain, title, source_type, supports_claim, occurrence_count, created_at, updated_at, canonical_url, start_index, end_index, cited_text, brand_related";
+  "id, conversation_id, brand_id, source_domain_id, url, domain, title, source_type, supports_claim, occurrence_count, created_at, updated_at, canonical_url, start_index, end_index, cited_text, brand_related, source_to_claim_status, claim_text, source_to_claim_note, source_retrieved_at, source_published_at, source_last_modified_at, source_freshness_status, source_freshness_days";
 const AI_CONVERSATION_COLUMNS =
   "id, run_item_id, raw_answer, answer_summary, answer_hash, prompt_text_snapshot, model_snapshot, captured_at, created_at, updated_at, provider, model_requested, model_returned, response_id, web_search_enabled, citation_status, measured_at, response_time_ms";
 

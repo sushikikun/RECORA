@@ -51,6 +51,7 @@ import {
   weeklyTrends
 } from "@/lib/recora/sample-data";
 import { createTemporaryReportViewModel, type TemporaryReportViewModel } from "@/lib/recora/report-view-model";
+import { recoraMetricDefinitions } from "@/lib/recora/metric-definitions";
 import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-config";
 import {
   getRecoraDashboardData,
@@ -322,6 +323,7 @@ type DashboardRankingRow = {
   winRate: number;
   isPrimary: boolean;
   brandTypeLabel?: string;
+  displayAnswerCount?: number;
   aiMentionCount?: number;
   recommendationCount?: number;
   citationCount?: number;
@@ -418,7 +420,7 @@ function createDashboardHomeViewModel(
   const latestReportDateScope = getReportDateScope(latestRun?.period_start, latestRun?.period_end);
   const latestReportStats: DashboardLatestReportStat[] = [
     { label: "AI回答数", value: formatNullableCount(data.counts.aiConversations), helper: "最新レポート内の回答数" },
-    { label: "ブランド表示数", value: formatNullableCount(latestMentionCount), helper: "最新レポートの観測値" },
+    { label: "ブランド言及数", value: formatNullableCount(latestMentionCount), helper: "AI回答内での言及回数" },
     { label: "参照出現数", value: formatNullableCount(latestCitationCount ?? data.counts.citations), helper: "根拠確認済み数ではありません" },
     { label: "改善候補数", value: formatNullableCount(data.recommendations.length), helper: "実行確定済みの施策数ではありません" },
     { label: "比較ブランド数", value: formatNullableCount(competitorCount), helper: "最新レポートの比較対象" },
@@ -456,7 +458,7 @@ function createDashboardHomeViewModel(
     periodHelper: latestReportDateScope.helper,
     comparisonPeriod: latestRun?.comparison_start && latestRun.comparison_end ? latestRun.comparison_start + " - " + latestRun.comparison_end : "-",
     lastUpdated: formatDateTime(latestRun?.completed_at ?? data.project.updated_at),
-    primaryBrandName: primaryBrand?.name ?? brand.name,
+    primaryBrandName: primaryBrand?.name ?? "対象ブランド",
     competitorCount,
     aiConversationCount: data.counts.aiConversations,
     brandVisibilityValue: hasLatestReportMetrics ? formatPercent(brandVisibilityNumber) : "-",
@@ -797,6 +799,7 @@ type BrandMentionAggregate = {
   scoreTotal: number;
   scoreCount: number;
   positions: number[];
+  displayConversationIds: Set<string>;
   topicCounts: Map<string, number>;
   promptCounts: Map<string, number>;
 };
@@ -825,7 +828,8 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
     if (!mention.mentioned) continue;
 
     const stat = getBrandMentionAggregate(mentionStats, mention.brand_id);
-    stat.mentionCount += 1;
+    stat.mentionCount += getMentionCount(mention);
+    stat.displayConversationIds.add(mention.conversation_id);
     stat.scoreTotal += Number(mention.answer_score ?? 0);
     stat.scoreCount += 1;
     if (isRecommendedStatus(mention.recommendation_status)) {
@@ -858,15 +862,21 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
 
   const primarySnapshot = primaryBrand ? snapshotByBrandId.get(primaryBrand.id) : undefined;
   const primaryStat = primaryBrand ? mentionStats.get(primaryBrand.id) : undefined;
-  const primaryVisibility = Math.round(primarySnapshot?.ai_visibility ?? calculateVisibility(primaryStat?.mentionCount ?? 0, data.conversations.length));
+  const primaryDisplayAnswerCount = primaryStat?.displayConversationIds.size ?? 0;
+  const primaryVisibility = Math.round(primarySnapshot?.ai_visibility ?? calculateVisibility(primaryDisplayAnswerCount, data.conversations.length));
   const topCompetitorVisibility = Math.max(
     0,
     ...data.brands
       .filter((item) => item.id !== primaryBrand?.id)
-      .map((item) => Math.round(snapshotByBrandId.get(item.id)?.ai_visibility ?? calculateVisibility(mentionStats.get(item.id)?.mentionCount ?? 0, data.conversations.length)))
+      .map((item) => Math.round(snapshotByBrandId.get(item.id)?.ai_visibility ?? calculateVisibility(mentionStats.get(item.id)?.displayConversationIds.size ?? 0, data.conversations.length)))
   );
   const primaryGap = Math.round(primarySnapshot?.competitive_gap ?? primaryVisibility - topCompetitorVisibility);
-  const totalMentionRows = Math.max(1, data.brandMentions.filter((item) => item.mentioned).length);
+  const totalBrandMentions = Math.max(
+    1,
+    data.brandMentions
+      .filter((item) => item.mentioned)
+      .reduce((sum, mention) => sum + getMentionCount(mention), 0)
+  );
   const coMentionedCompetitorsByBrandId = createCoMentionedCompetitorsByBrandId(data);
 
   const rankingRows = brandSnapshots
@@ -874,12 +884,13 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
       const brandItem = snapshot.brand_id ? data.brands.find((item) => item.id === snapshot.brand_id) : undefined;
       if (!brandItem) return [];
       const stat = mentionStats.get(brandItem.id);
+      const displayAnswerCount = stat?.displayConversationIds.size ?? 0;
       const mentionCount = Math.round(snapshot?.ai_mention_count ?? stat?.mentionCount ?? 0);
       const citationCountFromRows = citationCounts.get(brandItem.id) ?? 0;
       const citationCount = Math.round(citationCountFromRows || snapshot?.citation_count || 0);
       const averagePosition = snapshot?.average_position ?? average(stat?.positions ?? []);
-      const visibility = Math.round(snapshot?.ai_visibility ?? calculateVisibility(mentionCount, data.conversations.length));
-      const shareOfVoice = Math.round(snapshot?.share_of_voice ?? ((stat?.mentionCount ?? 0) / totalMentionRows) * 100);
+      const visibility = Math.round(snapshot?.ai_visibility ?? calculateVisibility(displayAnswerCount, data.conversations.length));
+      const shareOfVoice = Math.round(snapshot?.share_of_voice ?? ((stat?.mentionCount ?? 0) / totalBrandMentions) * 100);
       const scoreAverage = stat?.scoreCount ? stat.scoreTotal / stat.scoreCount : null;
       const recommendationCount = stat?.recommendationCount ?? 0;
       const winRate = mentionCount > 0 ? Math.round((recommendationCount / mentionCount) * 100) : 0;
@@ -896,6 +907,7 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
         winRate,
         isPrimary: brandItem.brand_type === "primary",
         brandTypeLabel: brandItem.brand_type === "primary" ? "自社" : "競合",
+        displayAnswerCount,
         aiMentionCount: mentionCount,
         recommendationCount,
         citationCount,
@@ -924,7 +936,7 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
     }));
 
   return {
-    primaryBrandName: primaryBrand?.name ?? brand.name,
+    primaryBrandName: primaryBrand?.name ?? "対象ブランド",
     primaryVisibility: formatPercent(primaryRow?.visibility ?? primaryVisibility),
     competitiveGapValue: formatSignedPt(primaryGap),
     competitiveGapDelta: primaryGap,
@@ -1015,6 +1027,7 @@ function getBrandMentionAggregate(stats: Map<string, BrandMentionAggregate>, bra
     scoreTotal: 0,
     scoreCount: 0,
     positions: [],
+    displayConversationIds: new Set<string>(),
     topicCounts: new Map(),
     promptCounts: new Map()
   };
@@ -1033,6 +1046,14 @@ function getTopMapKey(map?: Map<string, number>) {
 
 function isRecommendedStatus(value: string) {
   return value === "strongly_recommended" || value === "recommended";
+}
+
+function getMentionCount(mention: { mention_count?: number | null; mentioned: boolean }) {
+  if (typeof mention.mention_count === "number" && Number.isFinite(mention.mention_count)) {
+    return Math.max(0, mention.mention_count);
+  }
+
+  return mention.mentioned ? 1 : 0;
 }
 
 function calculateVisibility(mentionCount: number, totalConversations: number) {
@@ -2459,6 +2480,14 @@ type ReportOverviewSourceRow = {
   share: number;
 };
 
+type ReportOverviewSourceSummary = {
+  citationOccurrenceValue: string;
+  citationUrlValue: string;
+  sourceDomainValue: string;
+  ownedShareValue: string;
+  needsReviewValue: string;
+};
+
 type ReportOverviewNextLink = {
   title: string;
   description: string;
@@ -2476,6 +2505,14 @@ type ReportOverviewAudienceRow = {
   totalAnswerValue: string;
 };
 
+type ReportOverviewInsight = {
+  title: string;
+  value: string;
+  description: string;
+  href: string;
+  tone: "green" | "amber" | "slate";
+};
+
 type ReportOverviewViewModel = {
   hasReportData: boolean;
   reportBase: string;
@@ -2489,10 +2526,24 @@ type ReportOverviewViewModel = {
   aiVisibilityValue: string;
   aiVisibilityNumber: number | null;
   summaryStats: ReportOverviewStat[];
+  positionSummary: {
+    rankValue: string;
+    competitorGapValue: string;
+    shareOfVoiceValue: string;
+    averagePositionValue: string;
+    topCompetitorName: string;
+    topCompetitorVisibilityValue: string;
+  };
   leaderboardRows: DashboardRankingRow[];
   sourceRows: ReportOverviewSourceRow[];
+  sourceSummary: ReportOverviewSourceSummary;
   personaRows: ReportOverviewAudienceRow[];
   topicRows: ReportOverviewAudienceRow[];
+  strongestPersonaRows: ReportOverviewAudienceRow[];
+  weakestPersonaRows: ReportOverviewAudienceRow[];
+  strongestTopicRows: ReportOverviewAudienceRow[];
+  weakestTopicRows: ReportOverviewAudienceRow[];
+  insightLinks: ReportOverviewInsight[];
   detailLinks: ReportOverviewNextLink[];
 };
 
@@ -2575,11 +2626,36 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
   const brandDisplayedAnswerCount = getPrimaryBrandDisplayedAnswerCount(leaderboardData, primaryBrand?.id);
   const brandMentionCount = getRoundedNumber(primarySnapshot?.ai_mention_count ?? projectSnapshot?.ai_mention_count) ?? primaryRankingRow?.aiMentionCount ?? null;
   const citationOccurrenceCount = getReportCitationOccurrenceCount(leaderboardData);
+  const citationUrlCount = getReportCitationUrlCount(leaderboardData);
+  const sourceDomainCount = getReportSourceDomainCount(leaderboardData);
+  const sourceToClaimNeedsReviewCount = getReportSourceToClaimNeedsReviewCount(leaderboardData);
+  const ownedCitationShare = getReportOwnedCitationShare(leaderboardData);
   const sourceRows = createReportOverviewSourceRows(leaderboardData);
   const personaRows = createReportOverviewAudienceRows(leaderboardData, primaryBrand?.id, "persona");
   const topicRows = createReportOverviewAudienceRows(leaderboardData, primaryBrand?.id, "topic");
   const currentReportBase = `/dashboard/reports/${projectSlug}`;
   const reportDateScope = getReportDateScope(latestRun?.period_start, latestRun?.period_end, project?.default_period);
+  const primaryRankIndex = leaderboardView.rankingRows.findIndex((row) => row.isPrimary);
+  const topCompetitorRow = leaderboardView.rankingRows.find((row) => !row.isPrimary) ?? null;
+  const strongestPersonaRows = getStrongestAudienceRows(personaRows);
+  const weakestPersonaRows = getWeakestAudienceRows(personaRows);
+  const strongestTopicRows = getStrongestAudienceRows(topicRows);
+  const weakestTopicRows = getWeakestAudienceRows(topicRows);
+  const positionSummary = {
+    rankValue: primaryRankIndex >= 0 ? `${primaryRankIndex + 1}位` : "-",
+    competitorGapValue: primaryRankingRow ? formatSignedPt(primaryRankingRow.competitiveGap) : "-",
+    shareOfVoiceValue: primaryRankingRow ? formatReportOverviewPercent(primaryRankingRow.citationShare) : "-",
+    averagePositionValue: typeof primaryRankingRow?.averagePosition === "number" ? primaryRankingRow.averagePosition.toFixed(1) : "-",
+    topCompetitorName: topCompetitorRow?.name ?? "比較ブランドなし",
+    topCompetitorVisibilityValue: topCompetitorRow ? formatReportOverviewPercent(topCompetitorRow.visibility) : "-"
+  };
+  const sourceSummary = {
+    citationOccurrenceValue: formatReportOverviewCount(citationOccurrenceCount),
+    citationUrlValue: formatReportOverviewCount(citationUrlCount),
+    sourceDomainValue: formatReportOverviewCount(sourceDomainCount),
+    ownedShareValue: formatReportOverviewPercent(ownedCitationShare),
+    needsReviewValue: formatReportOverviewCount(sourceToClaimNeedsReviewCount)
+  };
 
   return {
     hasReportData: Boolean(project),
@@ -2598,12 +2674,27 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
       { label: "ブランド表示回答数", value: formatReportOverviewCount(brandDisplayedAnswerCount), helper: "ブランドが表示された回答", icon: ShieldCheck },
       { label: "ブランド言及数", value: formatReportOverviewCount(brandMentionCount), helper: "AI回答内での言及回数", icon: Activity },
       { label: "参照出現数", value: formatReportOverviewCount(citationOccurrenceCount), helper: "AI回答で参照として出現", icon: ExternalLink },
-      { label: "比較ブランド数", value: formatReportOverviewCount(competitorCount), helper: "このレポートの比較対象", icon: BarChart3 }
+      { label: "参照URL数", value: formatReportOverviewCount(citationUrlCount), helper: "ユニークURL数", icon: FileText },
+      { label: "参照ドメイン数", value: formatReportOverviewCount(sourceDomainCount), helper: "ユニークドメイン数", icon: BarChart3 }
     ],
+    positionSummary,
     leaderboardRows: leaderboardView.rankingRows.slice(0, 5),
     sourceRows,
+    sourceSummary,
     personaRows,
     topicRows,
+    strongestPersonaRows,
+    weakestPersonaRows,
+    strongestTopicRows,
+    weakestTopicRows,
+    insightLinks: createReportOverviewInsights({
+      reportBase: currentReportBase,
+      weakestPersonaRows,
+      weakestTopicRows,
+      sourceToClaimNeedsReviewCount,
+      positionSummary,
+      competitorCount
+    }),
     detailLinks: [
       {
         title: "AI回答",
@@ -2622,9 +2713,80 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
         description: "AI回答が参照した情報源を確認する",
         href: `/dashboard/reports/${projectSlug}/sources`,
         icon: ExternalLink
+      },
+      {
+        title: "改善候補",
+        description: "観測結果から次に確認すべき候補を見る",
+        href: `/dashboard/reports/${projectSlug}/recommendations`,
+        icon: ListChecks
       }
     ]
   };
+}
+
+function getStrongestAudienceRows(rows: ReportOverviewAudienceRow[]) {
+  return rows.slice(0, 3);
+}
+
+function getWeakestAudienceRows(rows: ReportOverviewAudienceRow[]) {
+  return [...rows]
+    .filter((row) => row.totalAnswerCount > 0)
+    .sort((a, b) => a.displayRate - b.displayRate || a.displayAnswerCount - b.displayAnswerCount || a.name.localeCompare(b.name))
+    .slice(0, 3);
+}
+
+function createReportOverviewInsights({
+  reportBase,
+  weakestPersonaRows,
+  weakestTopicRows,
+  sourceToClaimNeedsReviewCount,
+  positionSummary,
+  competitorCount
+}: {
+  reportBase: string;
+  weakestPersonaRows: ReportOverviewAudienceRow[];
+  weakestTopicRows: ReportOverviewAudienceRow[];
+  sourceToClaimNeedsReviewCount: number | null;
+  positionSummary: ReportOverviewViewModel["positionSummary"];
+  competitorCount: number | null;
+}): ReportOverviewInsight[] {
+  const weakestTopic = weakestTopicRows[0];
+  const weakestPersona = weakestPersonaRows[0];
+
+  return [
+    {
+      title: "AI回答を確認",
+      value: weakestTopic ? `${weakestTopic.name} ${formatReportOverviewPercent(weakestTopic.displayRate)}` : "回答ログ",
+      description: weakestTopic
+        ? "表示率が低いトピックの回答本文と、未表示の文脈を確認します。"
+        : "回答本文と参照状態を回答単位で確認します。",
+      href: `${reportBase}/conversations`,
+      tone: weakestTopic && weakestTopic.displayRate < 50 ? "amber" : "slate"
+    },
+    {
+      title: "ブランド差を確認",
+      value: competitorCount && competitorCount > 0 ? positionSummary.competitorGapValue : "比較対象なし",
+      description: competitorCount && competitorCount > 0
+        ? `${positionSummary.topCompetitorName} との表示率差、平均順位、同時出現を見ます。`
+        : "比較ブランドが登録されると、回答内の相対的な位置が確認できます。",
+      href: `${reportBase}/leaderboard`,
+      tone: competitorCount && competitorCount > 0 ? "green" : "slate"
+    },
+    {
+      title: "参照元を確認",
+      value: sourceToClaimNeedsReviewCount === null ? "-" : `${sourceToClaimNeedsReviewCount}件`,
+      description: "参照URLが回答内の主張を支えているか、source-to-claim状態を確認します。",
+      href: `${reportBase}/sources`,
+      tone: sourceToClaimNeedsReviewCount && sourceToClaimNeedsReviewCount > 0 ? "amber" : "green"
+    },
+    {
+      title: "改善候補を判断",
+      value: weakestPersona ? weakestPersona.name : "候補一覧",
+      description: "候補の重要度、根拠、確認状態を見て、次に検証する施策を選びます。",
+      href: `${reportBase}/recommendations`,
+      tone: "slate"
+    }
+  ];
 }
 
 function ReportOverviewTab({ data, projectSlug = currentReportSlug }: { data: ReportOverviewDataBundle; projectSlug?: string }) {
@@ -2634,30 +2796,212 @@ function ReportOverviewTab({ data, projectSlug = currentReportSlug }: { data: Re
     <div className="min-w-0 space-y-5">
       <ReportOverviewHero view={view} />
 
-      <div className="grid min-w-0 gap-5 xl:grid-cols-2">
-        <ReportOverviewAudienceRanking
-          title="ペルソナごとの表示ランキング"
-          description="ペルソナ別に、AI回答内で自社ブランドが表示された割合を確認します。"
-          rows={view.personaRows}
-          emptyTitle="まだペルソナ別ランキングを表示できません"
-          emptyDescription="ペルソナに紐づく測定データが揃うと表示されます。"
-        />
-        <ReportOverviewAudienceRanking
-          title="トピックごとの表示ランキング"
-          description="トピック別に、AI回答内で自社ブランドが表示された割合を確認します。"
-          rows={view.topicRows}
-          emptyTitle="まだトピック別ランキングを表示できません"
-          emptyDescription="トピックに紐づく測定データが揃うと表示されます。"
-        />
-      </div>
+      <ReportOverviewDecisionStrip insights={view.insightLinks} />
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-2">
-        <ReportOverviewLeaderboard view={view} />
-        <ReportOverviewSources view={view} />
+        <ReportOverviewPositionPanel view={view} />
+        <ReportOverviewSourceHealth view={view} />
       </div>
+
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+        <ReportOverviewAudienceStrengthGrid view={view} />
+        <ReportOverviewLeaderboard view={view} />
+      </div>
+
+      <ReportOverviewSources view={view} />
+
+      <ReportOverviewMetricDictionary />
 
       <ReportOverviewNextSteps links={view.detailLinks} />
     </div>
+  );
+}
+
+function ReportOverviewDecisionStrip({ insights }: { insights: ReportOverviewInsight[] }) {
+  return (
+    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-4 shadow-[0_14px_42px_rgba(15,23,42,0.07)] sm:p-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-[#00796B]">next checks</p>
+          <h2 className="mt-1 text-lg font-bold text-[#0F172A]">概要から詳しく見る場所</h2>
+        </div>
+        <p className="max-w-2xl text-sm leading-6 text-[#64748B]">
+          AI回答、競合差、参照元、改善候補を分けて確認します。同じ数字を違う意味で使わないため、各画面の役割を固定しています。
+        </p>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {insights.map((insight) => (
+          <Link
+            key={insight.title}
+            href={insight.href}
+            className={cn(
+              "group rounded-[18px] border p-4 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2",
+              insight.tone === "green" && "border-[#BFE4DC] bg-[#E6F4F1]/75",
+              insight.tone === "amber" && "border-amber-200 bg-amber-50/80",
+              insight.tone === "slate" && "border-slate-200 bg-slate-50"
+            )}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-[#64748B]">{insight.title}</p>
+                <p className="mt-2 truncate text-xl font-bold tracking-normal text-[#0F172A]" title={insight.value}>{insight.value}</p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-[#00796B] transition group-hover:translate-x-0.5" />
+            </div>
+            <p className="mt-3 text-sm leading-6 text-[#475569]">{insight.description}</p>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReportOverviewPositionPanel({ view }: { view: ReportOverviewViewModel }) {
+  const rows = [
+    { label: "ブランド順位", value: view.positionSummary.rankValue, helper: "このレポート内の観測順位" },
+    { label: "競合差", value: view.positionSummary.competitorGapValue, helper: `${view.positionSummary.topCompetitorName} とのAI表示率差` },
+    { label: "Share of Voice", value: view.positionSummary.shareOfVoiceValue, helper: "ブランド言及に占める比率" },
+    { label: "平均順位", value: view.positionSummary.averagePositionValue, helper: "表示された回答内の平均位置" }
+  ];
+
+  return (
+    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
+      <div>
+        <p className="text-xs font-bold text-[#00796B]">ブランド比較</p>
+        <h2 className="mt-1 text-lg font-bold text-[#0F172A]">競合との位置関係</h2>
+        <p className="mt-1 text-sm leading-6 text-[#64748B]">
+          表示率、Share of Voice、平均順位を分けて見ます。市場シェアや外部ランキングではありません。
+        </p>
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-[18px] border border-[#E3ECE9] bg-[#F6FAF9] px-4 py-4">
+            <p className="text-xs font-bold text-[#64748B]">{row.label}</p>
+            <p className="mt-1 text-2xl font-bold tracking-normal text-[#0F172A]">{row.value}</p>
+            <p className="mt-1 text-xs leading-5 text-[#64748B]">{row.helper}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">
+        最も近い比較対象: <span className="font-bold text-slate-950">{view.positionSummary.topCompetitorName}</span>
+        <span className="ml-2 text-slate-500">AI表示率 {view.positionSummary.topCompetitorVisibilityValue}</span>
+      </div>
+    </section>
+  );
+}
+
+function ReportOverviewSourceHealth({ view }: { view: ReportOverviewViewModel }) {
+  return (
+    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
+      <div>
+        <p className="text-xs font-bold text-[#00796B]">参照元</p>
+        <h2 className="mt-1 text-lg font-bold text-[#0F172A]">情報源としての状態</h2>
+        <p className="mt-1 text-sm leading-6 text-[#64748B]">
+          出現回数、URL数、ドメイン数、source-to-claimの確認状態を分けて確認します。
+        </p>
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <SourceHealthMetric label="参照出現数" value={view.sourceSummary.citationOccurrenceValue} helper="occurrence_count合計" />
+        <SourceHealthMetric label="参照URL数" value={view.sourceSummary.citationUrlValue} helper="canonical/urlのユニーク数" />
+        <SourceHealthMetric label="参照ドメイン数" value={view.sourceSummary.sourceDomainValue} helper="domainのユニーク数" />
+        <SourceHealthMetric label="自社参照シェア" value={view.sourceSummary.ownedShareValue} helper="自社/対象ブランド関連の比率" />
+      </div>
+      <div className="mt-4 rounded-[18px] border border-amber-200 bg-amber-50/75 px-4 py-3">
+        <p className="text-sm font-bold text-amber-900">source-to-claim 要確認: {view.sourceSummary.needsReviewValue}</p>
+        <p className="mt-1 text-sm leading-6 text-amber-900/75">
+          URLが出ていることと、回答内の主張を支えていることは別です。顧客向けに使う前に確認します。
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function SourceHealthMetric({ label, value, helper }: { label: string; value: string; helper: string }) {
+  return (
+    <div className="rounded-[18px] border border-[#E3ECE9] bg-[#F6FAF9] px-4 py-4">
+      <p className="text-xs font-bold text-[#64748B]">{label}</p>
+      <p className="mt-1 text-2xl font-bold tracking-normal text-[#0F172A]">{value}</p>
+      <p className="mt-1 text-xs leading-5 text-[#64748B]">{helper}</p>
+    </div>
+  );
+}
+
+function ReportOverviewAudienceStrengthGrid({ view }: { view: ReportOverviewViewModel }) {
+  return (
+    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
+      <div>
+        <p className="text-xs font-bold text-[#00796B]">ペルソナ・トピック</p>
+        <h2 className="mt-1 text-lg font-bold text-[#0F172A]">強い領域と弱い領域</h2>
+        <p className="mt-1 text-sm leading-6 text-[#64748B]">
+          表示回答数を分母つきで見ます。サンプル数が少ない領域は、改善候補ではなく確認対象として扱います。
+        </p>
+      </div>
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <AudienceStrengthColumn title="強いペルソナ" rows={view.strongestPersonaRows} tone="green" />
+        <AudienceStrengthColumn title="要確認ペルソナ" rows={view.weakestPersonaRows} tone="amber" />
+        <AudienceStrengthColumn title="強いトピック" rows={view.strongestTopicRows} tone="green" />
+        <AudienceStrengthColumn title="要確認トピック" rows={view.weakestTopicRows} tone="amber" />
+      </div>
+    </section>
+  );
+}
+
+function AudienceStrengthColumn({
+  title,
+  rows,
+  tone
+}: {
+  title: string;
+  rows: ReportOverviewAudienceRow[];
+  tone: "green" | "amber";
+}) {
+  return (
+    <div className={cn("rounded-[18px] border p-4", tone === "green" ? "border-[#BFE4DC] bg-[#F6FAF9]" : "border-amber-200 bg-amber-50/65")}>
+      <p className={cn("text-xs font-bold", tone === "green" ? "text-[#00796B]" : "text-amber-800")}>{title}</p>
+      <div className="mt-3 space-y-3">
+        {rows.length > 0 ? rows.map((row) => (
+          <div key={`${title}-${row.id}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-[#0F172A]" title={row.name}>{row.name}</p>
+                <p className="mt-0.5 text-xs font-semibold text-[#64748B]">
+                  表示回答 {row.displayAnswerValue} / AI回答 {row.totalAnswerValue}
+                </p>
+              </div>
+              <p className="shrink-0 text-lg font-bold tracking-normal text-[#0F172A]">{formatReportOverviewPercent(row.displayRate)}</p>
+            </div>
+            <ProgressBar value={row.displayRate} className="mt-2" tone={tone === "green" ? "green" : "amber"} />
+          </div>
+        )) : (
+          <p className="text-sm leading-6 text-[#64748B]">表示できる測定データがありません。</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ReportOverviewMetricDictionary() {
+  return (
+    <section className="rounded-[24px] border border-[#DDE8E5] bg-white p-5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] sm:p-6">
+      <div>
+        <p className="text-xs font-bold text-[#00796B]">metric contract</p>
+        <h2 className="mt-1 text-lg font-bold text-[#0F172A]">このレポートで使う指標定義</h2>
+        <p className="mt-1 text-sm leading-6 text-[#64748B]">
+          画面上の数字は、取得元と数え方を分けて表示します。metric snapshot、回答ログ、citation row、occurrence countを混同しません。
+        </p>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        {recoraMetricDefinitions.map((metric) => (
+          <div key={metric.key} className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+              <p className="font-bold text-[#0F172A]">{metric.label}</p>
+              <span className="w-fit rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-[#64748B]">{metric.source}</span>
+            </div>
+            <p className="mt-2 text-sm leading-6 text-[#475569]">{metric.definition}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -2883,7 +3227,7 @@ function ReportOverviewLeaderboard({ view }: { view: ReportOverviewViewModel }) 
                     {row.isPrimary ? <Badge className="bg-[#00796B] text-white">自社</Badge> : null}
                   </div>
                   <p className="mt-1 text-xs font-medium text-[#64748B]">
-                    AI言及 {formatReportOverviewCount(row.aiMentionCount)} / 参照出現 {formatReportOverviewCount(row.citationCount)}
+                    表示回答 {formatReportOverviewCount(row.displayAnswerCount)} / ブランド言及 {formatReportOverviewCount(row.aiMentionCount)}
                   </p>
                 </div>
               </div>
@@ -3075,6 +3419,39 @@ function getReportCitationOccurrenceCount(data?: RecoraLeaderboardDbData | null)
   return data.citations.reduce((sum, citation) => sum + Number(citation.occurrence_count ?? 1), 0);
 }
 
+function getReportCitationUrlCount(data?: RecoraLeaderboardDbData | null) {
+  if (!data?.project) return null;
+  return uniqueStrings(data.citations.map(getCitationUrlKey).filter((value): value is string => Boolean(value))).length;
+}
+
+function getReportSourceDomainCount(data?: RecoraLeaderboardDbData | null) {
+  if (!data?.project) return null;
+  return uniqueStrings(data.citations.map((citation) => citation.domain).filter(Boolean)).length;
+}
+
+function getReportSourceToClaimNeedsReviewCount(data?: RecoraLeaderboardDbData | null) {
+  if (!data?.project) return null;
+  return data.citations.reduce((sum, citation) => {
+    const status = getSourceToClaimStatusLabel(citation).status;
+    const occurrenceCount = Number(citation.occurrence_count ?? 1);
+    return status === "supported" || status === "partially_supported" ? sum : sum + occurrenceCount;
+  }, 0);
+}
+
+function getReportOwnedCitationShare(data?: RecoraLeaderboardDbData | null) {
+  if (!data?.project) return null;
+  const total = data.citations.reduce((sum, citation) => sum + Number(citation.occurrence_count ?? 1), 0);
+  const owned = data.citations
+    .filter((citation) => citation.source_type === "owned" || citation.brand_related === "target_brand")
+    .reduce((sum, citation) => sum + Number(citation.occurrence_count ?? 1), 0);
+
+  return total > 0 ? Math.round((owned / total) * 100) : 0;
+}
+
+function getCitationUrlKey(citation: { canonical_url?: string | null; url?: string | null }) {
+  return citation.canonical_url || citation.url;
+}
+
 function getCitationDomain(url: string | null) {
   if (!url) return null;
 
@@ -3143,12 +3520,12 @@ export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: 
       <div className="grid gap-4 lg:grid-cols-3">
         <MetricTile label={leaderboardView.primaryBrandName + "のAI表示率"} value={leaderboardView.primaryVisibility} helper="このレポート内の観測値" />
         <MetricTile label="比較ブランドとの差分" value={leaderboardView.competitiveGapValue} helper="同一レポート内の参考差分" tone="amber" />
-        <MetricTile label="AI回答内シェア" value={leaderboardView.primaryCitationShare} helper="Recora独自の観測指標" />
+        <MetricTile label="Share of Voice" value={leaderboardView.primaryCitationShare} helper="ブランド言及に占める比率" />
       </div>
 
       <DataCard
         title="AI回答内でどう語られたか"
-        description="表示率、平均順位、言及文脈、同時に出た競合をまとめます。新規出現ブランドは過去比較が必要なため、現時点では追加確認として扱います。"
+        description="表示回答数、言及数、平均順位、言及文脈、同時に出た競合をまとめます。新規出現ブランドは過去比較が必要なため、現時点では追加確認として扱います。"
       >
         <LeaderboardNarrativeTable rows={leaderboardView.rankingRows} />
       </DataCard>
@@ -3477,9 +3854,9 @@ export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSource
 
       <div className="grid gap-4 lg:grid-cols-4">
         <MetricTile
-          label={"参照元ドメイン"}
+          label={"参照ドメイン数"}
           value={hasSourceData ? String(sourceDisplay.uniqueDomainCount) : "-"}
-          helper={hasSourceData ? String(sourceDisplay.totalCitationRows) + "件の参照URL" : "追加測定後に表示"}
+          helper={hasSourceData ? String(sourceDisplay.totalCitationRows) + "件のcitation row" : "追加測定後に表示"}
         />
         <MetricTile
           label={"自社参照シェア"}
@@ -3493,7 +3870,7 @@ export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSource
           tone="amber"
         />
         <MetricTile
-          label={"第三者参照元"}
+          label={"第三者参照ドメイン"}
           value={hasSourceData ? String(sourceDisplay.thirdPartyDomainCount) : "-"}
           helper={"メディア・レビュー系のドメイン"}
           tone="slate"
@@ -3537,7 +3914,7 @@ function SourceEvidenceReadinessPanel({ sourceDisplay }: { sourceDisplay: Source
             {sourceDisplay.supportingCitationCount}
           </p>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            抽出上、主張と紐づく参照です。人手確認済みの保証ではありません。
+            source-to-claim上、支持または部分支持として記録された参照出現です。最終的な人手承認ではありません。
           </p>
         </div>
         <div className="rounded-[18px] border border-amber-200 bg-amber-50/70 p-4">
@@ -3551,7 +3928,7 @@ function SourceEvidenceReadinessPanel({ sourceDisplay }: { sourceDisplay: Source
             {sourceDisplay.needsClaimReviewCount}
           </p>
           <p className="mt-2 text-sm leading-6 text-amber-900/75">
-            参照はありますが、根拠として使う前に一致確認が必要です。
+            未確認、無関係、矛盾、未レビューを含みます。顧客向け根拠として使う前に確認します。
           </p>
         </div>
         <div className="rounded-[18px] border border-slate-200 bg-slate-50 p-4">
@@ -3568,7 +3945,7 @@ function SourceEvidenceReadinessPanel({ sourceDisplay }: { sourceDisplay: Source
             対象 {sourceDisplay.freshnessNeedsVerificationCount} 出現
           </p>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            URLの公開日・更新日は現行データにないため、鮮度評価は次工程で追加確認します。
+            公開日・更新日が取得できたものだけ状態を表示します。not_checked / unknown は未確認として扱います。
           </p>
         </div>
       </div>
@@ -3586,12 +3963,21 @@ type SourceDisplayRow = {
   trustLabel: string;
   supportingCitationCount: number;
   needsClaimReviewCount: number;
+  sourceToClaimSummary: string;
+  freshnessSummary: string;
   urls: string[];
   recommendedAction: string;
   observationLabels: string[];
 };
 
-type SourceToClaimStatus = "supporting" | "needs_review" | "unknown";
+type SourceToClaimStatus =
+  | "supported"
+  | "partially_supported"
+  | "needs_review"
+  | "contradicted"
+  | "unrelated"
+  | "unknown"
+  | "not_reviewed";
 
 type CitationDisplayRow = {
   id: string;
@@ -3602,9 +3988,11 @@ type CitationDisplayRow = {
   occurrences: number;
   supportsClaimLabel: string;
   sourceToClaimStatus: SourceToClaimStatus;
-  sourceToClaimTone: "green" | "amber" | "slate";
+  sourceToClaimTone: "green" | "amber" | "rose" | "slate";
   sourceFreshnessLabel: string;
+  sourceFreshnessNote: string;
   citedFor: string;
+  claimText: string | null;
   observationKind: ObservationKind;
   observationLabel: string;
   providerLabel: string;
@@ -3649,8 +4037,8 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
     const observationKind = getConversationObservationKind(conversation ?? { provider: null, response_id: null });
     const observationLabel = getObservationLabel(observationKind);
     const appearances = Math.max(1, citation.occurrence_count ?? 1);
-    const sourceToClaim = getSourceToClaimStatus(citation.supports_claim);
-    const sourceFreshnessLabel = getSourceFreshnessLabel();
+    const sourceToClaim = getSourceToClaimStatusLabel(citation);
+    const sourceFreshness = getSourceFreshnessLabel(citation);
     totalAppearances += appearances;
 
     if (sourceType === "owned") ownedAppearances += appearances;
@@ -3666,6 +4054,8 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
       trustLabel: sourceDomain?.trust_label ?? getSourceTypeLabel(sourceType),
       supportingCitationCount: 0,
       needsClaimReviewCount: 0,
+      sourceToClaimSummary: "",
+      freshnessSummary: "",
       urls: [],
       recommendedAction: getSourceRecommendedAction(sourceType),
       observationLabels: [],
@@ -3675,7 +4065,7 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
 
     sourceRow.appearances += appearances;
     sourceRow.citationRows += 1;
-    if (citation.supports_claim === true) sourceRow.supportedCount += appearances;
+    if (sourceToClaim.isSupported) sourceRow.supportedCount += appearances;
     if (!sourceRow.observationLabels.includes(observationLabel)) sourceRow.observationLabels.push(observationLabel);
     if (citation.url && !sourceRow.urls.includes(citation.url)) sourceRow.urls.push(citation.url);
     groupedSources.set(domain, sourceRow);
@@ -3690,8 +4080,10 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
       supportsClaimLabel: sourceToClaim.label,
       sourceToClaimStatus: sourceToClaim.status,
       sourceToClaimTone: sourceToClaim.tone,
-      sourceFreshnessLabel,
-      citedFor: getCitationContext(citation.supports_claim),
+      sourceFreshnessLabel: sourceFreshness.label,
+      sourceFreshnessNote: sourceFreshness.note,
+      citedFor: getCitationContext(sourceToClaim.status),
+      claimText: citation.claim_text ?? citation.cited_text ?? null,
       observationKind,
       observationLabel,
       providerLabel: formatProviderLabel(conversation?.provider),
@@ -3709,7 +4101,9 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
         citationShare: totalAppearances === 0 ? 0 : Math.round((source.appearances / totalAppearances) * 100),
         trustScore: getSourceTrustScore(source.sourceType, supportRate),
         supportingCitationCount: source.supportedCount,
-        needsClaimReviewCount: Math.max(0, source.appearances - source.supportedCount)
+        needsClaimReviewCount: Math.max(0, source.appearances - source.supportedCount),
+        sourceToClaimSummary: `支持 ${source.supportedCount} / 要確認 ${Math.max(0, source.appearances - source.supportedCount)}`,
+        freshnessSummary: "取得済みの鮮度状態はURL単位で確認"
       };
     })
     .sort((a, b) => b.appearances - a.appearances);
@@ -3719,7 +4113,7 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
   ).length;
 
   const supportingCitationCount = citationRows.reduce(
-    (sum, citation) => citation.sourceToClaimStatus === "supporting" ? sum + citation.occurrences : sum,
+    (sum, citation) => isSupportedSourceToClaimStatus(citation.sourceToClaimStatus) ? sum + citation.occurrences : sum,
     0
   );
   const needsClaimReviewCount = Math.max(0, totalAppearances - supportingCitationCount);
@@ -3803,40 +4197,81 @@ function getCitationTitle(url: string | null, domain: string) {
   }
 }
 
-function getSourceToClaimStatus(value: boolean | null): {
+function getSourceToClaimStatusLabel(citation: {
+  supports_claim?: boolean | null;
+  source_to_claim_status?: string | null;
+}): {
   label: string;
   status: SourceToClaimStatus;
-  tone: "green" | "amber" | "slate";
+  tone: "green" | "amber" | "rose" | "slate";
+  isSupported: boolean;
 } {
-  if (value === true) {
-    return {
-      label: "支持あり（抽出上）",
-      status: "supporting",
-      tone: "green"
-    };
+  const status = normalizeSourceToClaimStatus(citation.source_to_claim_status, citation.supports_claim);
+
+  if (status === "supported") {
+    return { label: "支持あり", status, tone: "green", isSupported: true };
   }
-  if (value === false) {
-    return {
-      label: "要確認",
-      status: "needs_review",
-      tone: "amber"
-    };
+  if (status === "partially_supported") {
+    return { label: "部分支持", status, tone: "green", isSupported: true };
   }
-  return {
-    label: "未検証",
-    status: "unknown",
-    tone: "slate"
-  };
+  if (status === "contradicted") {
+    return { label: "矛盾の可能性", status, tone: "rose", isSupported: false };
+  }
+  if (status === "unrelated") {
+    return { label: "主張と不一致", status, tone: "amber", isSupported: false };
+  }
+  if (status === "not_reviewed") {
+    return { label: "未レビュー", status, tone: "slate", isSupported: false };
+  }
+  return { label: "要確認", status, tone: "amber", isSupported: false };
 }
 
-function getSourceFreshnessLabel() {
-  return "NEEDS_VERIFICATION";
+function normalizeSourceToClaimStatus(value: string | null | undefined, supportsClaim: boolean | null | undefined): SourceToClaimStatus {
+  if (
+    value === "supported" ||
+    value === "partially_supported" ||
+    value === "contradicted" ||
+    value === "unrelated" ||
+    value === "unknown" ||
+    value === "not_reviewed"
+  ) {
+    return value;
+  }
+
+  if (supportsClaim === true) return "supported";
+  if (supportsClaim === false) return "unknown";
+  return "not_reviewed";
 }
 
-function getCitationContext(value: boolean | null) {
-  if (value === true) return "抽出上はAI回答内の主張と紐づいています。必要に応じて人手で確認してください。";
-  if (value === false) return "参照はありますが、主張との一致確認が必要です。";
-  return "URLは取得済みですが、主張を支持するかは未検証です。";
+function isSupportedSourceToClaimStatus(value: SourceToClaimStatus) {
+  return value === "supported" || value === "partially_supported";
+}
+
+function getSourceFreshnessLabel(citation: {
+  source_freshness_status?: string | null;
+  source_published_at?: string | null;
+  source_last_modified_at?: string | null;
+  source_retrieved_at?: string | null;
+  source_freshness_days?: number | null;
+}) {
+  const status = citation.source_freshness_status ?? "not_checked";
+  const date = citation.source_last_modified_at ?? citation.source_published_at ?? citation.source_retrieved_at;
+  const age = typeof citation.source_freshness_days === "number" ? `${citation.source_freshness_days}日` : null;
+
+  if (status === "fresh") return { label: "fresh", note: age ?? formatDateTime(date) };
+  if (status === "recent") return { label: "recent", note: age ?? formatDateTime(date) };
+  if (status === "stale") return { label: "stale", note: age ?? formatDateTime(date) };
+  if (status === "unknown") return { label: "未確認", note: "公開日・更新日の確認が必要" };
+  return { label: "未取得", note: "現行データでは鮮度未取得" };
+}
+
+function getCitationContext(status: SourceToClaimStatus) {
+  if (status === "supported") return "回答内の主張を支える参照として記録されています。必要に応じて人手で確認してください。";
+  if (status === "partially_supported") return "一部の主張を支える参照として記録されています。顧客向け利用前に範囲を確認してください。";
+  if (status === "contradicted") return "回答内の主張と矛盾する可能性があります。改善候補ではなく確認事項として扱います。";
+  if (status === "unrelated") return "参照URLと回答内の主張が一致していない可能性があります。";
+  if (status === "not_reviewed") return "URLは取得済みですが、主張を支持するかは未レビューです。";
+  return "参照はありますが、主張との一致確認が必要です。";
 }
 
 export function TrendsPage() {
@@ -5326,6 +5761,7 @@ function LeaderboardNarrativeTable({ rows }: { rows: DashboardRankingRow[] }) {
         <TableRow>
           <TableHead className="min-w-[190px]">ブランド</TableHead>
           <TableHead className="whitespace-nowrap">表示率</TableHead>
+          <TableHead className="whitespace-nowrap">表示回答</TableHead>
           <TableHead className="whitespace-nowrap">平均順位</TableHead>
           <TableHead className="min-w-[260px]">言及文脈</TableHead>
           <TableHead className="min-w-[220px]">同時に出た競合</TableHead>
@@ -5338,13 +5774,16 @@ function LeaderboardNarrativeTable({ rows }: { rows: DashboardRankingRow[] }) {
             <TableCell className="min-w-[190px]">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="font-bold text-slate-950">{row.name}</span>
-                {row.isPrimary ? <Badge className="bg-[#00796B] text-white">自社</Badge> : null}
+              {row.isPrimary ? <Badge className="bg-[#00796B] text-white">自社</Badge> : null}
               </div>
               <div className="mt-1 text-xs font-semibold text-slate-500">
-                AI言及 {row.aiMentionCount ?? "-"}件
+                ブランド言及 {row.aiMentionCount ?? "-"}件
               </div>
             </TableCell>
             <TableCell><MetricWithBar value={row.visibility} /></TableCell>
+            <TableCell className="whitespace-nowrap font-semibold text-slate-700">
+              {row.displayAnswerCount ?? "-"}件
+            </TableCell>
             <TableCell className="whitespace-nowrap font-semibold text-slate-700">
               {typeof row.averagePosition === "number" ? row.averagePosition.toFixed(1) : "-"}
             </TableCell>
@@ -5376,7 +5815,7 @@ function LeaderboardNarrativeTable({ rows }: { rows: DashboardRankingRow[] }) {
           </TableRow>
         )) : (
           <TableRow>
-            <TableCell colSpan={6} className="text-sm text-slate-500">
+            <TableCell colSpan={7} className="text-sm text-slate-500">
               まだブランドの語られ方を表示できるデータがありません。
             </TableCell>
           </TableRow>
@@ -5396,10 +5835,11 @@ function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: Das
           <TableHead className="min-w-[180px]">ブランド</TableHead>
           {!compact ? <TableHead className="whitespace-nowrap">種別</TableHead> : null}
           <TableHead className="whitespace-nowrap">AI表示率</TableHead>
-          {!compact ? <TableHead className="whitespace-nowrap">AI言及数</TableHead> : null}
+          {!compact ? <TableHead className="whitespace-nowrap">表示回答数</TableHead> : null}
+          {!compact ? <TableHead className="whitespace-nowrap">ブランド言及数</TableHead> : null}
           {!compact ? <TableHead className="whitespace-nowrap">推薦数</TableHead> : null}
-          {!compact ? <TableHead className="whitespace-nowrap">参照回数</TableHead> : null}
-          {!compact ? <TableHead className="whitespace-nowrap">AI内シェア</TableHead> : null}
+          {!compact ? <TableHead className="whitespace-nowrap">参照出現数</TableHead> : null}
+          {!compact ? <TableHead className="whitespace-nowrap">Share of Voice</TableHead> : null}
           {!compact ? <TableHead className="whitespace-nowrap">平均順位</TableHead> : null}
           {!compact ? <TableHead className="whitespace-nowrap">競合差分</TableHead> : null}
           {!compact ? <TableHead className="min-w-[220px]">強いトピック</TableHead> : null}
@@ -5431,6 +5871,7 @@ function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: Das
               </TableCell>
             ) : null}
             <TableCell><MetricWithBar value={row.visibility} /></TableCell>
+            {!compact ? <TableCell className="whitespace-nowrap font-semibold">{row.displayAnswerCount ?? "-"}</TableCell> : null}
             {!compact ? <TableCell className="whitespace-nowrap font-semibold">{row.aiMentionCount ?? "-"}</TableCell> : null}
             {!compact ? <TableCell className="whitespace-nowrap font-semibold">{row.recommendationCount ?? "-"}</TableCell> : null}
             {!compact ? <TableCell className="whitespace-nowrap font-semibold">{row.citationCount ?? "-"}</TableCell> : null}
@@ -5441,7 +5882,7 @@ function RankingTable({ compact = false, rows }: { compact?: boolean; rows?: Das
           </TableRow>
         )) : (
           <TableRow>
-            <TableCell colSpan={compact ? 3 : 11} className="text-sm text-slate-500">
+            <TableCell colSpan={compact ? 3 : 12} className="text-sm text-slate-500">
               まだランキングデータがありません。測定を実行するとここに結果が表示されます。
             </TableCell>
           </TableRow>
@@ -5489,7 +5930,7 @@ function SourcesTable({ rows = [] }: { rows?: SourceDisplayRow[] }) {
         <TableRow>
           <TableHead className="min-w-[190px]">{"ドメイン"}</TableHead>
           <TableHead className="whitespace-nowrap">{"カテゴリ"}</TableHead>
-          <TableHead className="whitespace-nowrap">{"参照回数"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"参照出現数"}</TableHead>
           <TableHead className="whitespace-nowrap">{"参照シェア"}</TableHead>
           <TableHead className="whitespace-nowrap">{"信頼ラベル"}</TableHead>
           <TableHead className="min-w-[170px]">{"source-to-claim"}</TableHead>
@@ -5529,6 +5970,7 @@ function SourcesTable({ rows = [] }: { rows?: SourceDisplayRow[] }) {
                 <Badge variant="outline" className="w-fit rounded-sm border-amber-200 bg-amber-50 text-amber-700">
                   要確認 {source.needsClaimReviewCount}
                 </Badge>
+                <span className="font-semibold text-slate-400">{source.freshnessSummary}</span>
               </div>
             </TableCell>
             <TableCell className="min-w-[260px]">
@@ -5565,7 +6007,7 @@ function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
           <TableHead className="min-w-[320px]">{"タイトル・URL"}</TableHead>
           <TableHead className="min-w-[180px]">{"ドメイン"}</TableHead>
           <TableHead className="whitespace-nowrap">{"カテゴリ"}</TableHead>
-          <TableHead className="whitespace-nowrap">{"参照回数"}</TableHead>
+          <TableHead className="whitespace-nowrap">{"参照出現数"}</TableHead>
           <TableHead className="whitespace-nowrap">{"source freshness"}</TableHead>
           <TableHead className="min-w-[280px]">{"source-to-claim状態"}</TableHead>
         </TableRow>
@@ -5593,6 +6035,7 @@ function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
               <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-slate-50 text-slate-600">
                 {citation.sourceFreshnessLabel}
               </Badge>
+              <div className="mt-1 text-xs leading-5 text-slate-500">{citation.sourceFreshnessNote}</div>
             </TableCell>
             <TableCell className="text-sm leading-6 text-slate-600">
               <div className="mb-2 flex flex-wrap gap-1.5">
@@ -5602,6 +6045,7 @@ function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
                     "font-medium",
                     citation.sourceToClaimTone === "green" && "border-[#00796B]/25 bg-[#E6F4F1] text-[#00796B]",
                     citation.sourceToClaimTone === "amber" && "border-amber-200 bg-amber-50 text-amber-700",
+                    citation.sourceToClaimTone === "rose" && "border-rose-200 bg-rose-50 text-rose-700",
                     citation.sourceToClaimTone === "slate" && "border-slate-200 bg-slate-50 text-slate-600"
                   )}
                 >
@@ -5615,6 +6059,9 @@ function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
                 </Badge>
               </div>
               <div className="text-xs font-semibold text-slate-400">{citation.providerLabel}</div>
+              {citation.claimText ? (
+                <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{citation.claimText}</div>
+              ) : null}
               {citation.citedFor}
             </TableCell>
           </TableRow>
