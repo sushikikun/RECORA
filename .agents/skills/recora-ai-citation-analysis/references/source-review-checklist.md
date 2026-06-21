@@ -40,7 +40,12 @@ For each source, record:
 - Does the URL exist?
 - Does it return the expected content?
 - Does it redirect? If yes, record raw URL and final URL.
+- Is `final_url` confirmed?
+- Does the URL displayed in the citation UI match the final URL?
+- Is this an app/dashboard URL rather than a public content page?
+- Is it readable as an external shared URL?
 - Does it require login?
+- Is it a post-login page?
 - Is it paywalled?
 - Is it blocked or unavailable?
 - Does canonical URL differ from the cited URL?
@@ -63,11 +68,13 @@ For each source, record:
 
 ### Claim Support
 
+- Is `source_text` non-empty?
 - Is the AI-answer claim present in the source body?
 - Is the support direct, partial, adjacent, unsupported, contradicted, or unverifiable?
 - Is there a passage that supports the claim?
 - Does the passage support the same entity, product, market, date, and scope?
 - Does the source support the claim or only the general topic?
+- Has the source been marked `confirmed` from URL/domain alone? If yes, downgrade it.
 
 ### Authority And Quality
 
@@ -101,7 +108,10 @@ For each source, record:
 - Is the source text checked?
 - Is the finding confirmed, likely, hypothesis, advisory, unverified, contradicted, or blocked?
 - What verification is needed before publication?
+- If the URL is an app/dashboard page and source text is empty, has it been normalized to `login_required` or `source_text_unavailable`?
 
 ## Output Notes
 
 Summarize the supporting passage instead of quoting long text. If no source text is checked, write `not_checked` and downgrade the finding.
+
+If a citation URL points to an application/dashboard page and no source text is available, treat it as `login_required` or `source_text_unavailable`. Do not treat the URL as confirmed evidence even if the brand or competitor can be identified from the domain.

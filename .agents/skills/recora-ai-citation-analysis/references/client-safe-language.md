@@ -10,6 +10,11 @@ Write findings as evidence-scoped observations, hypotheses, or recommendations. 
 
 Use phrases like:
 
+- `This result is for internal review.`
+- `Additional verification is required before using this as a client-facing conclusion.`
+- `Because the cited source text could not be checked, this should not be treated as evidence.`
+- `At this stage, this should be treated as a hypothesis.`
+- `Because the observation count is low, this is a one-off observation rather than a trend.`
 - `Within the checked evidence...`
 - `In this observation...`
 - `Based on the cited source text available...`
@@ -26,6 +31,10 @@ Use phrases like:
 
 Avoid phrases like:
 
+- `This result can be sent to the client as-is.`
+- `The competitor is clearly winning.`
+- `This action will increase AI citations.`
+- `This source says it, so it is true.`
 - `This will definitely be cited.`
 - `Adding schema will make AI cite the page.`
 - `Changing robots will make AI cite the page.`

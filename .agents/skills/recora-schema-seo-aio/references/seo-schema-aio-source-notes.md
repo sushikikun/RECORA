@@ -42,6 +42,12 @@ Purpose: summarize primary SEO/schema/AIO guidance for Recora's `recora-schema-s
 
 Public SEO/GEO skill repositories and industry articles can inspire checklists and evidence collection, but their claims about AI visibility, market size, traffic, correlation, or platform behavior are not primary facts for Recora. Use `NEEDS_VERIFICATION` unless confirmed by primary data, measured Recora observations, or official platform documentation.
 
+For public skill safety and research-derived risk handling, use:
+
+- `public-skill-risk-notes.md` for public skill intake, license, metadata, supply-chain, credential, and side-effect risks.
+- `reference-freshness-policy.md` for refresh intervals and stale-source labels.
+- `recommendation-falsifiability.md` when turning official or third-party evidence into a testable recommendation.
+
 ## Primary Guidance For Recora
 
 ### Structured data is supportive, not a guarantee

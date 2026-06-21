@@ -1,6 +1,6 @@
 ---
 name: recora-prompt-topic-designer
-description: "Recora GEO and AI search diagnosis prompt-set and topic-design skill. Use when Codex needs to design measurement-ready Recora prompt sets, AI search diagnosis topics, non-branded discovery prompts, buyer-stage and persona coverage, competitor comparison prompts, citation check prompts, prompt quality gates, prompt revisions, coverage matrices, and handoff-ready prompt libraries. Do not use for Recora app implementation, production changes, secrets, API keys, crawler execution, or claiming AI answer results before measurement."
+description: "Recora GEO and AI search diagnosis prompt-set and topic-design skill. Use when Codex needs to design measurement-ready Recora prompt sets, AI search diagnosis topics, non-branded discovery prompts, buyer-stage and persona coverage, competitor comparison prompts, citation check prompts, industry/business-model prompt adapters for BtoB, BtoC, local businesses, healthcare, EC, education, real estate, professional services, finance/insurance, HR/recruiting, prompt quality gates, prompt revisions, coverage matrices, and handoff-ready prompt libraries. Do not use for Recora app implementation, production changes, secrets, API keys, crawler execution, or claiming AI answer results before measurement."
 ---
 
 # Recora Prompt Topic Designer
@@ -64,19 +64,20 @@ Missing-input rules:
 ## Required Workflow
 
 1. Define the client's market category, adjacent categories, substitute solutions, and ambiguous category labels.
-2. Identify natural buyer questions by role, expertise level, and buying stage.
-3. Create `non_branded` exploration prompts first.
-4. Create `competitor_comparison` and `alternative_search` prompts.
-5. Create `branded` validation prompts.
-6. Create `pricing_reputation` and purchase-decision prompts.
-7. Create `citation_check` / evidence-behavior prompts.
-8. Expand by persona and buyer stage.
-9. Build a coverage matrix.
-10. Run the prompt quality gate.
-11. Diagnose failure modes when coverage, gate, or bias checks fail.
-12. Revise weak prompts before measurement and rerun the checks.
-13. Add handoff targets for downstream Recora skills.
-14. Freeze a prompt-set version only after measurement readiness is clear.
+2. Select the likely industry / business model adapter when the client is not a generic B2B SaaS case.
+3. Identify natural buyer questions by role, expertise level, industry, business model, and buying stage.
+4. Create `non_branded` exploration prompts first.
+5. Create `competitor_comparison` and `alternative_search` prompts.
+6. Create `branded` validation and sentiment prompts.
+7. Create `pricing_reputation` and purchase-decision prompts.
+8. Create `citation_check` / evidence-behavior prompts.
+9. Expand by persona and buyer stage.
+10. Build a coverage matrix.
+11. Run the prompt quality gate.
+12. Diagnose failure modes when coverage, gate, or bias checks fail.
+13. Revise weak prompts before measurement and rerun the checks.
+14. Add handoff targets for downstream Recora skills.
+15. Freeze a prompt-set version only after measurement readiness is clear.
 
 ## Output Format
 
@@ -110,6 +111,19 @@ For substantial outputs, use these sections:
 - brand_vs_nonbrand_balance:
 - competitor_balance:
 - evidence_check_coverage:
+- metric_eligibility_coverage:
+- visibility_rate_prompt_count:
+- ranking_prompt_count:
+- sentiment_prompt_count:
+- branded_prompt_excluded_from_visibility:
+- branded_prompt_excluded_from_ranking:
+- industry_adapter_used:
+- business_model_fit:
+- persona_fit_by_industry:
+- local_or_regional_coverage:
+- regulated_industry_risk_coverage:
+- consumer_review_coverage:
+- BtoB_decision_committee_coverage:
 - missing_required_area:
 - revision_needed:
 
@@ -124,6 +138,10 @@ For substantial outputs, use these sections:
 - brand_mention_rule:
 - competitor_mention_rule:
 - expected_signal:
+- metric_eligibility:
+  - visibility_rate:
+  - ranking:
+  - sentiment:
 - risk_or_bias:
 - handoff_skill:
 - quality_score:
@@ -186,6 +204,47 @@ Use these mention-rule values:
 - `brand_mention_rule`: `brand_excluded`, `brand_included`, `brand_optional`, `competitor_only`
 - `competitor_mention_rule`: `no_competitor`, `named_competitors`, `category_competitors`, `unknown_competitor_discovery`
 
+## Recora Metric Eligibility Rule
+
+Do not mix branded prompts into Recora AI visibility rate or AI ranking.
+
+- AI visibility rate: use `non_branded`, `problem_solution`, `alternative_search`, and `competitor_comparison` prompts with `brand_mention_rule: brand_excluded` by default. Exclude `branded` and `brand_included` prompts because brand-seeded prompts can artificially increase mention rate.
+- AI ranking: use non-branded category discovery, vendor shortlist, alternative search, and competitor comparison prompts with `brand_mention_rule: brand_excluded` by default. Prefer `competitor_mention_rule: category_competitors` or `unknown_competitor_discovery`. Exclude `branded` and `brand_included` prompts because prompted-brand rank is not market ranking.
+- Sentiment / brand perception: use `branded` or `brand_included` prompts to observe how AI describes the brand, reputation, trust, risks, strengths, and weaknesses. Keep sentiment separate from visibility rate and ranking.
+
+Every prompt can include:
+
+```md
+metric_eligibility:
+  visibility_rate: eligible | excluded
+  ranking: eligible | excluded
+  sentiment: eligible | excluded
+```
+
+Default examples:
+
+- `non_branded`: visibility_rate `eligible`, ranking `eligible`, sentiment `excluded`.
+- `competitor_comparison`: visibility_rate `eligible`, ranking `eligible`, sentiment `excluded`.
+- `branded`: visibility_rate `excluded`, ranking `excluded`, sentiment `eligible`.
+- `citation_check`: visibility_rate `excluded` unless brand-excluded and recommendation-oriented; ranking `excluded` unless comparison-oriented; sentiment `excluded` unless brand-included and sentiment-oriented.
+
+## Sentiment Evaluation Rules
+
+Use sentiment only as a separate brand-perception metric, never as part of visibility rate or ranking.
+
+```md
+sentiment_label: positive | neutral | negative
+sentiment_reason:
+quoted_or_observed_phrase:
+risk_note:
+needs_verification:
+```
+
+- `positive`: AI describes the brand as favorable, credible, a strong candidate, or having clear strengths.
+- `neutral`: AI gives factual, conditional, general, or information-limited descriptions.
+- `negative`: AI describes risks, uncertainty, reputation concerns, pricing concerns, adoption concerns, or competitor disadvantages.
+- `needs_verification`: use when source URLs or measured answers are insufficient to judge sentiment.
+
 ## Coverage Matrix
 
 For detailed coverage checks, read `references/prompt-coverage-matrix.md`.
@@ -200,6 +259,19 @@ Always report:
 - `brand_vs_nonbrand_balance`
 - `competitor_balance`
 - `evidence_check_coverage`
+- `metric_eligibility_coverage`
+- `visibility_rate_prompt_count`
+- `ranking_prompt_count`
+- `sentiment_prompt_count`
+- `branded_prompt_excluded_from_visibility`
+- `branded_prompt_excluded_from_ranking`
+- `industry_adapter_used`
+- `business_model_fit`
+- `persona_fit_by_industry`
+- `local_or_regional_coverage`
+- `regulated_industry_risk_coverage`
+- `consumer_review_coverage`
+- `BtoB_decision_committee_coverage`
 - `missing_required_area`
 - `revision_needed`
 
@@ -213,7 +285,7 @@ Every prompt needs:
 
 - `quality_score`: 0-100 or high / medium / low, depending on the output format requested.
 - `gate_decision`: `ready_for_measurement`, `revise_before_measurement`, `internal_only`, or `reject`.
-- `gate_reason`: use concrete reasons such as `too_leading`, `too_branded`, `unclear_signal`, `duplicate_prompt`, `weak_buyer_realism`, `not_actionable`, or `unsupported_assumption`.
+- `gate_reason`: use concrete reasons such as `too_leading`, `too_branded`, `unclear_signal`, `duplicate_prompt`, `weak_buyer_realism`, `not_actionable`, `unsupported_assumption`, or `metric_misclassified`.
 
 If a prompt is not `ready_for_measurement`, provide:
 
@@ -239,6 +311,7 @@ Use one primary handoff per prompt and mention secondary handoffs in `risk_or_bi
 Load references only when needed:
 
 - Read `references/public-skill-pattern-research.md` when explaining which public and sibling skill design patterns were reviewed and how they were adapted without copying text or code.
+- Read `references/industry-business-model-adapters.md` when adapting prompt angles, personas, buyer stages, expected signals, risk checks, or metric eligibility for BtoB, BtoC, local business, healthcare, EC/product, education, real estate, professional services, finance/insurance, or recruiting/HR contexts.
 - Read `references/prompt-quality-rubric.md` for detailed scoring, gate decisions, and low-quality prompt revision rules.
 - Read `references/prompt-coverage-matrix.md` when coverage balance, mode readiness, missing areas, or machine-readable coverage output is needed.
 - Read `references/prompt-anti-patterns.md` when prompts are low-quality, leading, too branded, duplicated, vague, or need safer rewrites.
@@ -257,6 +330,9 @@ Before delivering:
 - External or sibling skills were used for structure only, not copied text.
 - Public skill research records `copied_text: no` and no third-party scripts were executed.
 - `non_branded`, `buyer_stage`, `persona`, `expected_signal`, `quality_score`, `gate_decision`, and `measurement_readiness` are present.
+- `metric_eligibility` is present and branded prompts are excluded from visibility rate and ranking.
+- Sentiment / brand perception is reported separately from visibility rate and ranking.
+- Industry/business-model adapter fit is checked when the client is not a generic B2B SaaS case.
 - No prompt claims visibility, citation, recommendation, ranking, traffic, revenue, or conversion before measurement.
 - Weak prompts have revisions.
 - Failure diagnosis and the iteration loop are used when a prompt set is not ready.

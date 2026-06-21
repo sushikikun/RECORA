@@ -29,6 +29,7 @@ Purpose: outline future deterministic or hybrid evidence collectors for `recora-
 | Pricing clarity checker | Identify pricing model, plan names, included/excluded items, limits, contract terms, CTA, FAQ, and caveats. | Pricing page HTML/text or user-provided copy. | Pricing facts found/missing, ambiguity list, recommended visible sections. | Pricing may intentionally require inquiry; false positives if business model is custom. | Hybrid. | Yes, for conversion and trust judgment. |
 | FAQ visibility checker | Extract visible FAQ questions/answers, accordion state, schema match, and topic grouping. | HTML source, rendered DOM, JSON-LD. | FAQ list, visibility status, schema match/mismatch, topic gaps. | Hidden/accordion content can still be user-visible; browser state matters. | Yes for extraction; hybrid for grouping. | Yes, for buyer-intent coverage and safe wording. |
 | Source gap to page action mapper | Convert `recora-ai-citation-analysis` source gaps into owned-page fixes, new pages, internal links, and third-party evidence needs. | Source gap record, AI answer evidence, cited URLs, target page inventory. | Action map with owned vs third-party controls, required evidence, and quality-gate flags. | Source gaps can be stale or based on unverified source text. | Hybrid. | Yes, strongly. |
+| Reference freshness checker | Compare reference source dates, source categories, and refresh windows against `reference-freshness-policy.md`. | Reference files, source tables, research dates, optional current source metadata. | Freshness labels, stale references, claims requiring `NEEDS_VERIFICATION`, source categories needing recheck. | Dates can be present but claims may still be unsupported; external checks may need network. | Yes for local date/category checks; optional network checks only with approval. | Yes, for deciding whether a stale claim affects a client recommendation. |
 
 ## Future Script Output Contract
 
@@ -59,7 +60,7 @@ Recommended JSON shape:
 ## Script Suitability Notes
 
 - Best first scripts: metadata checker, heading outline checker, canonical/noindex checker, JSON-LD extractor.
-- Next scripts: robots checker, sitemap checker, FAQ visibility checker, internal-link checker.
+- Next scripts: robots checker, sitemap checker, FAQ visibility checker, internal-link checker, reference freshness checker.
 - Highest judgment scripts: answer extractability checker, pricing clarity checker, schema/body consistency checker, source gap mapper.
 - Browser-based collectors should be optional because they add runtime, dependencies, and sandbox/network risk.
 - External APIs should be optional and explicit. Do not require credentials for baseline audits.

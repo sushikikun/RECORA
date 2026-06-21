@@ -85,3 +85,12 @@ Sources were discovered by GitHub repository search and sampled through README /
 - `references/seo-schema-aio-source-notes.md`: should be the factual source for Google/schema.org/OpenAI rules.
 - `references/evidence-collector-ideas.md`: should guide future deterministic scripts.
 - `references/skill-eval-rubric.md`: should evaluate whether outputs preserve Recora's evidence and no-guarantee standards.
+
+## Follow-Up Deep Research References
+
+The first pass above records source inventory and broad influence. Use these focused references for deeper runtime decisions:
+
+- `public-skill-patterns.md`: public skill design patterns, including `AgriciDaniel/codex-seo`, `mykpono/ultimate-seo-geo`, large skill libraries, audit/plan/execute separation, falsifiability, evidence collectors, source freshness, and Recora adaptation.
+- `public-skill-risk-notes.md`: license, stale advice, overclaiming, AI citation guarantee language, public skill supply-chain risk, metadata/description overreach, hidden credentials/API usage, and side-effect scripts.
+- `recommendation-falsifiability.md`: concrete Recora recommendation template and examples for FAQ, comparison, pricing, JSON-LD, robots, source gap, case study, glossary, and sample report improvements.
+- `reference-freshness-policy.md`: source categories, refresh intervals, freshness labels, and when to mark official, third-party, research, or measured claims as `NEEDS_VERIFICATION`.

@@ -16,6 +16,13 @@ Score each dimension as `high`, `medium`, or `low`.
 | `persona_specificity` | Persona or role changes the wording and signal. | Persona is named but not deeply reflected. | No persona, or persona is irrelevant. |
 | `stage_fit` | Buyer stage is explicit and reflected in the prompt. | Stage is inferable but weak. | Stage is missing or mismatched. |
 | `expected_signal_clarity` | Expected signal is observable from answer text, citations, or entities. | Signal is partly observable. | Signal is vague, impossible, or a prediction. |
+| `metric_eligibility_fit` | Visibility/ranking/sentiment eligibility matches prompt category and brand mention rule. | Eligibility is present but one edge case needs review. | Branded or `brand_included` prompt is eligible for visibility rate or ranking. |
+| `industry_fit` | Prompt angle reflects the selected industry adapter and category reality. | Broadly relevant but partly generic. | B2B SaaS or generic wording is applied to the wrong industry. |
+| `business_model_fit` | Prompt reflects BtoB, BtoC, local, product, service, regulated, marketplace, or hybrid buying logic. | Business model is implied but weak. | Business model logic conflicts with the client context. |
+| `persona_realism_by_industry` | Persona reflects real industry decision roles, such as patient, parent, shopper, local visitor, evaluator, or committee buyer. | Persona is plausible but generic. | Persona is unrealistic for the industry. |
+| `regulated_claim_safety` | Regulated industries avoid diagnosis, legal/financial advice, guarantees, and unsupported safety/performance claims. | Some caution is present but needs sharper risk wording. | Prompt invites medical/legal/financial diagnosis, advice, or guaranteed outcomes. |
+| `local_intent_fit` | Local businesses include area, availability, access, opening hours, booking, and nearby alternatives when relevant. | Some locality is present but incomplete. | Local intent is missing for a local business. |
+| `consumer_decision_realism` | B2C/EC/education prompts include reviews, price, convenience, quality, trust, and first-time anxiety where relevant. | Consumer concerns are present but thin. | Consumer prompts use B2B procurement language or ignore reviews/price/convenience. |
 
 ## Quality Score
 
@@ -49,6 +56,9 @@ Use one or more of these values:
 - `weak_buyer_realism`
 - `not_actionable`
 - `unsupported_assumption`
+- `metric_misclassified`
+- `industry_mismatch`
+- `regulated_overclaim`
 
 ## Failure Diagnosis Link
 
@@ -63,6 +73,9 @@ When assigning a gate decision, map the reason to `prompt-design-failure-diagnos
 | `weak_buyer_realism` | `buyer_stage_collapse` or `persona_flattening` | Add role-specific wording and stage-appropriate buyer context. |
 | `not_actionable` | `measurement_unready` or `machine_readability_failure` | Split into one measurable question and restore required fields. |
 | `unsupported_assumption` | `unsupported_market_assumption` | Mark assumptions, weaken claims, or hand off before measurement. |
+| `metric_misclassified` | `branded_overfit` or `measurement_unready` | Exclude branded prompts from visibility/ranking and use them only for sentiment or brand perception. |
+| `industry_mismatch` | `b2b_template_overapplied_to_b2c`, `wrong_persona_for_industry`, or `business_model_mismatch` | Select the correct adapter and rewrite persona, stage, and prompt family. |
+| `regulated_overclaim` | `regulated_industry_overclaim` | Remove diagnosis/advice/guarantee wording and add source, qualification, risk, and verification checks. |
 
 ## Low-Quality Revision Rule
 
@@ -84,6 +97,44 @@ Repair rules:
 - Add persona, buyer stage, and decision context.
 - Replace named competitors with `unknown_competitor_discovery` when competitors are missing.
 - Make `expected_signal` observable from answer text, mentions, citations, recommendation order, or risks.
+- Add `metric_eligibility` and exclude `branded` / `brand_included` prompts from AI Visibility Rate and AI Ranking.
+- Use branded prompts for sentiment / brand perception only, with sentiment reported separately.
+- Select an industry/business model adapter before reusing B2B SaaS prompt patterns.
+- Rewrite B2C, local, EC, education, healthcare, real estate, finance, professional-service, and HR prompts around their real buyer concerns.
+- For regulated industries, remove diagnosis, legal/financial advice, investment advice, guaranteed outcomes, and unsupported safety/performance claims.
 - Split multi-intent prompts into separate prompts when measurement would be unclear.
+
+## Industry Fit Rule
+
+When the client is not a generic B2B SaaS case, check the prompt against `industry-business-model-adapters.md`.
+
+- BtoC services should include review, price, quality, convenience, first-time concern, and availability angles.
+- Local businesses should include area, access, opening hours, booking, and nearby alternatives.
+- Clinics and healthcare should use general information, comparison, safety, qualification, and source-check language, not diagnosis or treatment recommendations.
+- EC/product prompts should include review, price, delivery, return, warranty, specs, and substitute-product angles.
+- Education prompts should include curriculum, instructor/support, price, learner fit, and outcome-evidence checks without guaranteeing outcomes.
+- Real estate prompts should include area, cost, contract-risk, trust, and availability checks without legal/financial overclaiming.
+- Professional services should include expertise, cases, fees, consultation fit, and trust signals without guaranteed results.
+- Finance/insurance prompts should include risk, fee, regulation, suitability, and source checks without investment or insurance advice.
+- Recruiting/HR prompts should include candidate quality, hiring speed, cost, mismatch risk, and compliance without guaranteed hiring outcomes.
+
+## Sentiment Quality Rule
+
+When a branded prompt is used for sentiment, require:
+
+```md
+sentiment_label: positive | neutral | negative
+sentiment_reason:
+quoted_or_observed_phrase:
+risk_note:
+needs_verification:
+```
+
+- `positive`: AI describes the brand as favorable, credible, a strong candidate, or having clear strengths.
+- `neutral`: AI gives factual, conditional, general, or information-limited descriptions.
+- `negative`: AI describes risks, uncertainty, reputation concerns, pricing concerns, adoption concerns, or competitor disadvantages.
+- `needs_verification`: mark `true` when source URLs or measured answers are insufficient to judge sentiment.
+
+Do not use sentiment labels to influence AI Visibility Rate or AI Ranking.
 
 After revision, rerun the coverage matrix, quality gate, and measurement-readiness evals. If the same failure remains, use `prompt-set-iteration-loop.md` to record the change and decide whether the prompt stays `internal_only` or is removed.

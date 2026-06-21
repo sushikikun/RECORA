@@ -20,6 +20,8 @@ These requests should trigger `recora-ai-citation-analysis`:
 - Compare Google AI Overview and Perplexity citation behavior.
 - Check whether client-facing wording is safe for this citation finding.
 - Create handoff payloads for competitor benchmarking or recommendation QA.
+- Score this Source Intelligence report with the output quality rubric.
+- Run adversarial citation QA against this draft.
 
 ## should_not_trigger
 
@@ -50,6 +52,11 @@ Expected behavior: mark uncertainty explicitly, use `low_confidence` / `unverifi
 - A cited URL returns 404.
 - A cited URL redirects.
 - A cited URL requires login.
+- `source_accessibility` is provided as `login_required_or_app_page`.
+- A cited app/dashboard URL has no source text.
+- A broken URL should become `blocked`.
+- A source URL exists but `source_text` is empty.
+- `source_accessibility` uses a non-standard synonym such as `404`, `paywall`, or `auth_required`.
 - Sources conflict within the same AI answer.
 - Official site and third-party article disagree.
 - A source is high-quality but does not support the AI claim.
@@ -75,6 +82,11 @@ Before completing skill work or a generated audit, check:
 - Citation Correctness and Citation Faithfulness are distinct.
 - Passage-level Evidence exists when cited source text is available.
 - Missing source text downgrades to `low_confidence` / `unverifiable`.
+- `login_required_or_app_page` normalizes to `login_required`.
+- App/dashboard URLs without source text become `unverifiable`.
+- Broken URLs become `blocked`.
+- Empty `source_text` never allows `confirmed`.
+- Noisy `source_accessibility` values normalize to the standard enum.
 - URL-only findings are not marked `confirmed`.
 - `finding_status` is assigned correctly.
 - Contradicted source text can produce `contradicted` finding status.
@@ -86,6 +98,14 @@ Before completing skill work or a generated audit, check:
 - Handoff payload can be created for downstream Recora skills.
 - Client-safe language avoids overclaiming.
 - Report Readiness Gate is present.
+- Output includes `output_quality_score` when a quality review is requested.
+- Major deductions are explained.
+- Unsafe client-report content is detected.
+- `production_ready` and `internal_review_only` are separated.
+- Adversarial cases do not cause overclaiming.
+- Schema guarantee articles are not marked `confirmed`.
+- Affiliate rankings are not treated as neutral.
+- URLs without source text are not used as evidence.
 - External skill text was not copied.
 - External skill scripts were not executed.
 
@@ -167,3 +187,52 @@ Expected:
 - Do not aggregate as one citation count.
 - Separate by engine/model/interface/date.
 - Discuss source mix differences as observations, not universal behavior.
+
+### Case 8: App dashboard URL without source text
+
+Input: cited URL has `source_accessibility: login_required_or_app_page`, looks like an app/dashboard URL, and `source_text` is empty.
+
+Expected:
+
+- Normalize `source_accessibility` to `login_required`.
+- Normalize missing or empty source text to `source_text_unavailable`.
+- Set `correctness_status: unverifiable`.
+- Set `faithfulness_status: unverifiable`.
+- Set `evidence_strength: none` or `unknown`.
+- Set `finding_status: blocked` or `unverified`.
+- Set `confidence: low`.
+- Do not mark the source as `confirmed` even if the competitor domain is identifiable.
+
+### Case 9: Noisy accessibility values
+
+Input: source rows use `404`, `dead_link`, `paywall`, `auth_required`, and `blocked_by_robots`.
+
+Expected:
+
+- `404` and `dead_link` normalize to `broken`.
+- `paywall` normalizes to `paywalled`.
+- `auth_required` normalizes to `login_required`.
+- `blocked_by_robots` normalizes to `blocked`.
+- Unsupported or inaccessible sources do not become confirmed evidence.
+
+### Case 10: Output quality scoring
+
+Input: a draft citation audit includes URL-only confirmed findings, a schema guarantee, and one observation treated as a trend.
+
+Expected:
+
+- Include `output_quality_score`.
+- Apply major deductions for URL-only confirmation, schema guarantee, and one-observation overclaim.
+- Mark `unsafe_for_client_report: true`.
+- Set readiness no higher than `needs_major_revision` or `internal_review_only`.
+
+### Case 11: Adversarial trap review
+
+Input: a draft uses affiliate ranking pages, competitor-owned copy, and a paywalled review as strong evidence.
+
+Expected:
+
+- Identify relevant adversarial cases.
+- Downgrade evidence strength and confidence.
+- Avoid neutral-third-party language for affiliate rankings.
+- Avoid confirmed status for paywalled source without checked text.

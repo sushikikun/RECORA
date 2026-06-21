@@ -104,6 +104,66 @@ Each scenario should be checked against the generated prompt set before it is tr
 - pass_criteria: The set distinguishes supplied facts, assumptions, and items needing handoff or validation.
 - failure_signals: The prompt set treats guessed market facts as known, or uses unsupported claims inside prompts.
 
+## Scenario 11
+
+- scenario_name: branded_prompts_do_not_distort_visibility_or_ranking
+- input_context: Prompt set includes a mix of `non_branded`, `competitor_comparison`, `citation_check`, and `branded` prompts. The user wants AI Visibility Rate, AI Ranking, and Sentiment.
+- expected_behavior: Add `metric_eligibility` to every prompt and keep branded prompts out of visibility rate and ranking calculations.
+- must_include: `metric_eligibility` for each prompt, `visibility_rate: excluded` on `branded` / `brand_included` prompts, `ranking: excluded` on `branded` / `brand_included` prompts, and `sentiment: eligible` on sentiment-oriented branded prompts.
+- must_not_include: branded prompts counted in AI Visibility Rate, branded prompts counted in AI Ranking, or one blended score that mixes visibility/ranking/sentiment.
+- pass_criteria: Branded prompts are excluded from `visibility_rate`; branded prompts are excluded from `ranking`; branded prompts are eligible only for sentiment; sentiment is evaluated separately as `positive`, `neutral`, or `negative`; `metric_eligibility` is shown for each prompt.
+- failure_signals: Any `branded` or `brand_included` prompt is marked visibility/ranking eligible, sentiment is missing from branded prompts, or reporting language treats branded visibility as market visibility.
+
+## Scenario 12
+
+- scenario_name: b2c_service_adapter_works
+- input_context: Client is a consumer-facing service with booking, reviews, price sensitivity, and first-time user concerns.
+- expected_behavior: Use the `b2c_service` adapter and avoid B2B SaaS committee language.
+- must_include: review/reputation prompts, price/convenience prompts, first-time user persona, `brand_excluded` visibility/ranking prompts, and branded sentiment prompts excluded from visibility/ranking.
+- must_not_include: procurement committee language, enterprise ROI framing, or branded prompts counted in visibility/ranking.
+- pass_criteria: Prompt set measures consumer discovery, comparison, reviews, price/value, and brand sentiment separately.
+- failure_signals: Personas are executives/evaluators only, reviews are missing, or branded sentiment is mixed into ranking.
+
+## Scenario 13
+
+- scenario_name: local_business_adapter_works
+- input_context: Client is a local restaurant, salon, gym, school, repair shop, or similar area-based business.
+- expected_behavior: Use the `local_business` adapter and include local intent.
+- must_include: area/nearby prompts, access/opening-hours/booking or availability signals, review signals, local competitor/alternative discovery, and branded sentiment excluded from visibility/ranking.
+- must_not_include: national SaaS-style category prompts only, or claims about map visibility before measurement.
+- pass_criteria: Prompt set can observe local discovery, nearby alternatives, review themes, booking/visit intent, and separate brand perception.
+- failure_signals: No area terms, no local alternatives, no review/booking signals, or visibility claims before measurement.
+
+## Scenario 14
+
+- scenario_name: clinic_healthcare_adapter_avoids_medical_overclaiming
+- input_context: Client is a clinic, dental clinic, cosmetic medicine provider, treatment center, or healthcare-related service.
+- expected_behavior: Use the `clinic_healthcare` adapter and avoid diagnosis, treatment promises, or unsupported safety claims.
+- must_include: general information prompts, safety/qualification/source checks, risk/side-effect verification prompts, consultation-readiness framing, and branded trust/sentiment prompts excluded from visibility/ranking.
+- must_not_include: medical diagnosis, treatment recommendation, guaranteed outcome, cure claim, or unsupported safety claim.
+- pass_criteria: Prompt set can measure AI search visibility and source behavior while keeping healthcare claims cautious and verifiable.
+- failure_signals: Prompts ask AI to diagnose, recommend treatment, guarantee results, or treat branded prompts as ranking.
+
+## Scenario 15
+
+- scenario_name: ecommerce_product_adapter_uses_review_price_delivery_axes
+- input_context: Client sells products through EC, D2C, retail, marketplace, or product pages.
+- expected_behavior: Use the `ecommerce_product` adapter and include product decision criteria.
+- must_include: review, price/value, delivery, return, warranty, stock/specification, substitute product, and branded sentiment prompts.
+- must_not_include: unsupported review counts, price claims, stock claims, or guaranteed product superiority before measurement.
+- pass_criteria: Prompt set can observe product discovery, comparison, alternatives, review concerns, price/delivery/return criteria, and brand perception separately.
+- failure_signals: Product prompts look like SaaS vendor comparisons, reviews are missing, or unsupported price/stock claims appear.
+
+## Scenario 16
+
+- scenario_name: professional_services_adapter_uses_trust_expertise_case_study_axes
+- input_context: Client is a law firm, consultant, agency, accounting firm, SEO company, web production company, or other professional service provider.
+- expected_behavior: Use the `professional_services` adapter and include expertise, trust, proof, fee, and consultation criteria.
+- must_include: problem-based expert discovery, provider comparison, case-study/proof signals, fee/consultation checks, risk/trust prompts, and branded sentiment excluded from visibility/ranking.
+- must_not_include: guaranteed legal/financial/business outcomes, unsupported case results, or generic product-style prompts only.
+- pass_criteria: Prompt set can observe expert discovery, comparison axes, proof needs, trust signals, and sentiment without overclaiming results.
+- failure_signals: No expertise/case-study angle, guaranteed outcome wording, wrong persona, or missing fee/trust checks.
+
 ## Compact Pass Checklist
 
 - Non-branded coverage exists and is not crowded out by branded prompts.
@@ -116,5 +176,11 @@ Each scenario should be checked against the generated prompt set before it is tr
 - Every prompt has a quality gate result.
 - Low-quality prompts have revisions or are removed.
 - Machine-readable fields use the required names and allowed label values.
+- Metric eligibility is present for visibility rate, ranking, and sentiment.
+- Branded prompts are excluded from visibility rate and ranking.
+- Sentiment is evaluated separately from visibility/ranking.
+- Industry adapter selection is explicit when the client is not generic B2B SaaS.
+- B2C/local/EC/service prompts include review, price, trust, convenience, and decision-realism where relevant.
+- Regulated contexts avoid diagnosis, legal/financial advice, and guaranteed outcomes.
 - Unsupported assumptions are marked.
 - Handoff targets are explicit when downstream analysis is useful.

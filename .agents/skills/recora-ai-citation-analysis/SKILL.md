@@ -1,11 +1,11 @@
 ﻿---
 name: recora-ai-citation-analysis
-description: "Recora Source Intelligence and Citation Audit skill for AI-answer citation URLs, cited source text, claim-to-source alignment, machine-readable citation inventories, cross-engine observations, source risk, own-site non-citation, competitor citation advantage, client-safe reporting, and handoff payloads. Use when analyzing AI-answer citations/reference URLs, building Source Intelligence reports, checking citation correctness/faithfulness, evaluating source opportunities/actions, or validating citation audit outputs. Do not use for app implementation, other skill edits, production changes, secrets, external scripts, or guaranteed AI citation claims."
+description: "Recora Source Intelligence and Citation Audit skill for AI-answer citation URLs, cited source text, claim-to-source alignment, machine-readable citation inventories, cross-engine observations, source risk, own-site non-citation, competitor citation advantage, client-safe reporting, output quality scoring, adversarial citation QA, and handoff payloads. Use when analyzing AI-answer citations/reference URLs, building Source Intelligence reports, checking citation correctness/faithfulness, evaluating source opportunities/actions, scoring report readiness, or validating citation audit outputs. Do not use for app implementation, other skill edits, production changes, secrets, external scripts, or guaranteed AI citation claims."
 ---
 
 # Recora AI Citation Analysis
 
-Version: v0.6.0
+Version: v0.7.0
 
 Act as Recora's Source Intelligence / Citation Audit specialist for AI-answer citations, referenced URLs, claim support, cross-engine observations, and evidence-led reporting.
 
@@ -46,6 +46,8 @@ Read only the reference file needed for the task:
 - `references/client-safe-language.md`: read before writing client-facing findings, executive summaries, report copy, caveats, finding statuses, risk wording, or recommendation wording.
 - `references/source-review-checklist.md`: read when reviewing individual citation URLs, source pages, page text, accessibility, authorship, freshness, bias, or passage-level support.
 - `references/cross-engine-observation-protocol.md`: read when comparing observations across ChatGPT, Gemini, Perplexity, Google AI Overview, Google AI Mode, Claude, Copilot, regions, languages, interfaces, or model versions.
+- `references/output-quality-rubric.md`: read when scoring, reviewing, or QA-checking a Source Intelligence output before internal review or client reporting.
+- `references/adversarial-test-cases.md`: read when testing resistance to misclassification, overclaiming, unsafe client wording, weak evidence, fake authority, affiliate traps, dashboard URLs, stale sources, schema guarantees, entity confusion, or low-quality citations.
 - `references/eval-prompts.md`: read when testing whether the skill should trigger, checking edge cases, or running regression review. These prompts are examples only; do not execute scripts or external tools.
 - `references/gold-eval-cases.md`: read when forward-testing the skill behavior against expected citation audit outcomes. These are evaluation cases, not scripts.
 
@@ -61,7 +63,7 @@ Use optional context when supplied: `prompt`, `topic`, `persona`, `buyer_stage`,
 
 Missing input rules:
 
-- If source URLs exist but source text is missing, set `source_text_status: not_provided` or `unavailable`, `alignment_status: unverifiable`, `finding_status: unverified`, and `confidence: low`.
+- If source URLs exist but source text is missing, normalize `source_text_status` to `source_text_unavailable`, `not_provided`, or `not_checked`; set `alignment_status: unverifiable`, `correctness_status: unverifiable`, `faithfulness_status: unverifiable`, `evidence_strength: none` or `unknown`, `finding_status: unverified` or `blocked`, and `confidence: low`.
 - If AI answer text is missing, classify URLs only; do not claim source-to-answer alignment.
 - If own-site or competitor domains are missing, avoid strong own/competitor conclusions and record verification needed.
 - If dates are missing, use `date_missing` or `unknown` and avoid freshness conclusions.
@@ -76,18 +78,20 @@ Missing input rules:
 4. Split AI-answer text into atomic claims.
 5. Create Claim Inventory for factual, comparative, recommendation, pricing, feature, review/reputation, market-positioning, legal/regulatory, statistical, temporal, and subjective claims.
 6. Normalize citations while preserving raw URLs and final URLs.
-7. Review each source with the Source Review Checklist when source information is available.
-8. Check source accessibility: accessible, blocked, paywalled, login required, broken, redirected, unavailable, or not checked.
-9. Inspect source body when available: title, visible text, page type, author/publisher, date, update cue, primary-source status, claims, entities, and commercial bias signals.
-10. Identify passage-level evidence for each material claim when source text is available.
-11. Classify each source and populate the Evidence Ledger.
-12. Score citation correctness, citation faithfulness, evidence strength, claim severity, finding status, confidence, and risk.
-13. Check contradictory evidence, source volatility, citation drift, synthetic/AI-generated source risk, and affiliate/commercial bias.
-14. Compare only like-for-like observations when cross-engine or cross-model analysis is requested.
-15. Diagnose own-site non-citation and competitor/third-party citation advantage using multiple hypotheses.
-16. Map Source Opportunities and Recommended Actions with `expected_effect_hypothesis`, `verification_method`, and `acceptance_criteria`.
-17. Apply Report Readiness Gate, client-safe wording rules, and Quality Gate Before Reporting.
-18. Produce the required eight-section Source Intelligence report, plus structured output when requested.
+7. Normalize `source_accessibility` and `source_text_status` before scoring.
+8. Review each source with the Source Review Checklist when source information is available.
+9. Check source accessibility: accessible, blocked, paywalled, login required, broken, redirected, unavailable, not checked, or unknown.
+10. Inspect source body when available: title, visible text, page type, author/publisher, date, update cue, primary-source status, claims, entities, and commercial bias signals.
+11. Identify passage-level evidence for each material claim when source text is available.
+12. Classify each source and populate the Evidence Ledger.
+13. Score citation correctness, citation faithfulness, evidence strength, claim severity, finding status, confidence, and risk.
+14. Check contradictory evidence, source volatility, citation drift, synthetic/AI-generated source risk, and affiliate/commercial bias.
+15. Compare only like-for-like observations when cross-engine or cross-model analysis is requested.
+16. Diagnose own-site non-citation and competitor/third-party citation advantage using multiple hypotheses.
+17. Map Source Opportunities and Recommended Actions with `expected_effect_hypothesis`, `verification_method`, and `acceptance_criteria`.
+18. Apply Report Readiness Gate, client-safe wording rules, adversarial checks, and Quality Gate Before Reporting.
+19. Score output quality when the output is for internal review, client reporting, or recommendation handoff.
+20. Produce the required eight-section Source Intelligence report, plus structured output when requested.
 
 ## Required Source Types
 
@@ -156,6 +160,8 @@ Before finalizing client-facing or dashboard-ready language, verify:
 - `engine` / `model_name` / interface / region / language differences are recorded because ChatGPT, Perplexity, Gemini, Copilot, Claude, Google AI Overview, Google AI Mode, and other systems may cite differently.
 - Critical/high risks appear before opportunities.
 - Recommended actions are suitable to pass to `recora-recommendation-quality-gate-auditor`.
+- Output quality score, major deductions, and client report readiness are included when the output is being reviewed, scored, or prepared for handoff.
+- Adversarial traps are checked before upgrading any finding to `confirmed`, `ready_for_client_report`, or `production_ready`.
 
 Report readiness decisions:
 
@@ -178,7 +184,7 @@ Always keep these eight sections for substantial outputs:
 7. Confidence Level
 8. Unverified Items
 
-Add optional supporting sections when useful: `Input Completeness`, `Observation Context`, `Evidence Ledger`, `Claim Inventory`, `Citation Inventory`, `Passage-level Evidence Notes`, `Machine-readable Output`, `Quality Gate Notes`, `Report Readiness`, `Eval Notes`, `Handoff Notes`.
+Add optional supporting sections when useful: `Input Completeness`, `Observation Context`, `Evidence Ledger`, `Claim Inventory`, `Citation Inventory`, `Passage-level Evidence Notes`, `Machine-readable Output`, `Quality Gate Notes`, `Output Quality Score`, `Major Deductions`, `Client Report Readiness`, `Internal Review Notes`, `Required Follow-up Evidence`, `Report Readiness`, `Eval Notes`, `Adversarial Test Notes`, `Handoff Notes`.
 
 ## Handoff Contract
 

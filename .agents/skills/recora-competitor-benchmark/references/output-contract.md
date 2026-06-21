@@ -67,6 +67,17 @@ When machine-readable output is requested, use this contract. Use `null` for unm
 }
 ```
 
+## JSON Array Item Shapes
+
+Use these shapes for non-empty arrays:
+
+- `persona_comparison[]`: `persona`, `client_visibility`, `dominant_competitors`, `competitor_visibility`, `persona_specific_gap`, `buyer_intent`, `recommended_counter_move`, `confidence`.
+- `prompt_topic_comparison[]`: `prompt_topic`, `prompt_intent`, `client_mentioned`, `competitors_mentioned`, `recommendation_order`, `citation_summary`, `client_gap`, `opportunity`, `confidence`.
+- `source_gap[]`: `competitor`, `source_type`, `cited_source_or_page`, `claim_support`, `source_authority`, `client_source_gap`, `third_party_source_gap`, `confidence`.
+- `recommended_counter_moves[]`: `action`, `target_gap`, `target_competitor`, `target_persona`, `target_prompt_topic`, `expected_effect`, `evidence`, `confidence`, `risk`, `priority`.
+
+Keep these arrays empty only when no evidence or no relevant comparison exists. Do not invent entries to make the output look complete.
+
 ## Required Tables
 
 Use these table schemas when building reports or dashboard exports:
@@ -119,4 +130,3 @@ Client-facing summaries must say "within the observed sample" or equivalent, and
 - all `missing_input`, `not_measured`, `estimated`, `insufficient_sample`, and `low_confidence` caveats
 
 Do not write "will be cited", "can beat this competitor", "will rank higher in AI", "Share of Voice is high" without measured data, or "the competitor is weak" without evidence.
-

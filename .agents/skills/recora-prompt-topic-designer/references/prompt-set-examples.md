@@ -117,6 +117,69 @@ Examples are fictional and for structure only. Do not treat them as factual eval
 }
 ```
 
+## Metric Eligibility Example
+
+Use branded prompts for sentiment / brand perception only. Do not use them for AI Visibility Rate or AI Ranking.
+
+| id | prompt_type | category | brand_mention_rule | metric_eligibility | metric_use_note |
+|---|---|---|---|---|---|
+| PTD-METRIC-001 | non-branded natural search | non_branded | brand_excluded | visibility_rate: eligible; ranking: eligible; sentiment: excluded | Use to measure whether the brand appears without brand seeding and how it is positioned among market options. |
+| PTD-METRIC-002 | competitor comparison | competitor_comparison | brand_excluded | visibility_rate: eligible; ranking: eligible; sentiment: excluded | Use to measure market ranking or shortlist position across category competitors. |
+| PTD-METRIC-003 | branded perception check | branded | brand_included | visibility_rate: excluded; ranking: excluded; sentiment: eligible | Use only to evaluate how AI describes the brand, its strengths, risks, trust, or reputation. |
+
+Sentiment output for `PTD-METRIC-003`:
+
+```md
+sentiment_label: neutral
+sentiment_reason: The answer describes the brand conditionally and asks the buyer to verify evidence before adoption.
+quoted_or_observed_phrase: "verify product fit, support, pricing, and third-party evidence"
+risk_note: Do not treat this branded answer as AI visibility or market ranking.
+needs_verification: true
+```
+
+Machine-readable metric eligibility:
+
+```json
+{
+  "id": "PTD-METRIC-003",
+  "category": "branded",
+  "brand_mention_rule": "brand_included",
+  "metric_eligibility": {
+    "visibility_rate": "excluded",
+    "ranking": "excluded",
+    "sentiment": "eligible"
+  }
+}
+```
+
+## Industry Adapter Mini Examples
+
+These are fictional structure examples only. They do not claim actual AI visibility, ranking, citation, or sentiment.
+
+### BtoC Service Mini Example
+
+| id | prompt | category | brand_mention_rule | competitor_mention_rule | expected_signal | metric_eligibility |
+|---|---|---|---|---|---|---|
+| PTD-B2C-001 | What should a first-time user compare before choosing an online personal coaching service? | non_branded | brand_excluded | unknown_competitor_discovery | Observe consumer decision criteria such as price, reviews, convenience, support, and first-time anxiety. | visibility_rate: eligible; ranking: eligible; sentiment: excluded |
+| PTD-B2C-002 | Besides paid coaching, what alternatives might someone consider when they want help with this problem? | alternative_search | brand_excluded | unknown_competitor_discovery | Observe substitutes such as apps, free resources, communities, lower-cost services, or in-person support. | visibility_rate: eligible; ranking: eligible; sentiment: excluded |
+| PTD-B2C-003 | If someone is evaluating ExampleService, what reputation, price, and support concerns should they verify? | branded | brand_included | no_competitor | Observe brand perception, trust, review concerns, and risk framing. | visibility_rate: excluded; ranking: excluded; sentiment: eligible |
+
+### Local Business Mini Example
+
+| id | prompt | category | brand_mention_rule | competitor_mention_rule | expected_signal | metric_eligibility |
+|---|---|---|---|---|---|---|
+| PTD-LOCAL-001 | How should someone compare nearby hair salons in a specific area before booking for the first time? | non_branded | brand_excluded | unknown_competitor_discovery | Observe local discovery, review themes, access, booking, price, and first-visit concerns. | visibility_rate: eligible; ranking: eligible; sentiment: excluded |
+| PTD-LOCAL-002 | What alternatives should a user consider if nearby salons are fully booked or hard to compare? | alternative_search | brand_excluded | category_competitors | Observe nearby substitutes, area expansion, booking platforms, and service alternatives. | visibility_rate: eligible; ranking: eligible; sentiment: excluded |
+| PTD-LOCAL-003 | If someone is checking ExampleSalon, what review themes and visit risks should they verify before booking? | branded | brand_included | no_competitor | Observe local brand sentiment, review concerns, atmosphere, access, and booking friction. | visibility_rate: excluded; ranking: excluded; sentiment: eligible |
+
+### Clinic / Healthcare Mini Example
+
+| id | prompt | category | brand_mention_rule | competitor_mention_rule | expected_signal | metric_eligibility |
+|---|---|---|---|---|---|---|
+| PTD-CLINIC-001 | What general information should someone check before consulting a clinic about this kind of concern? | non_branded | brand_excluded | no_competitor | Observe whether AI stays general, suggests professional consultation, and surfaces safety/source needs. | visibility_rate: eligible; ranking: excluded; sentiment: excluded |
+| PTD-CLINIC-002 | When comparing clinics for this concern, what safety, qualification, cost, and aftercare points should be verified? | competitor_comparison | brand_excluded | category_competitors | Observe cautious comparison axes, credential checks, risk language, and evidence requirements. | visibility_rate: eligible; ranking: eligible; sentiment: excluded |
+| PTD-CLINIC-003 | If someone is evaluating ExampleClinic, what trust, safety, qualification, and reputation points should they verify? | branded | brand_included | no_competitor | Observe brand trust, risk framing, qualification clarity, and unsupported-claim risk. | visibility_rate: excluded; ranking: excluded; sentiment: eligible |
+
 ## Caveat
 
 Sample prompts are not evidence that a brand appears, is cited, is ranked, or is recommended. Always run measurement before making visibility, citation, or recommendation claims.

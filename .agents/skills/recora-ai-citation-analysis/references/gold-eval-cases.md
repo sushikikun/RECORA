@@ -105,7 +105,7 @@ Each case should be evaluated with:
 - `input_summary`: Cited URL is broken or unavailable.
 - `should_trigger`: true
 - `required_reference_files`: `citation-audit-rubric.md`, `source-review-checklist.md`
-- `expected_behavior`: set `source_accessibility: broken`, `source_text_status: unavailable`, risk `hallucinated_or_missing_source` or `unverifiable_source`.
+- `expected_behavior`: set `source_accessibility: broken`, `source_text_status: source_text_unavailable`, risk `hallucinated_or_missing_source` or `unverifiable_source`, and `finding_status: blocked`.
 - `must_not_do`: do not infer the page contents from URL alone.
 - `expected_output_sections`: Source Classification Table, Citation Risk, Unverified Items.
 - `pass_criteria`: broken URL cannot support any claim.
@@ -193,3 +193,87 @@ Each case should be evaluated with:
 - `must_not_do`: do not say one source mix applies to all AI systems.
 - `expected_output_sections`: Observation Context, Own / Competitor / Third-party Gap, Confidence Level.
 - `pass_criteria`: cross-engine caveats and same-condition comparison rules are visible.
+
+## Case 16: login_required_or_app_page normalizes to login_required
+
+- `case_id`: `gold_016_login_required_or_app_page_normalization`
+- `purpose`: Ensure app/dashboard accessibility values normalize before scoring.
+- `input_summary`: Cited URL has `source_accessibility: login_required_or_app_page`, appears to be an app/dashboard page, and has no source text.
+- `should_trigger`: true
+- `required_reference_files`: `citation-audit-rubric.md`, `machine-readable-output-schema.md`, `source-review-checklist.md`
+- `expected_behavior`: normalize `source_accessibility` to `login_required`, normalize empty text to `source_text_unavailable`, and mark source-to-claim support as unverifiable.
+- `must_not_do`: do not mark the citation as confirmed because the competitor domain is recognizable.
+- `expected_output_sections`: Source Classification Table, Evidence Ledger, Citation Risk, Unverified Items.
+- `pass_criteria`: output includes `correctness_status: unverifiable`, `faithfulness_status: unverifiable`, `evidence_strength: none` or `unknown`, `confidence: low`, and `finding_status: blocked` or `unverified`.
+
+## Case 17: App/dashboard URL without body text
+
+- `case_id`: `gold_017_app_dashboard_no_body_text`
+- `purpose`: Prevent application URLs from being treated as public evidence.
+- `input_summary`: URL path clearly looks like a dashboard/report route and `source_text` is empty.
+- `should_trigger`: true
+- `required_reference_files`: `source-review-checklist.md`, `citation-audit-rubric.md`
+- `expected_behavior`: treat the source as `login_required` or `source_text_unavailable`, set alignment to `unverifiable`, and list verification needed.
+- `must_not_do`: do not infer claims from the URL path.
+- `expected_output_sections`: Source Classification Table, Passage-level Evidence Notes, Unverified Items.
+- `pass_criteria`: no claim attached to the app/dashboard URL is marked `confirmed`.
+
+## Case 18: Broken URL becomes blocked
+
+- `case_id`: `gold_018_broken_url_blocked`
+- `purpose`: Ensure missing sources become blocked risks.
+- `input_summary`: Cited URL has `source_accessibility: 404`, `not_found`, or `dead_link`.
+- `should_trigger`: true
+- `required_reference_files`: `citation-audit-rubric.md`, `machine-readable-output-schema.md`
+- `expected_behavior`: normalize accessibility to `broken`, set `source_text_status: source_text_unavailable`, and set `finding_status: blocked`.
+- `must_not_do`: do not use the URL as evidence for any claim.
+- `expected_output_sections`: Citation Risk, Evidence Ledger, Report Readiness.
+- `pass_criteria`: broken source cannot improve confidence or evidence strength.
+
+## Case 19: Empty source_text cannot be confirmed
+
+- `case_id`: `gold_019_empty_source_text_not_confirmed`
+- `purpose`: Prevent URL-only confirmation when source text field is empty.
+- `input_summary`: Source URL exists and domain is identifiable, but `source_text` is empty.
+- `should_trigger`: true
+- `required_reference_files`: `citation-audit-rubric.md`, `source-review-checklist.md`
+- `expected_behavior`: normalize to `source_text_unavailable`, use `unverifiable` correctness and faithfulness, and downgrade confidence to low.
+- `must_not_do`: do not mark `finding_status: confirmed`.
+- `expected_output_sections`: Source Classification Table, Claim Inventory, Unverified Items.
+- `pass_criteria`: `confirmed` does not appear for that source or linked claim.
+
+## Case 20: Noisy accessibility values normalize to standard enum
+
+- `case_id`: `gold_020_accessibility_synonym_normalization`
+- `purpose`: Ensure varied source accessibility inputs map to standard values.
+- `input_summary`: Rows include `auth_required`, `members_only`, `paywall`, `paid_article`, `blocked_by_robots`, and `redirected_url`.
+- `should_trigger`: true
+- `required_reference_files`: `machine-readable-output-schema.md`, `citation-audit-rubric.md`
+- `expected_behavior`: map values to `login_required`, `paywalled`, `blocked`, or `redirected` before scoring.
+- `must_not_do`: do not output non-standard accessibility values in machine-readable fields.
+- `expected_output_sections`: Source Classification Table, Evidence Ledger, Confidence Level.
+- `pass_criteria`: all `source_accessibility` values are in the standard enum.
+
+## Case 21: Output quality evaluator catches unsafe draft
+
+- `case_id`: `gold_021_output_quality_unsafe_draft`
+- `purpose`: Ensure unsafe Source Intelligence output is scored and downgraded.
+- `input_summary`: Draft marks URL-only citations as confirmed, treats one observation as a trend, and says schema will increase AI citations.
+- `should_trigger`: true
+- `required_reference_files`: `output-quality-rubric.md`, `client-safe-language.md`, `citation-audit-rubric.md`
+- `expected_behavior`: assign output quality score, list major deductions, mark unsafe for client report, and recommend internal revision.
+- `must_not_do`: do not keep `ready_for_client_report` or `production_ready`.
+- `expected_output_sections`: Output Quality Score, Major Deductions, Client Report Readiness, Required Follow-up Evidence.
+- `pass_criteria`: deductions include URL-only confirmation, schema guarantee, and one-observation overclaim.
+
+## Case 22: Adversarial test catches weak citation traps
+
+- `case_id`: `gold_022_adversarial_trap_bundle`
+- `purpose`: Ensure adversarial traps do not produce overconfident findings.
+- `input_summary`: Audit includes fake authority source, affiliate ranking, dashboard URL, paywalled review, stale article, and competitor-owned marketing copy.
+- `should_trigger`: true
+- `required_reference_files`: `adversarial-test-cases.md`, `output-quality-rubric.md`, `source-review-checklist.md`
+- `expected_behavior`: identify relevant adversarial cases, downgrade evidence strength, add risks, and keep report readiness internal or needs-more-evidence.
+- `must_not_do`: do not treat affiliate, dashboard, paywalled, stale, or competitor-owned sources as neutral confirmed evidence.
+- `expected_output_sections`: Adversarial Test Notes, Citation Risk, Evidence Ledger, Output Quality Score.
+- `pass_criteria`: each trap has a finding status, confidence level, and client-safety caveat.

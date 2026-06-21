@@ -262,15 +262,59 @@ Allowed `decision` values:
 - `redirected`
 - `unavailable`
 - `not_checked`
+- `unknown`
 
 ### source_text_status
 
 - `checked`
-- `snippet_only`
+- `partially_checked`
+- `source_text_unavailable`
 - `not_provided`
-- `unavailable`
 - `not_checked`
 - `unknown`
+
+## Normalization Rules
+
+Normalize incoming values before producing machine-readable output.
+
+### source_accessibility normalization
+
+| input value | normalized value |
+|---|---|
+| `login_required_or_app_page` | `login_required` |
+| `app_dashboard_page` | `login_required` |
+| `auth_required` | `login_required` |
+| `members_only` | `login_required` |
+| `blocked_by_login` | `login_required` |
+| `paywall` | `paywalled` |
+| `paid_article` | `paywalled` |
+| `not_found` | `broken` |
+| `404` | `broken` |
+| `dead_link` | `broken` |
+| `redirected_url` | `redirected` |
+| `blocked_by_robots` | `blocked` |
+| `not_checked` | `not_checked` |
+| missing or ambiguous value | `unknown` |
+
+The only valid normalized `source_accessibility` values are `accessible`, `blocked`, `paywalled`, `login_required`, `broken`, `redirected`, `unavailable`, `not_checked`, and `unknown`.
+
+### source_text_status normalization
+
+| input value | normalized value |
+|---|---|
+| `checked` | `checked` |
+| `partially_checked` | `partially_checked` |
+| `unavailable` | `source_text_unavailable` |
+| `source_text_missing` | `source_text_unavailable` |
+| `empty_source_text` | `source_text_unavailable` |
+| `missing` | `source_text_unavailable` |
+| `empty` | `source_text_unavailable` |
+| `not_available` | `source_text_unavailable` |
+| `not_provided` | `not_provided` |
+| `not_checked` | `not_checked` |
+| missing or ambiguous value | `unknown` |
+
+The only valid normalized `source_text_status` values are `checked`, `partially_checked`, `source_text_unavailable`, `not_provided`, `not_checked`, and `unknown`.
 
 ### claim_type
 
@@ -369,6 +413,9 @@ Allowed `decision` values:
 - Every `claim_id`, `citation_id`, `risk_id`, `opportunity_id`, and `action_id` must be stable inside the output.
 - Every material recommendation must link to at least one `linked_claim_ids`, `linked_citation_ids`, or `linked_gap`.
 - URL-only or source-text-missing findings must not use `finding_status: confirmed`.
+- If `source_accessibility` is `login_required`, `paywalled`, `broken`, or `unavailable`, use `finding_status: blocked` or `unverified`; do not use `confirmed`.
+- If `source_text_status` is `source_text_unavailable`, `not_provided`, or `not_checked`, set `correctness_status: unverifiable`, `faithfulness_status: unverifiable`, `evidence_strength: none` or `unknown`, `confidence: low`, and `finding_status: blocked` or `unverified`.
+- If a URL points to an application/dashboard page with no source text, normalize the accessibility to `login_required` and do not treat the URL as confirmed evidence even when the domain identifies the brand or competitor.
 - `claim_severity: critical` requires checked evidence for client-facing confirmation.
 - `contradicted` findings must appear in `citation_risks` and `report_readiness.blocking_items` unless clearly resolved.
 - `technical_support` actions must not claim guaranteed AI citation lift.

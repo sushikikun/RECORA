@@ -61,8 +61,52 @@ Citation faithfulness asks whether the AI answer appears genuinely grounded in t
 - `redirected`
 - `unavailable`
 - `not_checked`
+- `unknown`
 
-A redirected source must preserve both raw URL and final URL. A paywalled or login-required source can be classified but should not receive strong claim support unless supplied text is available.
+A redirected source must preserve both raw URL and final URL. A paywalled or login-required source can be classified for inventory, but it must not be treated as confirmed claim support.
+
+## Source Accessibility Normalization
+
+Normalize incoming accessibility values before scoring.
+
+| input value | normalized `source_accessibility` |
+|---|---|
+| `login_required_or_app_page` | `login_required` |
+| `app_dashboard_page` | `login_required` |
+| `auth_required` | `login_required` |
+| `members_only` | `login_required` |
+| `blocked_by_login` | `login_required` |
+| `paywall` | `paywalled` |
+| `paid_article` | `paywalled` |
+| `not_found` | `broken` |
+| `404` | `broken` |
+| `dead_link` | `broken` |
+| `redirected_url` | `redirected` |
+| `blocked_by_robots` | `blocked` |
+| `not_checked` | `not_checked` |
+| missing or ambiguous value | `unknown` |
+
+Standard `source_accessibility` values are: `accessible`, `blocked`, `paywalled`, `login_required`, `broken`, `redirected`, `unavailable`, `not_checked`, `unknown`.
+
+## Source Text Status Normalization
+
+Normalize incoming source text status before claim scoring.
+
+| input value | normalized `source_text_status` |
+|---|---|
+| `checked` | `checked` |
+| `partially_checked` | `partially_checked` |
+| `unavailable` | `source_text_unavailable` |
+| `source_text_missing` | `source_text_unavailable` |
+| `empty_source_text` | `source_text_unavailable` |
+| `missing` | `source_text_unavailable` |
+| `empty` | `source_text_unavailable` |
+| `not_available` | `source_text_unavailable` |
+| `not_provided` | `not_provided` |
+| `not_checked` | `not_checked` |
+| missing or ambiguous value | `unknown` |
+
+Standard `source_text_status` values are: `checked`, `partially_checked`, `source_text_unavailable`, `not_provided`, `not_checked`, `unknown`.
 
 ## Source Accessibility Judgment
 
@@ -70,10 +114,33 @@ A redirected source must preserve both raw URL and final URL. A paywalled or log
 |---|---|---|
 | `accessible` with checked text | May support correctness/faithfulness. | Cite checked scope and date. |
 | `redirected` | May be used if final URL preserves intent. | Record raw URL and final URL. |
-| `paywalled` | Use only supplied visible or licensed text. | Mark limited verification. |
+| `paywalled` | Use for inventory or internal hypothesis only. | Mark unverified or blocked; do not confirm claim support. |
 | `login_required` | Do not infer body content. | Mark unverifiable unless text supplied. |
 | `broken` / `unavailable` | Use as citation risk only. | Do not use as claim support. |
 | `not_checked` | Use only for inventory. | Keep confidence low. |
+
+## Blocked / Unverifiable Downgrade Rules
+
+If any of these conditions are true, do not mark the finding as `confirmed`:
+
+- `source_accessibility = login_required`
+- `source_accessibility = paywalled`
+- `source_accessibility = broken`
+- `source_accessibility = unavailable`
+- `source_text_status = source_text_unavailable`
+- `source_text_status = not_provided`
+- `source_text_status = not_checked`
+
+When source text cannot be checked, set:
+
+- `correctness_status = unverifiable`
+- `faithfulness_status = unverifiable`
+- `evidence_strength = none` or `unknown`
+- `confidence = low`
+- `finding_status = blocked` for inaccessible, broken, login-only, or dashboard/app URLs that block source review.
+- `finding_status = unverified` for missing supplied text where the source may still be checkable later.
+
+If a citation URL points to an application/dashboard page and no source text is available, treat it as `login_required` or `source_text_unavailable`. Do not treat the URL as confirmed evidence even if the brand or competitor can be identified from the domain.
 
 ## Claim Atomicity
 
@@ -298,6 +365,12 @@ Use one decision:
 | One observation only, no source body | `needs_more_evidence` |
 | Checked sources support low/medium claims, caveats labeled | `ready_for_client_report` may be possible |
 | High/critical claims supported only by weak evidence | `internal_only` or `blocked_by_missing_source_text` |
+
+## Output Quality And Adversarial Review Hooks
+
+Use `output-quality-rubric.md` when an audit is being scored, reviewed, or prepared for client reporting. Use `adversarial-test-cases.md` when the source set contains authority-like media, affiliate rankings, app/dashboard URLs, stale pricing, schema guarantees, competitor copy, own-site marketing claims, mixed engines, broken links, paywalled reviews, contradictory sources, synthetic articles, or possible entity confusion.
+
+Do not upgrade a finding to `confirmed`, `ready_for_client_report`, or `production_ready` until adversarial traps have been checked for material claims.
 
 ## Cross-engine Comparison Cautions
 

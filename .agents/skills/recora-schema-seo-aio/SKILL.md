@@ -31,8 +31,24 @@ Load these references only when the task needs deeper support:
 
 - `references/seo-schema-aio-source-notes.md`: official Google/schema.org/OpenAI notes, safe AIO/GEO wording, schema caveats, and source hierarchy.
 - `references/external-skill-research.md`: local/public skill research patterns, what to borrow, what not to copy, and Recora-specific influence notes.
+- `references/public-skill-patterns.md`: deeper public skill design patterns, including evidence collectors, audit/plan/execute separation, leading indicators, failure criteria, dependency mapping, and Recora adaptation.
+- `references/public-skill-risk-notes.md`: public skill intake risks, supply-chain hygiene, metadata/description overreach, license risk, side effects, and unsafe claims to reject.
+- `references/recommendation-falsifiability.md`: templates and examples for falsifiable Recora SEO/AIO/schema recommendations.
+- `references/reference-freshness-policy.md`: refresh intervals and `NEEDS_VERIFICATION` rules for official docs, schema.org, public skills, research, and measured AI-search observations.
 - `references/evidence-collector-ideas.md`: future deterministic or hybrid checker ideas before proposing scripts or evidence collection tooling.
 - `references/skill-eval-rubric.md`: Pass / Warning / Fail checks for skill output quality, no-guarantee language, and quality-gate handoff.
+- `references/expertise-operating-system.md`: how to operate the skill as a Recora expertise system rather than a generic SEO/schema checklist.
+- `references/primary-source-watchlist.md`: official/primary source watchlist and source-category rules for OpenAI, Google, schema.org, Bing/Microsoft, Perplexity, W3C, and provider docs.
+- `references/gold-eval-cases.md`: gold test cases for Recora LP, sample report, diagnose/new, dashboard, schema/body mismatch, source gaps, and guarantee-language detection.
+- `references/recora-page-pattern-library.md`: Recora page archetypes, required sections, evidence, schema candidates, links, risks, and good/bad patterns.
+- `references/advanced-aio-geo-principles.md`: Recora-specific principles for extractability, entity clarity, source gaps, prompt types, citation confidence, and AI outcome distinctions.
+- `references/measurement-taxonomy.md`: Recora measurement definitions for visibility, mention, citation, recommendation, ranking, sentiment, source gaps, evidence density, extractability, and branded/non-branded prompt use.
+- `references/schema-decision-matrix.md`: schema type selection rules, visible-content requirements, validation methods, risks, and good/bad recommendations.
+- `references/source-gap-resolution-playbook.md`: how to convert `recora-ai-citation-analysis` source gaps and source opportunities into owned-page, internal-link, structured-data, and legitimate third-party actions.
+- `references/page-audit-playbooks.md`: page-type audit playbooks for Recora LP, sample report, diagnose/new, dashboard, public report, source intelligence, page brief, glossary, comparison, pricing, FAQ, case study, service, research, and competitor pages.
+- `references/client-report-language-guide.md`: client-safe wording for schema limits, robots/sitemap limits, source gaps, third-party evidence, `NEEDS_VERIFICATION`, SEO vs AIO/GEO, and measurement uncertainty.
+- `references/aio-geo-failure-modes.md`: recurring AIO/GEO failure modes and corrected behavior for quality-gate review.
+- `references/implementation-handoff-templates.md`: handoff templates for technical, schema, content, comparison, pricing, source-gap, quality-gate, design, and copy work.
 
 ## When to use this skill
 

@@ -25,7 +25,13 @@ Optional supporting sections:
 - Passage-level Evidence Notes
 - Machine-readable Output
 - Quality Gate Notes
+- Output Quality Score
+- Major Deductions
+- Client Report Readiness
+- Internal Review Notes
+- Required Follow-up Evidence
 - Report Readiness
+- Adversarial Test Notes
 - Handoff Notes
 
 ## Section Contract Fields
@@ -225,6 +231,48 @@ Include:
 - Client-safe wording adjustments.
 - Report readiness decision.
 
+## Output Quality Score
+
+When the output is being reviewed, scored, or prepared for client reporting, include:
+
+- `output_quality_score`
+- `quality_rank`
+- `major_deductions`
+- `unsafe_for_client_report`
+- `client_report_readiness`
+
+Use `output-quality-rubric.md` for scoring. Keep this section separate from business findings so QA notes do not look like client-facing conclusions.
+
+## Major Deductions
+
+List any deductions that materially changed readiness, especially:
+
+- URL-only source marked too strongly.
+- Unchecked source text used as evidence.
+- AI citation increase or schema/robots/`llms.txt` guarantee.
+- Cross-engine observations mixed without caveat.
+- Affiliate, stale, broken, paywalled, login-required, contradictory, or synthetic source risk missed.
+
+## Client Report Readiness
+
+State one of:
+
+- `production_ready`
+- `report_draft_ready`
+- `internal_review_only`
+- `needs_major_revision`
+- `unsafe_or_unusable`
+
+This quality readiness is separate from source-level `report_readiness`; both may be shown when useful.
+
+## Internal Review Notes
+
+Use this section for reviewer-only concerns, suppressed recommendations, questionable evidence, or wording that needs safer framing before publication.
+
+## Required Follow-up Evidence
+
+List evidence required before raising confidence or report readiness, such as checked source text, current pricing, third-party methodology, same-condition repeat observations, or verified entity/domain mapping.
+
 ## Report Readiness
 
 Use one decision:
@@ -236,6 +284,17 @@ Use one decision:
 - `blocked_by_conflicting_evidence`
 
 Include a short reason and the next verification step.
+
+## Adversarial Test Notes
+
+Use `adversarial-test-cases.md` when checking whether the output overtrusted weak citations. Include:
+
+- Tested adversarial cases.
+- Passed cases.
+- Failed cases.
+- Major deductions.
+- Required fixes.
+- Whether the output is safe for client reporting.
 
 ## Handoff Payload Contract
 
