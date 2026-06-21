@@ -3,6 +3,11 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import {
+  assertRecoraDbWriteAllowed,
+  createRecoraDbWriteGuardCliOptions,
+  parseRecoraDbWriteGuardArg
+} from "./recora-db-write-guard";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const DEFAULT_AGGREGATE_SEARCH_MODE: AggregateSearchMode = "combined";
@@ -29,6 +34,8 @@ type Options = {
   applyRecommendations: boolean;
   aggregateSearchMode: AggregateSearchMode;
   outputDir: string | null;
+  allowNonLocalDb: boolean;
+  confirmNonLocalDbWrite: string | null;
 };
 
 type ChildScriptCommand = {
@@ -43,10 +50,11 @@ type CommandResult = {
   output: JsonRecord;
 };
 
-type LocalDatabase = {
+type ResolvedDatabase = {
   url: string;
   host: string;
   port: string;
+  isLocal: boolean;
 };
 
 type ManifestCommand = ReturnType<typeof describeChildCommand>;
@@ -123,13 +131,16 @@ type CycleManifest = {
   dashboardUrls: ReturnType<typeof buildDashboardUrls>;
   safety: {
     openAiApiExecuted: boolean;
-    localDatabaseOnly: true;
+    databaseIsLocal: boolean;
     databaseHost: string;
     databasePort: string;
+    databaseWriteIntent: boolean;
     planDefault: boolean;
     executeMeasurementRequiredForOpenAi: boolean;
     applyAggregateRequiredForMetricSnapshotWrite: boolean;
     applyRecommendationsRequiredForRecommendationWrite: boolean;
+    nonLocalPlanAllowed: boolean;
+    nonLocalWritesRequireConfirmation: boolean;
     recommendationPolicy: string;
   };
   commands: {
@@ -144,7 +155,7 @@ type CycleManifest = {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const database = resolveLocalDatabase();
+  const database = resolveDatabase(options);
   const outputDir = resolveOutputDir(options);
   const manifestPath = path.join(outputDir, "manifest.json");
   const childEnv = {
@@ -197,11 +208,11 @@ async function main() {
     const candidateCount = getNumber(generateResult.output, "candidateCount") ?? 0;
     if (candidateCount > 0) {
       const candidateInputPath = getGeneratedCandidateInputPath(generateResult.output, candidateOutputDir, selectedMeasurementRunId);
-      saveDryRunCommand = buildSaveRecommendationsCommand(candidateInputPath, false);
+      saveDryRunCommand = buildSaveRecommendationsCommand(candidateInputPath, false, options);
       saveDryRunResult = await runJsonCommand(saveDryRunCommand, childEnv);
 
       if (options.applyRecommendations) {
-        saveApplyCommand = buildSaveRecommendationsCommand(candidateInputPath, true);
+        saveApplyCommand = buildSaveRecommendationsCommand(candidateInputPath, true, options);
         saveApplyResult = await runJsonCommand(saveApplyCommand, childEnv);
       }
     }
@@ -230,6 +241,7 @@ async function main() {
 }
 
 function parseArgs(args: string[]): Options {
+  const guardOptions = createRecoraDbWriteGuardCliOptions();
   const options: Options = {
     projectSlug: "",
     measurementRunId: null,
@@ -243,12 +255,19 @@ function parseArgs(args: string[]): Options {
     generateRecommendations: false,
     applyRecommendations: false,
     aggregateSearchMode: DEFAULT_AGGREGATE_SEARCH_MODE,
-    outputDir: null
+    outputDir: null,
+    allowNonLocalDb: guardOptions.allowNonLocalDb,
+    confirmNonLocalDbWrite: guardOptions.confirmNonLocalDbWrite
   };
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     const next = args[index + 1];
+    const guardConsumed = parseRecoraDbWriteGuardArg(args, index, options);
+    if (guardConsumed > 0) {
+      index += guardConsumed - 1;
+      continue;
+    }
 
     if (arg === "--help") {
       printHelp();
@@ -377,16 +396,23 @@ function parseArgs(args: string[]): Options {
   return options;
 }
 
-function resolveLocalDatabase(): LocalDatabase {
+function resolveDatabase(options: Options): ResolvedDatabase {
   const url = process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
   const parsed = parseDatabaseUrl(url);
-  if (!LOCAL_DATABASE_HOSTS.has(parsed.hostname)) {
-    throw new Error("Refusing to run against a non-local RECORA_DATABASE_URL. This orchestrator is local-only.");
-  }
+  const isLocal = LOCAL_DATABASE_HOSTS.has(parsed.hostname);
+  assertRecoraDbWriteAllowed({
+    databaseUrl: url,
+    operation: "run-recora-report-cycle write phase",
+    projectSlug: options.projectSlug,
+    isWrite: hasDatabaseWriteIntent(options),
+    allowNonLocalDb: options.allowNonLocalDb,
+    confirmNonLocalDbWrite: options.confirmNonLocalDbWrite
+  });
   return {
     url,
     host: parsed.hostname,
-    port: parsed.port || "5432"
+    port: parsed.port || "5432",
+    isLocal
   };
 }
 
@@ -419,7 +445,8 @@ function buildMeasurementCommand(options: Options) {
     options.projectSlug,
     ...promptSelectionArgs,
     "--search-mode",
-    options.measurementSearchMode
+    options.measurementSearchMode,
+    ...buildNonLocalDbWriteGuardArgs(options)
   ]);
 }
 
@@ -434,7 +461,9 @@ function buildAggregateCommand(options: Options, measurementRunId: string, outpu
     "--output-json",
     outputJsonPath
   ];
-  if (options.applyAggregate) args.push("--apply");
+  if (options.applyAggregate) {
+    args.push("--apply", ...buildNonLocalDbWriteGuardArgs(options));
+  }
   return buildChildScriptCommand("metric snapshot aggregate", "scripts/recalculate-metric-snapshots.ts", args);
 }
 
@@ -451,9 +480,10 @@ function buildGenerateRecommendationsCommand(options: Options, measurementRunId:
   ]);
 }
 
-function buildSaveRecommendationsCommand(inputPath: string, apply: boolean) {
+function buildSaveRecommendationsCommand(inputPath: string, apply: boolean, options: Options) {
   const args = ["--input", inputPath];
   args.push(apply ? "--apply" : "--dry-run");
+  if (apply) args.push(...buildNonLocalDbWriteGuardArgs(options));
   return buildChildScriptCommand(
     apply ? "recommendations save apply" : "recommendations save dry-run",
     "scripts/save-recommendation-candidates.ts",
@@ -519,7 +549,7 @@ async function runJsonCommand(command: ChildScriptCommand, env: NodeJS.ProcessEn
 
 function buildManifest(input: {
   options: Options;
-  database: LocalDatabase;
+  database: ResolvedDatabase;
   measurementCommand: ChildScriptCommand;
   measurementOutput: JsonRecord | null;
   measurementRunId: string | null;
@@ -612,13 +642,16 @@ function buildManifest(input: {
     dashboardUrls: buildDashboardUrls(options.projectSlug),
     safety: {
       openAiApiExecuted: Boolean(input.measurementOutput),
-      localDatabaseOnly: true,
+      databaseIsLocal: input.database.isLocal,
       databaseHost: input.database.host,
       databasePort: input.database.port,
+      databaseWriteIntent: hasDatabaseWriteIntent(options),
       planDefault: isPlanOnly(options),
       executeMeasurementRequiredForOpenAi: true,
       applyAggregateRequiredForMetricSnapshotWrite: true,
       applyRecommendationsRequiredForRecommendationWrite: true,
+      nonLocalPlanAllowed: true,
+      nonLocalWritesRequireConfirmation: true,
       recommendationPolicy: "Only display_decision=show and should_save_to_recommendations=review_required candidates can be saved by the child save script."
     },
     commands: {
@@ -645,6 +678,19 @@ function resolveMode(options: Options) {
 
 function isPlanOnly(options: Options) {
   return options.plan || (!options.measurementRunId && !options.executeMeasurement && !options.applyAggregate && !options.generateRecommendations && !options.applyRecommendations);
+}
+
+function hasDatabaseWriteIntent(options: Options) {
+  return options.executeMeasurement || options.applyAggregate || options.applyRecommendations;
+}
+
+function buildNonLocalDbWriteGuardArgs(options: Options) {
+  const args: string[] = [];
+  if (options.allowNonLocalDb) args.push("--allow-non-local-db");
+  if (options.confirmNonLocalDbWrite) {
+    args.push("--confirm-non-local-db-write", options.confirmNonLocalDbWrite);
+  }
+  return args;
 }
 
 function resolveDemoSeedCheckStatus(options: Options, measurementRunId: string | null): PhaseStatus {
@@ -819,9 +865,13 @@ Options:
   --apply-recommendations         Persist recommendations after a dry-run save check. Requires --generate-recommendations.
   --aggregate-search-mode <mode>  combined, no-search, web-search, or both. Default: combined.
   --output-dir <path>             Optional manifest/output directory.
+  --allow-non-local-db            Permit non-local DB write phases only with the confirmation flag below.
+  --confirm-non-local-db-write    Required confirmation for non-local write phases. Expected: write:<projectSlug>.
 
 Safety:
-  This orchestrator runs OpenAI only with --execute-measurement. It forces RECORA_DATABASE_URL to a local PostgreSQL URL for child scripts and refuses non-local RECORA_DATABASE_URL values.
+  --plan is allowed against non-local RECORA_DATABASE_URL for read-only connection checks.
+  OpenAI measurement runs only with --execute-measurement.
+  Non-local DB writes require --allow-non-local-db and --confirm-non-local-db-write write:<projectSlug>.
 `);
 }
 
