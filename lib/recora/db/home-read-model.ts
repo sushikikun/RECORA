@@ -7,7 +7,7 @@ import {
   getDefaultRecoraProjectSlug,
   getLatestRunWithMetricSnapshots,
   getRecoraBrands,
-  getRecoraMetricSnapshots,
+  getRecoraMetricSnapshotsOrEmpty,
   getRecoraProject
 } from "./dashboard";
 import {
@@ -109,7 +109,7 @@ export async function getRecoraHomeReadModelData(
     getCompletedOpenAiRuns(project.id, supabase)
   ]);
   const latestAggregateSnapshots = latestAggregateRun
-    ? await getRecoraMetricSnapshots(latestAggregateRun.id, supabase)
+    ? await getRecoraMetricSnapshotsOrEmpty(latestAggregateRun.id, supabase, "home_read_model_metric_snapshots")
     : [];
   const runClassification = classifyMeasurementRuns(completedOpenAiRuns);
   const measurementRunIds = new Set(runClassification.measurementRuns.map((run) => run.id));

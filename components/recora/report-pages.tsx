@@ -2528,9 +2528,26 @@ async function safelyLoadReportData<T extends { project: unknown | null }>(
     const data = await loader();
     return data.project ? data : null;
   } catch (error) {
-    console.warn(`Failed to load Recora report overview ${label} data.`, error);
+    console.warn(`Failed to load Recora report overview ${label} data.`, getSafeReportDataError(error));
     return null;
   }
+}
+
+function getSafeReportDataError(error: unknown) {
+  if (error instanceof Error) {
+    return { message: error.message };
+  }
+
+  if (typeof error === "object" && error !== null) {
+    const record = error as Record<string, unknown>;
+    return {
+      code: typeof record.code === "string" ? record.code : undefined,
+      message: typeof record.message === "string" ? record.message : undefined,
+      details: typeof record.details === "string" ? record.details : undefined
+    };
+  }
+
+  return { message: String(error) };
 }
 
 function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSlug = currentReportSlug): ReportOverviewViewModel {

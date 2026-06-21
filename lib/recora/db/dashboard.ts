@@ -102,7 +102,8 @@ export async function getLatestRunWithMetricSnapshots(
 
   if (!isOpenAiAggregateRun(run)) return null;
 
-  const runIdsWithSnapshots = await getMetricSnapshotRunIds([run.id], supabase);
+  const runIdsWithSnapshots = await getMetricSnapshotRunIdsOrNull([run.id], supabase);
+  if (runIdsWithSnapshots === null) return run;
   return runIdsWithSnapshots.has(run.id) ? run : null;
 }
 
@@ -119,6 +120,19 @@ export async function getRecoraMetricSnapshots(
 
   throwIfSupabaseError("metric_snapshots", error);
   return (data ?? []) as RecoraMetricSnapshotRow[];
+}
+
+export async function getRecoraMetricSnapshotsOrEmpty(
+  runId: string,
+  supabase: RecoraSupabaseClient = createRecoraSupabaseClient(),
+  context = "metric_snapshots"
+): Promise<RecoraMetricSnapshotRow[]> {
+  try {
+    return await getRecoraMetricSnapshots(runId, supabase);
+  } catch (error) {
+    logRecoraReadModelWarning(context, error, { runId });
+    return [];
+  }
 }
 
 export async function getRecoraRecommendations(
@@ -248,7 +262,7 @@ export async function getRecoraDashboardData(
 
   const [brands, metricSnapshots, latestStandardRun, counts] = await Promise.all([
     getRecoraBrands(project.id, supabase),
-    latestRun ? getRecoraMetricSnapshots(latestRun.id, supabase) : Promise.resolve([]),
+    latestRun ? getRecoraMetricSnapshotsOrEmpty(latestRun.id, supabase, "dashboard_metric_snapshots") : Promise.resolve([]),
     latestStandardRunPromise,
     getRecoraDashboardCounts(sourceMeasurementRunId, supabase)
   ]);
@@ -292,6 +306,18 @@ async function getMetricSnapshotRunIds(runIds: string[], supabase: RecoraSupabas
   throwIfSupabaseError("metric_snapshots", error);
   return new Set(((data ?? []) as Array<{ run_id: string }>).map((snapshot) => snapshot.run_id));
 }
+
+async function getMetricSnapshotRunIdsOrNull(runIds: string[], supabase: RecoraSupabaseClient) {
+  try {
+    return await getMetricSnapshotRunIds(runIds, supabase);
+  } catch (error) {
+    logRecoraReadModelWarning("latest_aggregate_metric_snapshot_check", error, {
+      runIdCount: runIds.length,
+      firstRunId: runIds[0] ?? null
+    });
+    return null;
+  }
+}
 async function getRunItemIds(runId: string, supabase: RecoraSupabaseClient) {
   const { data, error } = await supabase.from("run_items").select("id").eq("run_id", runId);
 
@@ -325,4 +351,33 @@ function throwIfSupabaseError(context: string, error: PostgrestError | null) {
   }
 
   throw new Error(`Failed to load Recora ${context}: ${error.message}`);
+}
+
+export function logRecoraReadModelWarning(
+  context: string,
+  error: unknown,
+  details: Record<string, string | number | boolean | null> = {}
+) {
+  console.warn("Recora dashboard read model warning.", {
+    context,
+    ...details,
+    error: getSafeErrorSummary(error)
+  });
+}
+
+function getSafeErrorSummary(error: unknown) {
+  if (error instanceof Error) {
+    return { message: error.message };
+  }
+
+  if (typeof error === "object" && error !== null) {
+    const record = error as Record<string, unknown>;
+    return {
+      code: typeof record.code === "string" ? record.code : undefined,
+      message: typeof record.message === "string" ? record.message : undefined,
+      details: typeof record.details === "string" ? record.details : undefined
+    };
+  }
+
+  return { message: String(error) };
 }

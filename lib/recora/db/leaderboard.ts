@@ -5,6 +5,7 @@ import { createRecoraSupabaseClient } from "@/lib/supabase/server";
 import {
   getDefaultRecoraProjectSlug,
   getLatestRunWithMetricSnapshots,
+  logRecoraReadModelWarning,
   getRecoraBrands,
   getRecoraProject,
   getSourceMeasurementRunId
@@ -64,7 +65,7 @@ export async function getRecoraLeaderboardData(
 
   const [brands, metricSnapshots, runItems] = await Promise.all([
     brandsPromise,
-    getBrandMetricSnapshots(latestRun.id, supabase),
+    getBrandMetricSnapshotsOrEmpty(latestRun.id, supabase),
     getRunItems(sourceMeasurementRunId ?? latestRun.id, supabase)
   ]);
 
@@ -140,6 +141,15 @@ async function getBrandMetricSnapshots(runId: string, supabase: RecoraSupabaseCl
 
   throwIfSupabaseError("metric_snapshots", error);
   return (data ?? []) as RecoraMetricSnapshotRow[];
+}
+
+async function getBrandMetricSnapshotsOrEmpty(runId: string, supabase: RecoraSupabaseClient) {
+  try {
+    return await getBrandMetricSnapshots(runId, supabase);
+  } catch (error) {
+    logRecoraReadModelWarning("leaderboard_metric_snapshots", error, { runId });
+    return [];
+  }
 }
 
 async function getAiConversations(runItemIds: string[], supabase: RecoraSupabaseClient) {
