@@ -4,6 +4,13 @@ Research date: 2026-06-21
 
 Purpose: provide page-type-specific audit playbooks for Recora SEO/AIO/schema reviews.
 
+## Source Category Discipline
+
+- Official sources govern technical SEO, crawl/index, and schema constraints.
+- Recora judgment governs page purpose, buyer questions, source-gap connections, and P0/P1/P2/P3 issue framing.
+- Public skills and third-party examples may inspire page patterns, but must not be copied or treated as proof.
+- Competitor, pricing, customer, and performance claims remain `NEEDS_VERIFICATION` unless verified in the provided evidence.
+
 ## Priority Scale
 
 - P0: harmful misinformation, privacy/security/indexation mistake, false schema/reviews/ratings, unsupported claims.

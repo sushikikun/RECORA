@@ -4,6 +4,13 @@ Research date: 2026-06-21
 
 Purpose: define Recora measurement concepts for SEO/AIO/GEO audits and client reports. These concepts must not be collapsed into one "AI visibility" number.
 
+## Source Category Discipline
+
+- Official/primary sources define platform and crawl/index/schema rules, but not Recora's report taxonomy.
+- Public skills and third-party articles may inspire labels, but do not define measured Recora outcomes.
+- Recora judgment defines the taxonomy below; measured prompt/provider/date evidence is required before reporting a metric.
+- Unsupported provider behavior or market claims must be marked `NEEDS_VERIFICATION`.
+
 ## Prompt Class Rules
 
 - Branded prompts must not be mixed into AI visibility rate or ranking evaluation.

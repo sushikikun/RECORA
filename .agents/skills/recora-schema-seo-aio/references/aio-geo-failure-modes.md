@@ -4,6 +4,13 @@ Research date: 2026-06-21
 
 Purpose: identify common failure patterns in Recora AIO/GEO recommendations and define correct behavior.
 
+## Source Category Discipline
+
+- Official sources define technical constraints where relevant.
+- Public skill or third-party advice that overclaims outcomes should be treated as a failure signal, not copied.
+- Recora judgment defines the failure modes, detection signals, and corrected behavior below.
+- Any unmeasured AI-search, ranking, citation, or competitor claim must be marked `NEEDS_VERIFICATION`.
+
 | Failure mode | Description | Why it is dangerous | Detection signal | Correct behavior | Quality-gate trigger | Example bad output | Example corrected output |
 |---|---|---|---|---|---|---|---|
 | Schema万能視 | Treating schema as the main solution. | Encodes unsupported facts and overpromises impact. | Recommendation only says "add schema." | Add visible content first; schema mirrors it. | Schema/client-facing claim. | "Add schema to get cited." | "Add visible FAQ, then matching schema; citation is not guaranteed." |

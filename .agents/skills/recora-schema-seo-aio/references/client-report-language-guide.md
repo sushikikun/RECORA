@@ -4,6 +4,13 @@ Research date: 2026-06-21
 
 Purpose: provide client-safe wording for Recora SEO/AIO/schema/source-gap reports.
 
+## Source Category Discipline
+
+- Official sources support technical caveats about schema, crawl, index, robots, and sitemap limits.
+- Public skills and third-party content can inform communication patterns only; do not import their outcome claims.
+- Recora judgment controls the client-safe wording below.
+- If the report lacks measured evidence, use `NEEDS_VERIFICATION` rather than stronger causal language.
+
 ## Global Rules
 
 - Separate SEO improvements from AIO/GEO improvements.

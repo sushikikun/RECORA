@@ -4,6 +4,13 @@ Research date: 2026-06-21
 
 Purpose: standardize how Recora SEO/AIO/schema findings are handed to implementation, design, copy, and quality-gate owners.
 
+## Source Category Discipline
+
+- Official sources should be cited or referenced for technical validation requirements when relevant.
+- Public skills and third-party patterns may shape workflow ideas only; they are not implementation evidence.
+- Recora judgment controls owner/control, validation, caveat, and quality-gate fields.
+- Missing facts in a handoff must be marked `NEEDS_VERIFICATION`, not filled with assumptions.
+
 ## Universal Fields
 
 Every handoff should include:

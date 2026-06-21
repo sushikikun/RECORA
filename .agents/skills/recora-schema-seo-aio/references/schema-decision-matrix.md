@@ -4,6 +4,13 @@ Research date: 2026-06-21
 
 Purpose: decide when schema is appropriate for Recora/client pages. Schema is a support layer. It does not guarantee AI citation, rich results, ranking improvement, traffic, or conversion.
 
+## Source Category Discipline
+
+- Official Google and schema.org documentation controls schema policy, syntax, and eligibility language.
+- Public skills and third-party posts can inspire checklist design only; they do not override official rules.
+- Recora judgment controls page-fit decisions and client-safe wording.
+- Any claim about rankings, AI citations, rich results, or provider behavior needs current evidence or `NEEDS_VERIFICATION`.
+
 ## Hard Rules
 
 - Do not put information in schema that is absent from visible or clearly supportable page content.

@@ -4,6 +4,13 @@ Research date: 2026-06-21
 
 Purpose: convert `recora-ai-citation-analysis` source gaps and source opportunities into implementable page, schema, link, and third-party evidence actions.
 
+## Source Category Discipline
+
+- Recora measured observations define the source gap: prompt, provider, date, answer, cited URLs, and source-to-claim alignment.
+- Official sources inform technical limits for crawl, index, schema, robots, and sitemap support.
+- Public skills and third-party articles may suggest tactics, but source-gap actions must be rephrased as Recora-safe hypotheses.
+- Third-party evidence actions require legitimate, verifiable sources; unsupported claims are `NEEDS_VERIFICATION`.
+
 ## Core Rule
 
 A source gap is not always solvable with owned pages. Some gaps require legitimate third-party evidence, directory/profile correction, review/listing work, partner/customer proof, media coverage, or ongoing monitoring.
