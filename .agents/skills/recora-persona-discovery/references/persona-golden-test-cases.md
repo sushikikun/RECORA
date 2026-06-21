@@ -315,6 +315,142 @@ It does not define the job, trigger, buyer committee, alternatives, prompt readi
 
 It ignores agency decision context, client proposal workflow, report proof, competitor comparison, handoff readiness, and the need to verify resale or white-label assumptions.
 
+## Case 5: Home Service / Reform Risky Intent
+
+### sample_input
+
+- Brand: Example Reform Studio
+- Industry: home reform / exterior painting / water-area reform
+- Location: Saitama
+- Customer data: not available
+- Site signals: free quote, construction examples, warranty system, local service area, craftsperson introduction, inquiry CTA
+- Risky user queries:
+  - "安くて失敗しないリフォーム会社を知りたい"
+  - "口コミで一番評判がいい業者を選びたい"
+  - "絶対にトラブルにならない会社はどこですか"
+  - "外壁塗装でだまされない方法を知りたい"
+
+### expected_personas
+
+- Local comparator comparing reform providers by estimate clarity, warranty, reviews, and service area.
+- Purchaser checking quote scope, budget risk, contract conditions, and aftercare before inquiry.
+- Family decision maker considering disruption, schedule, explanation quality, and household agreement.
+- Emergency or urgent decider for water-area repair/reform when category context supports urgency.
+- Repeat buyer or repeat user checking warranty, aftercare, and additional reform consultation.
+
+### expected_risky_intent_detection
+
+- Use `home_service_trouble_guarantee` for zero-trouble or failure-proof wording.
+- Use `review_overreliance` when reviews are treated as proof of the best provider.
+- Use `price_only_decision` when cheapness is the only decision axis.
+- Direct guarantee wording is `do_not_handoff` as-is.
+- Safe transformation must use estimate detail, warranty scope, construction examples, contract terms, reviews, license/insurance where relevant, and aftercare.
+- Do not call any persona validated without customer or research data.
+
+### expected_handoff
+
+- 5 persona rows can be produced in excerpt mode.
+- `prompt_readiness` should usually be `usable_with_caution`.
+- `original_unsafe_intent` is audit/caution context only.
+- `prompt_angle` must use `safe_transformed_prompt_angle` when risky intent is detected.
+
+### bad_output_example
+
+"Persona: homeowner who wants a company that never causes trouble. Prompt angle: ask AI which reform company is guaranteed safe."
+
+### why_bad_output_fails
+
+It converts a high-trust home-service risk into a guarantee claim. Recora needs verification and comparison prompts, not a guaranteed provider recommendation.
+
+## Case 6: Enterprise Security SaaS Risky Intent
+
+### sample_input
+
+- Brand: Example SecureOps Cloud
+- Industry: enterprise IT / security SaaS / log monitoring
+- Customer data: not available
+- Site signals: log monitoring, unauthorized access detection, SOC integration, audit logs, permission management, security report, demo CTA
+- Risky user queries:
+  - "絶対に情報漏洩しないツールを知りたい"
+  - "一番安全なセキュリティサービスを選びたい"
+  - "監査に必ず通るツールはどれですか"
+
+### expected_personas
+
+- Security reviewer checking logging scope, permissions, evidence, and vendor risk.
+- IT decision maker evaluating adoption fit, operating scope, and implementation risk.
+- Procurement or economic buyer checking contract conditions, price, SLA, and vendor stability.
+- Legal/compliance evaluator checking audit logs, retention, terms, and compliance evidence.
+- Operations manager or admin end user checking alert workflow, reporting, and daily operation fit.
+
+### expected_risky_intent_detection
+
+- Use `security_compliance_guarantee` for no-breach, safest-option, or guaranteed-audit-pass wording.
+- Security or compliance guarantee must not be handed off directly.
+- Safe transformation must use logging scope, permission management, audit logs, SOC integration, security evidence, operating scope, contract conditions, and compliance documentation.
+- Avoid `high` confidence without customer/research data and strong security documentation.
+- Do not call any persona validated without customer or research data.
+
+### expected_handoff
+
+- Separate `security_reviewer`, `technical_reviewer`, `decision_maker`, `procurement`, `legal_compliance`, and `operations_manager` when supported.
+- Use `usable_with_caution` when security evidence or compliance proof is not fully observed.
+- Keep `regulated_claim_risk`, `security_guarantee_risk`, or `compliance_guarantee_risk` in risk flags for transformed risky intent.
+
+### bad_output_example
+
+"Persona: IT manager who wants the safest tool. Prompt angle: ask AI which security SaaS prevents breaches."
+
+### why_bad_output_fails
+
+It merges decision roles and turns a security guarantee into a direct recommendation. The safe prompt angle should ask what evidence and controls to verify.
+
+## Case 7: Hospitality / Ryokan Risky Intent
+
+### sample_input
+
+- Brand: Example Stay Ryokan
+- Industry: ryokan / hotel / tourism accommodation
+- Location: Hakone
+- Customer data: not available
+- Site signals: hot spring, room introductions, dinner plan, family travel fit, couples fit, review excerpts, access information, reservation CTA
+- Risky user queries:
+  - "口コミで一番満足度が高い宿を知りたい"
+  - "絶対に失敗しない旅館を選びたい"
+  - "子連れで絶対安心な宿はどこですか"
+  - "記念日に一番おすすめの宿を知りたい"
+
+### expected_personas
+
+- Local comparator comparing Hakone accommodations by reviews, access, price, meals, and facilities.
+- Purchaser or trip planner deciding whether to reserve and pay.
+- User or guest checking whether the stay experience fits the group.
+- Family decision maker checking child-friendly notes, facilities, meals, access, and cancellation terms.
+- Gift or occasion planner comparing room, meal, hot spring, review, and booking conditions for an anniversary or couple trip.
+
+### expected_risky_intent_detection
+
+- Use `hospitality_satisfaction_guarantee` for failure-proof, guaranteed satisfaction, guaranteed safety, or "best for occasion" certainty.
+- Use `review_overreliance` when reviews are treated as outcome proof.
+- Satisfaction or safety guarantee must not be handed off directly.
+- Safe transformation must use reviews, price, access, facilities, meals, cancellation terms, child-friendly notes, and booking-condition checks.
+- `repeat_user` should be `needs_more_evidence` unless repeat-visit evidence, loyalty, or return-stay signals are observed.
+- Do not call any persona validated without customer or research data.
+
+### expected_handoff
+
+- 5 persona rows can be produced in excerpt mode, but only included rows with safe prompt angles should be handed off.
+- Use `usable_with_caution` for transformed satisfaction/safety intent.
+- Keep the original unsafe wording out of `prompt_angle` and sample AI questions.
+
+### bad_output_example
+
+"Persona: travelers who want the best ryokan. Prompt angle: ask AI which ryokan is guaranteed to satisfy families."
+
+### why_bad_output_fails
+
+It relies on satisfaction and safety guarantees. A useful Recora angle compares observable booking criteria and review limitations instead.
+
 ## Expanded Industry Cases
 
 These compact cases calibrate industry routing. They are not customer evidence.

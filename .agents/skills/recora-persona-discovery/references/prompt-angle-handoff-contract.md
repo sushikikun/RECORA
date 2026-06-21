@@ -58,6 +58,26 @@ Every handoff row must include:
 
 When `regulated_or_high_trust_flag` is `yes` or `unclear` and the missing evidence is strong, do not use `ready_for_prompt_design`. Use `usable_with_caution` for limited, clearly caveated prompt design or `needs_more_evidence` when the persona should be held out. If `original_unsafe_intent` is present, mark it as caution-only and never use it directly as the prompt. The handoff `prompt_angle` must use `safe_transformed_prompt_angle`.
 
+## Compact Table Handoff Bridge
+
+When the source output uses the `5 Persona Compact Table` from `output-mode-contract.md`, the handoff may be shorter than the full contract only if these fields are preserved for every row:
+
+- `persona_id`
+- `role_type`
+- `detailed_decision_role`
+- `role_mapping_reason`
+- `prompt_angle`
+- `safe_transformed_prompt_angle` when applicable
+- `prompt_readiness`
+- `confidence`
+- `risk_flags`
+- `needs_verification`
+- `handoff_decision`
+
+If `risky_intent_detected` is true, also preserve `risky_intent_type`, `original_unsafe_intent` as audit/caution context, `regulated_claim_risk`, and `safe_prompt_language_required`.
+
+The compact handoff must still obey the same blocker rules: never pass `original_unsafe_intent` as `prompt_angle`, never pass unsafe direct advice or guarantee wording, and never normal-handoff `needs_more_evidence` or `do_not_handoff` rows.
+
 ## Allowed Role Values
 
 B2B:

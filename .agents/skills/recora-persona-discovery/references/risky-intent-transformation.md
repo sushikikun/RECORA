@@ -31,6 +31,9 @@ Use these values:
 - `review_overreliance`
 - `legal_outcome_seeking`
 - `financial_return_seeking`
+- `home_service_trouble_guarantee`
+- `security_compliance_guarantee`
+- `hospitality_satisfaction_guarantee`
 
 ## Transformation Rules
 
@@ -45,6 +48,20 @@ Use these values:
 | `review_overreliance` | "Which has the best reviews and results?" | Treats reviews or cases as typical outcomes. | Convert to how to evaluate review reliability, case limitations, qualifications, and consultation questions. | Test prompts where the user checks how to read reviews, case examples, risk disclosures, and provider qualifications without assuming typical results. | `usable_with_caution` | `risky_intent_detected`; `review_overreliance_risk`; `regulated_claim_risk` | Handoff when reviews are one trust signal with limitations. | Exclude if reviews are treated as proof of guaranteed outcome. |
 | `legal_outcome_seeking` | "Will I win?" | Asks for legal advice or outcome prediction. | Convert to consultation-prep questions, fee/process checks, scope, and evidence to bring to a qualified professional. | Test prompts where the user asks what to prepare and what to compare before an initial legal consultation. | `usable_with_caution` or `do_not_handoff` | `risky_intent_detected`; `legal_advice_risk`; `regulated_claim_risk` | Handoff only as general consultation preparation or comparison criteria. | Exclude outcome prediction, eligibility judgment, or strategy advice. |
 | `financial_return_seeking` | "Which will make the most money?" | Asks for financial recommendation or return guarantee. | Convert to risk disclosure, fee, suitability, license, and comparison criteria to verify with a qualified professional. | Test prompts where the user compares fees, risks, disclosures, product scope, and qualifications before seeking professional advice. | `usable_with_caution` or `do_not_handoff` | `risky_intent_detected`; `financial_return_risk`; `regulated_claim_risk` | Handoff only as informational comparison and verification criteria. | Exclude investment, insurance, loan, or return recommendation. |
+| `home_service_trouble_guarantee` | "Which reform company will never cause trouble?" | Implies zero construction trouble, zero failure, or guaranteed workmanship in a high-trust local/home-service decision. | Convert to estimate, warranty, contract, license/insurance, case example, review, and aftercare verification criteria. | Test prompts where the user compares reform or home-service providers by estimate detail, warranty scope, construction examples, contract terms, reviews, license/insurance, and aftercare before requesting a quote. | `usable_with_caution` | `risky_intent_detected`; `home_service_guarantee_risk`; `local_trust_gap`; `regulated_claim_risk` when licensed work applies | Handoff only transformed provider-comparison and verification wording. | Exclude if the prompt asks for a guaranteed trouble-free, cheapest-and-safe, or failure-proof provider. |
+| `security_compliance_guarantee` | "Which tool will absolutely prevent leaks or pass audits?" | Implies breach prevention, security guarantee, audit pass, or compliance outcome certainty. | Convert to security evidence, logging scope, permission management, audit log, SOC integration, certification, operating scope, and contract verification. | Test prompts where the user compares security SaaS by logging scope, permission management, audit logs, SOC integration, security evidence, operating scope, and contract conditions before review. | `usable_with_caution` | `risky_intent_detected`; `security_guarantee_risk`; `compliance_guarantee_risk`; `regulated_claim_risk` | Handoff only as security-review, compliance-check, and vendor-risk verification wording. | Exclude if the prompt asks AI to guarantee no breach, guaranteed audit pass, or absolute safety. |
+| `hospitality_satisfaction_guarantee` | "Which hotel or ryokan will never disappoint?" | Implies guaranteed satisfaction, guaranteed safety, or review-based certainty for an experience purchase. | Convert to review interpretation, price, access, facilities, meals, cancellation terms, child-friendly notes, and booking-condition checks. | Test prompts where the user compares ryokan or hotel options by reviews, price, access, facilities, meals, cancellation terms, child-friendly notes, and booking conditions before reservation. | `usable_with_caution` | `risky_intent_detected`; `satisfaction_guarantee_risk`; `review_overreliance_risk`; `safety_guarantee_risk` when safety wording appears | Handoff only transformed comparison and booking-prep wording. | Exclude if the prompt asks AI to guarantee satisfaction, safety, or the best experience for an individual. |
+
+## Non-Medical High-Trust Examples
+
+| subtype | original_unsafe_intent | safe_transformed_prompt_angle | readiness | notes |
+|---|---|---|---|---|
+| `home_service_trouble_guarantee` | "安くて失敗しないリフォーム会社を知りたい" | "リフォーム会社を選ぶ前に、見積もり内訳、保証範囲、施工事例、契約条件、口コミ、アフター対応を確認する観点を整理する" | `usable_with_caution` | Do not imply zero trouble or guaranteed workmanship. |
+| `home_service_trouble_guarantee` | "絶対にトラブルにならない外壁塗装会社はどこですか" | "外壁塗装会社を比較する前に、見積もり、保証、施工内容、契約書、許認可・保険、口コミの確認点を整理する" | `usable_with_caution` | Keep the angle about verification, not a guaranteed provider. |
+| `security_compliance_guarantee` | "絶対に情報漏洩しないツールを知りたい" | "セキュリティSaaSを比較する前に、ログ監視範囲、権限管理、監査ログ、SOC連携、セキュリティ証跡、運用範囲を確認する観点を整理する" | `usable_with_caution` | Do not guarantee breach prevention. |
+| `security_compliance_guarantee` | "監査に必ず通るツールはどれですか" | "監査対応を検討する前に、監査ログ、保存期間、権限証跡、規程対応、契約条件、運用責任範囲を確認する観点を整理する" | `usable_with_caution` | Do not imply compliance or audit-pass guarantees. |
+| `hospitality_satisfaction_guarantee` | "絶対に失敗しない旅館を選びたい" | "旅館を比較する前に、口コミ、料金、アクセス、設備、食事、キャンセル条件、注意事項を確認する観点を整理する" | `usable_with_caution` | Do not guarantee satisfaction. |
+| `hospitality_satisfaction_guarantee` | "子連れで絶対安心な宿はどこですか" | "子連れ旅行の宿を選ぶ前に、設備、食事、アクセス、キャンセル条件、子ども向け対応、注意事項を確認する観点を整理する" | `usable_with_caution` | Avoid safety guarantees; use booking-prep criteria. |
 
 ## Beauty / Medical Examples
 

@@ -34,7 +34,7 @@ For full persona discovery, read these references before final output:
 - `references/b2c-decision-role-patterns.md`: purchaser, user, comparator, recommender, family decision maker, and repeat user patterns.
 - `references/local-trust-service-personas.md`: local/high-trust service persona patterns for clinics, professional services, schools, real estate, local stores, and high-ticket consultation.
 - `references/regulated-industry-cautions.md`: sensitive and regulated category cautions for medical, legal, financial, real estate, recruiting/HR, and high-trust services.
-- `references/risky-intent-transformation.md`: risky AI-search intent types, safe transformations, unsafe exclusions, and handoff rules for high-trust or regulated prompt angles.
+- `references/risky-intent-transformation.md`: risky AI-search intent types, including non-medical high-trust guarantee subtypes for home services, enterprise security/compliance, and hospitality, plus safe transformations, unsafe exclusions, and handoff rules.
 - `references/research-sufficiency-gate.md`: proto-persona versus validated persona rules, research gaps, and sufficiency statuses.
 - `references/evidence-source-matrix.md`: source-by-source extraction matrix for homepage, product, pricing, case, reviews, hiring, docs, and other buyer signals.
 - `references/evidence-to-persona-traceability.md`: claim-level traceability from observed evidence to persona inference and handoff eligibility.
@@ -44,7 +44,7 @@ For full persona discovery, read these references before final output:
 - `references/persona-validation-plan.md`: assumptions, validation questions, evidence needs, data sources, and prompt-design use decision.
 - `references/persona-to-prompt-readiness.md`: readiness values and handoff decisions for `recora-prompt-topic-designer`.
 - `references/persona-risk-register.md`: persona risk flags, mitigation, output language, and exclusion rules.
-- `references/persona-golden-test-cases.md`: calibration cases for BtoB SaaS, SEO/GEO/AI-search support, local trust-heavy services, agency/consultant workflows, and expanded industries such as manufacturing, construction, finance/insurance, hospitality, beauty/wellness, home services, automotive, public/nonprofit, and enterprise IT/security.
+- `references/persona-golden-test-cases.md`: calibration cases for BtoB SaaS, SEO/GEO/AI-search support, local trust-heavy services, agency/consultant workflows, risky-intent cases for home service/reform, enterprise security SaaS, and hospitality/ryokan, plus expanded industries such as manufacturing, construction, finance/insurance, hospitality, beauty/wellness, home services, automotive, public/nonprofit, and enterprise IT/security.
 - `references/persona-trigger-events-and-vocabulary.md`: trigger events, customer language, alternatives, JTBD, desired outcomes, and vocabulary patterns.
 - `references/persona-switching-forces.md`: push, pull, habit, anxiety, hire/fire criteria, and prompt implications.
 - `references/ai-search-journey-by-persona.md`: awareness, exploration, comparison, validation, and decision stages by persona.
@@ -302,7 +302,7 @@ Marketing manager prompt.
 
 For `full` output, include Business Type Classification, Industry Coverage / Decision Unit / High-Trust Caution, Research Sufficiency Gate, Evidence Source Matrix, Evidence-to-Persona Traceability, Persona Decision Table, ICP / Anti-ICP Fit, Switching Forces, Problem Narrative, AI Search Journey, Voice of Customer Vocabulary, Alternatives They Consider, Research Questions to Validate Personas, Persona Validation Plan, Persona-to-Prompt Readiness, Persona Risk Register, Risky Intent Transformation, Unsafe Intent Exclusions, Safe Transformed Prompt Angles, Data Needed to Upgrade Confidence, handoff to `recora-prompt-topic-designer`, and Anti-Personas. Include Golden Test Case Calibration Notes for complex, high-risk, regulated/high-trust, risky-intent, multi-location, public/nonprofit, enterprise IT/security, or ambiguous outputs.
 
-For `excerpt`, `handoff_only`, and `validation_only`, follow `references/output-mode-contract.md`. Smaller modes may omit long narrative sections, but must not omit role separation, prompt readiness, risk flags, confidence, `needs_verification`, excluded personas when relevant, or evidence boundaries.
+For `excerpt`, `handoff_only`, and `validation_only`, follow `references/output-mode-contract.md`. Smaller modes may omit long narrative sections, but must not omit role separation, prompt readiness, risk flags, confidence, `needs_verification`, excluded personas when relevant, or evidence boundaries. Use the `5 Persona Compact Table` when excerpt mode needs exactly five concise persona rows.
 
 Before final delivery, run the Output Self-Check in `persona-anti-patterns.md`. Remove or exclude any persona that lacks an observable prompt angle, switching force, journey stage, problem narrative, vocabulary-to-question connection, traceability claim, ICP fit decision, validation plan, prompt readiness decision, risk register entry, confidence-upgrade path, or sufficient evidence boundary.
 
@@ -311,7 +311,7 @@ Before final delivery, run the Output Self-Check in `persona-anti-patterns.md`. 
 Use `output_mode` to control length:
 
 - `full`: produce all default sections.
-- `excerpt`: focus on Input Summary, Business Type Classification, Persona Decision Table, Persona-to-Prompt Readiness, Handoff, Risk Flags, Needs Verification, and Output Self-Check.
+- `excerpt`: focus on Input Summary, Business Type Classification, Persona Decision Table or 5 Persona Compact Table, Persona-to-Prompt Readiness, Handoff, Risk Flags, Needs Verification, and Output Self-Check.
 - `handoff_only`: output only rows for `recora-prompt-topic-designer`, while still including `role_mapping_reason`, `risk_flags`, `prompt_readiness`, `readiness_reason`, `confidence`, and `needs_verification`.
 - `validation_only`: evaluate existing persona candidates and decide `ready_for_prompt_design`, `usable_with_caution`, `needs_more_evidence`, or `do_not_handoff`.
 
