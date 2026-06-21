@@ -5,7 +5,7 @@ description: Audit recommendation candidates generated from Recora AI search, GE
 
 # Recora Recommendation Quality Gate Auditor
 
-Version: v0.3.1
+Version: v0.3.1-p0-shared-stack-contract
 External deep-pattern update: use OWASP/Garak-style risks and eval-score boundaries to harden third-party skill, benchmark, secret, execution, supply-chain, and guaranteed-outcome gates.
 External skill pattern update: gate third-party skill and OSS-derived claims as untrusted; suppress secret, execution, remote-script, production-write, and guaranteed-outcome patterns unless backed by approved RECORA evidence and safe scope.
 v1.0 hardening: quality gate must require traceable RECORA evidence for publication, hold citation gaps with unknown source support, and hard-suppress README-as-proof, credential, browser automation, and guarantee-language candidates.
@@ -22,6 +22,17 @@ Act as Recora's Recommendation Quality Gate Auditor.
 Audit recommendation candidates generated from Recora AI search / GEO observation data. Decide whether each candidate should be `auto_publish`, `hold`, or `suppress`; assign `quality_score` from 0 to 100; assign confidence; evaluate client-facing display risk; and rewrite usable candidates into safer client-facing wording.
 
 This skill is review-only. Do not implement Recora, edit app code, change databases, modify production files, read secrets, or create integrations while using it.
+
+## Independent Quality Gate Boundary
+
+Keep this skill independent from parent strategy and specialist analysis. It is the only RECORA project-local skill that decides whether a recommendation candidate is `auto_publish`, `hold`, or `suppress`.
+
+- Do not create strategy, persona, prompt, citation, competitor, schema, copy, visual, implementation, or migration artifacts from scratch when a specialist skill should own them.
+- Do not override specialist evidence; audit the candidate and preserve missing evidence, caveats, and risk flags.
+- Do not approve a candidate because `georader-ai-search-auditor` drafted it or because another specialist produced safe wording.
+- Do not invent missing source text, measurement rows, prompt metadata, provider status, implementation details, or runtime behavior.
+- Use `../references/recora-skill-stack-contract.md` when ownership or publication authority is unclear.
+- Use `../references/recora-skill-handoff-workflow.md` when auditing a candidate that came from parent strategy or a specialist handoff.
 
 ## Trigger Conditions
 
@@ -117,8 +128,3 @@ For batch audits, include a compact table first:
 |---|---|---:|---|---|---|
 
 Lead with suppress and P0-like trust risks when present.
-
-
-
-
-
