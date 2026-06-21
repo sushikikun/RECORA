@@ -164,11 +164,33 @@ Each scenario should be checked against the generated prompt set before it is tr
 - pass_criteria: Prompt set can observe expert discovery, comparison axes, proof needs, trust signals, and sentiment without overclaiming results.
 - failure_signals: No expertise/case-study angle, guaranteed outcome wording, wrong persona, or missing fee/trust checks.
 
+## Scenario 17
+
+- scenario_name: persona_query_realism_check
+- input_context: Prompt set is structurally correct, but may be too polished compared with how the actual target users ask AI or search engines.
+- expected_behavior: Include realistic persona language and `language_mode` values without weakening safety or metric rules.
+- must_include: `language_mode`, `raw_user_intent` where useful, a mix beyond `natural_conversation`, and at least some `raw_search_like`, `anxious_user`, `comparison_shortcut`, or `professional_research` prompts when they fit the client context.
+- must_include_for_b2c_local_clinic: price, reviews, anxiety, failure avoidance, local area, booking/visit, or first-time user vocabulary when these are part of the target customer behavior.
+- must_not_include: diagnosis, treatment recommendation, legal judgment, investment advice, guaranteed outcome, cure claim, unsupported safety claim, or branded prompts counted in visibility/ranking.
+- pass_criteria: Prompt set includes natural conversation plus realistic raw/search/anxious/comparison phrasing; BtoC/local/clinic prompts use price, review, anxiety, and local vocabulary safely; branded prompts remain sentiment-only.
+- failure_signals: Every prompt sounds like a formal survey, `language_mode` is missing, no raw/search/anxious variants exist for consumer contexts, regulated prompts invite unsafe advice, or branded prompts are eligible for visibility/ranking.
+
+## Scenario 18
+
+- scenario_name: minimum_input_produces_production_quality_prompt_design
+- input_context: Only `client_name`, `industry`, `product_or_service`, and `target_customers` are provided.
+- expected_behavior: Use Minimum Input Mode, complete missing context as provided / inferred / missing / needs_confirmation, select an industry adapter, and produce a Topic-first prompt set that is measurement-design ready with caveats.
+- must_include: Input Completion Table, assumptions, caveats, needs confirmation, industry adapter selection, Topic Set, Topic Coverage Matrix, Topic-to-Prompt Mapping, Prompt List with `topic_id`, `metric_eligibility`, and `source_status`, Metric Eligibility Audit, Prompt Quality Gate, Measurement Readiness, and Next Data Needed.
+- must_not_include: invented competitor names, URL/page/schema claims when `website_url` is missing, verified-persona claims, pricing/reputation facts, AI visibility/ranking/citation/sentiment claims before measurement, or branded prompts eligible for visibility/ranking.
+- pass_criteria: Inferred and needs-confirmation fields are clearly separated; competitors are handled with `unknown_competitor_discovery` or `category_competitors`; branded prompts are sentiment-only; Measurement Readiness is `production_measurement_ready_with_caveats`; Next Data Needed lists URL, competitors, region, proof, pricing, claims, and persona validation when relevant.
+- failure_signals: No Input Completion Table, inferred context is treated as fact, competitor names are fabricated, missing URL is used to assert site evidence, prompt rows lack `source_status`, or readiness is presented as fully client-verified.
+
 ## Compact Pass Checklist
 
 - Non-branded coverage exists and is not crowded out by branded prompts.
 - Buyer stages are distributed for the selected mode.
 - Persona changes wording and expected signal, or persona uncertainty is handed off.
+- Persona-query realism is checked with `language_mode` and realistic buyer vocabulary.
 - Competitor prompts are neutral and support unknown discovery when needed.
 - Citation checks are present when evidence/source analysis is part of the goal.
 - Every prompt has a unique ID.

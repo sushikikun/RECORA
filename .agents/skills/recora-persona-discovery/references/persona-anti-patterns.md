@@ -47,6 +47,10 @@ Do not:
 - Merge agency/consultant-side personas with client-side buyer personas unless both sides are supported by site evidence.
 - Infer white-label, resale, or partner business models for agencies without site evidence.
 - Overstate product effects in EC, beauty, healthcare, legal, finance, hiring, real estate, security, or other high-trust contexts.
+- Treat risky intent as a normal prompt angle without classification, risk flags, or safe transformation.
+- Drop all risky AI-search queries without checking whether they can become safe comparison, verification, general-information, or pre-consultation prompt angles.
+- Hand off `original_unsafe_intent` directly to `recora-prompt-topic-designer`.
+- Convert treatment, diagnosis, legal outcome, financial return, safety, or effect guarantee intent into advice instead of safe verification wording.
 
 ## Shallow Persona Examples
 
@@ -77,6 +81,22 @@ If a persona seems plausible but lacks evidence:
 
 Do not silently include unsupported personas in the main handoff.
 
+If the candidate is driven by risky intent:
+
+1. Classify `risky_intent_type` using `risky-intent-transformation.md`.
+2. If no safe transformation exists, put it in `Excluded / Unsupported Personas` with `do_not_handoff`.
+3. If safe transformation exists, mark it `risky_intent_transformed`, use `usable_with_caution`, and hand off only the safe transformed prompt angle.
+4. Keep the original unsafe wording caution-marked and never use it directly as a prompt.
+
+## Risky Intent Handling Distinction
+
+Use this distinction before deciding exclusion:
+
+- Complete exclusion: individual diagnosis, direct treatment recommendation, effect guarantee, safety guarantee, legal outcome prediction, financial return guarantee, or any request for AI to decide without professional consultation.
+- Transformed risky intent: unsafe wording can be converted into general information, comparison criteria, pre-consultation questions, qualification/fee/risk checks, review/case-reading cautions, or multi-source verification.
+- Handoff rule: only `risky_intent_transformed` candidates with safe wording, `risk_flags`, `prompt_readiness`, confidence, and `needs_verification` may be handed off.
+- Blocker rule: `original_unsafe_intent` remains audit context and must not become `prompt_angle` or a sample question.
+
 ## Anti-Persona Reasons
 
 Use these reasons when excluding candidates from Recora diagnosis:
@@ -94,6 +114,12 @@ Use these reasons when excluding candidates from Recora diagnosis:
 - `unsupported`
 - `industry_mismatch`
 - `regulated_claim_risk`
+- `risky_intent_untransformed`
+- `unsafe_direct_advice`
+- `unsafe_direct_diagnosis`
+- `unsafe_effect_guarantee`
+- `unsafe_outcome_prediction`
+- `risky_intent_transformed`
 - `local_trust_gap`
 - `location_dependency_gap`
 - `decision_unit_confusion`
@@ -129,6 +155,9 @@ Before finalizing, verify:
 - Regulated/sensitive personas avoid unsupported claims and strengthen verification.
 - High-trust or regulated personas are not marked `ready_for_prompt_design` when required proof is materially missing.
 - EC, beauty, healthcare, legal, finance, hiring, real estate, and security outputs avoid unsupported effect, eligibility, result, approval, or safety claims.
+- Risky intent is classified and either safely transformed or excluded.
+- `original_unsafe_intent` is not handed off as a prompt angle or sample question.
+- Safe transformed prompt angles carry `risk_flags`, `prompt_readiness`, confidence, and `needs_verification`.
 - Low and medium confidence personas list the data needed to upgrade confidence.
 - Validated persona and hypothesis are not mixed.
 - URL-only or public-site-only outputs are not called validated personas.
@@ -165,3 +194,4 @@ Before delivering, verify:
 - Normal handoff excludes `needs_more_evidence` and `do_not_handoff` candidates.
 - Golden test cases are used only for calibration, not as evidence of real customer behavior.
 - No secret, credential, `.env`, API key, cookie, or app implementation file is touched.
+- Risky-intent handoff rows use safe transformed wording and never direct diagnosis, treatment, effect guarantee, legal outcome, financial return, or safety guarantee wording.

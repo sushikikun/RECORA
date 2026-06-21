@@ -13,6 +13,8 @@ The goal is not to create separate skills per industry. Use these adapters to ad
 - Use `branded` / `brand_included` prompts only for sentiment, reputation, brand perception, explanation accuracy, and risk framing.
 - Keep sentiment separate from visibility and ranking in reporting.
 - Adapt persona, buyer stage, prompt wording, and expected signals by business model. Do not reuse B2B SaaS buyer logic for B2C, local, healthcare, real estate, finance, or other regulated contexts.
+- Preserve real persona vocabulary. Do not make every prompt sound like a formal research survey; include short, anxious, price/review/local, or role-specific wording when that is how the buyer would actually ask.
+- Use `raw_user_intent` to record rough user language and `prompt` to provide the safe, measurable final wording.
 - In regulated or high-risk industries such as healthcare, law, finance, insurance, and real estate, avoid diagnosis, legal advice, investment advice, guaranteed outcomes, and unsupported safety claims.
 - Before measurement, never state that a brand appears, ranks, is cited, is trusted, or is recommended.
 
@@ -33,6 +35,8 @@ Each adapter follows this structure:
 - branded_sentiment_angles
 - expected_signals
 - risks_or_biases
+- real_persona_query_style
+- safe_query_transformations
 - metric_eligibility_notes
 - handoff_skill_notes
 
@@ -57,6 +61,8 @@ Each adapter follows this structure:
 - branded_sentiment_angles: perceived maturity, trust, support quality, ease of implementation, differentiation clarity, adoption risk.
 - expected_signals: category ownership, unprompted vendor mention, comparison axes, proof requirements, security/procurement concerns, source quality.
 - risks_or_biases: overusing B2B committee language for self-serve tools; assuming enterprise procurement when SMB buyers are simpler.
+- real_persona_query_style: mix `professional_research` with practical shortcut phrasing such as "which tool is better", "expensive alternative", "Excel limit", "manual reporting too hard", or "sales team not updating CRM". Avoid only consultant-style evaluation prompts.
+- safe_query_transformations: keep operational vocabulary, then add measurable buyer context. Example raw intent: "HubSpot high alternative"; safe prompt: "If a sales or marketing team feels a CRM/MA tool is expensive, what alternative tool categories or evaluation points should they compare before switching?"
 - metric_eligibility_notes: brand-excluded category/vendor prompts can be visibility/ranking eligible; branded SaaS validation prompts are sentiment-only.
 - handoff_skill_notes: use `recora-persona-discovery` for committee roles, `recora-competitor-benchmark` for vendor deltas, and `recora-schema-seo-aio` for proof/case-study page improvements.
 
@@ -75,6 +81,8 @@ Each adapter follows this structure:
 - branded_sentiment_angles: trustworthiness, convenience, price fairness, review concerns, support quality, repeat-use likelihood.
 - expected_signals: review themes, price sensitivity, decision barriers, local/availability needs, brand trust signals.
 - risks_or_biases: making claims from reviews not yet measured; treating all B2C decisions as low involvement.
+- real_persona_query_style: include `raw_search_like`, `anxious_user`, and `comparison_shortcut` prompts when the user would likely search with short phrases, anxiety, price, reviews, "cheap", "bad reviews", "near me", or "which is better".
+- safe_query_transformations: convert rough consumer language into one safe, measurable question. Keep price/review/anxiety vocabulary, but avoid asking AI to assert reputation, safety, or guaranteed outcomes.
 - metric_eligibility_notes: non-branded consumer discovery and comparison prompts can support visibility/ranking; branded review/reputation prompts are sentiment-only.
 - handoff_skill_notes: use `recora-recommendation-quality-gate-auditor` before turning review or reputation observations into client-facing advice.
 
@@ -93,6 +101,8 @@ Each adapter follows this structure:
 - branded_sentiment_angles: reputation, atmosphere, staff/service quality, price fairness, access convenience, booking friction.
 - expected_signals: local pack/listing style mentions, area relevance, review themes, access/opening-hours questions, booking intent.
 - risks_or_biases: missing locality; treating local choice like national brand ranking; relying on stale reviews.
+- real_persona_query_style: include local shorthand such as "near me", station/area names, "today", "open now", "reviews bad", "cheap", and "first time" when relevant.
+- safe_query_transformations: preserve the local phrase while adding comparison or verification framing. Example raw intent: "[area] salon cheap reviews"; safe prompt: "When choosing a [service] near [area], how should someone compare price, reviews, access, and booking conditions before visiting?"
 - metric_eligibility_notes: local visibility/ranking should use brand-excluded area/category prompts; branded local prompts are sentiment/reputation-only.
 - handoff_skill_notes: use `recora-schema-seo-aio` for local business info, FAQ, service area, and review-proof page improvements.
 
@@ -111,6 +121,17 @@ Each adapter follows this structure:
 - branded_sentiment_angles: trust, safety, doctor/credential clarity, explanation quality, reputation concerns, aftercare confidence.
 - expected_signals: whether AI avoids diagnosis, whether it asks users to consult professionals, evidence/source quality, risk language, credential needs.
 - risks_or_biases: medical overclaiming, diagnosis-like wording, guaranteed outcomes, before/after exaggeration, unsupported safety claims.
+- real_persona_query_style: include realistic consumer wording such as short symptom/concern phrases, "cheap", "reviews", "scared", "first time", "avoid failure", local area names, and "which clinic" only after rewriting into safe comparison or verification wording.
+- safe_query_transformations:
+  - raw_user_intent: "東京 シミ取り 安い 口コミ"
+    safe_prompt: "東京でシミ取りや肌治療の相談先を探すとき、料金・口コミ・医師情報・リスク説明はどう確認すべきですか？"
+  - raw_user_intent: "美容クリニック 初めて 怖い"
+    safe_prompt: "美容クリニックが初めてで不安な人は、カウンセリング前にどんな点を確認すると安心材料になりますか？"
+  - raw_user_intent: "ダーマペン 失敗しないクリニック"
+    safe_prompt: "肌治療の相談先を比較するとき、失敗リスクを避けるために口コミ・説明内容・医師情報・アフターケアをどう確認すべきですか？"
+  - raw_user_intent: "美容クリニック 口コミ悪い 避けたい"
+    safe_prompt: "美容クリニックの口コミを見るとき、参考になる内容と慎重に扱うべき内容はどう分けられますか？"
+  - safety_note: preserve anxiety, price, review, and local vocabulary, but never ask AI to diagnose a condition, select a treatment for the user, guarantee a result, or declare a clinic safe.
 - metric_eligibility_notes: brand-excluded informational/comparison prompts can support visibility/ranking; branded clinic prompts are sentiment/trust-only.
 - handoff_skill_notes: use `recora-recommendation-quality-gate-auditor` for safety wording and `recora-ai-citation-analysis` for medical-source review.
 

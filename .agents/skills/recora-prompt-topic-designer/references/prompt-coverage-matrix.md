@@ -2,6 +2,10 @@
 
 Use this reference when checking whether a Recora prompt set is balanced, machine-readable, and ready for measurement.
 
+For topic-first design, check `topic-taxonomy-and-prompt-mapping.md` before using this prompt-level matrix. Prompt coverage should validate the prompts derived from topics, not replace topic design.
+
+Substantial outputs should follow this order: Topic Set, Topic Coverage Matrix, Topic-to-Prompt Mapping, Prompt List, Prompt Quality Gate, Bias Audit, Measurement Readiness.
+
 ## Required Coverage Fields
 
 ```md

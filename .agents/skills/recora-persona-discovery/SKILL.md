@@ -1,6 +1,6 @@
 ---
 name: recora-persona-discovery
-description: "Recora persona discovery for AI search and GEO diagnosis preparation. Use when Codex needs to infer research-gated persona hypotheses from brand_name, url, site_text, observed_claims, homepage/product/pricing/case/review/hiring/docs evidence, trigger events, customer vocabulary, alternatives, switching forces, problem narratives, AI-search journey stages, pricing signals, CTA, case studies, features, target audiences, or customer-data availability; route business type and industry coverage across B2B SaaS/service, B2C ecommerce/local, clinic/healthcare, professional service, school/education, real estate, recruiting/HR, marketplace, agency/consulting, media/directory, manufacturing, construction/field service, logistics, finance/insurance, hospitality/restaurant/tourism, beauty/wellness, home services, automotive, public sector/nonprofit, enterprise IT/security, franchise/multi-location, subscription/membership, and regulated/high-trust services; separate B2B/B2C/BtoB2C/marketplace/agency/local/multi-location decision units; support output modes full, excerpt, handoff_only, and validation_only; map detailed decision_role values to canonical role_type values for handoff; score persona quality; trace evidence to persona claims; generate validation plans and questions; classify ICP/Anti-ICP fit; assess persona-to-prompt readiness; flag persona risks; use golden test cases for calibration including agency/consultant involvement; specify confidence-upgrade data; identify anti-personas; and produce prompt-angle handoff for recora-prompt-topic-designer. Do not use for modifying Recora app code, accessing secrets, or claiming validated personas without enough customer research data."
+description: "Recora persona discovery for AI search and GEO diagnosis preparation. Use when Codex needs to infer research-gated persona hypotheses from brand_name, url, site_text, observed_claims, homepage/product/pricing/case/review/hiring/docs evidence, trigger events, customer vocabulary, alternatives, switching forces, problem narratives, AI-search journey stages, pricing signals, CTA, case studies, features, target audiences, or customer-data availability; route business type and industry coverage across B2B SaaS/service, B2C ecommerce/local, clinic/healthcare, professional service, school/education, real estate, recruiting/HR, marketplace, agency/consulting, media/directory, manufacturing, construction/field service, logistics, finance/insurance, hospitality/restaurant/tourism, beauty/wellness, home services, automotive, public sector/nonprofit, enterprise IT/security, franchise/multi-location, subscription/membership, and regulated/high-trust services; separate B2B/B2C/BtoB2C/marketplace/agency/local/multi-location decision units; support output modes full, excerpt, handoff_only, and validation_only; map detailed decision_role values to canonical role_type values for handoff; score persona quality; trace evidence to persona claims; generate validation plans and questions; classify ICP/Anti-ICP fit; assess persona-to-prompt readiness; detect risky AI-search intent in high-trust or regulated categories and transform unsafe wording into safe comparison, verification, general-information, or pre-consultation prompt angles; flag persona risks; use golden test cases for calibration including agency/consultant involvement; specify confidence-upgrade data; identify anti-personas; and produce prompt-angle handoff for recora-prompt-topic-designer. Do not use for modifying Recora app code, accessing secrets, or claiming validated personas without enough customer research data."
 ---
 
 # Recora Persona Discovery
@@ -34,6 +34,7 @@ For full persona discovery, read these references before final output:
 - `references/b2c-decision-role-patterns.md`: purchaser, user, comparator, recommender, family decision maker, and repeat user patterns.
 - `references/local-trust-service-personas.md`: local/high-trust service persona patterns for clinics, professional services, schools, real estate, local stores, and high-ticket consultation.
 - `references/regulated-industry-cautions.md`: sensitive and regulated category cautions for medical, legal, financial, real estate, recruiting/HR, and high-trust services.
+- `references/risky-intent-transformation.md`: risky AI-search intent types, safe transformations, unsafe exclusions, and handoff rules for high-trust or regulated prompt angles.
 - `references/research-sufficiency-gate.md`: proto-persona versus validated persona rules, research gaps, and sufficiency statuses.
 - `references/evidence-source-matrix.md`: source-by-source extraction matrix for homepage, product, pricing, case, reviews, hiring, docs, and other buyer signals.
 - `references/evidence-to-persona-traceability.md`: claim-level traceability from observed evidence to persona inference and handoff eligibility.
@@ -96,6 +97,7 @@ Require or derive these fields:
 - `customer_data_status`: `available`, `not_available`, or `unknown`.
 - `research_data_points`: count and type of customer interviews, sales notes, analytics events, support tickets, reviews, case-study quotes, testimonials, or CRM records available.
 - `evidence_sources_available`: homepage, product page, pricing, case study, testimonial, CTA, FAQ, comparison page, review site, hiring page, docs/help center, or unknown.
+- `risky_user_queries`: optional user-provided AI-search questions, prompt examples, or observed search wording that may include treatment, diagnosis, effect guarantee, legal/financial outcome, safety, review, or price-only intent.
 
 If URL and brand name are the only inputs, inspect the site if browsing is available. If the site cannot be inspected, mark all persona candidates `weak_hypothesis` or `needs_customer_data` and list missing evidence.
 
@@ -106,7 +108,7 @@ If real customer data is unavailable, never label a persona as a real primary cu
 1. Summarize inputs and missing inputs. Do not fill gaps silently.
 2. Select `output_mode` using `output-mode-contract.md`. Default to the smallest useful mode, but use `full` when the user asks for complete persona discovery.
 3. Read `business-type-router.md` first and classify `business_type`, `industry_pattern`, and `regulated_or_high_trust`.
-4. Based on routing, read the relevant industry references: `industry-coverage-expansion.md`, `industry-persona-patterns.md`, `b2b-buying-committee-patterns.md`, `b2c-decision-role-patterns.md`, `local-trust-service-personas.md`, and `regulated-industry-cautions.md` as needed.
+4. Based on routing, read the relevant industry references: `industry-coverage-expansion.md`, `industry-persona-patterns.md`, `b2b-buying-committee-patterns.md`, `b2c-decision-role-patterns.md`, `local-trust-service-personas.md`, and `regulated-industry-cautions.md` as needed. If the category is regulated/high-trust or the input includes risky AI-search wording, also read `risky-intent-transformation.md`.
 5. Read `role-mapping-contract.md` before creating Persona Decision Table or handoff rows.
 6. Read `research-sufficiency-gate.md`, `evidence-source-matrix.md`, `evidence-to-persona-traceability.md`, `persona-research-question-generator.md`, `persona-validation-plan.md`, `persona-to-prompt-readiness.md`, `persona-risk-register.md`, `persona-confidence-upgrade-data.md`, `icp-anti-icp-fit.md`, `persona-trigger-events-and-vocabulary.md`, `persona-switching-forces.md`, `ai-search-journey-by-persona.md`, `persona-problem-narrative.md`, `persona-discovery-rubric.md`, and `persona-quality-scoring.md` for full outputs. Read `persona-golden-test-cases.md` for complex, high-risk, or ambiguous outputs. Also read `japan-b2b-persona-patterns.md` when the market is Japan, Japanese-language, B2B, SEO/GEO/AIO/LLMO, agency, consultant, or unclear.
 7. Build the context in this order: Product Overview -> Business Type -> Target Audience -> Buyer/User Roles -> Pain Points -> Competitive Landscape -> Trust Requirements -> Objections -> Customer Language.
@@ -123,12 +125,13 @@ If real customer data is unavailable, never label a persona as a real primary cu
 18. Score every persona with `decision_relevance`, `search_likelihood`, `comparison_value`, `prompt_angle_value`, `evidence_strength`, `diagnosis_usefulness`, and `exclusion_risk`.
 19. Classify ICP / Anti-ICP fit. Do not normal-handoff `anti_icp`, `not_enough_evidence`, `unsupported`, or `not_enough_to_use` candidates.
 20. Generate research questions, Persona Validation Plan, and confidence-upgrade data for included and borderline personas.
-21. Assess Persona-to-Prompt Readiness and build the Persona Risk Register. Add `regulated_claim_risk`, `industry_mismatch`, `local_trust_gap`, `location_dependency_gap`, or `decision_unit_confusion` risk flags when relevant. Do not normal-handoff `needs_more_evidence` or `do_not_handoff`.
-22. Calibrate against the nearest Golden Test Case when the business model is BtoB SaaS, SEO/GEO/AI-search support, local trust-heavy service, agency/consultant-involved, regulated/high-trust, expanded-industry, public/nonprofit, enterprise IT/security, or ambiguous.
-23. Create the Persona Decision Table and exclude candidates that cannot become useful prompt angles or have high unsupported-claim risk.
-24. Run Output Self-Check before final delivery.
-25. Produce `Handoff to recora-prompt-topic-designer` using the required handoff fields.
-26. List unsupported, excluded, anti-ICP, not-ready, industry-mismatched, regulated-claim-risk, or anti-persona candidates instead of quietly dropping weak ideas.
+21. Detect risky AI-search intent before Persona-to-Prompt Readiness. Classify `risky_intent_type`, decide whether safe transformation is possible, exclude unsafe direct recommendation / diagnosis / treatment choice / effect guarantee as `do_not_handoff`, and hand off only `safe_prompt_angle` / `safe_transformed_prompt_angle` when available.
+22. Assess Persona-to-Prompt Readiness and build the Persona Risk Register. Add `risky_intent_detected`, `regulated_claim_risk`, `industry_mismatch`, `local_trust_gap`, `location_dependency_gap`, or `decision_unit_confusion` risk flags when relevant. Do not normal-handoff `needs_more_evidence`, `do_not_handoff`, or untransformed unsafe intent.
+23. Calibrate against the nearest Golden Test Case when the business model is BtoB SaaS, SEO/GEO/AI-search support, local trust-heavy service, agency/consultant-involved, regulated/high-trust, risky-intent, expanded-industry, public/nonprofit, enterprise IT/security, or ambiguous.
+24. Create the Persona Decision Table and exclude candidates that cannot become useful prompt angles, have high unsupported-claim risk, or contain unsafe direct advice that cannot be safely transformed.
+25. Run Output Self-Check before final delivery.
+26. Produce `Handoff to recora-prompt-topic-designer` using the required handoff fields. For risky intent, the handoff `prompt_angle` must use the safe transformed wording, not the original unsafe wording.
+27. List unsupported, excluded, anti-ICP, not-ready, industry-mismatched, regulated-claim-risk, risky-intent-untransformed, or anti-persona candidates instead of quietly dropping weak ideas.
 
 ## Role Classification
 
@@ -297,7 +300,7 @@ Marketing manager prompt.
 
 ## Output Requirements
 
-For `full` output, include Business Type Classification, Industry Coverage / Decision Unit / High-Trust Caution, Research Sufficiency Gate, Evidence Source Matrix, Evidence-to-Persona Traceability, Persona Decision Table, ICP / Anti-ICP Fit, Switching Forces, Problem Narrative, AI Search Journey, Voice of Customer Vocabulary, Alternatives They Consider, Research Questions to Validate Personas, Persona Validation Plan, Persona-to-Prompt Readiness, Persona Risk Register, Data Needed to Upgrade Confidence, handoff to `recora-prompt-topic-designer`, and Anti-Personas. Include Golden Test Case Calibration Notes for complex, high-risk, regulated/high-trust, multi-location, public/nonprofit, enterprise IT/security, or ambiguous outputs.
+For `full` output, include Business Type Classification, Industry Coverage / Decision Unit / High-Trust Caution, Research Sufficiency Gate, Evidence Source Matrix, Evidence-to-Persona Traceability, Persona Decision Table, ICP / Anti-ICP Fit, Switching Forces, Problem Narrative, AI Search Journey, Voice of Customer Vocabulary, Alternatives They Consider, Research Questions to Validate Personas, Persona Validation Plan, Persona-to-Prompt Readiness, Persona Risk Register, Risky Intent Transformation, Unsafe Intent Exclusions, Safe Transformed Prompt Angles, Data Needed to Upgrade Confidence, handoff to `recora-prompt-topic-designer`, and Anti-Personas. Include Golden Test Case Calibration Notes for complex, high-risk, regulated/high-trust, risky-intent, multi-location, public/nonprofit, enterprise IT/security, or ambiguous outputs.
 
 For `excerpt`, `handoff_only`, and `validation_only`, follow `references/output-mode-contract.md`. Smaller modes may omit long narrative sections, but must not omit role separation, prompt readiness, risk flags, confidence, `needs_verification`, excluded personas when relevant, or evidence boundaries.
 
@@ -343,6 +346,7 @@ Use this format for `full` output:
 - customer_data_status: available / not_available / unknown
 - research_data_points:
 - evidence_sources_available:
+- risky_user_queries available: yes/no
 - missing_inputs:
 
 ## 2. Business Type Classification
@@ -393,10 +397,10 @@ Use inference types: `direct_site_claim`, `natural_inference`, `weak_market_infe
 
 ## 8. Persona Decision Table
 
-| Persona ID | business_type | industry_category | industry_subtype | industry_pattern | regulated_or_high_trust_flag | decision_unit_type | buyer_user_split | decision_role_separation | location_or_region_dependency | urgency_level | trust_signal_required | evidence_needed_before_handoff | decision_relevance | search_likelihood | comparison_value | prompt_angle_value | evidence_strength | diagnosis_usefulness | exclusion_risk | switching_force_summary | ai_search_journey_stage | problem_narrative_summary | customer_language_terms | alternatives_considered | icp_fit | prompt_readiness | risk_flags | traceability_claim_ids | research_sufficiency | confidence_upgrade_needed | Include / exclude | Reason |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Persona ID | business_type | industry_category | industry_subtype | industry_pattern | regulated_or_high_trust_flag | decision_unit_type | buyer_user_split | decision_role_separation | location_or_region_dependency | urgency_level | trust_signal_required | evidence_needed_before_handoff | decision_relevance | search_likelihood | comparison_value | prompt_angle_value | evidence_strength | diagnosis_usefulness | exclusion_risk | switching_force_summary | ai_search_journey_stage | problem_narrative_summary | customer_language_terms | alternatives_considered | icp_fit | prompt_readiness | risk_flags | risky_intent_detected | risky_intent_type | safe_transformation_available | safe_prompt_angle | regulated_claim_risk | handoff_decision | traceability_claim_ids | research_sufficiency | confidence_upgrade_needed | Include / exclude | Reason |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
-Use 0-5 scores. Include only personas with enough decision value, search intent, comparison value, prompt-angle value, evidence, and diagnosis usefulness. Exclude or downgrade candidates with high unsupported-claim risk.
+Use 0-5 scores. Include only personas with enough decision value, search intent, comparison value, prompt-angle value, evidence, and diagnosis usefulness. Exclude or downgrade candidates with high unsupported-claim risk. If `risky_intent_detected` is true, show whether safe transformation is available and whether handoff uses only the safe transformed prompt angle.
 
 ## 9. ICP / Anti-ICP Fit
 
@@ -482,6 +486,12 @@ Treat vocabulary as a hypothesis unless observed in site text, reviews, intervie
 |---|---|---|---|---|---|---|---|---|
 
 Use stages: `awareness`, `exploration`, `comparison`, `validation`, `decision`.
+## Risky Intent Transformation
+
+| persona_id | risky_intent_detected | risky_intent_type | unsafe_user_intent | why_risky | safe_transformation_rule | safe_prompt_angle | prompt_readiness | risk_flags | when_to_handoff | when_to_exclude |
+|---|---|---|---|---|---|---|---|---|---|---|
+
+Use `risky-intent-transformation.md`. Treat `unsafe_user_intent` as caution-marked context only. Do not use it directly as a prompt or handoff angle. Include Unsafe Intent Exclusions and Safe Transformed Prompt Angles when regulated/high-trust intent appears.
 
 ## 20. AI Search Prompt Angle
 
@@ -547,8 +557,8 @@ Use `should_use_for_prompt_design_now`: `yes`, `caution`, or `no`.
 
 ## 28. Persona-to-Prompt Readiness
 
-| persona_id | prompt_readiness | readiness_reason | clear_search_intent | clear_trigger_event | clear_comparison_axis | observable_ai_answer_signal | prompt_angle_quality | evidence_strength | risk_of_generic_prompt | risk_of_overclaim | handoff_decision |
-|---|---|---|---|---|---|---|---|---|---|---|---|
+| persona_id | prompt_readiness | readiness_reason | clear_search_intent | clear_trigger_event | clear_comparison_axis | observable_ai_answer_signal | prompt_angle_quality | evidence_strength | risk_of_generic_prompt | risk_of_overclaim | risky_intent_detected | safe_transformation_available | safe_prompt_angle_present | regulated_claim_risk | handoff_decision |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 Use readiness values: `ready_for_prompt_design`, `usable_with_caution`, `needs_more_evidence`, `do_not_handoff`. Do not normal-handoff `needs_more_evidence` or `do_not_handoff`.
 
@@ -572,8 +582,8 @@ Use this section for complex, high-risk, or ambiguous outputs. If not needed, st
 
 ## 31. Handoff to recora-prompt-topic-designer
 
-| persona_id | business_type | industry_category | industry_subtype | industry_pattern | regulated_or_high_trust_flag | decision_unit_type | decision_role | role_type | role_mapping_reason | buyer_user_split | buyer_stage | pain | trust_requirement | trust_signal_required | urgency_level | location_dependency | evidence_needed_before_prompt_design | switching_forces | journey_stage | problem_narrative | vocabulary_terms | alternatives_considered | prompt_angle | sample_ai_questions | priority | confidence | icp_fit | prompt_readiness | readiness_reason | risk_flags | traceability_claim_ids | research_sufficiency | validation_questions | assumptions_to_validate | confidence_upgrade_condition | confidence_upgrade_needed | questions_to_validate_before_prompt_design | needs_verification |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| persona_id | business_type | industry_category | industry_subtype | industry_pattern | regulated_or_high_trust_flag | decision_unit_type | decision_role | role_type | role_mapping_reason | buyer_user_split | buyer_stage | pain | trust_requirement | trust_signal_required | urgency_level | location_dependency | evidence_needed_before_prompt_design | switching_forces | journey_stage | problem_narrative | vocabulary_terms | alternatives_considered | prompt_angle | risky_intent_detected | risky_intent_type | original_unsafe_intent | safe_transformed_prompt_angle | regulated_claim_risk | safe_prompt_language_required | sample_ai_questions | priority | confidence | icp_fit | prompt_readiness | readiness_reason | risk_flags | traceability_claim_ids | research_sufficiency | validation_questions | assumptions_to_validate | confidence_upgrade_condition | confidence_upgrade_needed | questions_to_validate_before_prompt_design | needs_verification |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 Required handoff fields:
 
@@ -601,6 +611,12 @@ Required handoff fields:
 - `vocabulary_terms`
 - `alternatives_considered`
 - `prompt_angle`
+- `risky_intent_detected`
+- `risky_intent_type`
+- `original_unsafe_intent`: caution-marked original wording only; never use directly as a prompt.
+- `safe_transformed_prompt_angle`: required when risky intent is transformed; the handoff `prompt_angle` must use this safe wording.
+- `regulated_claim_risk`
+- `safe_prompt_language_required`
 - `sample_ai_questions`
 - `priority`: high / medium / low
 - `confidence`: high / medium / low
@@ -617,7 +633,7 @@ Required handoff fields:
 - `questions_to_validate_before_prompt_design`
 - `needs_verification`
 
-Do not normal-handoff personas with `icp_fit` of `anti_icp` or `not_enough_evidence`, unsupported traceability claims, `research_sufficiency` of `not_enough_to_use`, or `prompt_readiness` of `needs_more_evidence` or `do_not_handoff`. For regulated/high-trust personas with strong missing evidence, use `usable_with_caution` or `needs_more_evidence`, not `ready_for_prompt_design`.
+Do not normal-handoff personas with `icp_fit` of `anti_icp` or `not_enough_evidence`, unsupported traceability claims, `research_sufficiency` of `not_enough_to_use`, or `prompt_readiness` of `needs_more_evidence` or `do_not_handoff`. For regulated/high-trust personas with strong missing evidence, use `usable_with_caution` or `needs_more_evidence`, not `ready_for_prompt_design`. If risky intent is detected, never pass `original_unsafe_intent` as the prompt angle; pass only `safe_transformed_prompt_angle` with risk flags and needs verification.
 
 ## 32. Confidence Level
 
@@ -650,14 +666,14 @@ Use `high`, `medium`, or `low`.
 | Excluded persona | Why considered | Reason excluded | What evidence would be needed |
 |---|---|---|---|
 
-Use reasons such as `industry_mismatch`, `regulated_claim_risk`, `unsupported by site evidence`, `too generic`, `duplicate segment`, `no observable prompt angle`, or `requires customer interview first`.
+Use reasons such as `industry_mismatch`, `regulated_claim_risk`, `risky_intent_untransformed`, `unsafe_direct_advice`, `unsafe_direct_diagnosis`, `unsafe_effect_guarantee`, `unsupported by site evidence`, `too generic`, `duplicate segment`, `no observable prompt angle`, or `requires customer interview first`.
 
 ## 35. Anti-Personas / Not Useful for Recora Diagnosis
 
 | Anti-persona | Exclusion reason | Why not useful for Recora diagnosis | Required evidence to reconsider |
 |---|---|---|---|
 
-Use reasons such as `no AI-search intent`, `no buying influence`, `too generic`, `duplicate segment`, `industry_mismatch`, `regulated_claim_risk`, `no observable prompt angle`, `unsupported by site evidence`, `anti_icp`, `not_enough_evidence`, `needs_more_evidence`, `do_not_handoff`, or `requires customer interview first`.
+Use reasons such as `no AI-search intent`, `no buying influence`, `too generic`, `duplicate segment`, `industry_mismatch`, `regulated_claim_risk`, `risky_intent_untransformed`, `unsafe_direct_advice`, `unsafe_direct_diagnosis`, `unsafe_effect_guarantee`, `no observable prompt angle`, `unsupported by site evidence`, `anti_icp`, `not_enough_evidence`, `needs_more_evidence`, `do_not_handoff`, or `requires customer interview first`.
 
 ## 36. Output Self-Check
 
@@ -671,6 +687,9 @@ Use reasons such as `no AI-search intent`, `no buying influence`, `too generic`,
 - Regulated/sensitive personas avoid unsupported claims and include stronger `needs_verification`.
 - High-trust or regulated personas are not marked `ready_for_prompt_design` when required proof is materially missing.
 - EC, beauty, medical, legal, financial, hiring, real estate, or security personas do not overstate effects, outcomes, eligibility, approval, or safety.
+- Risky AI-search intent is detected, classified, and either transformed into safe comparison/verification wording or excluded.
+- `original_unsafe_intent` is not used directly as a prompt, sample question, or handoff angle.
+- Safe transformed prompt angles include `risk_flags`, `regulated_claim_risk`, and `needs_verification` when high-trust or regulated categories are involved.
 - Persona Decision Table includes industry category, subtype, regulated/high-trust flag, decision unit type, buyer/user split, location dependency, urgency, trust signal, and evidence needed before handoff.
 - Handoff includes industry category/subtype, regulated/high-trust flag, trust signal, urgency, location dependency, and evidence needed before prompt design.
 - Every included persona has an AI search journey stage.

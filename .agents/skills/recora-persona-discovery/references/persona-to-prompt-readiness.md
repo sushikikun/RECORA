@@ -30,6 +30,10 @@ Assess each persona on:
 - `industry_route_supported`
 - `decision_unit_clarity`
 - `trust_and_location_evidence`
+- `risky_intent_detected`
+- `safe_transformation_available`
+- `safe_prompt_angle_present`
+- `regulated_claim_risk`
 
 ## Axis Guidance
 
@@ -44,12 +48,16 @@ Assess each persona on:
 - `industry_route_supported`: Business type, industry category, and industry subtype are supported by observed signals or clearly labeled as weak hypotheses.
 - `decision_unit_clarity`: Buyer, user, comparator, influencer, blocker, payer, HQ/local, platform/supplier, or family roles are separated when their search intent differs.
 - `trust_and_location_evidence`: Local, high-trust, regulated, urgent, service-area, or multi-location assumptions have required trust signals and evidence gaps listed.
+- `risky_intent_detected`: The persona or query asks for treatment, diagnosis, effect/safety guarantee, legal/financial outcome, price-only choice, or review-based outcome certainty.
+- `safe_transformation_available`: Unsafe wording can be rewritten into general information, comparison, verification, or pre-specialist consultation preparation.
+- `safe_prompt_angle_present`: The output includes a safe transformed prompt angle and does not use unsafe wording directly.
+- `regulated_claim_risk`: The prompt angle touches medical, legal, financial, hiring, real estate, security, or other regulated/high-trust outcomes.
 
 ## Output Table
 
 ```md
-| persona_id | prompt_readiness | readiness_reason | clear_search_intent | clear_trigger_event | clear_comparison_axis | observable_ai_answer_signal | prompt_angle_quality | evidence_strength | risk_of_generic_prompt | risk_of_overclaim | industry_route_supported | decision_unit_clarity | trust_and_location_evidence | handoff_decision |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| persona_id | prompt_readiness | readiness_reason | clear_search_intent | clear_trigger_event | clear_comparison_axis | observable_ai_answer_signal | prompt_angle_quality | evidence_strength | risk_of_generic_prompt | risk_of_overclaim | industry_route_supported | decision_unit_clarity | trust_and_location_evidence | risky_intent_detected | safe_transformation_available | safe_prompt_angle_present | regulated_claim_risk | handoff_decision |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 ```
 
 ## Handoff Rules
@@ -58,5 +66,10 @@ Assess each persona on:
 - Normal handoff is allowed for `usable_with_caution` only when caveats, validation questions, and confidence-upgrade conditions are included.
 - `needs_more_evidence` belongs in verification planning, not prompt design handoff.
 - `do_not_handoff` belongs in Excluded / Unsupported Personas or Anti-Personas.
+- Unsafe risky intent as-is must be `do_not_handoff`.
+- If safe transformation is possible, set `prompt_readiness` to `usable_with_caution` unless the category is clearly non-regulated and evidence is strong.
+- For high-trust or regulated cases, avoid `ready_for_prompt_design` when risky intent is present; prefer `usable_with_caution` or `needs_more_evidence`.
+- Handoff is allowed only when `safe_prompt_angle`, `risk_flags`, and `needs_verification` are present.
+- Treatment, diagnosis, effect guarantee, safety guarantee, legal outcome, or financial return intent must include explicit risk flags.
 - Never use readiness to upgrade confidence. Confidence still depends on evidence and research data.
 - If a persona is regulated, high-trust, local, urgent, franchise, multi-location, public-sector, finance, healthcare, legal, security, or safety-sensitive and the proof gap is material, do not mark it `ready_for_prompt_design`. Use `usable_with_caution` or `needs_more_evidence`.

@@ -20,6 +20,8 @@ Persona discovery can identify search behavior and information needs, but it mus
 
 - Do not assert that a user has a specific condition, legal problem, financial status, protected characteristic, or employment outcome unless explicitly supplied.
 - Do not imply guaranteed treatment, case, financial, property, or hiring results.
+- Do not ignore risky intent just because it is unsafe. Detect it, classify the risky intent type, and decide whether it can be safely transformed.
+- Do not provide direct medical, legal, financial, hiring, real estate, security, or safety advice. Transform into general information, verification criteria, pre-specialist questions, or comparison checks.
 - Do not treat reviews, testimonials, or one case as proof of typical outcome.
 - Strengthen `needs_verification` for qualifications, licenses, safety, compliance, fees, and case results.
 - Keep AI-search questions informational and comparison-oriented, not diagnostic or advisory.
@@ -28,6 +30,8 @@ Persona discovery can identify search behavior and information needs, but it mus
 - Verify qualification, license, case result, review, price, risk explanation, and compliance evidence before raising confidence.
 - When family or caregiver involvement is plausible, avoid sensitive inference unless the site explicitly supports that context.
 - Do not use `high` confidence for regulated/high-trust personas without strong site proof and customer/research data.
+- Avoid `high` confidence when risky intent is present unless verified customer/research data and strong site proof support the safe transformed angle.
+- Strengthen `needs_verification` for risky intent with qualifications, consultation flow, fee transparency, risk explanation, reviews/cases limitations, and specialist confirmation.
 
 ## Required Caution Output
 
@@ -44,6 +48,8 @@ Prefer:
 - "What qualifications or proof should I check before contacting [provider]?"
 - "What questions should I ask in an initial consultation?"
 - "What are common costs, risks, or process steps to verify?"
+- "What should I ask a qualified professional before deciding?"
+- "How should I evaluate reviews, cases, fees, qualifications, and risk explanations cautiously?"
 
 Avoid:
 
@@ -69,6 +75,8 @@ Avoid:
 
 - Add `regulated_claim_risk` to `risk_flags` when a persona or prompt angle touches regulated outcomes.
 - Add explicit `trust_requirement` and `needed_evidence` before handoff.
+- Add `risky_intent_detected`, `risky_intent_type`, `safe_transformed_prompt_angle`, and `safe_prompt_language_required` when risky intent is present.
+- Handoff only transformed wording that asks what to compare, verify, or prepare before professional consultation.
 - Keep confidence low or medium unless customer/research data and site proof support the role and search behavior.
 - Exclude personas that require private or sensitive attribute assumptions before prompt design.
 - If regulated/high-trust and evidence is thin, set `prompt_readiness` to `usable_with_caution` or `needs_more_evidence`, not `ready_for_prompt_design`.

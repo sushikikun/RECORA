@@ -34,6 +34,12 @@ Every handoff row must include:
 - `vocabulary_terms`: Words or phrases the persona may use in AI search.
 - `alternatives_considered`: Direct competitor, existing SEO tool, agency/consultant, in-house manual research, spreadsheet/ad hoc prompt testing, do nothing, or wait and see.
 - `prompt_angle`: Reusable testing direction for prompt generation.
+- `risky_intent_detected`: `true` when the persona or query includes risky regulated/high-trust intent; otherwise `false`.
+- `risky_intent_type`: Use values from `risky-intent-transformation.md` when relevant.
+- `original_unsafe_intent`: Caution-marked original wording only. Do not use it directly as a prompt.
+- `safe_transformed_prompt_angle`: Required when risky intent is transformed. The handoff `prompt_angle` must use this safe wording.
+- `regulated_claim_risk`: `yes`, `no`, or `unclear`; use `yes` when the angle touches medical, legal, financial, hiring, real estate, security, safety, or outcome claims.
+- `safe_prompt_language_required`: `true` when risky intent or regulated/high-trust caution applies.
 - `sample_ai_questions`: 2 to 4 natural AI-search questions.
 - `priority`: `high`, `medium`, or `low`.
 - `confidence`: `high`, `medium`, or `low`.
@@ -50,7 +56,7 @@ Every handoff row must include:
 - `questions_to_validate_before_prompt_design`: 1 to 3 research questions needed before stronger prompt design, especially for low-confidence or borderline personas.
 - `needs_verification`: Specific missing evidence, customer data, or site page to verify.
 
-When `regulated_or_high_trust_flag` is `yes` or `unclear` and the missing evidence is strong, do not use `ready_for_prompt_design`. Use `usable_with_caution` for limited, clearly caveated prompt design or `needs_more_evidence` when the persona should be held out.
+When `regulated_or_high_trust_flag` is `yes` or `unclear` and the missing evidence is strong, do not use `ready_for_prompt_design`. Use `usable_with_caution` for limited, clearly caveated prompt design or `needs_more_evidence` when the persona should be held out. If `original_unsafe_intent` is present, mark it as caution-only and never use it directly as the prompt. The handoff `prompt_angle` must use `safe_transformed_prompt_angle`.
 
 ## Allowed Role Values
 
@@ -138,11 +144,13 @@ Test prompts where [persona] is trying to [decision/job], compares [alternatives
 
 ## Sample Handoff Row
 
-```md
-| persona_id | business_type | industry_category | industry_subtype | industry_pattern | regulated_or_high_trust_flag | decision_unit_type | decision_role | role_type | role_mapping_reason | buyer_user_split | buyer_stage | pain | trust_requirement | trust_signal_required | urgency_level | location_dependency | evidence_needed_before_prompt_design | switching_forces | journey_stage | problem_narrative | vocabulary_terms | alternatives_considered | prompt_angle | sample_ai_questions | priority | confidence | icp_fit | prompt_readiness | readiness_reason | risk_flags | traceability_claim_ids | research_sufficiency | validation_questions | assumptions_to_validate | confidence_upgrade_condition | confidence_upgrade_needed | questions_to_validate_before_prompt_design | needs_verification |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| P1 | b2b_saas | enterprise_it_or_security | security-review-heavy SaaS | BtoB SaaS | yes | enterprise buying committee | security_reviewer | technical_reviewer | Security reviewer maps directly to technical reviewer because security approval checks technical/vendor risk. | Economic buyer, security reviewer, and end user have different questions. | comparison | Needs to reduce vendor risk before recommending a tool. | Security docs, integration proof, DPA, case studies, and pricing clarity. | SOC2, SSO, DPA, uptime, and implementation proof. | medium | none | Verify security documentation, integration evidence, and case proof before stronger prompt design. | Push: current reporting is unclear; Pull: clearer evidence; Habit: existing SEO tools; Anxiety: security risk. | comparison | Security reviewer must assess adoption risk but lacks proof that the vendor meets internal controls. | "security review"; "DPA"; "SSO"; "vendor risk" | direct competitor; existing SEO tool; internal research; do nothing | Test prompts where a security reviewer compares category alternatives, asks what risk criteria matter, and looks for proof such as security docs, integrations, pricing clarity, implementation examples, and case studies. | "What should security reviewers check before choosing a [category] tool?"; "Which [category] tools support SSO and security review?"; "What vendor risks should we check before adopting [category] software?" | high | medium | possible_icp | usable_with_caution | Clear comparison intent, but the actual security-review role needs customer validation. | role_needs_validation; regulated_claim_risk; security_evidence_needed | C1; C3; C5 | enough_for_prompt_design | "What triggered the security review?"; "Which alternatives were compared?"; "What proof was required before recommendation?" | Security reviewer role, budget influence, actual vocabulary. | Sales notes or interviews confirm role, trigger, alternatives, and proof needs. | Needs sales notes or interviews proving reviewer role, budget influence, and actual vocabulary. | "What triggered the security review?"; "Which alternatives were compared?"; "What proof was required before recommendation?" | Verify actual reviewer role from sales notes or customer interviews. |
-```
+This compact sample focuses on risky intent fields. In a full handoff, also include the complete required fields above.
+
+| persona_id | role_type | detailed_decision_role | role_mapping_reason | buyer_stage | prompt_angle | prompt_readiness | confidence | risk_flags | needs_verification | risky_intent_detected | risky_intent_type | original_unsafe_intent | safe_transformed_prompt_angle | regulated_claim_risk | safe_prompt_language_required | handoff_decision |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| BCL-1 | comparator | local_comparator | Local comparator maps to comparator because the user is comparing nearby clinics by trust, fee clarity, risk explanation, and aftercare before booking. | comparison | 美容医療を検討する前に、効果・リスク・副作用・個人差について一般的に確認すべき観点を整理する | usable_with_caution | medium | risky_intent_detected; regulated_claim_risk; medical_advice_risk; effect_guarantee_risk | Verify physician qualifications, consultation flow, fee scope, risk/side-effect explanation, review/case limitations, and aftercare evidence. | true | effect_guarantee_seeking | 効果が出る施術を知りたい | 美容医療を検討する前に、効果・リスク・副作用・個人差について一般的に確認すべき観点を整理する | yes | true | handoff_safe_transformed_angle_only |
+
+`original_unsafe_intent` is for audit and caution only. Do not send it directly to `recora-prompt-topic-designer`. The `prompt_angle` must match the safe transformed wording in `safe_transformed_prompt_angle`.
 
 ## Handoff Blockers
 
@@ -151,6 +159,8 @@ Do not include a persona in normal prompt-design handoff when any of these apply
 - `icp_fit` is `anti_icp` or `not_enough_evidence`.
 - `research_sufficiency` is `not_enough_to_use`.
 - `prompt_readiness` is `needs_more_evidence` or `do_not_handoff`.
+- Risky intent is present but `safe_transformed_prompt_angle`, `risk_flags`, or `needs_verification` is missing.
+- `original_unsafe_intent` is being passed as the prompt angle, sample question, or uncautioned handoff wording.
 - Required traceability claims have `inference_type` of `unsupported`.
 - Business type or industry pattern is unsupported by observed evidence.
 - Regulated or high-trust claims lack proof, qualification, review, fee, safety, process, or compliance evidence.
@@ -168,6 +178,8 @@ Do not include a persona in normal prompt-design handoff when any of these apply
 - Each persona has at least one distinct prompt angle.
 - Sample questions are natural AI-search questions, not SEO keyword fragments.
 - Prompt angles avoid guaranteed outcomes or predicted AI visibility.
+- Prompt angles transformed from risky intent avoid direct advice, diagnosis, treatment recommendation, legal/financial outcome prediction, safety guarantee, or effect guarantee.
+- `safe_prompt_language_required` is `true` whenever risky intent or regulated/high-trust caution applies.
 - Persona IDs remain stable throughout the output.
 - `needs_verification` is never empty when customer data is unavailable.
 - `traceability_claim_ids` point to evidence or explicit research gaps in the traceability table.

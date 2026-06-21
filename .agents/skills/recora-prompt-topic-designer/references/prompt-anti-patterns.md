@@ -14,6 +14,7 @@ Use this reference when revising weak prompts. Do not include bad prompts in fin
 | "Which official page will AI cite for Recora?" | Citation guarantee risk | "What sources or page types would be useful when evaluating whether a B2B SaaS vendor is understood correctly by AI search systems?" | Reframes citation as source-readiness observation, not a guaranteed citation. | Observe source types, citation behavior, and page evidence needs after measurement. |
 | "Make persona prompts for marketing people." | Persona too vague | "As a B2B SaaS marketing leader, what evidence would you need before choosing an AI search diagnosis service for pipeline improvement?" | Adds role, job, decision context, and signal. | Observe marketing-leader proof needs and sales-material gaps. |
 | "Is the price cheap and are reviews good?" | Unsupported price/reputation assumption | "Before adopting an AI search diagnosis service, what pricing, reporting, support, and reliability information should an evaluator verify?" | Avoids asking AI to invent price or reputation facts. | Observe pricing/reputation information needs and hallucination risk. |
+| "美容医療を初めて検討する人は、相談前にどんな一般情報や確認事項を整理すべきですか？" | Safe but over-sanitized; it sounds more like a survey than a real consumer AI/search query. | "美容クリニックが初めてで不安な人は、料金・口コミ・カウンセリング内容をどう確認すればよいですか？" | Closer to real consumer vocabulary around anxiety, price, reviews, and consultation while still avoiding medical diagnosis or treatment guarantees. | Observe first-time anxiety, price/review concerns, counseling checks, and whether AI avoids unsafe medical claims. |
 
 ## Rewrite Checklist
 
@@ -21,6 +22,9 @@ Use this reference when revising weak prompts. Do not include bad prompts in fin
 - Remove "best", "superior", or winner framing unless the prompt is explicitly marked as an internal bias test.
 - Add buyer role or persona.
 - Add buyer stage.
+- Add `raw_user_intent` when a final prompt is a safe rewrite of a rough buyer query.
+- Add `language_mode` and make sure BtoC/local/clinic sets are not only polished `natural_conversation`.
+- Preserve real buyer vocabulary such as price, reviews, local area, fear, failure avoidance, or role-specific workflow terms.
 - Add one observable expected signal.
 - Prefer `brand_excluded` unless the purpose is branded validation.
 - Prefer `unknown_competitor_discovery` when competitor data is incomplete.
