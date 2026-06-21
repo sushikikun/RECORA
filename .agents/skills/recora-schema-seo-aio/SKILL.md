@@ -49,6 +49,11 @@ Load these references only when the task needs deeper support:
 - `references/client-report-language-guide.md`: client-safe wording for schema limits, robots/sitemap limits, source gaps, third-party evidence, `NEEDS_VERIFICATION`, SEO vs AIO/GEO, and measurement uncertainty.
 - `references/aio-geo-failure-modes.md`: recurring AIO/GEO failure modes and corrected behavior for quality-gate review.
 - `references/implementation-handoff-templates.md`: handoff templates for technical, schema, content, comparison, pricing, source-gap, quality-gate, design, and copy work.
+- `references/adversarial-test-cases.md`: adversarial SEO/AIO/schema/source-gap/client-report traps and Pass / Warning / Fail criteria.
+- `references/adversarial-eval-results.md`: desk evaluation of high-risk adversarial cases, weak reference areas, and target files for fixes.
+- `references/decision-trees.md`: yes/no decision trees for schema, FAQPage, Review/AggregateRating, robots/sitemap, AI citation, prompt classes, citations, source gaps, dashboards, screenshots, and client wording.
+- `references/unsafe-output-patterns.md`: unsafe recommendation patterns, safer replacements, required caveats, and related failure modes.
+- `references/remediation-playbook.md`: how to patch references when adversarial tests reveal measurement, schema, source-gap, wording, quality-gate, dashboard, or evidence weaknesses.
 
 ## When to use this skill
 
