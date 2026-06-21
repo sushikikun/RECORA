@@ -13,7 +13,9 @@
     "recora:doctor": "tsx scripts/recora-dev-checks.ts doctor",
     "recora:dashboard-read-model:check": "tsx scripts/recora-dev-checks.ts dashboard-read-model-check",
     "recora:preflight": "npm run recora:whereami && npm run recora:before-codex && npm run recora:doctor && npm run recora:dashboard-read-model:check",
-    "recora:preflight:full": "npm run recora:preflight && npm run typecheck"
+    "recora:preflight:full": "npm run recora:preflight && npm run typecheck",
+    "recora:commit-check": "tsx scripts/recora-safe-commit.ts commit-check",
+    "recora:safe-commit": "tsx scripts/recora-safe-commit.ts safe-commit"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.0",
