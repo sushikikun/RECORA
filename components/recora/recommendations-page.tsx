@@ -122,9 +122,7 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
       </div>
 
       <DataCard title="改善候補一覧" description={`${view.sourceLabel}由来の表示対象だけを、区分と観測根拠付きで表示します。`}>
-        <div className="overflow-x-auto">
-          <RecommendationsTable rows={view.items} />
-        </div>
+        <RecommendationListCards rows={view.items} />
       </DataCard>
     </div>
   );
@@ -369,7 +367,7 @@ function RecommendationMeta({ label, value }: { label: string; value: string }) 
   return (
     <div className="min-w-0 rounded-md border border-slate-200 bg-white px-3 py-2">
       <p className="text-xs font-bold text-slate-400">{label}</p>
-      <p className="mt-1 truncate text-sm font-semibold text-slate-700" title={value}>{value}</p>
+      <p className="mt-1 break-words text-sm font-semibold leading-6 text-slate-700">{value}</p>
     </div>
   );
 }
@@ -401,6 +399,69 @@ function RecommendationStatusRow({ label, value, tone }: { label: string; value:
         <span className="text-sm font-bold text-slate-700">{label}</span>
       </div>
       <span className="text-lg font-bold text-slate-950">{value}</span>
+    </div>
+  );
+}
+
+function RecommendationListCards({ rows }: { rows: RecommendationDisplayItem[] }) {
+  if (rows.length === 0) {
+    return <EmptyStateBlock title="表示できる改善候補がありません" description="品質ゲート後に表示できる候補が保存されると、ここに一覧表示されます。" />;
+  }
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      {rows.map((item) => (
+        <article key={item.id} className="min-w-0 rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_6px_18px_rgba(15,23,42,0.035)]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap gap-1.5">
+                <RecommendationPriorityBadge item={item} />
+                <Badge variant="outline" className="rounded-sm border-slate-200 bg-slate-50 text-slate-700">
+                  {item.displayCategory}
+                </Badge>
+                <Badge variant="outline" className="rounded-sm border-teal-200 bg-teal-50 text-teal-800">
+                  {item.qualityGateLabel}
+                </Badge>
+              </div>
+              <h3 className="mt-3 break-words text-base font-bold leading-6 text-slate-950">{item.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{item.reason}</p>
+            </div>
+            <div className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-xs font-bold text-slate-500">状態</p>
+              <p className="mt-1 whitespace-nowrap text-sm font-bold text-slate-900">{item.statusLabel}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <SmallEvidenceMetric label="観測" value={`${item.evidenceMetrics.observationCount}件`} />
+            <SmallEvidenceMetric label={item.evidenceMetrics.focusedObservationLabel} value={`${item.evidenceMetrics.focusedObservationCount}件`} />
+            <SmallEvidenceMetric label="参照URL" value={`${item.evidenceMetrics.citationCount}件`} />
+            <SmallEvidenceMetric label="確からしさ" value={item.confidenceLabel} />
+          </div>
+
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-xs font-bold text-slate-500">次の判断</p>
+            <p className="mt-1 text-sm leading-6 text-slate-700">{item.action}</p>
+            {item.targetUrl ? (
+              <Link href={item.targetUrl} className="mt-2 inline-flex min-w-0 items-center gap-1 text-xs font-bold text-[#00796B] hover:text-[#005C50]">
+                <ExternalLink className="h-3 w-3 shrink-0" />
+                <span className="min-w-0 break-all">{item.targetUrl}</span>
+              </Link>
+            ) : null}
+          </div>
+
+          <p className="mt-3 text-xs leading-5 text-slate-500">{item.customerFacingCaution}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SmallEvidenceMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2">
+      <p className="text-[11px] font-bold text-slate-500">{label}</p>
+      <p className="mt-1 break-words text-sm font-bold text-slate-950">{value}</p>
     </div>
   );
 }

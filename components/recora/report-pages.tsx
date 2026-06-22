@@ -788,9 +788,43 @@ type LeaderboardViewModel = {
   competitiveGapValue: string;
   competitiveGapDelta: number;
   primaryCitationShare: string;
+  comparisonScope: LeaderboardComparisonScope;
+  brandSentiment: BrandSentimentSummary;
   rankingRows: DashboardRankingRow[];
   competitorCards: LeaderboardCompetitorCard[];
   modelRows: LeaderboardModelRow[];
+};
+
+type LeaderboardComparisonScope = {
+  label: string;
+  note: string;
+  sampleQuality: string;
+  usesNonBrandedPrompts: boolean;
+  comparisonPromptCount: number;
+  brandedPromptCount: number;
+  comparisonAnswerCount: number;
+  totalAnswerCount: number;
+};
+
+type SentimentTone = "green" | "slate" | "amber" | "rose";
+
+type SentimentCounts = {
+  positive: number;
+  neutral: number;
+  negative: number;
+  unclear: number;
+};
+
+type BrandSentimentSummary = {
+  label: string;
+  tone: SentimentTone;
+  description: string;
+  brandedPromptCount: number;
+  brandedAnswerCount: number;
+  positiveCount: number;
+  neutralCount: number;
+  negativeCount: number;
+  unclearCount: number;
 };
 
 type BrandMentionAggregate = {
@@ -800,11 +834,157 @@ type BrandMentionAggregate = {
   scoreCount: number;
   positions: number[];
   displayConversationIds: Set<string>;
+  sentimentCounts: SentimentCounts;
   topicCounts: Map<string, number>;
   promptCounts: Map<string, number>;
 };
 
 function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): LeaderboardViewModel {
+  if (!data?.project || data.brands.length === 0) {
+    return createEmptyLeaderboardViewModel();
+  }
+
+  const primaryBrand = data.brands.find((item) => item.brand_type === "primary") ?? data.brands[0];
+  const modelRows = createLeaderboardModelRows(data);
+  const promptScope = createLeaderboardPromptScope(data, primaryBrand);
+  const brandSnapshots = data.metricSnapshots.filter((snapshot) => snapshot.scope_type === "brand" && snapshot.brand_id);
+  const snapshotByBrandId = new Map(brandSnapshots.map((snapshot) => [snapshot.brand_id, snapshot]));
+  const conversationById = new Map(data.conversations.map((item) => [item.id, item]));
+  const runItemById = new Map(data.runItems.map((item) => [item.id, item]));
+  const promptById = new Map(data.prompts.map((item) => [item.id, item]));
+  const topicById = new Map(data.topics.map((item) => [item.id, item]));
+  const mentionStats = new Map<string, BrandMentionAggregate>();
+
+  for (const mention of data.brandMentions) {
+    if (!mention.mentioned || !promptScope.comparisonConversationIds.has(mention.conversation_id)) continue;
+
+    const stat = getBrandMentionAggregate(mentionStats, mention.brand_id);
+    stat.mentionCount += getMentionCount(mention);
+    stat.displayConversationIds.add(mention.conversation_id);
+    stat.scoreTotal += Number(mention.answer_score ?? 0);
+    stat.scoreCount += 1;
+    incrementSentiment(stat.sentimentCounts, mention.sentiment);
+    if (isRecommendedStatus(mention.recommendation_status)) {
+      stat.recommendationCount += 1;
+    }
+    if (typeof mention.position === "number") {
+      stat.positions.push(mention.position);
+    }
+
+    const conversation = conversationById.get(mention.conversation_id);
+    const runItem = conversation ? runItemById.get(conversation.run_item_id) : undefined;
+    const prompt = runItem ? promptById.get(runItem.prompt_id) : undefined;
+    const topic = prompt ? topicById.get(prompt.topic_id) : undefined;
+    if (topic?.name) incrementMap(stat.topicCounts, topic.name);
+    if (prompt?.text) incrementMap(stat.promptCounts, prompt.text);
+  }
+
+  const citationCounts = new Map<string, number>();
+  for (const citation of data.citations) {
+    if (!citation.brand_id || !promptScope.comparisonConversationIds.has(citation.conversation_id)) continue;
+    citationCounts.set(citation.brand_id, (citationCounts.get(citation.brand_id) ?? 0) + Number(citation.occurrence_count ?? 1));
+  }
+
+  const comparisonAnswerCount = promptScope.comparisonConversationIds.size;
+  const primaryStat = mentionStats.get(primaryBrand.id);
+  const primarySnapshot = snapshotByBrandId.get(primaryBrand.id);
+  const primaryDisplayAnswerCount = primaryStat?.displayConversationIds.size ?? 0;
+  const primaryVisibility = comparisonAnswerCount > 0
+    ? Math.round(calculateVisibility(primaryDisplayAnswerCount, comparisonAnswerCount))
+    : Math.round(primarySnapshot?.ai_visibility ?? 0);
+  const totalBrandMentions = Math.max(
+    1,
+    Array.from(mentionStats.values()).reduce((sum, stat) => sum + stat.mentionCount, 0)
+  );
+  const topCompetitorVisibility = Math.max(
+    0,
+    ...data.brands
+      .filter((item) => item.id !== primaryBrand.id)
+      .map((item) => {
+        const stat = mentionStats.get(item.id);
+        const snapshot = snapshotByBrandId.get(item.id);
+        return comparisonAnswerCount > 0
+          ? Math.round(calculateVisibility(stat?.displayConversationIds.size ?? 0, comparisonAnswerCount))
+          : Math.round(snapshot?.ai_visibility ?? 0);
+      })
+  );
+  const primaryGap = comparisonAnswerCount > 0
+    ? primaryVisibility - topCompetitorVisibility
+    : Math.round(primarySnapshot?.competitive_gap ?? primaryVisibility - topCompetitorVisibility);
+  const coMentionedCompetitorsByBrandId = createCoMentionedCompetitorsByBrandId(data, promptScope.comparisonConversationIds);
+
+  const rankingRows = data.brands
+    .map((brandItem) => {
+      const snapshot = snapshotByBrandId.get(brandItem.id);
+      const stat = mentionStats.get(brandItem.id);
+      const displayAnswerCount = stat?.displayConversationIds.size ?? 0;
+      const mentionCount = Math.round(stat?.mentionCount ?? (comparisonAnswerCount > 0 ? 0 : snapshot?.ai_mention_count ?? 0));
+      const citationCountFromRows = citationCounts.get(brandItem.id) ?? 0;
+      const citationCount = Math.round(citationCountFromRows || (comparisonAnswerCount > 0 ? 0 : snapshot?.citation_count ?? 0));
+      const averagePosition = average(stat?.positions ?? []) ?? (comparisonAnswerCount > 0 ? null : snapshot?.average_position ?? null);
+      const visibility = comparisonAnswerCount > 0
+        ? Math.round(calculateVisibility(displayAnswerCount, comparisonAnswerCount))
+        : Math.round(snapshot?.ai_visibility ?? 0);
+      const shareOfVoice = Math.round(((stat?.mentionCount ?? 0) / totalBrandMentions) * 100);
+      const recommendationCount = stat?.recommendationCount ?? 0;
+      const winRate = mentionCount > 0 ? Math.round((recommendationCount / mentionCount) * 100) : 0;
+      const strongTopic = displayAnswerCount > 0 ? getTopMapKey(stat?.topicCounts) ?? brandItem.category ?? "-" : "未表示";
+      const representativePrompt = displayAnswerCount > 0 ? truncateText(getTopMapKey(stat?.promptCounts) ?? "", 44) : "";
+      const coMentionedCompetitors = coMentionedCompetitorsByBrandId.get(brandItem.id) ?? [];
+      const sentimentDisplay = createSentimentDisplay(stat?.sentimentCounts);
+
+      return {
+        brandId: brandItem.id,
+        name: brandItem.name,
+        visibility,
+        citationShare: shareOfVoice,
+        sentiment: sentimentDisplay.score,
+        winRate,
+        isPrimary: brandItem.brand_type === "primary",
+        brandTypeLabel: brandItem.brand_type === "primary" ? "自社" : "競合",
+        displayAnswerCount,
+        aiMentionCount: mentionCount,
+        recommendationCount,
+        citationCount,
+        averagePosition,
+        competitiveGap: brandItem.id === primaryBrand.id ? primaryGap : visibility - primaryVisibility,
+        strongTopic,
+        representativePrompt,
+        mentionContext: displayAnswerCount > 0 ? createMentionContext(strongTopic, representativePrompt) : "non-branded観測では未表示",
+        coMentionedCompetitors,
+        newAppearanceLabel: "要確認",
+        newAppearanceNeedsVerification: true
+      } satisfies DashboardRankingRow;
+    })
+    .sort((a, b) => b.visibility - a.visibility || (b.aiMentionCount ?? 0) - (a.aiMentionCount ?? 0));
+
+  const primaryRow = rankingRows.find((row) => row.isPrimary);
+  const competitorCards = rankingRows
+    .filter((row) => !row.isPrimary)
+    .slice(0, 4)
+    .map((row, index) => ({
+      id: row.brandId,
+      name: row.name,
+      position: `${index + 1}位 / AI表示率 ${row.visibility}%`,
+      movement: row.competitiveGap ?? 0,
+      note: `${row.strongTopic ?? "主なトピック"}で表示。表示回答 ${row.displayAnswerCount ?? 0}件、ブランド言及 ${row.aiMentionCount ?? 0}件、参照出現 ${row.citationCount ?? 0}件。`
+    }));
+
+  return {
+    primaryBrandName: primaryBrand.name,
+    primaryVisibility: formatPercent(primaryRow?.visibility ?? primaryVisibility),
+    competitiveGapValue: formatSignedPt(primaryGap),
+    competitiveGapDelta: primaryGap,
+    primaryCitationShare: formatPercent(primaryRow?.citationShare ?? 0),
+    comparisonScope: promptScope.view,
+    brandSentiment: createBrandSentimentSummary(data, primaryBrand, promptScope.brandedConversationIds),
+    rankingRows,
+    competitorCards,
+    modelRows
+  };
+}
+
+function createLeaderboardViewModelLegacy(data?: RecoraLeaderboardDbData | null): any {
   if (!data?.project || data.brands.length === 0) {
     return createEmptyLeaderboardViewModel();
   }
@@ -954,6 +1134,27 @@ function createEmptyLeaderboardViewModel(primaryBrandName = "Recora", modelRows:
     competitiveGapValue: formatSignedPt(0),
     competitiveGapDelta: 0,
     primaryCitationShare: formatPercent(0),
+    comparisonScope: {
+      label: "比較対象なし",
+      note: "比較に使える観測がまだありません。",
+      sampleQuality: "insufficient_data",
+      usesNonBrandedPrompts: false,
+      comparisonPromptCount: 0,
+      brandedPromptCount: 0,
+      comparisonAnswerCount: 0,
+      totalAnswerCount: 0
+    },
+    brandSentiment: {
+      label: "未判定",
+      tone: "slate",
+      description: "branded promptの観測がまだありません。",
+      brandedPromptCount: 0,
+      brandedAnswerCount: 0,
+      positiveCount: 0,
+      neutralCount: 0,
+      negativeCount: 0,
+      unclearCount: 0
+    },
     rankingRows: [],
     competitorCards: [],
     modelRows
@@ -973,10 +1174,190 @@ function createLeaderboardModelRows(data: RecoraLeaderboardDbData): LeaderboardM
     .sort((a, b) => b.visibility - a.visibility);
 }
 
-function createCoMentionedCompetitorsByBrandId(data: RecoraLeaderboardDbData) {
+function createLeaderboardPromptScope(data: RecoraLeaderboardDbData, primaryBrand: RecoraLeaderboardDbData["brands"][number]) {
+  const runItemById = new Map(data.runItems.map((item) => [item.id, item]));
+  const promptById = new Map(data.prompts.map((item) => [item.id, item]));
+  const nonBrandedPromptIds = new Set<string>();
+  const brandedPromptIds = new Set<string>();
+  const nonBrandedConversationIds = new Set<string>();
+  const brandedConversationIds = new Set<string>();
+  const allConversationIds = new Set(data.conversations.map((item) => item.id));
+
+  for (const prompt of data.prompts) {
+    if (isPromptBrandedForBrand(prompt, primaryBrand)) {
+      brandedPromptIds.add(prompt.id);
+    } else {
+      nonBrandedPromptIds.add(prompt.id);
+    }
+  }
+
+  for (const conversation of data.conversations) {
+    const runItem = runItemById.get(conversation.run_item_id);
+    const prompt = runItem ? promptById.get(runItem.prompt_id) : undefined;
+    if (prompt && brandedPromptIds.has(prompt.id)) {
+      brandedConversationIds.add(conversation.id);
+    } else if (prompt && nonBrandedPromptIds.has(prompt.id)) {
+      nonBrandedConversationIds.add(conversation.id);
+    }
+  }
+
+  const usesNonBrandedPrompts = nonBrandedConversationIds.size > 0;
+  const comparisonConversationIds = usesNonBrandedPrompts ? nonBrandedConversationIds : allConversationIds;
+  const comparisonPromptCount = usesNonBrandedPrompts ? nonBrandedPromptIds.size : data.prompts.length;
+  const sampleQuality = getPromptSampleQuality(comparisonPromptCount);
+
+  return {
+    comparisonConversationIds,
+    brandedConversationIds,
+    view: {
+      label: usesNonBrandedPrompts ? "non-branded prompt中心" : "prompt種別未分離",
+      note: usesNonBrandedPrompts
+        ? "対象ブランド名やaliasをprompt本文に含まない観測だけで、AI表示率・平均順位・Share of Voice・競合差を再計算しています。"
+        : "non-branded promptを安全に分離できないため、現時点では全観測を参考値として扱います。",
+      sampleQuality,
+      usesNonBrandedPrompts,
+      comparisonPromptCount,
+      brandedPromptCount: brandedPromptIds.size,
+      comparisonAnswerCount: comparisonConversationIds.size,
+      totalAnswerCount: data.conversations.length
+    }
+  };
+}
+
+function isPromptBrandedForBrand(
+  prompt: RecoraLeaderboardDbData["prompts"][number],
+  primaryBrand: RecoraLeaderboardDbData["brands"][number]
+) {
+  const haystack = normalizePromptMatchText(prompt.text);
+  const terms = getBrandPromptTerms(primaryBrand);
+  return terms.some((term) => haystack.includes(normalizePromptMatchText(term)));
+}
+
+function getBrandPromptTerms(brandRow: RecoraLeaderboardDbData["brands"][number]) {
+  return uniqueStrings([
+    brandRow.name,
+    brandRow.reading ?? "",
+    ...flattenAliasValues(brandRow.aliases)
+  ].map((value) => value.trim()).filter((value) => value.length >= 2));
+}
+
+function flattenAliasValues(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(flattenAliasValues);
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).flatMap(flattenAliasValues);
+  }
+  return [];
+}
+
+function normalizePromptMatchText(value: string) {
+  return value.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+}
+
+function getPromptSampleQuality(promptCount: number) {
+  if (promptCount <= 0) return "insufficient_data";
+  if (promptCount < 10) return "directional_only";
+  if (promptCount < 30) return "weak_sample";
+  if (promptCount < 50) return "usable_but_limited";
+  return "benchmark_ready";
+}
+
+function createBrandSentimentSummary(
+  data: RecoraLeaderboardDbData,
+  primaryBrand: RecoraLeaderboardDbData["brands"][number],
+  brandedConversationIds: Set<string>
+): BrandSentimentSummary {
+  const counts = createEmptySentimentCounts();
+  let brandedAnswerCount = 0;
+
+  for (const mention of data.brandMentions) {
+    if (mention.brand_id !== primaryBrand.id || !mention.mentioned || !brandedConversationIds.has(mention.conversation_id)) continue;
+    brandedAnswerCount += 1;
+    incrementSentiment(counts, mention.sentiment);
+  }
+
+  const display = createSentimentLabel(counts, brandedAnswerCount);
+
+  return {
+    label: display.label,
+    tone: display.tone,
+    description: display.description,
+    brandedPromptCount: countBrandedPrompts(data, primaryBrand),
+    brandedAnswerCount,
+    positiveCount: counts.positive,
+    neutralCount: counts.neutral,
+    negativeCount: counts.negative,
+    unclearCount: counts.unclear
+  };
+}
+
+function countBrandedPrompts(data: RecoraLeaderboardDbData, primaryBrand: RecoraLeaderboardDbData["brands"][number]) {
+  return data.prompts.filter((prompt) => isPromptBrandedForBrand(prompt, primaryBrand)).length;
+}
+
+function createEmptySentimentCounts(): SentimentCounts {
+  return { positive: 0, neutral: 0, negative: 0, unclear: 0 };
+}
+
+function incrementSentiment(counts: SentimentCounts, value: string | null | undefined) {
+  if (value === "positive") counts.positive += 1;
+  else if (value === "negative") counts.negative += 1;
+  else if (value === "neutral") counts.neutral += 1;
+  else counts.unclear += 1;
+}
+
+function createSentimentDisplay(counts?: SentimentCounts) {
+  if (!counts) return { label: "未判定", tone: "slate" as SentimentTone, score: 0 };
+  const total = counts.positive + counts.neutral + counts.negative + counts.unclear;
+  const display = createSentimentLabel(counts, total);
+  const score = total > 0 ? Math.round(((counts.positive + counts.neutral * 0.5) / total) * 100) : 0;
+  return { ...display, score };
+}
+
+function createSentimentLabel(counts: SentimentCounts, total: number) {
+  if (total <= 0) {
+    return {
+      label: "未判定",
+      tone: "slate" as SentimentTone,
+      description: "対象ブランドを含むpromptで、印象を判断できる観測がまだありません。"
+    };
+  }
+
+  if (counts.negative > 0) {
+    return {
+      label: "要確認",
+      tone: "amber" as SentimentTone,
+      description: "ネガティブ判定を含むため、回答本文と根拠を確認してから印象を判断します。"
+    };
+  }
+
+  if (counts.unclear > 0 && counts.positive + counts.neutral <= counts.unclear) {
+    return {
+      label: "要確認",
+      tone: "amber" as SentimentTone,
+      description: "sentimentが未判定または不明な回答が多いため、印象は断定しません。"
+    };
+  }
+
+  if (counts.positive > counts.neutral) {
+    return {
+      label: "ポジティブ寄り",
+      tone: "green" as SentimentTone,
+      description: "branded prompt内では肯定的な扱いが多い観測です。効果保証ではなく、今回の回答内の印象です。"
+    };
+  }
+
+  return {
+    label: "普通",
+    tone: "slate" as SentimentTone,
+    description: "branded prompt内では中立的な扱いが中心です。強い評価としては扱わず、回答本文で確認します。"
+  };
+}
+
+function createCoMentionedCompetitorsByBrandId(data: RecoraLeaderboardDbData, conversationScope?: Set<string>) {
   const brandById = new Map(data.brands.map((item) => [item.id, item]));
   const mentionedByConversationId = groupBy(
-    data.brandMentions.filter((item) => item.mentioned),
+    data.brandMentions.filter((item) => item.mentioned && (!conversationScope || conversationScope.has(item.conversation_id))),
     (item) => item.conversation_id
   );
   const result = new Map<string, string[]>();
@@ -1028,6 +1409,7 @@ function getBrandMentionAggregate(stats: Map<string, BrandMentionAggregate>, bra
     scoreCount: 0,
     positions: [],
     displayConversationIds: new Set<string>(),
+    sentimentCounts: createEmptySentimentCounts(),
     topicCounts: new Map(),
     promptCounts: new Map()
   };
@@ -2537,6 +2919,8 @@ type ReportOverviewViewModel = {
   leaderboardRows: DashboardRankingRow[];
   sourceRows: ReportOverviewSourceRow[];
   sourceSummary: ReportOverviewSourceSummary;
+  comparisonScope: LeaderboardComparisonScope;
+  brandSentiment: BrandSentimentSummary;
   personaRows: ReportOverviewAudienceRow[];
   topicRows: ReportOverviewAudienceRow[];
   strongestPersonaRows: ReportOverviewAudienceRow[];
@@ -2681,6 +3065,8 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
     leaderboardRows: leaderboardView.rankingRows.slice(0, 5),
     sourceRows,
     sourceSummary,
+    comparisonScope: leaderboardView.comparisonScope,
+    brandSentiment: leaderboardView.brandSentiment,
     personaRows,
     topicRows,
     strongestPersonaRows,
@@ -2798,6 +3184,8 @@ function ReportOverviewTab({ data, projectSlug = currentReportSlug }: { data: Re
 
       <ReportOverviewDecisionStrip insights={view.insightLinks} />
 
+      <ReportOverviewScopeAndSentiment view={view} />
+
       <div className="grid min-w-0 gap-5 xl:grid-cols-2">
         <ReportOverviewPositionPanel view={view} />
         <ReportOverviewSourceHealth view={view} />
@@ -2851,6 +3239,34 @@ function ReportOverviewDecisionStrip({ insights }: { insights: ReportOverviewIns
             <p className="mt-3 text-sm leading-6 text-[#475569]">{insight.description}</p>
           </Link>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function ReportOverviewScopeAndSentiment({ view }: { view: ReportOverviewViewModel }) {
+  return (
+    <section className="grid gap-4 lg:grid-cols-2">
+      <div className="rounded-[18px] border border-[#DDE8E5] bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.045)]">
+        <p className="text-xs font-bold uppercase tracking-wider text-[#00796B]">metric scope</p>
+        <h2 className="mt-1 text-base font-bold text-slate-950">{view.comparisonScope.label}</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">{view.comparisonScope.note}</p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <ScopeMetric label="比較prompt" value={`${view.comparisonScope.comparisonPromptCount}件`} />
+          <ScopeMetric label="比較AI回答" value={`${view.comparisonScope.comparisonAnswerCount}件`} />
+          <ScopeMetric label="サンプル品質" value={view.comparisonScope.sampleQuality} />
+        </div>
+      </div>
+      <div className="rounded-[18px] border border-slate-200 bg-slate-50 p-4 shadow-[0_8px_28px_rgba(15,23,42,0.035)]">
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">branded prompt</p>
+        <h2 className="mt-1 text-base font-bold text-slate-950">ブランド印象: {view.brandSentiment.label}</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">{view.brandSentiment.description}</p>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <ScopeMetric label="回答" value={`${view.brandSentiment.brandedAnswerCount}件`} />
+          <ScopeMetric label="ポジティブ" value={`${view.brandSentiment.positiveCount}件`} />
+          <ScopeMetric label="普通" value={`${view.brandSentiment.neutralCount}件`} />
+          <ScopeMetric label="要確認" value={`${view.brandSentiment.negativeCount + view.brandSentiment.unclearCount}件`} />
+        </div>
       </div>
     </section>
   );
@@ -3517,6 +3933,8 @@ export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: 
       />
       <DetailTabs items={reportDetailTabs.leaderboard} />
 
+      <LeaderboardScopePanel view={leaderboardView} />
+
       <div className="grid gap-4 lg:grid-cols-3">
         <MetricTile label={leaderboardView.primaryBrandName + "のAI表示率"} value={leaderboardView.primaryVisibility} helper="このレポート内の観測値" />
         <MetricTile label="比較ブランドとの差分" value={leaderboardView.competitiveGapValue} helper="同一レポート内の参考差分" tone="amber" />
@@ -3527,11 +3945,11 @@ export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: 
         title="AI回答内でどう語られたか"
         description="表示回答数、言及数、平均順位、言及文脈、同時に出た競合をまとめます。新規出現ブランドは過去比較が必要なため、現時点では追加確認として扱います。"
       >
-        <LeaderboardNarrativeTable rows={leaderboardView.rankingRows} />
+        <LeaderboardCards rows={leaderboardView.rankingRows} />
       </DataCard>
 
       <DataCard title="AI回答内ブランドランキング" description="最新レポート内の観測順位です。勝敗や公式順位ではなく、詳細確認の入口として扱います。">
-        <RankingTable rows={leaderboardView.rankingRows} />
+        <LeaderboardCards rows={leaderboardView.rankingRows} compact />
       </DataCard>
 
       <div className="grid gap-5 xl:grid-cols-2">
@@ -3883,14 +4301,14 @@ export function SourcesPage({ sourcesData = null }: { sourcesData?: RecoraSource
         title={"参照元ドメイン"}
         description={"ドメイン別の参照出現数、参照シェア、カテゴリ、主なURLをまとめています。"}
       >
-        <SourcesTable rows={sourceDisplay.sourceRows} />
+        <SourceDomainCards rows={sourceDisplay.sourceRows} />
       </DataCard>
 
       <DataCard
         title={"参照されたURL"}
         description={"AI回答で参照として出現したURLを一覧化しています。source-to-claim supportとは分けて確認します。"}
       >
-        <CitationsTable rows={sourceDisplay.citationRows} />
+        <CitationCards rows={sourceDisplay.citationRows} />
       </DataCard>
     </div>
   );
@@ -5754,6 +6172,122 @@ function SourceSharePanel() {
   );
 }
 
+function LeaderboardScopePanel({ view }: { view: LeaderboardViewModel }) {
+  const sentimentToneClass = {
+    green: "border-[#BFE4DC] bg-[#E6F4F1]/75 text-[#073F39]",
+    slate: "border-slate-200 bg-slate-50 text-slate-800",
+    amber: "border-amber-200 bg-amber-50 text-amber-900",
+    rose: "border-rose-200 bg-rose-50 text-rose-900"
+  }[view.brandSentiment.tone];
+
+  return (
+    <section className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+      <div className="rounded-[18px] border border-[#DDE8E5] bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.045)]">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-wider text-[#00796B]">comparison scope</p>
+            <h2 className="mt-1 text-base font-bold text-slate-950">{view.comparisonScope.label}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{view.comparisonScope.note}</p>
+          </div>
+          <Badge variant="outline" className="w-fit whitespace-nowrap rounded-sm border-slate-200 bg-slate-50 text-slate-700">
+            {view.comparisonScope.sampleQuality}
+          </Badge>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <ScopeMetric label="比較prompt" value={`${view.comparisonScope.comparisonPromptCount}件`} />
+          <ScopeMetric label="比較AI回答" value={`${view.comparisonScope.comparisonAnswerCount}/${view.comparisonScope.totalAnswerCount}件`} />
+          <ScopeMetric label="branded prompt" value={`${view.comparisonScope.brandedPromptCount}件`} />
+        </div>
+      </div>
+
+      <div className={cn("rounded-[18px] border p-4 shadow-[0_8px_28px_rgba(15,23,42,0.035)]", sentimentToneClass)}>
+        <p className="text-xs font-bold uppercase tracking-wider opacity-75">brand impression</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <h2 className="text-base font-bold">ブランド印象: {view.brandSentiment.label}</h2>
+          <Badge variant="outline" className="rounded-sm border-current bg-white/70 text-current">
+            branded回答 {view.brandSentiment.brandedAnswerCount}件
+          </Badge>
+        </div>
+        <p className="mt-2 text-sm leading-6 opacity-85">{view.brandSentiment.description}</p>
+        <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+          <ScopeMetric label="ポジティブ" value={`${view.brandSentiment.positiveCount}件`} />
+          <ScopeMetric label="普通" value={`${view.brandSentiment.neutralCount}件`} />
+          <ScopeMetric label="ネガティブ" value={`${view.brandSentiment.negativeCount}件`} />
+          <ScopeMetric label="未判定" value={`${view.brandSentiment.unclearCount}件`} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ScopeMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-slate-200/80 bg-white/70 px-3 py-2">
+      <p className="text-[11px] font-bold text-slate-500">{label}</p>
+      <p className="mt-1 break-words text-sm font-bold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function LeaderboardCards({ compact = false, rows }: { compact?: boolean; rows: DashboardRankingRow[] }) {
+  if (rows.length === 0) {
+    return <EmptyStateBlock title="比較できるブランド観測がありません" description="測定後にブランドごとの表示状況がここに表示されます。" />;
+  }
+
+  return (
+    <div className={cn("grid gap-3", compact ? "lg:grid-cols-2" : "xl:grid-cols-2")}>
+      {rows.map((row, index) => (
+        <article
+          key={row.brandId}
+          className={cn(
+            "min-w-0 rounded-[18px] border p-4",
+            row.isPrimary ? "border-[#BFE4DC] bg-[#E6F4F1]/55" : "border-slate-200 bg-slate-50/70"
+          )}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-slate-500">#{index + 1}</span>
+                <h3 className="break-words text-base font-bold text-slate-950">{row.name}</h3>
+                <Badge
+                  variant="outline"
+                  className={cn("rounded-sm", row.isPrimary ? "border-[#00796B]/25 bg-white text-[#00796B]" : "border-slate-200 bg-white text-slate-600")}
+                >
+                  {row.brandTypeLabel ?? (row.isPrimary ? "自社" : "競合")}
+                </Badge>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{row.mentionContext ?? "言及文脈は追加確認が必要です。"}</p>
+            </div>
+            <div className="shrink-0 rounded-lg bg-white px-3 py-2 text-left sm:text-right">
+              <p className="text-xs font-bold text-slate-500">AI表示率</p>
+              <p className="mt-1 text-2xl font-bold tracking-normal text-[#073F39]">{row.visibility}%</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <ScopeMetric label="表示回答" value={`${row.displayAnswerCount ?? 0}件`} />
+            <ScopeMetric label="ブランド言及" value={`${row.aiMentionCount ?? 0}件`} />
+            <ScopeMetric label="Share of Voice" value={`${row.citationShare}%`} />
+            <ScopeMetric label="平均順位" value={typeof row.averagePosition === "number" ? row.averagePosition.toFixed(1) : "-"} />
+            <ScopeMetric label="競合差" value={formatSignedPt(row.competitiveGap)} />
+            <ScopeMetric label="参照出現" value={`${row.citationCount ?? 0}件`} />
+          </div>
+
+          {row.coMentionedCompetitors && row.coMentionedCompetitors.length > 0 ? (
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {row.coMentionedCompetitors.map((competitor) => (
+                <Badge key={competitor} variant="muted" className="font-medium">
+                  {competitor}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function LeaderboardNarrativeTable({ rows }: { rows: DashboardRankingRow[] }) {
   return (
     <Table className="min-w-[1180px]">
@@ -5920,6 +6454,102 @@ function ModelVisibilityTable({ compact = false, rows = [] }: { compact?: boolea
         )}
       </TableBody>
     </Table>
+  );
+}
+
+function SourceDomainCards({ rows = [] }: { rows?: SourceDisplayRow[] }) {
+  if (rows.length === 0) {
+    return <EmptyStateBlock title="参照元ドメインはまだありません" description="AI回答に参照URLが保存されると、ドメイン別の状態を確認できます。" />;
+  }
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      {rows.map((source) => (
+        <article key={source.domain} className="min-w-0 rounded-[18px] border border-slate-200 bg-slate-50/70 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h3 className="break-words text-base font-bold text-slate-950">{source.domain}</h3>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Badge variant="outline" className="rounded-sm border-slate-200 bg-white text-slate-700">{source.category}</Badge>
+                {source.observationLabels.map((label) => (
+                  <ObservationKindBadge key={label} kind={label === "OpenAI実測" ? "openai" : "unknown"} label={label} />
+                ))}
+              </div>
+            </div>
+            <div className="shrink-0 rounded-lg bg-white px-3 py-2">
+              <p className="text-xs font-bold text-slate-500">参照出現</p>
+              <p className="mt-1 text-2xl font-bold tracking-normal text-[#073F39]">{source.appearances}件</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <ScopeMetric label="参照シェア" value={`${source.citationShare}%`} />
+            <ScopeMetric label="信頼ラベル" value={source.trustLabel} />
+            <ScopeMetric label="支持あり" value={`${source.supportingCitationCount}件`} />
+            <ScopeMetric label="要確認" value={`${source.needsClaimReviewCount}件`} />
+          </div>
+
+          <div className="mt-4 rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <p className="text-xs font-bold text-slate-500">source-to-claim / freshness</p>
+            <p className="mt-1 text-sm leading-6 text-slate-700">{source.sourceToClaimSummary}。{source.freshnessSummary}</p>
+          </div>
+
+          <div className="mt-3 space-y-1.5">
+            {(source.urls.length > 0 ? source.urls : [source.domain]).slice(0, 3).map((url) => (
+              <div key={url} className="flex min-w-0 items-start gap-1.5 text-xs leading-5 text-slate-500" title={url}>
+                <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="min-w-0 break-all">{url}</span>
+              </div>
+            ))}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function CitationCards({ rows = [] }: { rows?: CitationDisplayRow[] }) {
+  if (rows.length === 0) {
+    return <EmptyStateBlock title="参照URLはまだありません" description="AI回答に参照URLが保存されると、URL単位の確認状態を表示します。" />;
+  }
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      {rows.map((citation) => (
+        <article key={citation.id} className="min-w-0 rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_6px_18px_rgba(15,23,42,0.035)]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h3 className="break-words text-sm font-bold leading-6 text-slate-950">{citation.title}</h3>
+              <div className="mt-1 flex min-w-0 items-start gap-1.5 text-xs leading-5 text-slate-500">
+                <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="min-w-0 break-all">{citation.url}</span>
+              </div>
+            </div>
+            <Badge variant="outline" className="w-fit whitespace-nowrap rounded-sm border-slate-200 bg-slate-50 text-slate-700">
+              {citation.occurrences}件
+            </Badge>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <ScopeMetric label="ドメイン" value={citation.domain} />
+            <ScopeMetric label="カテゴリ" value={citation.sourceType} />
+            <ScopeMetric label="freshness" value={citation.sourceFreshnessLabel} />
+            <ScopeMetric label="source-to-claim" value={citation.supportsClaimLabel} />
+          </div>
+
+          <div className={cn(
+            "mt-4 rounded-lg border px-3 py-2 text-sm leading-6",
+            citation.sourceToClaimTone === "green" && "border-[#BFE4DC] bg-[#E6F4F1]/75 text-[#073F39]",
+            citation.sourceToClaimTone === "amber" && "border-amber-200 bg-amber-50 text-amber-900",
+            citation.sourceToClaimTone === "rose" && "border-rose-200 bg-rose-50 text-rose-900",
+            citation.sourceToClaimTone === "slate" && "border-slate-200 bg-slate-50 text-slate-700"
+          )}>
+            {citation.citedFor}
+            {citation.claimText ? <p className="mt-1 break-words text-xs opacity-80">{citation.claimText}</p> : null}
+          </div>
+        </article>
+      ))}
+    </div>
   );
 }
 
