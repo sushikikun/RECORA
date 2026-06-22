@@ -60,6 +60,56 @@ Minimum project inputs:
 
 For Phase 1, if a generic customer bootstrap script is unavailable, create the project with the existing guarded scripts only after reviewing a dry-run plan. Do not reuse `mieruca-seo-demo` or other demo slugs for real customer data unless the data is explicitly safe to publish as demo/local data.
 
+## Client Project Bootstrap
+
+Use `scripts/prepare-recora-client-project.ts` for real Phase 1 customer project bootstrap planning.
+
+This script is for administrator operation only. It does not create a self-serve UI, authentication UI, Stripe setup, measurement run, aggregate run, recommendation candidate, schema change, or migration.
+
+Recommended workflow:
+
+```powershell
+npx tsx scripts/prepare-recora-client-project.ts --print-sample
+npx tsx scripts/prepare-recora-client-project.ts --input .\tmp\client-project.json
+```
+
+The default mode is dry-run. Dry-run prints the planned `organizations`, `projects`, `brands`, `personas`, `topics`, and `prompts` records and writes 0 rows.
+
+Local execution is intentionally separate:
+
+```powershell
+npx tsx scripts/prepare-recora-client-project.ts --input .\tmp\client-project.json --execute
+```
+
+`--execute` is local DB only. The script refuses non-local database writes even if an environment variable points at a production database. It does not expose the connection string, API key, service role key, or DB credentials in output.
+
+Required input:
+
+- organization: `slug`, `name`.
+- project: `slug`, `name`, optional `workspaceName`, `language`, `region`, `defaultPeriod`.
+- primaryBrand: `name`, optional `reading`, `domain`, `aliases`, `category`, `description`.
+- competitors: at least one competitor brand with the same fields as primary brand.
+- personas: at least one `key`, `name`, optional `segment`, `weight`, `jobs`, `painPoints`.
+- topics: at least one `key`, `name`, optional `intent`, `priority`, `weight`.
+- prompts: at least one `text`, `topic`, optional `persona`, `intent`, `buyerStage`, `priority`.
+
+Prompt `topic` and `persona` can refer to either the corresponding `key` or display `name`. Use non-branded prompts for visibility, ranking, Share of Voice, and competitor gap. Brand-included prompts are for sentiment or brand perception only.
+
+The script sets customer-data fields explicitly:
+
+- `organizations.organization_type = client`
+- `organizations.data_environment = production`
+- `organizations.is_internal = false`
+- `organizations.is_demo = false`
+
+These fields are the Phase 1 condition for `customer_data`. They do not make the report customer-ready by themselves; measurement, aggregate, metric snapshots, valid observations, recommendation publication state, and report-ready gates still apply.
+
+Existing slug policy:
+
+- If `organizations.slug` already exists, the script refuses `--execute`.
+- If `projects.slug` already exists, the script refuses `--execute`.
+- The script inserts new records only; it does not upsert or overwrite existing customer, demo, local, or sample rows.
+
 ## Dry-Run Check
 
 Before any write-capable operation:
@@ -195,6 +245,8 @@ Before sharing the report URL:
 - Local data is for development only.
 - Sample data is UI-only placeholder material and must not be used as customer evidence.
 - Real customer data must use a dedicated project slug and organization context.
+- Phase 1 customer bootstrap must use `organization_type=client`, `data_environment=production`, and `is_demo=false`.
+- Demo/local/sample rows must keep `is_demo=true`, `data_environment=demo`, or `data_environment=local` and remain fail-closed for customer report routes.
 - Do not mix demo/local/sample rows into customer-facing read models.
 - Do not use `is_demo=true` as a shortcut for confidential customer data unless the customer has approved that publishing model.
 
