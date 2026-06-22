@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const{spawnSync,execFileSync}=require('node:child_process');const p=require('node:path');const root=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();const r=spawnSync(process.execPath,[p.join(root,'.codex/hooks/recora-session-start.mjs')],{stdio:'inherit'});process.exit(r.status??1)\"",
+            "timeout": 45,
+            "statusMessage": "Loading Recora workspace context"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const{spawnSync,execFileSync}=require('node:child_process');const p=require('node:path');const root=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();const r=spawnSync(process.execPath,[p.join(root,'.codex/hooks/recora-stop-check.mjs')],{stdio:'inherit'});process.exit(r.status??1)\"",
+            "timeout": 240,
+            "statusMessage": "Running Recora completion checks"
+          }
+        ]
+      }
+    ]
+  }
+}

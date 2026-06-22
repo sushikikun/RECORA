@@ -1,0 +1,38 @@
+[features]
+goals = true
+hooks = true
+
+[agents]
+max_threads = 6
+max_depth = 1
+job_max_runtime_seconds = 900
+
+# Official OpenAI product documentation.
+[mcp_servers.openai_docs]
+url = "https://developers.openai.com/mcp"
+default_tools_approval_mode = "auto"
+tool_timeout_sec = 45
+
+# Current framework and package documentation.
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+default_tools_approval_mode = "auto"
+startup_timeout_sec = 30
+tool_timeout_sec = 45
+
+# Recora's project-scoped, read-only Supabase connection.
+# Complete OAuth locally with: codex mcp login supabase_recora_ro
+[mcp_servers.supabase_recora_ro]
+url = "https://mcp.supabase.com/mcp?project_ref=xcobkidvqjldquzqhebi&read_only=true&features=database,docs"
+default_tools_approval_mode = "auto"
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+
+# Browser inspection and repeatable UI verification.
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest", "--isolated", "--headless"]
+default_tools_approval_mode = "auto"
+startup_timeout_sec = 60
+tool_timeout_sec = 90
