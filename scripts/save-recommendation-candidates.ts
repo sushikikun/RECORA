@@ -69,6 +69,7 @@ type Candidate = {
   quality_score_breakdown?: unknown[];
   display_category?: string;
   display_decision?: string;
+  publication_state?: string;
   customer_facing_caution?: string;
   score_explanation?: string;
   recora_metric_notice?: string;
@@ -509,6 +510,7 @@ function mapCandidate(candidate: Candidate, payload: CandidatesPayload): InsertM
     candidate_id: candidate.id,
     candidate_type: candidate.type,
     display_decision: candidate.display_decision ?? null,
+    publication_state: candidate.publication_state ?? "pre_quality_gate",
     display_category: candidate.display_category ?? null,
     quality_score: candidate.quality_score ?? null,
     quality_score_label: candidate.quality_score_label ?? null,

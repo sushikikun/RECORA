@@ -39,6 +39,7 @@ const CASE_STUDY_CLUE_PHRASES = [
 const QUALITY_SCORE_LABEL = "根拠スコア";
 const QUALITY_SCORE_MAX = 100;
 const DISPLAY_DECISION_SHOW = "show";
+const PUBLICATION_STATE_PRE_QUALITY_GATE = "pre_quality_gate";
 const FORBIDDEN_CUSTOMER_PHRASES = [
   "AIに評価されていない",
   "競合に負けています",
@@ -53,6 +54,7 @@ type Priority = "P1" | "P2";
 type Confidence = "high" | "medium" | "low";
 type SaveDecision = "review_required";
 type DisplayDecision = "show";
+type PublicationState = "pre_quality_gate";
 type DisplayCategory = "改善候補" | "引用確認事項" | "サンプル不足" | "確認事項";
 type QualityScoreBreakdownItem = {
   key: string;
@@ -293,6 +295,7 @@ type Candidate = {
   quality_score_breakdown: QualityScoreBreakdownItem[];
   display_category: DisplayCategory;
   display_decision: DisplayDecision;
+  publication_state: PublicationState;
   customer_facing_caution: string;
   score_explanation: string;
   recora_metric_notice: string;
@@ -829,6 +832,7 @@ function candidate(input: {
     quality_score_breakdown: scoring.breakdown,
     display_category: scoring.displayCategory,
     display_decision: DISPLAY_DECISION_SHOW,
+    publication_state: PUBLICATION_STATE_PRE_QUALITY_GATE,
     customer_facing_caution: scoring.customerFacingCaution,
     score_explanation: scoring.explanation,
     recora_metric_notice: RECORA_METRIC_NOTICE,

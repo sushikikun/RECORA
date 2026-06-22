@@ -2,6 +2,10 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
 import { createRecoraSupabaseClient } from "@/lib/supabase/server";
 import {
+  getRecommendationPublicationState,
+  isCustomerVisibleRecommendation
+} from "@/lib/recora/report-eligibility";
+import {
   getDefaultRecoraProjectSlug,
   getLatestStandardV01MeasurementRun,
   getLatestRunWithMetricSnapshots,
@@ -51,7 +55,7 @@ export async function getRecoraRecommendationsData(
     recommendationSource.aggregateRunId,
     supabase
   );
-  const recommendations = allRecommendationCandidates.filter(isShowRecommendationCandidate);
+  const recommendations = allRecommendationCandidates.filter(isCustomerVisibleRecommendationCandidate);
   const preQualityGateCandidateCount = recommendationSource.measurementRunId
     ? allRecommendationCandidates.filter(isReviewRequiredRecommendationCandidate).length
     : null;
@@ -140,31 +144,31 @@ function isOpenAiRecommendationCandidate(
   const aggregateRunMatches =
     profileId !== "custom-openai-run" ||
     Boolean(aggregateRunId && getMetadataString(metadata, "aggregate_run_id") === aggregateRunId);
-  const reviewRequiredMatches =
-    profileId !== "custom-openai-run" ||
-    getMetadataString(metadata, "should_save_to_recommendations") === "review_required";
 
   return (
     getMetadataString(metadata, "source") === "recommendation_candidate_generator" &&
     getMetadataString(metadata, "measurement_run_id") === sourceMeasurementRunId &&
     isAllowedMeasurementProfileId(profileId) &&
     getMetadataString(metadata, "data_source") === "openai_measurement" &&
-    aggregateRunMatches &&
-    reviewRequiredMatches
+    aggregateRunMatches
   );
 }
 
-function isShowRecommendationCandidate(item: RecoraRecommendationRow) {
+function isCustomerVisibleRecommendationCandidate(item: RecoraRecommendationRow) {
   const metadata = getMetadataRecord(item.metadata);
-  return getMetadataString(metadata, "display_decision") === "show";
+  return isCustomerVisibleRecommendation({
+    status: item.status,
+    metadata
+  });
 }
 
 function isReviewRequiredRecommendationCandidate(item: RecoraRecommendationRow) {
   const metadata = getMetadataRecord(item.metadata);
-  return (
-    getMetadataString(metadata, "display_decision") === "show" &&
-    getMetadataString(metadata, "should_save_to_recommendations") === "review_required"
-  );
+  const state = getRecommendationPublicationState({
+    status: item.status,
+    metadata
+  });
+  return state === "review_required" || state === "pre_quality_gate" || state === "candidate_only";
 }
 
 function isAllowedMeasurementProfileId(profileId: string | null) {

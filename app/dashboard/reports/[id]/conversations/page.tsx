@@ -1,5 +1,5 @@
 import { ConversationsPage } from "@/components/recora/report-pages";
-import { getRecoraConversationsData } from "@/lib/recora/db";
+import { getRecoraConversationsData, getRecoraDashboardData } from "@/lib/recora/db";
 
 const CURRENT_REPORT_SLUG = "mieruca-seo-demo";
 const LEGACY_REPORT_SLUG = "recora-growth-q2";
@@ -20,6 +20,9 @@ export default async function ReportConversationsPage({ params }: ReportConversa
 
 async function getConversationsDataOrNull(projectSlug: string) {
   try {
+    const dashboardData = await getRecoraDashboardData(projectSlug);
+    if (dashboardData.reportReadyGate.status !== "customer_ready") return null;
+
     const data = await getRecoraConversationsData(projectSlug);
     return data.project ? data : null;
   } catch (error) {

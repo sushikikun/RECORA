@@ -482,8 +482,8 @@ function createEmptyDashboardHomeViewModel(
     hasDbData: false,
     hasLatestReportMetrics: false,
     hasLeaderboardData: false,
-    projectSlug: currentReportSlug,
-    reportBase,
+    projectSlug: "",
+    reportBase: "/dashboard/reports",
     projectName: "Recora",
     period: "-",
     periodLabel: "測定日",
@@ -1181,7 +1181,6 @@ function createLeaderboardPromptScope(data: RecoraLeaderboardDbData, primaryBran
   const brandedPromptIds = new Set<string>();
   const nonBrandedConversationIds = new Set<string>();
   const brandedConversationIds = new Set<string>();
-  const allConversationIds = new Set(data.conversations.map((item) => item.id));
 
   for (const prompt of data.prompts) {
     if (isPromptBrandedForBrand(prompt, primaryBrand)) {
@@ -1201,9 +1200,9 @@ function createLeaderboardPromptScope(data: RecoraLeaderboardDbData, primaryBran
     }
   }
 
-  const usesNonBrandedPrompts = nonBrandedConversationIds.size > 0;
-  const comparisonConversationIds = usesNonBrandedPrompts ? nonBrandedConversationIds : allConversationIds;
-  const comparisonPromptCount = usesNonBrandedPrompts ? nonBrandedPromptIds.size : data.prompts.length;
+  const usesNonBrandedPrompts = nonBrandedPromptIds.size > 0;
+  const comparisonConversationIds = nonBrandedConversationIds;
+  const comparisonPromptCount = nonBrandedPromptIds.size;
   const sampleQuality = getPromptSampleQuality(comparisonPromptCount);
 
   return {
@@ -1213,7 +1212,7 @@ function createLeaderboardPromptScope(data: RecoraLeaderboardDbData, primaryBran
       label: usesNonBrandedPrompts ? "non-branded prompt中心" : "prompt種別未分離",
       note: usesNonBrandedPrompts
         ? "対象ブランド名やaliasをprompt本文に含まない観測だけで、AI表示率・平均順位・Share of Voice・競合差を再計算しています。"
-        : "non-branded promptを安全に分離できないため、現時点では全観測を参考値として扱います。",
+        : "non-branded promptを安全に分離できないため、AI表示率・平均順位・Share of Voice・競合差は未集計として扱います。",
       sampleQuality,
       usesNonBrandedPrompts,
       comparisonPromptCount,
@@ -3177,6 +3176,11 @@ function createReportOverviewInsights({
 
 function ReportOverviewTab({ data, projectSlug = currentReportSlug }: { data: ReportOverviewDataBundle; projectSlug?: string }) {
   const view = createReportOverviewViewModel(data, projectSlug);
+  const reportReadyGate = data.dashboardData?.reportReadyGate ?? null;
+
+  if (!view.hasReportData || reportReadyGate?.status !== "customer_ready") {
+    return <ReportNotReadyPage />;
+  }
 
   return (
     <div className="min-w-0 space-y-5">
@@ -3201,6 +3205,28 @@ function ReportOverviewTab({ data, projectSlug = currentReportSlug }: { data: Re
       <ReportOverviewMetricDictionary />
 
       <ReportOverviewNextSteps links={view.detailLinks} />
+    </div>
+  );
+}
+
+function ReportNotReadyPage() {
+  return (
+    <div className="min-w-0 space-y-5">
+      <PageHeader
+        eyebrow="レポート準備中"
+        title="このレポートは公開準備中です"
+        description="計測データ、集計結果、参照元、改善候補の確認が完了すると、このURLでレポートを閲覧できます。準備が整うまで、サンプル値や内部確認用の情報は表示しません。"
+      />
+
+      <DataCard
+        title="現在表示できるレポートはありません"
+        description="公開前の確認が残っているため、顧客向け画面では安全な準備中表示に切り替えています。"
+      >
+        <EmptyStateBlock
+          title="準備が完了するとレポートを表示します"
+          description="管理者が実測データと公開可否を確認したあと、AI回答、ブランド比較、参照元、改善候補を確認できます。"
+        />
+      </DataCard>
     </div>
   );
 }

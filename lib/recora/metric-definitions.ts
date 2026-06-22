@@ -10,7 +10,7 @@ export const recoraMetricDefinitions: RecoraMetricDefinition[] = [
     key: "comparison_scope",
     label: "比較スコープ",
     source: "prompts.text + primary brand aliases",
-    definition: "ブランド比較では、対象ブランド名やaliasをprompt本文に含まない観測をnon-branded promptとして優先します。安全に分離できない場合だけ全観測を参考値として扱います。"
+    definition: "ブランド比較では、対象ブランド名やaliasをprompt本文に含まない観測をnon-branded promptとして使います。安全に分離できない場合はranking系の比較スコープには混ぜません。"
   },
   {
     key: "ai_visibility",

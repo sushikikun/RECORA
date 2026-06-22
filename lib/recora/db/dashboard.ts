@@ -2,6 +2,11 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { unstable_noStore as noStore } from "next/cache";
 
 import { createRecoraSupabaseClient } from "@/lib/supabase/server";
+import {
+  evaluateRecoraReportReadyGate,
+  isCustomerVisibleRecommendation,
+  type RecoraReportDataOriginStatus
+} from "@/lib/recora/report-eligibility";
 import type {
   RecoraBrandRow,
   RecoraDashboardCounts,
@@ -13,10 +18,10 @@ import type {
 } from "./types";
 import { getMetadataRecord, getMetadataString, isDisplayableRecommendation, isOpenAiAggregateRun } from "./display-filters";
 
-const DEFAULT_PROJECT_SLUG = "mieruca-seo-demo";
-
 const PROJECT_COLUMNS =
   "id, organization_id, slug, name, workspace_name, language, region, default_period, created_at, updated_at";
+const ORGANIZATION_ORIGIN_COLUMNS =
+  "id, organization_type, data_environment, is_demo";
 const BRAND_COLUMNS =
   "id, project_id, brand_type, name, reading, domain, aliases, category, description, is_active, created_at, updated_at";
 const MEASUREMENT_RUN_COLUMNS =
@@ -28,19 +33,28 @@ const RECOMMENDATION_COLUMNS =
 const LIVE_RECOMMENDATION_PROFILE_IDS = ["standard-v01", "custom-openai-run"] as const;
 
 type RecoraSupabaseClient = SupabaseClient;
+type RecoraOrganizationOriginRow = {
+  id: string;
+  organization_type: string | null;
+  data_environment: string | null;
+  is_demo: boolean | null;
+};
 
 export function getDefaultRecoraProjectSlug() {
-  return process.env.RECORA_DEFAULT_PROJECT_SLUG ?? DEFAULT_PROJECT_SLUG;
+  return process.env.RECORA_DEFAULT_PROJECT_SLUG?.trim() ?? "";
 }
 
 export async function getRecoraProject(
   projectSlug = getDefaultRecoraProjectSlug(),
   supabase: RecoraSupabaseClient = createRecoraSupabaseClient()
 ): Promise<RecoraProjectRow | null> {
+  const normalizedSlug = projectSlug.trim();
+  if (!normalizedSlug) return null;
+
   const { data, error } = await supabase
     .from("projects")
     .select(PROJECT_COLUMNS)
-    .eq("slug", projectSlug)
+    .eq("slug", normalizedSlug)
     .maybeSingle();
 
   throwIfSupabaseError("projects", error);
@@ -60,6 +74,32 @@ export async function getRecoraBrands(
 
   throwIfSupabaseError("brands", error);
   return (data ?? []) as RecoraBrandRow[];
+}
+
+export async function getRecoraProjectDataOrigin(
+  organizationId: string | null,
+  supabase: RecoraSupabaseClient = createRecoraSupabaseClient()
+): Promise<RecoraReportDataOriginStatus> {
+  if (!organizationId) return "unknown";
+
+  const { data, error } = await supabase
+    .from("organizations")
+    .select(ORGANIZATION_ORIGIN_COLUMNS)
+    .eq("id", organizationId)
+    .maybeSingle();
+
+  throwIfSupabaseError("organizations", error);
+
+  const origin = (data as RecoraOrganizationOriginRow | null) ?? null;
+  if (!origin) return "unknown";
+  if (origin.is_demo || origin.data_environment === "demo" || origin.data_environment === "local") {
+    return "demo_or_local";
+  }
+  if (origin.organization_type === "client" && origin.data_environment === "production" && origin.is_demo === false) {
+    return "customer_data";
+  }
+
+  return "unknown";
 }
 
 export async function getLatestRecoraMeasurementRun(
@@ -150,14 +190,19 @@ export async function getRecoraRecommendations(
     .eq("metadata->>measurement_run_id", sourceMeasurementRunId)
     .in("metadata->>measurement_profile_id", [...LIVE_RECOMMENDATION_PROFILE_IDS])
     .eq("metadata->>data_source", "openai_measurement")
-    .eq("metadata->>display_decision", "show")
     .order("impact_score", { ascending: false })
     .order("created_at", { ascending: false });
 
   throwIfSupabaseError("recommendations", error);
   return ((data ?? []) as RecoraRecommendationRow[])
     .filter((item) => isLiveShowRecommendation(item, sourceMeasurementRunId, options.aggregateRunId ?? null))
-    .filter(isDisplayableRecommendation);
+    .filter(isDisplayableRecommendation)
+    .filter((item) =>
+      isCustomerVisibleRecommendation({
+        status: item.status,
+        metadata: getMetadataRecord(item.metadata)
+      })
+    );
 }
 
 export async function getLatestStandardV01MeasurementRun(
@@ -192,18 +237,13 @@ function isLiveShowRecommendation(
   const aggregateRunMatches =
     profileId !== "custom-openai-run" ||
     Boolean(aggregateRunId && getMetadataString(metadata, "aggregate_run_id") === aggregateRunId);
-  const reviewRequiredMatches =
-    profileId !== "custom-openai-run" ||
-    getMetadataString(metadata, "should_save_to_recommendations") === "review_required";
 
   return (
     source === "recommendation_candidate_generator" &&
     getMetadataString(metadata, "measurement_run_id") === sourceMeasurementRunId &&
     isLiveRecommendationProfileId(profileId) &&
     getMetadataString(metadata, "data_source") === "openai_measurement" &&
-    getMetadataString(metadata, "display_decision") === "show" &&
-    aggregateRunMatches &&
-    reviewRequiredMatches
+    aggregateRunMatches
   );
 }
 
@@ -223,23 +263,33 @@ export async function getRecoraDashboardCounts(
   supabase: RecoraSupabaseClient = createRecoraSupabaseClient()
 ): Promise<RecoraDashboardCounts> {
   if (!runId) {
-    return { aiConversations: 0, citations: 0 };
+    return { aiConversations: 0, validObservations: 0, citations: 0 };
   }
 
-  const runItemIds = await getRunItemIds(runId, supabase);
-  if (runItemIds.length === 0) {
-    return { aiConversations: 0, citations: 0 };
+  const runItems = await getRunItemsForCounts(runId, supabase);
+  if (runItems.length === 0) {
+    return { aiConversations: 0, validObservations: 0, citations: 0 };
   }
 
-  const conversationIds = await getConversationIds(runItemIds, supabase);
-  if (conversationIds.length === 0) {
-    return { aiConversations: 0, citations: 0 };
+  const conversations = await getConversationsForCounts(runItems.map((item) => item.id), supabase);
+  if (conversations.length === 0) {
+    return { aiConversations: 0, validObservations: 0, citations: 0 };
   }
 
-  const citationIds = await getCitationIds(conversationIds, supabase);
+  const validRunItemIds = new Set(
+    runItems
+      .filter((item) => item.status === "completed" && !item.error_message)
+      .map((item) => item.id)
+  );
+  const validObservationCount = conversations.filter((conversation) =>
+    validRunItemIds.has(conversation.run_item_id) &&
+    (conversation.provider === "openai" || Boolean(conversation.response_id))
+  ).length;
+  const citationIds = await getCitationIds(conversations.map((conversation) => conversation.id), supabase);
 
   return {
-    aiConversations: conversationIds.length,
+    aiConversations: conversations.length,
+    validObservations: validObservationCount,
     citations: citationIds.length
   };
 }
@@ -253,22 +303,43 @@ export async function getRecoraDashboardData(
   const project = await getRecoraProject(projectSlug, supabase);
 
   if (!project) {
-    return emptyDashboardData();
+    return emptyDashboardData(projectSlug);
   }
 
   const latestRun = await getLatestRunWithMetricSnapshots(project.id, supabase);
   const latestStandardRunPromise = getLatestStandardV01MeasurementRun(project.id, supabase);
   const sourceMeasurementRunId = getSourceMeasurementRunId(latestRun);
 
-  const [brands, metricSnapshots, latestStandardRun, counts] = await Promise.all([
+  const [brands, metricSnapshots, latestStandardRun, counts, dataOriginStatus] = await Promise.all([
     getRecoraBrands(project.id, supabase),
     latestRun ? getRecoraMetricSnapshotsOrEmpty(latestRun.id, supabase, "dashboard_metric_snapshots") : Promise.resolve([]),
     latestStandardRunPromise,
-    getRecoraDashboardCounts(sourceMeasurementRunId, supabase)
+    getRecoraDashboardCounts(sourceMeasurementRunId, supabase),
+    getRecoraProjectDataOrigin(project.organization_id, supabase)
   ]);
   const recommendationSourceRunId = sourceMeasurementRunId ?? latestStandardRun?.id ?? null;
   const recommendations = await getRecoraRecommendations(project.id, recommendationSourceRunId, supabase, {
     aggregateRunId: sourceMeasurementRunId ? latestRun?.id ?? null : null
+  });
+  const reportReadyGate = evaluateRecoraReportReadyGate({
+    projectSlug,
+    projectExists: true,
+    run: latestRun
+      ? {
+          id: latestRun.id,
+          status: latestRun.status,
+          metadata: getMetadataRecord(latestRun.metadata),
+          started_at: latestRun.started_at,
+          completed_at: latestRun.completed_at
+        }
+      : null,
+    metricSnapshotCount: metricSnapshots.length,
+    validObservationCount: counts.validObservations,
+    hasPlaceholderEvidence: dataOriginStatus !== "customer_data",
+    dataOriginStatus,
+    sourceMeasurementRunId,
+    customerVisibleRecommendationCount: recommendations.length,
+    internalRecommendationCandidateCount: null
   });
 
   return {
@@ -277,11 +348,12 @@ export async function getRecoraDashboardData(
     brands,
     metricSnapshots,
     recommendations,
-    counts
+    counts,
+    reportReadyGate
   };
 }
 
-function emptyDashboardData(): RecoraDashboardDbData {
+function emptyDashboardData(projectSlug: string | null = null): RecoraDashboardDbData {
   return {
     project: null,
     latestRun: null,
@@ -290,8 +362,19 @@ function emptyDashboardData(): RecoraDashboardDbData {
     recommendations: [],
     counts: {
       aiConversations: 0,
+      validObservations: 0,
       citations: 0
-    }
+    },
+    reportReadyGate: evaluateRecoraReportReadyGate({
+      projectSlug,
+      projectExists: false,
+      run: null,
+      metricSnapshotCount: 0,
+      validObservationCount: 0,
+      dataOriginStatus: "unknown",
+      customerVisibleRecommendationCount: null,
+      internalRecommendationCandidateCount: null
+    })
   };
 }
 
@@ -318,21 +401,29 @@ async function getMetricSnapshotRunIdsOrNull(runIds: string[], supabase: RecoraS
     return null;
   }
 }
-async function getRunItemIds(runId: string, supabase: RecoraSupabaseClient) {
-  const { data, error } = await supabase.from("run_items").select("id").eq("run_id", runId);
+async function getRunItemsForCounts(runId: string, supabase: RecoraSupabaseClient) {
+  const { data, error } = await supabase
+    .from("run_items")
+    .select("id, status, error_message")
+    .eq("run_id", runId);
 
   throwIfSupabaseError("run_items", error);
-  return ((data ?? []) as Array<{ id: string }>).map((item) => item.id);
+  return (data ?? []) as Array<{ id: string; status: string | null; error_message: string | null }>;
 }
 
-async function getConversationIds(runItemIds: string[], supabase: RecoraSupabaseClient) {
+async function getConversationsForCounts(runItemIds: string[], supabase: RecoraSupabaseClient) {
   const { data, error } = await supabase
     .from("ai_conversations")
-    .select("id")
+    .select("id, run_item_id, provider, response_id")
     .in("run_item_id", runItemIds);
 
   throwIfSupabaseError("ai_conversations", error);
-  return ((data ?? []) as Array<{ id: string }>).map((conversation) => conversation.id);
+  return (data ?? []) as Array<{
+    id: string;
+    run_item_id: string;
+    provider: string | null;
+    response_id: string | null;
+  }>;
 }
 
 async function getCitationIds(conversationIds: string[], supabase: RecoraSupabaseClient) {

@@ -1,3 +1,5 @@
+import type { RecoraReportReadyGateResult } from "../report-eligibility";
+
 export type Json =
   | string
   | number
@@ -358,6 +360,7 @@ export type RecoraLeaderboardDbData = {
 
 export type RecoraDashboardCounts = {
   aiConversations: number;
+  validObservations: number;
   citations: number;
 };
 
@@ -368,6 +371,7 @@ export type RecoraDashboardDbData = {
   metricSnapshots: RecoraMetricSnapshotRow[];
   recommendations: RecoraRecommendationRow[];
   counts: RecoraDashboardCounts;
+  reportReadyGate: RecoraReportReadyGateResult;
 };
 
 export type RecoraHomeDataCautionSeverity =

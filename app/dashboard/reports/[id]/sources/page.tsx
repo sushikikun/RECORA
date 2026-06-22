@@ -1,5 +1,5 @@
 import { SourcesPage } from "@/components/recora/report-pages";
-import { getRecoraSourcesData } from "@/lib/recora/db";
+import { getRecoraDashboardData, getRecoraSourcesData } from "@/lib/recora/db";
 
 const CURRENT_REPORT_SLUG = "mieruca-seo-demo";
 const LEGACY_REPORT_SLUG = "recora-growth-q2";
@@ -20,6 +20,9 @@ export default async function ReportSourcesPage({ params }: ReportSourcesPagePro
 
 async function getSourcesDataOrNull(projectSlug: string) {
   try {
+    const dashboardData = await getRecoraDashboardData(projectSlug);
+    if (dashboardData.reportReadyGate.status !== "customer_ready") return null;
+
     const data = await getRecoraSourcesData(projectSlug);
     return data.project ? data : null;
   } catch (error) {

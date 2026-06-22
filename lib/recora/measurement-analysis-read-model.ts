@@ -13,6 +13,10 @@ import type {
   RecoraSourceToClaimStatus,
   RecoraTopicRow
 } from "./db/types";
+import {
+  getRecommendationPublicationState,
+  type RecoraRecommendationPublicationState
+} from "./report-eligibility";
 
 export type RecoraEvidenceLabel = "CONFIRMED_FACT" | "RECORA_ASSUMPTION" | "NEEDS_VERIFICATION";
 
@@ -130,6 +134,7 @@ export type RecoraRecommendationGateRow = {
   qualityScore: number | null;
   confidence: string | null;
   displayDecision: string | null;
+  publicationState: RecoraRecommendationPublicationState;
   blockingReason: string | null;
   evidenceLabel: RecoraEvidenceLabel;
 };
@@ -567,6 +572,10 @@ function buildRecommendationGateRows(recommendations: RecoraRecommendationRow[])
   return recommendations.map((recommendation) => {
     const metadata = getMetadataRecord(recommendation.metadata);
     const decision = getQualityGateDecision(metadata);
+    const publicationState = getRecommendationPublicationState({
+      status: recommendation.status,
+      metadata
+    });
     const stage: RecoraQualityGateStage = decision ? "reviewed" : "pre_quality_gate";
     const evidenceLabel: RecoraEvidenceLabel = stage === "reviewed" ? "CONFIRMED_FACT" : "NEEDS_VERIFICATION";
 
@@ -581,6 +590,7 @@ function buildRecommendationGateRows(recommendations: RecoraRecommendationRow[])
       qualityScore: getMetadataNumber(metadata, "quality_score") ?? recommendation.impact_score ?? null,
       confidence: getMetadataString(metadata, "confidence"),
       displayDecision: getMetadataString(metadata, "display_decision"),
+      publicationState,
       blockingReason: getMetadataString(metadata, "blocking_reason") ?? getMetadataString(metadata, "reviewer_comment"),
       evidenceLabel
     };

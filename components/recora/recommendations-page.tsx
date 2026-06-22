@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { DataCard, MetricTile, PageHeader } from "@/components/recora/ui";
 import { reportDetailTabs } from "@/lib/recora/nav-config";
 import type { RecoraRecommendationRow, RecoraRecommendationsDbData } from "@/lib/recora/db";
+import { getRecommendationPublicationState } from "@/lib/recora/report-eligibility";
 import { cn } from "@/lib/utils";
 import {
   Table,
@@ -140,7 +141,7 @@ function createRecommendationsViewModel(data?: RecoraRecommendationsDbData | nul
     highPriorityCount,
     observationCount,
     citationUrlCount,
-    preQualityGateCandidateCount: data?.preQualityGateCandidateCount ?? null,
+    preQualityGateCandidateCount: null,
     openCount: items.filter((item) => item.statusLabel === "未着手").length,
     plannedCount: items.filter((item) => item.statusLabel === "計画中").length,
     doneCount: items.filter((item) => item.statusLabel === "完了").length
@@ -176,7 +177,7 @@ function createDbRecommendationItems(data: RecoraRecommendationsDbData): Recomme
         getMetadataString(metadata, "display_category") ?? recommendationTypeLabel(item.type)
       );
       const confidence = getMetadataString(metadata, "confidence") ?? "unknown";
-      const qualityGate = getRecommendationQualityGate(metadata);
+      const qualityGate = getRecommendationQualityGate(metadata, item.status);
       const evidenceMetrics = buildEvidenceMetrics(evidence, displayCategory);
 
       return {
@@ -690,28 +691,26 @@ function confidenceLabel(confidence: string) {
   return "要確認";
 }
 
-function getRecommendationQualityGate(metadata: Record<string, unknown>) {
-  const displayDecision = getMetadataString(metadata, "display_decision");
-  const shouldSave = getMetadataString(metadata, "should_save_to_recommendations");
-  const qualityDecision =
-    getMetadataString(metadata, "quality_gate_decision") ??
-    getMetadataString(metadata, "gate_decision") ??
-    getMetadataString(metadata, "decision");
+function getRecommendationQualityGate(metadata: Record<string, unknown>, status: string | null | undefined) {
+  const publicationState = getRecommendationPublicationState({ status, metadata });
 
-  if (qualityDecision === "suppress") {
-    return { label: "非表示判断", note: "品質ゲートで抑制された候補です。" };
-  }
-  if (qualityDecision === "hold") {
-    return { label: "確認待ち", note: "根拠確認後に表示判断します。" };
-  }
-  if (qualityDecision === "auto_publish" || displayDecision === "show") {
-    return {
-      label: shouldSave === "review_required" ? "表示対象・確認待ち" : "表示対象",
-      note: "顧客向け施策として承認済みではありません。"
-    };
+  if (publicationState === "hidden_internal") {
+    return { label: "非表示", note: "顧客向けには表示しない候補です。" };
   }
 
-  return { label: "確認待ち", note: "品質ゲートの状態を追加確認します。" };
+  if (publicationState === "customer_visible") {
+    return { label: "表示対象", note: "顧客向けに表示可能な候補です。施策の成果を保証するものではありません。" };
+  }
+
+  if (publicationState === "review_required") {
+    return { label: "確認待ち", note: "根拠や表現の確認が必要な候補です。顧客向け成果物としては扱いません。" };
+  }
+
+  if (publicationState === "candidate_only") {
+    return { label: "候補のみ", note: "管理者確認用の候補です。顧客向け表示には使いません。" };
+  }
+
+  return { label: "品質確認前", note: "品質ゲート前の候補です。顧客向け成果物としては扱いません。" };
 }
 
 function safeRecoraNotice(value: string | undefined) {

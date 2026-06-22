@@ -48,6 +48,8 @@ type BrandRow = Row & {
   id: string;
   name: string;
   brand_type: BrandType;
+  reading: string | null;
+  aliases: string | null;
 };
 
 type SourceRunRow = Row & {
@@ -68,6 +70,8 @@ type ConversationRow = Row & {
   id: string;
   run_item_id: string;
   prompt_id: string;
+  prompt_text: string | null;
+  prompt_intent: string | null;
   web_search_enabled: string;
   citation_status: string;
   measured_at: string | null;
@@ -187,16 +191,24 @@ async function main() {
 
     const brands = await getBrands(db, project.id);
     const allConversations = await getConversations(db, sourceRun.id);
-    const selectedConversations = filterConversations(allConversations, options.searchMode);
+    const metricEligibleConversations = filterMetricEligibleConversations(allConversations, brands);
+    const selectedConversations = filterConversations(metricEligibleConversations, options.searchMode);
     const selectedConversationIds = selectedConversations.map((conversation) => conversation.id);
     const brandMentions = await getBrandMentions(db, selectedConversationIds);
     const citations = await getCitations(db, selectedConversationIds);
     const sourceDomainCount = unique(citations.map((citation) => citation.source_domain_id).filter(isPresent)).length;
-    const computedBrandMetrics = computeBrandMetrics(brands, selectedConversations, allConversations, brandMentions, citations);
+    const computedBrandMetrics = computeBrandMetrics(brands, selectedConversations, metricEligibleConversations, brandMentions, citations);
     const computedProjectMetrics = computeProjectMetrics(project, brands, selectedConversations, citations, computedBrandMetrics);
     const sampleSizeNote = buildSampleSizeNote(selectedConversations.length);
     const confidenceNote = buildConfidenceNote(selectedConversations.length);
-    const plannedAggregateRun = buildPlannedAggregateRun(project, sourceRun, options.searchMode, sampleSizeNote);
+    const excludedBrandedPromptObservationCount = Math.max(0, allConversations.length - metricEligibleConversations.length);
+    const plannedAggregateRun = buildPlannedAggregateRun(
+      project,
+      sourceRun,
+      options.searchMode,
+      sampleSizeNote,
+      excludedBrandedPromptObservationCount
+    );
     const plannedSnapshots = buildPlannedSnapshots({
       project,
       brands,
@@ -205,7 +217,8 @@ async function main() {
       projectMetrics: computedProjectMetrics,
       brandMetrics: computedBrandMetrics,
       sampleSize: selectedConversations.length,
-      confidenceNote
+      confidenceNote,
+      excludedBrandedPromptObservationCount
     });
     const schemaCapabilities = getSchemaCapabilities();
     const existingAggregate = await findExistingAggregateRun(db, project.id, sourceRun.id, options.searchMode);
@@ -250,6 +263,7 @@ async function main() {
       sourceRunCompletedAt: sourceRun.completed_at,
       searchMode: options.searchMode,
       conversationCount: selectedConversations.length,
+      excludedBrandedPromptObservationCount,
       brandMentionCount: brandMentions.length,
       citationCount: citations.length,
       sourceDomainCount,
@@ -435,7 +449,7 @@ async function getSourceRunById(db: LocalPostgresClient, projectId: string, sour
 
 async function getBrands(db: LocalPostgresClient, projectId: string): Promise<BrandRow[]> {
   return db.query<BrandRow>(`
-    select id::text as id, name, brand_type::text as brand_type
+    select id::text as id, name, reading, aliases::text as aliases, brand_type::text as brand_type
     from public.brands
     where project_id = ${uuid(projectId)}
       and is_active = true
@@ -449,11 +463,14 @@ async function getConversations(db: LocalPostgresClient, runId: string): Promise
       ac.id::text as id,
       ac.run_item_id::text as run_item_id,
       ri.prompt_id::text as prompt_id,
+      p.text as prompt_text,
+      p.intent as prompt_intent,
       ac.web_search_enabled::text as web_search_enabled,
       ac.citation_status::text as citation_status,
       ac.measured_at::text as measured_at
     from public.run_items ri
     join public.ai_conversations ac on ac.run_item_id = ri.id
+    left join public.prompts p on p.id = ri.prompt_id
     where ri.run_id = ${uuid(runId)}
       and ac.provider = 'openai'
     order by coalesce(ac.measured_at, ac.captured_at) asc, ac.created_at asc
@@ -513,6 +530,32 @@ function filterConversations(conversations: ConversationRow[], searchMode: Searc
   if (searchMode === "no-search") return conversations.filter((conversation) => !toBoolean(conversation.web_search_enabled));
   if (searchMode === "web-search") return conversations.filter((conversation) => toBoolean(conversation.web_search_enabled));
   return conversations;
+}
+
+function filterMetricEligibleConversations(conversations: ConversationRow[], brands: BrandRow[]) {
+  const primaryBrand = brands.find((brand) => brand.brand_type === "primary") ?? null;
+  if (!primaryBrand) return [];
+
+  const brandPromptTokens = getBrandPromptTokens(primaryBrand);
+  if (brandPromptTokens.length === 0) return [];
+
+  return conversations.filter((conversation) => !isBrandedPromptConversation(conversation, brandPromptTokens));
+}
+
+function isBrandedPromptConversation(conversation: ConversationRow, brandPromptTokens: string[]) {
+  const promptText = [conversation.prompt_text, conversation.prompt_intent].filter(Boolean).join("\n");
+  const haystack = normalizeBrandPromptText(promptText);
+  if (!haystack) return true;
+
+  return brandPromptTokens.some((token) => haystack.includes(token));
+}
+
+function getBrandPromptTokens(brand: BrandRow) {
+  return unique(
+    [brand.name, brand.reading ?? "", ...parseJsonStringArray(brand.aliases)]
+      .map((value) => normalizeBrandPromptText(value))
+      .filter((value) => value.length >= 2)
+  ).sort((left, right) => right.length - left.length);
 }
 
 function computeBrandMetrics(
@@ -608,8 +651,19 @@ function buildPlannedSnapshots(input: {
   brandMetrics: BrandMetric[];
   sampleSize: number;
   confidenceNote: string;
+  excludedBrandedPromptObservationCount: number;
 }): PlannedSnapshot[] {
-  const { project, brands, sourceRun, searchMode, projectMetrics, brandMetrics, sampleSize, confidenceNote } = input;
+  const {
+    project,
+    brands,
+    sourceRun,
+    searchMode,
+    projectMetrics,
+    brandMetrics,
+    sampleSize,
+    confidenceNote,
+    excludedBrandedPromptObservationCount
+  } = input;
   const targetBrand = brands.find((brand) => brand.id === projectMetrics.target_brand_id) ?? null;
   const targetMetric = targetBrand ? brandMetrics.find((metric) => metric.brand_id === targetBrand.id) ?? null : null;
   const projectSnapshot: PlannedSnapshot = {
@@ -631,7 +685,8 @@ function buildPlannedSnapshots(input: {
       scopeId: project.id,
       brandId: targetBrand?.id ?? null,
       projectMetrics,
-      brandMetric: targetMetric ?? null
+      brandMetric: targetMetric ?? null,
+      excludedBrandedPromptObservationCount
     })
   };
   const brandSnapshots = brandMetrics.map<PlannedSnapshot>((metric) => ({
@@ -653,13 +708,20 @@ function buildPlannedSnapshots(input: {
       scopeId: metric.brand_id,
       brandId: metric.brand_id,
       projectMetrics,
-      brandMetric: metric
+      brandMetric: metric,
+      excludedBrandedPromptObservationCount
     })
   }));
   return [projectSnapshot, ...brandSnapshots];
 }
 
-function buildPlannedAggregateRun(project: ProjectRow, sourceRun: SourceRunRow, searchMode: SearchModeOption, sampleSizeNote: string) {
+function buildPlannedAggregateRun(
+  project: ProjectRow,
+  sourceRun: SourceRunRow,
+  searchMode: SearchModeOption,
+  sampleSizeNote: string,
+  excludedBrandedPromptObservationCount: number
+) {
   const now = new Date().toISOString();
   return {
     project_id: project.id,
@@ -673,17 +735,24 @@ function buildPlannedAggregateRun(project: ProjectRow, sourceRun: SourceRunRow, 
     source_run_id: sourceRun.id,
     data_source: "openai_measurement",
     search_mode: searchMode,
-    metadata: buildAggregateRunMetadata(sourceRun, searchMode, sampleSizeNote)
+    metadata: buildAggregateRunMetadata(sourceRun, searchMode, sampleSizeNote, excludedBrandedPromptObservationCount)
   };
 }
 
-function buildAggregateRunMetadata(sourceRun: SourceRunRow, searchMode: SearchModeOption, sampleSizeNote: string): Record<string, JsonValue> {
+function buildAggregateRunMetadata(
+  sourceRun: SourceRunRow,
+  searchMode: SearchModeOption,
+  sampleSizeNote: string,
+  excludedBrandedPromptObservationCount: number
+): Record<string, JsonValue> {
   return {
     run_kind: "aggregate",
     source_run_id: sourceRun.id,
     data_source: "openai_measurement",
     calculation_method: CALCULATION_METHOD,
     search_mode: searchMode,
+    metric_prompt_scope: "non_branded_prompt_only",
+    excluded_branded_prompt_observation_count: excludedBrandedPromptObservationCount,
     sample_size_note: sampleSizeNote,
     metric_version: METRIC_VERSION,
     recora_metric_notice: RECORA_NOTE
@@ -700,8 +769,20 @@ function buildMetricSnapshotMetadata(input: {
   brandId: string | null;
   projectMetrics: ProjectMetrics;
   brandMetric: BrandMetric | null;
+  excludedBrandedPromptObservationCount: number;
 }): Record<string, JsonValue | undefined> {
-  const { sourceRun, searchMode, sampleSize, confidenceNote, scopeType, scopeId, brandId, projectMetrics, brandMetric } = input;
+  const {
+    sourceRun,
+    searchMode,
+    sampleSize,
+    confidenceNote,
+    scopeType,
+    scopeId,
+    brandId,
+    projectMetrics,
+    brandMetric,
+    excludedBrandedPromptObservationCount
+  } = input;
   const projectCitationMetadata =
     scopeType === "project"
       ? {
@@ -717,6 +798,8 @@ function buildMetricSnapshotMetadata(input: {
     search_mode: searchMode,
     metric_version: METRIC_VERSION,
     calculation_method: CALCULATION_METHOD,
+    metric_prompt_scope: "non_branded_prompt_only",
+    excluded_branded_prompt_observation_count: excludedBrandedPromptObservationCount,
     sample_size: sampleSize,
     scope_type: scopeType,
     scope_id: scopeId,
@@ -959,6 +1042,28 @@ function parseJsonValue(value: string | null): JsonValue {
   } catch {
     return {};
   }
+}
+
+function parseJsonStringArray(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    return flattenStringValues(JSON.parse(value));
+  } catch {
+    return [value];
+  }
+}
+
+function flattenStringValues(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(flattenStringValues);
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).flatMap(flattenStringValues);
+  }
+  return [];
+}
+
+function normalizeBrandPromptText(value: string) {
+  return value.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
 }
 
 function lit(value: string) {

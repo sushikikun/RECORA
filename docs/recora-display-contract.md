@@ -1131,3 +1131,40 @@ UI実装前に以下を確認します。
 - aggregate run と source measurement run の結合条件が明確か
 - openai_measurement 以外のrunを顧客向けレポートに混ぜていないか
 - 暫定report viewから正式report schemaへ移行する条件が明確か
+## Phase 1 Admin Demo Report Ready Gate
+
+Phase 1 customer report pages must not infer readiness from the existence of a route alone. A report is customer-ready only when the centralized report ready gate passes.
+
+The customer-facing status is either:
+
+- `customer_ready`: the report can be shown to the customer.
+- `not_ready`: the customer-facing page should show a preparation state or safe empty state.
+
+The administrator-facing diagnostic state is separate:
+
+- `admin_diagnostic`: operational reason codes for the administrator. These codes are not marketing copy and should not be shown as raw internal detail in a customer report.
+
+The gate checks:
+
+- project slug exists.
+- reporting run exists.
+- reporting run is completed.
+- reporting run is an OpenAI measurement aggregate.
+- source measurement run id is known.
+- metric snapshots exist.
+- valid observations exist.
+- placeholder, seed, example, demo, or local-only evidence is not used as customer evidence.
+- measurement profile or prompt set version can be identified, or a legacy source-run-only limitation is recorded as an administrator diagnostic note.
+- recommendations shown as customer-facing are quality-gated and customer-visible.
+
+`display_decision=show` is not the same as customer approval. Recommendation candidates remain internal unless their quality-gate metadata marks them as safe for customer display.
+
+## Phase 1 Prompt Type And Metric Eligibility
+
+Until prompt type and metric eligibility are first-class schema fields, Phase 1 treats them as a documented operator/read-model contract.
+
+- `non_branded`, `problem_solution`, `alternative_search`, and eligible `competitor_comparison` prompts can feed AI visibility, ranking, Share of Voice, average position, and competitor gap.
+- `branded` and brand-included prompts are sentiment / brand perception only.
+- `citation_check` prompts are source evidence prompts unless they are explicitly candidate-list or comparison-shaped.
+- citation occurrence, unique URL count, and unique domain count are source evidence metrics, not ranking evidence by themselves.
+- branded prompts must not be mixed into AI visibility rate, average ranking, Share of Voice, or competitor gap.
