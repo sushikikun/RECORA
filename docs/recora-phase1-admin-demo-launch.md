@@ -75,6 +75,8 @@ npx tsx scripts/prepare-recora-client-project.ts --input .\tmp\client-project.js
 
 The default mode is dry-run. Dry-run prints the planned `organizations`, `projects`, `brands`, `personas`, `topics`, and `prompts` records and writes 0 rows.
 
+When a dry-run must avoid DB reads entirely, pass `--skip-existing-slug-check`; this is for planning only and cannot be used to bypass the local execute slug check.
+
 Local execution is intentionally separate:
 
 ```powershell
@@ -109,6 +111,39 @@ Existing slug policy:
 - If `organizations.slug` already exists, the script refuses `--execute`.
 - If `projects.slug` already exists, the script refuses `--execute`.
 - The script inserts new records only; it does not upsert or overwrite existing customer, demo, local, or sample rows.
+
+## Phase 1 Operator Entry Point
+
+Use `npm run recora:phase1:operator` when the operator wants one visible entry point for a client config while still reusing the existing bootstrap, measurement, aggregate, recommendation, readiness, and report scripts.
+
+Default dry-run:
+
+```powershell
+npm run recora:phase1:operator -- --client-config .\tmp\client-project.json
+```
+
+The dry-run validates the client config through `scripts/prepare-recora-client-project.ts`, prints planned operations, skips the DB slug-existence check, and does not run OpenAI, connect to the DB, write manifests, or write DB rows. It shows the report-cycle command that would be used next.
+
+Approved local execution with an existing completed OpenAI measurement run:
+
+```powershell
+npm run recora:phase1:operator -- --client-config .\tmp\client-project.json --execute-local --skip-bootstrap --customer-data-boundary-confirmed --measurement-run-id <completed-openai-measurement-run-id> --apply-aggregate --generate-recommendations --expected-db-host 127.0.0.1
+```
+
+Real measurement remains a separate checkpoint:
+
+```powershell
+npm run recora:phase1:operator -- --client-config .\tmp\client-project.json --execute-local --execute-measurement --confirm-measurement-execution run-openai:<project-slug> --profile small-v01 --apply-aggregate --generate-recommendations --expected-db-host 127.0.0.1
+```
+
+The operator command prints planned operations before write-capable child scripts run. Its final `operatorSummary` reports `projectSlug`, `measurementRunId`, `aggregateStatus`, `recommendationStatus`, `reportReadyStatus`, `reportUrl`, and `remainingBlockers`.
+
+Notes:
+
+- `--execute-local` is the local DB write checkpoint.
+- `--execute-measurement` must also include `--confirm-measurement-execution run-openai:<project-slug>`.
+- Non-local DB writes are not enabled by this wrapper. Use the child report-cycle guard flags only after a separate explicit target, DB host, project slug, and command checkpoint.
+- Share `reportUrl` only when `reportReadyStatus` is `customer_ready` and browser review has passed.
 
 ## Dry-Run Check
 
