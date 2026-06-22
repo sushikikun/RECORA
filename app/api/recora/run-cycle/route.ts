@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
@@ -20,6 +21,8 @@ const MAX_PROMPT_LIMIT = 3;
 const EXECUTION_TIMEOUT_MS = 180_000;
 const ENABLE_RUN_CYCLE_API_ENV = "RECORA_ENABLE_RUN_CYCLE_API";
 const ENABLE_RUN_CYCLE_API_VALUE = "true";
+const RUN_CYCLE_API_SECRET_ENV = "RECORA_RUN_CYCLE_API_SECRET";
+const RUN_CYCLE_API_SECRET_HEADER = "x-recora-run-cycle-secret";
 const LOCAL_RUN_CYCLE_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 type RequestMode = "dry-run" | "execute";
@@ -48,6 +51,19 @@ export async function POST(request: Request) {
 
   try {
     const body = await readJsonBody(request);
+    const requestedMode = getRequestedMode(body);
+    const executionAccess = getRunCycleExecutionAccess(request, requestedMode);
+    if (!executionAccess.allowed) {
+      return Response.json(
+        {
+          ok: false,
+          error: executionAccess.message,
+          code: executionAccess.code
+        },
+        { status: executionAccess.status }
+      );
+    }
+
     const input = normalizeInput(body);
     const command = buildCycleCommand(input);
     const result = await runCycleCommand(command);
@@ -103,6 +119,35 @@ function getRunCycleApiAccess(request: Request) {
   return { allowed: true } as const;
 }
 
+function getRunCycleExecutionAccess(request: Request, mode: RequestMode) {
+  if (mode !== "execute") return { allowed: true } as const;
+  return getRunCycleSecretAccess(request);
+}
+
+function getRunCycleSecretAccess(request: Request) {
+  const configuredSecret = process.env[RUN_CYCLE_API_SECRET_ENV]?.trim();
+  if (!configuredSecret) {
+    return {
+      allowed: false,
+      status: 403,
+      code: "run_cycle_api_secret_not_configured",
+      message: `This endpoint requires ${RUN_CYCLE_API_SECRET_ENV} before local run-cycle requests can be accepted.`
+    } as const;
+  }
+
+  const providedSecret = request.headers.get(RUN_CYCLE_API_SECRET_HEADER)?.trim();
+  if (!providedSecret || !safeSecretEqual(providedSecret, configuredSecret)) {
+    return {
+      allowed: false,
+      status: 401,
+      code: "run_cycle_api_unauthorized",
+      message: "A valid local run-cycle secret is required."
+    } as const;
+  }
+
+  return { allowed: true } as const;
+}
+
 function isLocalRunCycleRequest(request: Request) {
   const hostHeader = request.headers.get("host");
   const requestHost = getRequestHostname(request.url);
@@ -128,12 +173,27 @@ function normalizeHostname(value: string | null) {
   }
 }
 
+function safeSecretEqual(providedSecret: string, configuredSecret: string) {
+  const providedHash = hashSecret(providedSecret);
+  const configuredHash = hashSecret(configuredSecret);
+  return timingSafeEqual(providedHash, configuredHash);
+}
+
+function hashSecret(value: string) {
+  return createHash("sha256").update(value, "utf8").digest();
+}
+
 async function readJsonBody(request: Request) {
   try {
     return await request.json();
   } catch {
     return {};
   }
+}
+
+function getRequestedMode(body: unknown) {
+  const record = isRecord(body) ? body : {};
+  return normalizeMode(getString(record.mode));
 }
 
 function normalizeInput(body: unknown) {
