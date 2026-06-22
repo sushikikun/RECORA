@@ -143,6 +143,8 @@ Capture route, viewport, steps, visible result, console errors, failed requests,
 
 ## Worktrees
 
+The normal local checkout remains `$env:USERPROFILE\work\recora`. Codex App worktrees may live outside that path, so Recora dev checks allow them only when the directory is a Git repo with the expected Recora repo signals; path, env, secret, and OneDrive warnings still run.
+
 Use one worktree per independently reviewable lane:
 
 ```text
