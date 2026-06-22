@@ -268,6 +268,7 @@ npm run recora:human-check
 npm run recora:before-codex
 npm run recora:doctor
 npm run recora:dashboard-read-model:check
+npm run recora:phase1:operator -- --client-config .\tmp\client-project.json
 npm run recora:preflight
 npm run recora:preflight:full
 npm run recora:commit-check

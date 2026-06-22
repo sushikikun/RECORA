@@ -130,6 +130,42 @@ The plan-only script references existing commands but never runs them:
 
 `scripts/run-recora-report-cycle.ts --plan` is still an existing operator tool, but it can write a manifest and inspect DB target configuration. For this planning step, prefer `scripts/plan-recora-report-cycle.ts` because it does not connect to DB, does not call OpenAI, does not spawn child scripts, and does not write files.
 
+## Canonical Operator Sequence
+
+For a client config, use the wrapper entry point first. It reuses the existing bootstrap and report-cycle scripts and prints one final operator summary.
+
+Dry-run:
+
+```powershell
+npm run recora:phase1:operator -- --client-config .\tmp\client-project.json
+```
+
+This default dry-run renders the client bootstrap plan with `--skip-existing-slug-check` and does not connect to the DB, write a report-cycle manifest, or run OpenAI.
+
+Approved local execution after a completed OpenAI measurement run already exists:
+
+```powershell
+npm run recora:phase1:operator -- --client-config .\tmp\client-project.json --execute-local --skip-bootstrap --customer-data-boundary-confirmed --measurement-run-id <completed-openai-measurement-run-id> --apply-aggregate --generate-recommendations --expected-db-host 127.0.0.1
+```
+
+Approved local execution that also runs OpenAI measurement:
+
+```powershell
+npm run recora:phase1:operator -- --client-config .\tmp\client-project.json --execute-local --execute-measurement --confirm-measurement-execution run-openai:<project-slug> --profile small-v01 --apply-aggregate --generate-recommendations --expected-db-host 127.0.0.1
+```
+
+The final `operatorSummary` includes:
+
+- `projectSlug`
+- `measurementRunId`
+- `aggregateStatus`
+- `recommendationStatus`
+- `reportReadyStatus`
+- `reportUrl`
+- `remainingBlockers`
+
+`reportReadyStatus` is calculated with the centralized report ready gate in `lib/recora/report-eligibility.ts`. If `remainingBlockers` is not empty, stop before sharing the URL.
+
 ## Approval Gates
 
 Do not proceed to the next stage when:

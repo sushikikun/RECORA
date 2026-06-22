@@ -64,6 +64,7 @@ type SourceRunRow = Row & {
   completed_at: string | null;
   created_at: string;
   conversation_count: string;
+  failed_item_count: string;
 };
 
 type ConversationRow = Row & {
@@ -404,14 +405,18 @@ async function getLatestCompletedOpenAiRun(db: LocalPostgresClient, projectId: s
       mr.started_at::text as started_at,
       mr.completed_at::text as completed_at,
       mr.created_at::text as created_at,
-      count(ac.id)::text as conversation_count
+      count(ac.id)::text as conversation_count,
+      count(distinct ri.id) filter (where ri.status = 'failed')::text as failed_item_count
     from public.measurement_runs mr
-    join public.run_items ri on ri.run_id = mr.id
-    join public.ai_conversations ac on ac.run_item_id = ri.id
+    left join public.run_items ri on ri.run_id = mr.id
+    left join public.ai_conversations ac on ac.run_item_id = ri.id and ac.provider = 'openai'
     where mr.project_id = ${uuid(projectId)}
       and mr.status = 'completed'
-      and ac.provider = 'openai'
+      and mr.metadata->>'data_source' = 'openai_measurement'
+      and coalesce(mr.metadata->>'run_kind', 'measurement') <> 'aggregate'
     group by mr.id
+    having count(ac.id) > 0
+      and count(distinct ri.id) filter (where ri.status = 'failed') = 0
     order by coalesce(mr.completed_at, mr.created_at) desc, mr.created_at desc
     limit 1
   `);
@@ -431,12 +436,15 @@ async function getSourceRunById(db: LocalPostgresClient, projectId: string, sour
       mr.started_at::text as started_at,
       mr.completed_at::text as completed_at,
       mr.created_at::text as created_at,
-      count(ac.id)::text as conversation_count
+      count(ac.id)::text as conversation_count,
+      count(distinct ri.id) filter (where ri.status = 'failed')::text as failed_item_count
     from public.measurement_runs mr
     left join public.run_items ri on ri.run_id = mr.id
     left join public.ai_conversations ac on ac.run_item_id = ri.id and ac.provider = 'openai'
     where mr.project_id = ${uuid(projectId)}
       and mr.id = ${uuid(sourceRunId)}
+      and mr.metadata->>'data_source' = 'openai_measurement'
+      and coalesce(mr.metadata->>'run_kind', 'measurement') <> 'aggregate'
     group by mr.id
     limit 1
   `);
@@ -444,6 +452,7 @@ async function getSourceRunById(db: LocalPostgresClient, projectId: string, sour
   if (!run) throw new Error(`Source run not found: ${sourceRunId}`);
   if (run.status !== "completed") throw new Error(`Source run must be completed. Current status: ${run.status}`);
   if (Number(run.conversation_count) === 0) throw new Error("Source run has no OpenAI conversations.");
+  if (Number(run.failed_item_count) > 0) throw new Error("Source run has failed run items. Fix or rerun measurement before aggregating.");
   return run;
 }
 

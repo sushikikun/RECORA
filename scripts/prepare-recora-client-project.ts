@@ -20,6 +20,7 @@ type CliOptions = {
   inputPath: string | null;
   printSample: boolean;
   databaseUrl: string;
+  skipExistingSlugCheck: boolean;
 };
 
 type BrandInput = {
@@ -218,7 +219,9 @@ async function main() {
     );
   }
 
-  const existingSlugCheck = await tryCheckExistingSlugs(options.databaseUrl, plan);
+  const existingSlugCheck = options.skipExistingSlugCheck
+    ? buildSkippedExistingSlugCheck()
+    : await tryCheckExistingSlugs(options.databaseUrl, plan);
   const preview = renderPreview(options, plan, target, existingSlugCheck);
   console.log(JSON.stringify(preview, null, 2));
 
@@ -249,7 +252,8 @@ function parseArgs(args: string[]): CliOptions {
     execute: false,
     inputPath: null,
     printSample: false,
-    databaseUrl: process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL
+    databaseUrl: process.env.RECORA_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL,
+    skipExistingSlugCheck: false
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -275,10 +279,23 @@ function parseArgs(args: string[]): CliOptions {
       options.printSample = true;
       continue;
     }
+    if (arg === "--skip-existing-slug-check") {
+      options.skipExistingSlugCheck = true;
+      continue;
+    }
     throw new Error(`Unknown argument: ${arg}`);
   }
 
   return options;
+}
+
+function buildSkippedExistingSlugCheck(): ExistingSlugCheck {
+  return {
+    status: "unavailable",
+    organizationSlugExists: null,
+    projectSlugExists: null,
+    note: "Skipped by --skip-existing-slug-check. This is allowed for no-DB dry-run only; --execute still requires a completed slug check."
+  };
 }
 
 function stripJsonBom(value: string) {
