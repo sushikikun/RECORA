@@ -1,4 +1,4 @@
-﻿---
+---
 name: recora-ai-citation-analysis
 description: "Recora Source Intelligence and Citation Audit skill for AI-answer citation URLs, cited source text, claim-to-source alignment, machine-readable citation inventories, cross-engine observations, source risk, own-site non-citation, competitor citation advantage, client-safe reporting, output quality scoring, adversarial citation QA, and handoff payloads. Use when analyzing AI-answer citations/reference URLs, building Source Intelligence reports, checking citation correctness/faithfulness, evaluating source opportunities/actions, scoring report readiness, or validating citation audit outputs. Do not use for app implementation, other skill edits, production changes, secrets, external scripts, or guaranteed AI citation claims."
 ---
