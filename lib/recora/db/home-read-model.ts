@@ -1,7 +1,10 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { unstable_noStore as noStore } from "next/cache";
 
-import { isValidObservation } from "@/lib/recora/report-eligibility";
+import {
+  isCustomerVisibleRecommendation,
+  isValidObservation
+} from "@/lib/recora/report-eligibility";
 import { createRecoraSupabaseClient } from "@/lib/supabase/server";
 import {
   getDefaultRecoraProjectSlug,
@@ -656,13 +659,20 @@ async function getHomeRecommendationCandidates(
     .eq("project_id", projectId)
     .eq("metadata->>source", "recommendation_candidate_generator")
     .eq("metadata->>data_source", "openai_measurement")
-    .eq("metadata->>display_decision", "show")
     .order("created_at", { ascending: false });
 
   throwIfSupabaseError("recommendations", error);
   return ((data ?? []) as RecoraRecommendationRow[])
     .filter((item) => isRecommendationFromMeasurementRun(item, measurementRunIds))
-    .filter(isDisplayableRecommendation);
+    .filter(isDisplayableRecommendation)
+    .filter(isCustomerVisibleHomeRecommendation);
+}
+
+function isCustomerVisibleHomeRecommendation(recommendation: RecoraRecommendationRow) {
+  return isCustomerVisibleRecommendation({
+    status: recommendation.status,
+    metadata: getMetadataRecord(recommendation.metadata)
+  });
 }
 
 function isRecommendationFromMeasurementRun(
