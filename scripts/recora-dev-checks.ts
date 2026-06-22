@@ -254,7 +254,7 @@ function buildWhereamiReport(report: Report, context: Context) {
   const root = context.repoRoot ?? context.currentDir;
 
   report.add("INFO", "current directory", context.currentDir);
-  addExpectedRootChecks(report, context, false);
+  addExpectedRootChecks(report, context);
   addOneDriveCheck(report, context);
   addPackageCheck(report, context.packageInfo);
   addRecoraSignalCheck(report, root, context.packageInfo);
@@ -267,7 +267,7 @@ function buildHumanCheckReport(report: Report, context: Context) {
   const root = context.repoRoot ?? context.currentDir;
 
   report.add("INFO", "current directory", context.currentDir);
-  addExpectedRootChecks(report, context, false);
+  addExpectedRootChecks(report, context);
   addOneDriveCheck(report, context);
   addGitInfo(report, context);
   addStatusCounts(report, context.gitStatus);
@@ -288,7 +288,7 @@ function buildBeforeCodexReport(report: Report, context: Context) {
   const root = context.repoRoot ?? context.currentDir;
 
   report.add("INFO", "current directory", context.currentDir);
-  addExpectedRootChecks(report, context, true);
+  addExpectedRootChecks(report, context);
   addOneDriveCheck(report, context);
   addPackageCheck(report, context.packageInfo);
   addGitInfo(report, context);
@@ -304,7 +304,7 @@ function buildDoctorReport(report: Report, context: Context) {
   const migrationAnalysis = analyzeMigrations(root);
 
   report.add("INFO", "current directory", context.currentDir);
-  addExpectedRootChecks(report, context, false);
+  addExpectedRootChecks(report, context);
   addOneDriveCheck(report, context);
   addPackageCheck(report, context.packageInfo);
   addPackageScriptCheck(report, context.packageInfo, DOCTOR_REQUIRED_SCRIPTS);
@@ -325,7 +325,7 @@ function buildDashboardReadModelCheckReport(report: Report, context: Context) {
   const dashboardAnalysis = analyzeDashboardCode(root);
 
   report.add("INFO", "current directory", context.currentDir);
-  addExpectedRootChecks(report, context, false);
+  addExpectedRootChecks(report, context);
   addDashboardScanOverview(report, dashboardAnalysis);
   addDashboardSupabaseReferenceCheck(report, dashboardAnalysis, migrationAnalysis);
   addDashboardSelectedColumnCheck(report, dashboardAnalysis, migrationAnalysis);
@@ -337,7 +337,7 @@ function buildDashboardReadModelCheckReport(report: Report, context: Context) {
   addDashboardRecommendedActions(report, dashboardAnalysis, migrationAnalysis);
 }
 
-function addExpectedRootChecks(report: Report, context: Context, strictRepoRoot: boolean) {
+function addExpectedRootChecks(report: Report, context: Context) {
   if (!context.expectedRoot) {
     report.add("WARN", "expected Recora root", "USERPROFILE is not set, so expected path cannot be built.");
     return;
@@ -360,11 +360,16 @@ function addExpectedRootChecks(report: Report, context: Context, strictRepoRoot:
   report.add("INFO", "git repo root", context.repoRoot);
 
   const rootMatchesExpected = samePath(context.repoRoot, context.expectedRoot);
-  const level: Level = rootMatchesExpected ? "PASS" : strictRepoRoot ? "FAIL" : "FAIL";
+  const missingSignals = getMissingRecoraRepoSignals(context.repoRoot, context.packageInfo);
+  const validRecoraWorktree = missingSignals.length === 0;
   report.add(
-    level,
+    rootMatchesExpected || validRecoraWorktree ? "PASS" : "FAIL",
     "repo root check",
-    rootMatchesExpected ? "matches $env:USERPROFILE\\work\\recora" : "does not match expected Recora root"
+    rootMatchesExpected
+      ? "matches $env:USERPROFILE\\work\\recora"
+      : validRecoraWorktree
+        ? "allowed Recora git worktree outside $env:USERPROFILE\\work\\recora"
+        : `outside expected root and missing Recora signals: ${missingSignals.join(", ")}`
   );
 }
 
@@ -409,6 +414,16 @@ function addPackageScriptCheck(report: Report, packageInfo: PackageInfo, require
 }
 
 function addRecoraSignalCheck(report: Report, root: string, packageInfo: PackageInfo) {
+  const missing = getMissingRecoraRepoSignals(root, packageInfo);
+
+  report.add(
+    missing.length === 0 ? "PASS" : "FAIL",
+    "Recora repo signals",
+    missing.length === 0 ? "all expected signals present" : `missing: ${missing.join(", ")}`
+  );
+}
+
+function getMissingRecoraRepoSignals(root: string, packageInfo: PackageInfo) {
   const pathSignals = RECORA_SIGNAL_PATHS.map((relativePath) => ({
     label: relativePath,
     exists: existsRelative(root, relativePath)
@@ -418,13 +433,7 @@ function addRecoraSignalCheck(report: Report, root: string, packageInfo: Package
     exists: packageInfo.name?.toLowerCase().includes("recora") ?? false
   };
   const signals = [packageNameSignal, ...pathSignals];
-  const missing = signals.filter((signal) => !signal.exists).map((signal) => signal.label);
-
-  report.add(
-    missing.length === 0 ? "PASS" : "FAIL",
-    "Recora repo signals",
-    missing.length === 0 ? "all expected signals present" : `missing: ${missing.join(", ")}`
-  );
+  return signals.filter((signal) => !signal.exists).map((signal) => signal.label);
 }
 
 function addGitInfo(report: Report, context: Context) {
@@ -652,8 +661,10 @@ function addImportantChangeOverview(report: Report, status: GitStatusSummary | n
 function addRecommendedActions(report: Report, context: Context) {
   const actions: string[] = [];
   const status = context.gitStatus;
+  const validRecoraWorktree =
+    context.repoRoot !== null && getMissingRecoraRepoSignals(context.repoRoot, context.packageInfo).length === 0;
 
-  if (!context.repoRoot || (context.expectedRoot && !samePath(context.repoRoot, context.expectedRoot))) {
+  if (!context.repoRoot || (context.expectedRoot && !samePath(context.repoRoot, context.expectedRoot) && !validRecoraWorktree)) {
     actions.push("Move to $env:USERPROFILE\\work\\recora before giving Codex a task.");
   }
   if (status && status.total > 0) {
