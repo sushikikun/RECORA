@@ -1,6 +1,6 @@
 import { RunCyclePanel } from "@/components/recora/run-cycle-panel";
 import { RunHistoryList } from "@/components/recora/run-history-list";
-import { getRecoraRunsData } from "@/lib/recora/db";
+import { getRecoraDashboardData, getRecoraRunsData } from "@/lib/recora/db";
 
 const CURRENT_REPORT_SLUG = "mieruca-seo-demo";
 const LEGACY_REPORT_SLUG = "recora-growth-q2";
@@ -27,6 +27,11 @@ export default async function Page({ params }: ReportRunsPageProps) {
 
 async function getRunsDataOrNull(projectSlug: string) {
   try {
+    const dashboardData = await getRecoraDashboardData(projectSlug);
+    if (dashboardData.reportReadyGate.status !== "customer_ready") {
+      return { runsData: null, loadError: false };
+    }
+
     const data = await getRecoraRunsData(projectSlug);
     return { runsData: data.project ? data : null, loadError: false };
   } catch (error) {
