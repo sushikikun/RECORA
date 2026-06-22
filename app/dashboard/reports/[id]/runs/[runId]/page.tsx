@@ -1,5 +1,5 @@
 import { RunDetailPage } from "@/components/recora/run-detail-page";
-import { getRecoraRunDetailData } from "@/lib/recora/db";
+import { getRecoraDashboardData, getRecoraRunDetailData } from "@/lib/recora/db";
 
 const CURRENT_REPORT_SLUG = "mieruca-seo-demo";
 const LEGACY_REPORT_SLUG = "recora-growth-q2";
@@ -22,6 +22,9 @@ export default async function ReportRunDetailPage({ params }: ReportRunDetailPag
 
 async function getRunDetailDataOrNull(projectSlug: string, runId: string) {
   try {
+    const dashboardData = await getRecoraDashboardData(projectSlug);
+    if (dashboardData.reportReadyGate.status !== "customer_ready") return null;
+
     const data = await getRecoraRunDetailData(projectSlug, runId);
     return data.project ? data : null;
   } catch (error) {
