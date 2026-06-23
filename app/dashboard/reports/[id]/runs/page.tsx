@@ -1,45 +1,35 @@
 import { RunCyclePanel } from "@/components/recora/run-cycle-panel";
 import { RunHistoryList } from "@/components/recora/run-history-list";
-import { getRecoraDashboardData, getRecoraRunsData } from "@/lib/recora/db";
-
-const CURRENT_REPORT_SLUG = "mieruca-seo-demo";
-const LEGACY_REPORT_SLUG = "recora-growth-q2";
-
-type ReportRunsPageProps = {
-  params: {
-    id: string;
-  };
-};
+import { getRecoraRunsData } from "@/lib/recora/db";
+import {
+  normalizeReportSlug,
+  renderCustomerReadyReportRoute,
+  type ReportSlugPageProps
+} from "../../report-route-guard";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({ params }: ReportRunsPageProps) {
+export default async function Page({ params }: ReportSlugPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
-  const { runsData, loadError } = await getRunsDataOrNull(projectSlug);
 
-  return (
-    <>
-      <RunCyclePanel projectSlug={projectSlug} />
-      <RunHistoryList projectSlug={projectSlug} runsData={runsData} loadError={loadError} />
-    </>
-  );
+  return renderCustomerReadyReportRoute(projectSlug, async () => {
+    const { runsData, loadError } = await getRunsDataOrNull(projectSlug);
+
+    return (
+      <>
+        <RunCyclePanel projectSlug={projectSlug} />
+        <RunHistoryList projectSlug={projectSlug} runsData={runsData} loadError={loadError} />
+      </>
+    );
+  });
 }
 
 async function getRunsDataOrNull(projectSlug: string) {
   try {
-    const dashboardData = await getRecoraDashboardData(projectSlug);
-    if (dashboardData.reportReadyGate.status !== "customer_ready") {
-      return { runsData: null, loadError: false };
-    }
-
     const data = await getRecoraRunsData(projectSlug);
     return { runsData: data.project ? data : null, loadError: false };
   } catch (error) {
     console.warn("Failed to load Recora run history data.", error);
     return { runsData: null, loadError: true };
   }
-}
-
-function normalizeReportSlug(reportSlug: string) {
-  return reportSlug === LEGACY_REPORT_SLUG ? CURRENT_REPORT_SLUG : reportSlug;
 }

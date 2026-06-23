@@ -1,23 +1,24 @@
 import { ReportsIndexPage } from "@/components/recora/report-pages";
-import { getDefaultRecoraProjectSlug, getRecoraDashboardData } from "@/lib/recora/db";
+import {
+  getDefaultReportSlug,
+  getReportRouteDashboardDataOrNull,
+  ReportPreparationPage
+} from "./report-route-guard";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
   const dashboardData = await getDashboardDataOrNull();
+  if (dashboardData?.reportReadyGate.status !== "customer_ready") {
+    return <ReportPreparationPage />;
+  }
 
   return <ReportsIndexPage dashboardData={dashboardData} />;
 }
 
 async function getDashboardDataOrNull() {
-  try {
-    const projectSlug = getDefaultRecoraProjectSlug();
-    if (!projectSlug) return null;
+  const projectSlug = getDefaultReportSlug();
+  if (!projectSlug) return null;
 
-    const data = await getRecoraDashboardData(projectSlug);
-    return data.project ? data : null;
-  } catch (error) {
-    console.warn("Failed to load Recora reports index data.", error);
-    return null;
-  }
+  return getReportRouteDashboardDataOrNull(projectSlug);
 }

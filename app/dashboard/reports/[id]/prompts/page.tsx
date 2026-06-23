@@ -1,5 +1,14 @@
 import { PromptsAnalysisPage } from "@/components/recora/report-pages";
+import {
+  normalizeReportSlug,
+  renderCustomerReadyReportRoute,
+  type ReportSlugPageProps
+} from "../../report-route-guard";
 
-export default function Page() {
-  return <PromptsAnalysisPage />;
+export const dynamic = "force-dynamic";
+
+export default async function Page({ params }: ReportSlugPageProps) {
+  const projectSlug = normalizeReportSlug(params.id);
+
+  return renderCustomerReadyReportRoute(projectSlug, () => <PromptsAnalysisPage />);
 }

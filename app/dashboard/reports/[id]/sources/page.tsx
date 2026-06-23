@@ -1,36 +1,29 @@
 import { SourcesPage } from "@/components/recora/report-pages";
-import { getRecoraDashboardData, getRecoraSourcesData } from "@/lib/recora/db";
-
-const CURRENT_REPORT_SLUG = "mieruca-seo-demo";
-const LEGACY_REPORT_SLUG = "recora-growth-q2";
-
-type ReportSourcesPageProps = {
-  params: {
-    id: string;
-  };
-};
+import { getRecoraSourcesData } from "@/lib/recora/db";
+import {
+  normalizeReportSlug,
+  renderCustomerReadyReportRoute,
+  type ReportSlugPageProps
+} from "../../report-route-guard";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportSourcesPage({ params }: ReportSourcesPageProps) {
-  const sourcesData = await getSourcesDataOrNull(normalizeReportSlug(params.id));
+export default async function ReportSourcesPage({ params }: ReportSlugPageProps) {
+  const projectSlug = normalizeReportSlug(params.id);
 
-  return <SourcesPage sourcesData={sourcesData} />;
+  return renderCustomerReadyReportRoute(projectSlug, async () => {
+    const sourcesData = await getSourcesDataOrNull(projectSlug);
+
+    return <SourcesPage sourcesData={sourcesData} />;
+  });
 }
 
 async function getSourcesDataOrNull(projectSlug: string) {
   try {
-    const dashboardData = await getRecoraDashboardData(projectSlug);
-    if (dashboardData.reportReadyGate.status !== "customer_ready") return null;
-
     const data = await getRecoraSourcesData(projectSlug);
     return data.project ? data : null;
   } catch (error) {
     console.warn("Failed to load Recora sources data.", error);
     return null;
   }
-}
-
-function normalizeReportSlug(reportSlug: string) {
-  return reportSlug === LEGACY_REPORT_SLUG ? CURRENT_REPORT_SLUG : reportSlug;
 }
