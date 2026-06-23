@@ -1,4 +1,4 @@
-import { DashboardHomePage } from "@/components/recora/report-pages";
+import { DashboardOverview } from "@/components/recora/dashboard/dashboard-overview";
 import { getDefaultRecoraProjectSlug, getRecoraDashboardData, getRecoraHomeReadModelData } from "@/lib/recora/db";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export default async function DashboardPage() {
     getHomeReadModelDataOrNull()
   ]);
 
-  return <DashboardHomePage dashboardData={dashboardData} homeReadModelData={homeReadModelData} />;
+  return <DashboardOverview dashboardData={dashboardData} homeReadModelData={homeReadModelData} />;
 }
 
 async function getDashboardDataOrNull() {
