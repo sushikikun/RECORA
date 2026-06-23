@@ -1,5 +1,13 @@
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, LockKeyhole, Settings2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ExternalLink,
+  LockKeyhole,
+  Settings2,
+  ShieldAlert
+} from "lucide-react";
 
 import { AdminOperationPlanClient } from "@/components/recora/admin-operation-plan-client";
 import { DataCard, PageHeader } from "@/components/recora/ui";
@@ -13,7 +21,6 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/table";
-import type { RecoraInternalAdminAccess } from "@/lib/recora/internal-admin-access";
 import type {
   RecoraAdminOperationDetail,
   RecoraAdminOperationsData
@@ -23,24 +30,37 @@ import { cn } from "@/lib/utils";
 
 export function AdminOperationsIndexPage({
   data,
-  access
+  variant = "projects"
 }: {
   data: RecoraAdminOperationsData;
-  access: RecoraInternalAdminAccess;
+  variant?: "projects" | "operations";
 }) {
+  const copy = variant === "operations"
+    ? {
+        title: "実行管理",
+        description: "既存の完了済みOpenAI measurement runを使った実行計画の入口です。新規計測やDB書き込みは行いません。",
+        cardTitle: "実行管理対象案件",
+        cardDescription: "Supabase read model、run history、report-ready判定を読み取り専用で確認し、案件ごとの実行計画へ進みます。"
+      }
+    : {
+        title: "案件",
+        description: "案件ごとの状態確認と、既存の完了済みOpenAI measurement runを使った計画確認だけを行います。",
+        cardTitle: "内部運用案件一覧",
+        cardDescription: "既存のSupabase read model、run history、report-ready判定を読み取り専用で表示します。"
+      };
+
   return (
     <div className="min-w-0 space-y-5">
       <PageHeader
         eyebrow="Recora内部運用"
-        title="Phase 1 管理画面"
-        description="案件の状態確認と、既存の完了済みOpenAI measurement runを使った実行計画の確認だけを行います。"
+        title={copy.title}
+        description={copy.description}
         actions={<InternalOnlyBadge />}
-        meta={<AccessSummary access={access} />}
       />
 
       <DataCard
-        title="内部運用案件一覧"
-        description="既存のSupabase read model、run history、report-ready判定を読み取り専用で表示します。"
+        title={copy.cardTitle}
+        description={copy.cardDescription}
         action={
           <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
             {data.projects.length}件
@@ -99,7 +119,7 @@ export function AdminOperationsIndexPage({
                   </TableCell>
                   <TableCell>
                     <Button asChild variant="outline" size="sm">
-                      <Link href={`/dashboard/admin/operations/${encodeURIComponent(project.projectSlug)}`}>
+                      <Link href={`/internal/projects/${encodeURIComponent(project.projectSlug)}`}>
                         <Settings2 className="h-4 w-4" />
                         計画確認
                       </Link>
@@ -115,21 +135,72 @@ export function AdminOperationsIndexPage({
   );
 }
 
+export function AdminOperationsOverviewPage({ data }: { data: RecoraAdminOperationsData }) {
+  const projectCount = data.projects.length;
+  const reportReadyCount = data.projects.filter((project) => project.reportReadyStatus === "customer_ready").length;
+  const projectsWithRuns = data.projects.filter((project) => project.completedMeasurementRuns.length > 0).length;
+  const blockerCount = data.projects.reduce((total, project) => total + project.currentRemainingIssues.length, 0);
+
+  return (
+    <div className="min-w-0 space-y-5">
+      <PageHeader
+        eyebrow="Recora内部運用"
+        title="運用概要"
+        description="顧客向けdashboardから分離した、ローカル限定の内部運用コンソールです。現在は読み取りと計画確認だけを扱います。"
+        actions={<InternalOnlyBadge />}
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SummaryTile label="案件" value={`${projectCount}件`} />
+        <SummaryTile label="完了済みrunあり" value={`${projectsWithRuns}件`} />
+        <SummaryTile label="report-ready" value={`${reportReadyCount}件`} tone={reportReadyCount > 0 ? "green" : "slate"} />
+        <SummaryTile label="残課題" value={`${blockerCount}件`} tone={blockerCount > 0 ? "amber" : "green"} />
+      </div>
+
+      <DataCard
+        title="内部コンソールの入口"
+        description="未実装の導線は出さず、現在使える内部運用画面だけを表示します。"
+      >
+        <div className="divide-y divide-slate-200">
+          <OverviewLink
+            href="/internal/projects"
+            title="案件"
+            description="案件一覧、report-ready状態、完了済みmeasurement runの有無を確認します。"
+          />
+          <OverviewLink
+            href="/internal/operations"
+            title="実行管理"
+            description="既存measurement runを使った実行計画の確認へ進みます。実処理は起動しません。"
+          />
+        </div>
+      </DataCard>
+
+      <DataCard
+        title="安全境界"
+        description="今回の内部コンソールはローカル検証用で、正式な内部認証や権限管理はまだ接続していません。"
+      >
+        <div className="grid gap-3 md:grid-cols-3">
+          <SafetyFact icon="check" title="読み取り中心" description="既存read modelとPhase 1計画ロジックだけを使います。" />
+          <SafetyFact icon="alert" title="実行なし" description="OpenAI API、子プロセス、DB書き込みは起動しません。" />
+          <SafetyFact icon="check" title="公開環境は404" description="明示フラグ、localhost、非production、非Vercelを満たす場合だけ表示します。" />
+        </div>
+      </DataCard>
+    </div>
+  );
+}
+
 export function AdminOperationsUnavailablePage({
-  access,
   message
 }: {
-  access: RecoraInternalAdminAccess;
   message: string;
 }) {
   return (
     <div className="min-w-0 space-y-5">
       <PageHeader
         eyebrow="Recora内部運用"
-        title="Phase 1 管理画面"
+        title="内部運用コンソール"
         description="内部運用画面は表示できますが、read modelを読み取る設定が完了していません。"
         actions={<InternalOnlyBadge />}
-        meta={<AccessSummary access={access} />}
       />
 
       <DataCard title="案件一覧を読み取れません" description="この画面は代替データを表示しません。Supabase read設定を確認してください。">
@@ -142,11 +213,9 @@ export function AdminOperationsUnavailablePage({
 }
 
 export function AdminOperationDetailPage({
-  detail,
-  access
+  detail
 }: {
   detail: RecoraAdminOperationDetail;
-  access: RecoraInternalAdminAccess;
 }) {
   return (
     <div className="min-w-0 space-y-5">
@@ -157,7 +226,7 @@ export function AdminOperationDetailPage({
         actions={
           <>
             <Button asChild variant="outline">
-              <Link href="/dashboard/admin/operations">
+              <Link href="/internal/projects">
                 <ArrowLeft className="h-4 w-4" />
                 一覧へ
               </Link>
@@ -165,7 +234,6 @@ export function AdminOperationDetailPage({
             <InternalOnlyBadge />
           </>
         }
-        meta={<AccessSummary access={access} />}
       />
 
       <div className="grid gap-4 lg:grid-cols-4">
@@ -251,27 +319,8 @@ function InternalOnlyBadge() {
   return (
     <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
       <LockKeyhole className="mr-1 h-3.5 w-3.5" />
-      内部専用
+      内部運用
     </Badge>
-  );
-}
-
-function AccessSummary({ access }: { access: RecoraInternalAdminAccess }) {
-  return (
-    <div className="grid gap-3 sm:grid-cols-3">
-      <AccessPill label="内部認証" value={access.authStatusLabel} />
-      <AccessPill label="route" value={access.routeStatusLabel} />
-      <AccessPill label="Supabase read" value={access.supabaseReadConfigLabel} />
-    </div>
-  );
-}
-
-function AccessPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-      <p className="text-xs font-bold text-slate-500">{label}</p>
-      <p className="mt-1 text-sm font-bold text-slate-950">{value}</p>
-    </div>
   );
 }
 
@@ -299,6 +348,41 @@ function SummaryTile({
         {value}
       </p>
       {helper ? <p className="mt-1 truncate text-xs font-semibold text-slate-500">{helper}</p> : null}
+    </div>
+  );
+}
+
+function OverviewLink({ href, title, description }: { href: string; title: string; description: string }) {
+  return (
+    <Link href={href} className="flex items-center justify-between gap-4 py-4 text-left transition-colors hover:text-teal-700">
+      <span className="min-w-0">
+        <span className="block text-sm font-bold text-slate-950">{title}</span>
+        <span className="mt-1 block text-sm leading-6 text-slate-600">{description}</span>
+      </span>
+      <ArrowRight className="h-4 w-4 shrink-0 text-teal-700" />
+    </Link>
+  );
+}
+
+function SafetyFact({
+  icon,
+  title,
+  description
+}: {
+  icon: "check" | "alert";
+  title: string;
+  description: string;
+}) {
+  const Icon = icon === "check" ? CheckCircle2 : ShieldAlert;
+  const iconClass = icon === "check" ? "text-emerald-700" : "text-amber-700";
+
+  return (
+    <div className="flex gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+      <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", iconClass)} />
+      <span>
+        <span className="block text-sm font-bold text-slate-950">{title}</span>
+        <span className="mt-1 block text-sm leading-6 text-slate-600">{description}</span>
+      </span>
     </div>
   );
 }
