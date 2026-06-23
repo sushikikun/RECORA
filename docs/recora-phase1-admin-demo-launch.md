@@ -8,6 +8,8 @@ This runbook defines the Phase 1 operating model for launching Recora as an admi
 
 Phase 1 is not self-serve SaaS.
 
+The Phase 1 operator command is for internal operators only. Do not provide it to customers, wire it to a customer-facing or broadly available admin UI, or add public sample client JSON. Create each input JSON per customer engagement and keep it in `tmp/` or another untracked operator path.
+
 The intended workflow is:
 
 1. An administrator registers a customer project.
@@ -115,6 +117,8 @@ Existing slug policy:
 ## Phase 1 Operator Entry Point
 
 Use `npm run recora:phase1:operator` when the operator wants one visible entry point for a client config while still reusing the existing bootstrap, measurement, aggregate, recommendation, readiness, and report scripts.
+
+This wrapper remains an internal operation command, not a product feature. It does not create a customer-run flow, public configuration format, or reusable sample JSON for publication.
 
 Default dry-run:
 

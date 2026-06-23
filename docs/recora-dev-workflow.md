@@ -262,6 +262,8 @@ secret file として扱う。add しない。必要性を確認した上で rep
 
 ## Quick Command Reference
 
+`npm run recora:phase1:operator` is an internal operator entry point only. Keep per-client input JSON in `tmp/` or another untracked path, and do not expose it as a customer-facing UI, public sample JSON, or self-serve operation.
+
 ```powershell
 npm run recora:whereami
 npm run recora:human-check
