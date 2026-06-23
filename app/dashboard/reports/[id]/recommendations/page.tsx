@@ -1,36 +1,29 @@
 import { RecommendationsPage } from "@/components/recora/report-pages";
-import { getRecoraDashboardData, getRecoraRecommendationsData } from "@/lib/recora/db";
-
-const CURRENT_REPORT_SLUG = "mieruca-seo-demo";
-const LEGACY_REPORT_SLUG = "recora-growth-q2";
-
-type ReportRecommendationsPageProps = {
-  params: {
-    id: string;
-  };
-};
+import { getRecoraRecommendationsData } from "@/lib/recora/db";
+import {
+  normalizeReportSlug,
+  renderCustomerReadyReportRoute,
+  type ReportSlugPageProps
+} from "../../report-route-guard";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportRecommendationsPage({ params }: ReportRecommendationsPageProps) {
-  const recommendationsData = await getRecommendationsDataOrNull(normalizeReportSlug(params.id));
+export default async function ReportRecommendationsPage({ params }: ReportSlugPageProps) {
+  const projectSlug = normalizeReportSlug(params.id);
 
-  return <RecommendationsPage recommendationsData={recommendationsData} />;
+  return renderCustomerReadyReportRoute(projectSlug, async () => {
+    const recommendationsData = await getRecommendationsDataOrNull(projectSlug);
+
+    return <RecommendationsPage recommendationsData={recommendationsData} />;
+  });
 }
 
 async function getRecommendationsDataOrNull(projectSlug: string) {
   try {
-    const dashboardData = await getRecoraDashboardData(projectSlug);
-    if (dashboardData.reportReadyGate.status !== "customer_ready") return null;
-
     const data = await getRecoraRecommendationsData(projectSlug);
     return data.project ? data : null;
   } catch (error) {
     console.warn("Failed to load Recora recommendations data.", error);
     return null;
   }
-}
-
-function normalizeReportSlug(reportSlug: string) {
-  return reportSlug === LEGACY_REPORT_SLUG ? CURRENT_REPORT_SLUG : reportSlug;
 }
