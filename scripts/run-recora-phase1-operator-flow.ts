@@ -645,12 +645,14 @@ function printJson(value: unknown) {
 
 function printHelp() {
   console.log(`Usage:
+  Internal operator only. Do not expose this as a customer feature, public JSON sample, or self-serve UI action.
+
   npm run recora:phase1:operator -- --client-config .\\tmp\\client-project.json
   npm run recora:phase1:operator -- --client-config .\\tmp\\client-project.json --execute-local --skip-bootstrap --customer-data-boundary-confirmed --measurement-run-id <completed-openai-run-id> --apply-aggregate --generate-recommendations
   npm run recora:phase1:operator -- --client-config .\\tmp\\client-project.json --execute-local --execute-measurement --confirm-measurement-execution run-openai:<project-slug> --profile small-v01 --apply-aggregate --generate-recommendations
 
 Options:
-  --client-config <json>              Required client bootstrap JSON.
+  --client-config <json>              Required per-client operator JSON. Keep it in tmp/ or another untracked path.
   --execute-local                     Checkpoint for local DB writes. Omit for dry-run.
   --skip-bootstrap                    Do not call prepare-recora-client-project.ts. Required for existing measurement-run flow.
   --customer-data-boundary-confirmed  Use only when an existing project has been checked as customer_data.

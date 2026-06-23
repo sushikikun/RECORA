@@ -4,6 +4,8 @@ Last updated: 2026-06-22
 
 This runbook defines the plan-only operating cycle after a Phase 1 customer project has been bootstrapped. It is for administrator planning and review before any OpenAI measurement or database write happens.
 
+The Phase 1 operator command is internal-operator-only. Do not expose it to customers, make it a broadly clickable admin UI action, or add public sample client JSON. Build each input JSON for the specific engagement and keep it in `tmp/` or another untracked operator path.
+
 Phase 1 remains administrator-operated:
 
 1. Review the bootstrapped customer project.
