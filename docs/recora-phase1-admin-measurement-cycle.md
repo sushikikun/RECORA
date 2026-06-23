@@ -47,6 +47,37 @@ npx tsx scripts/plan-recora-report-cycle.ts --input .\tmp\recora-report-cycle-pl
 
 The script intentionally has no `--execute` flag. Unknown CLI arguments are rejected.
 
+## Internal Operations UI
+
+Phase 1 also has an internal-only planning screen:
+
+```text
+/dashboard/admin/operations
+/dashboard/admin/operations/<project-slug>
+```
+
+This UI is for Recora operators only. It is not linked from customer-facing reports, dashboard navigation, public sample pages, or self-serve customer flows.
+
+The initial UI is plan-only:
+
+- lists projects visible to the existing read model.
+- shows the current measurement, aggregate, recommendation, and report-ready status.
+- lists existing completed OpenAI measurement runs.
+- lets an operator choose aggregate / recommendation / report-ready planning options.
+- displays planned stages, skipped stages, blockers, next operator actions, and existing CLI command suggestions.
+
+The UI does not:
+
+- run OpenAI measurement.
+- spawn CLI child processes.
+- write to Supabase or Postgres.
+- save aggregate snapshots.
+- save recommendations.
+- apply migrations.
+- edit API keys or environment values.
+
+Because a durable internal administrator session is not yet wired into the app, the route is not enabled by normal dashboard navigation. It should only be opened in local operator development with the explicit local UI flag enabled. Vercel environments, production access, non-local hosts, and normal anonymous access must fail closed.
+
 ## Input Contract
 
 The planning JSON should contain:
