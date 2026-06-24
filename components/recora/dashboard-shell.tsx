@@ -90,37 +90,37 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#F6FAF9] text-[#0F172A]">
-      <div className="grid min-h-screen lg:grid-cols-[256px_minmax(0,1fr)]">
-        <aside className="border-b border-[#DDE8E5] bg-white text-[#0F172A] lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
-          <div className="flex h-full flex-col bg-white">
-            <div className="px-5 py-6">
-              <Link href="/dashboard" className="flex items-center gap-3 px-1">
+    <div className="min-h-screen bg-[#F7F9FA] text-[#0F172A]">
+      <div className="grid min-h-screen lg:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="border-b border-[#0B4E44]/20 bg-[#003A32] text-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:border-white/10">
+          <div className="flex h-full flex-col bg-[linear-gradient(180deg,#003F36_0%,#00372F_48%,#002C26_100%)]">
+            <div className="px-2.5 py-2.5">
+              <Link href="/dashboard" className="flex items-center gap-2 rounded-lg px-1 py-0.5 transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6FE1C3]/80">
                 <LogoMark />
                 <span>
-                  <span className="block text-xl font-bold tracking-tight">Recora</span>
-                  <span className="block text-xs font-medium text-[#64748B]">レコラ</span>
+                  <span className="block text-base font-bold tracking-normal text-white">Recora</span>
+                  <span className="block text-xs font-medium text-[#A8DAD2]">レコラ</span>
                 </span>
               </Link>
 
-              <div className="mt-6 rounded-[18px] border border-[#DDE8E5] bg-[#F6FAF9] p-4 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]">
-                <div className="flex items-center gap-2 text-xs font-semibold text-[#64748B]">
-                  <PanelTop className="h-3.5 w-3.5 text-[#00796B]" />
+              <div className="mt-2 rounded-md border border-white/10 bg-white/[0.04] p-2">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#9ECFC7]">
+                  <PanelTop className="h-3.5 w-3.5 text-[#6FE1C3]" strokeWidth={1.8} />
                   現在のプロジェクト
                 </div>
                 <Link
                   href={currentReportHref}
-                  className="mt-2 block text-sm font-bold leading-5 text-[#0F172A] hover:text-[#00796B]"
+                  className="mt-1.5 block rounded-md text-[13px] font-bold leading-5 text-white transition hover:text-[#6FE1C3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6FE1C3]/80"
                 >
                   Recora
                 </Link>
-                <div className="mt-3 text-xs font-semibold text-[#64748B]">
+                <div className="mt-1.5 text-[11px] font-semibold text-[#9ECFC7]">
                   {reportId ? "現在のレポート" : "レポート一覧から選択"}
                 </div>
               </div>
             </div>
 
-            <nav className="relative flex-1 space-y-3 overflow-y-auto px-4 pb-7">
+            <nav className="relative flex-1 space-y-1 overflow-y-auto px-2.5 pb-3">
               {navGroups.map((group) => (
                 <NavGroup
                   key={group.label}
@@ -131,18 +131,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   onToggle={toggleSection}
                 />
               ))}
-              <div className="pointer-events-none sticky bottom-0 h-7 bg-gradient-to-t from-white to-transparent" />
+              <div className="pointer-events-none sticky bottom-0 h-6 bg-gradient-to-t from-[#002C26] to-transparent" />
             </nav>
 
-            <div className="border-t border-[#DDE8E5] p-4">
-              <div className="rounded-[18px] border border-[#DDE8E5] bg-[#F6FAF9] p-4 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#E6F4F1] text-[#00796B]">
-                    <Sparkles className="h-4 w-4" />
+            <div className="border-t border-white/10 p-2">
+              <div className="rounded-md border border-white/10 bg-white/[0.04] p-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#6FE1C3]/12 text-[#6FE1C3]">
+                    <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-[#0F172A]">Recora Workspace</p>
-                    <p className="truncate text-xs text-[#64748B]">プロダクト管理</p>
+                    <p className="truncate text-[13px] font-bold text-white">Recora ワークスペース</p>
+                    <p className="truncate text-[11px] text-[#9ECFC7]">プロダクト管理</p>
                   </div>
                 </div>
               </div>
@@ -150,8 +150,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
 
-        <main className="min-w-0 bg-[#F6FAF9]">
-          <div className="mx-auto w-full max-w-[1480px] px-4 py-7 sm:px-5 lg:px-7 xl:px-8">
+        <main className="min-w-0 bg-transparent">
+          <div className="mx-auto w-full max-w-[1504px] px-4 py-5 sm:px-5 lg:px-6 xl:px-7">
             {children}
           </div>
         </main>
@@ -162,11 +162,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
 function LogoMark() {
   return (
-    <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] bg-[#00796B] text-sm font-black text-white shadow-[0_12px_28px_rgba(0,121,107,0.22)]">
-      <span className="absolute bottom-2 left-2 flex items-end gap-0.5" aria-hidden="true">
-        <span className="h-2 w-1 rounded-sm bg-white/80" />
-        <span className="h-3 w-1 rounded-sm bg-white/80" />
-        <span className="h-4 w-1 rounded-sm bg-white/80" />
+    <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#E6F4F1] text-[13px] font-black text-[#003F36] ring-1 ring-white/20">
+      <span className="absolute bottom-1.5 left-1.5 flex items-end gap-0.5" aria-hidden="true">
+        <span className="h-2 w-1 rounded-sm bg-[#00796B]/75" />
+        <span className="h-3 w-1 rounded-sm bg-[#00796B]/75" />
+        <span className="h-4 w-1 rounded-sm bg-[#00796B]/75" />
       </span>
       <span className="relative ml-2">R</span>
     </span>
@@ -218,15 +218,15 @@ function NavGroup({
         aria-controls={`recora-sidebar-${group.label}`}
         onClick={() => onToggle(group.label)}
         className={cn(
-          "flex w-full items-center justify-between rounded-xl px-3 py-1.5 text-left text-[11px] font-bold uppercase tracking-wider text-[#64748B] transition-colors hover:bg-[#E6F4F1] hover:text-[#005C50] focus:outline-none focus:ring-2 focus:ring-[#00796B]/70",
-          isActiveSection && "bg-[#E6F4F1] text-[#005C50]"
+          "flex w-full items-center justify-between rounded-lg px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-wider text-[#9ECFC7] transition-colors hover:bg-white/8 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#6FE1C3]/80",
+          isActiveSection && "bg-white/10 text-white"
         )}
       >
         <span>{group.label}</span>
         {expanded ? (
-          <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+          <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" strokeWidth={1.8} />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+          <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" strokeWidth={1.8} />
         )}
       </button>
       <div id={`recora-sidebar-${group.label}`} className="mt-1 space-y-1">
@@ -247,19 +247,19 @@ function NavLink({ item, pathname, nested = false }: { item: RecoraNavItem; path
       href={item.href}
       title={item.description ?? item.label}
       className={cn(
-        "group flex min-h-10 items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-bold text-[#64748B] transition-colors hover:bg-[#E6F4F1] hover:text-[#005C50]",
-        nested && "ml-2 border-l border-[#DDE8E5] pl-3",
-        isActive && "bg-[#E6F4F1] text-[#005C50] shadow-[inset_3px_0_0_#00796B]"
+        "group flex min-h-8 items-center gap-2.5 rounded-md border-l-2 border-transparent px-2.5 py-1.5 text-[13px] font-bold text-[#B8DAD4] transition-colors hover:bg-white/8 hover:text-white",
+        nested && "ml-1.5 pl-2",
+        isActive && "border-[#6FE1C3] bg-[#E6F4F1] text-[#003F36]"
       )}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      <Icon className="h-4 w-4 shrink-0 text-current" strokeWidth={1.85} />
       <span className="min-w-0 flex-1">
         <span className="block truncate">{item.label}</span>
         {item.status === "preparing" ? (
           <span
             className={cn(
-              "mt-0.5 inline-flex rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-[#64748B]",
-              isActive && "bg-white text-[#00796B]"
+              "mt-0.5 inline-flex rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-[#9ECFC7]",
+              isActive && "bg-[#E6F4F1] text-[#00796B]"
             )}
           >
             準備中
