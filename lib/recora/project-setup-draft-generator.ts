@@ -61,6 +61,9 @@ type GeneratedTopicKey =
   | "category-discovery"
   | "problem-solution"
   | "selection-criteria"
+  | "alternative-search"
+  | "pricing-reputation"
+  | "regulated-risk"
   | "citation-check"
   | "branded-sentiment"
   | "local-regional";
@@ -73,6 +76,7 @@ type GenerationContext = {
   isLocal: boolean;
   isRegulatedOrHighTrust: boolean;
   businessModel: BusinessModelKind;
+  industryAdapter: string;
   categoryLabel: string;
   targetCustomerLabel: string;
   regionLabel: string;
@@ -179,7 +183,7 @@ export function generatePersonaDrafts(seed: ProjectSetupSeedInput): PersonaDraft
   if (validateProjectSetupSeedInput(normalizedSeed).length > 0) return [];
 
   const context = buildGenerationContext(normalizedSeed);
-  const builders: PersonaSpec[] = context.isB2B ? buildB2BPersonaSpecs(context) : buildB2CPersonaSpecs(context);
+  const builders = buildPersonaSpecs(context);
   const uniqueSpecs = uniqueBy(builders, (spec) => `${spec.key}:${spec.roleType}:${spec.buyerStage}`);
 
   return uniqueSpecs.slice(0, 4).map((spec) => createPersonaDraft(context, spec));
@@ -195,23 +199,10 @@ export function generateTopicDrafts(seed: ProjectSetupSeedInput, personas: reado
   );
   if (promptReadyPersonas.length === 0) return [];
 
-  const topics: TopicDraft[] = [
-    createTopicDraft(context, "category-discovery", promptReadyPersonas[0]),
-    createTopicDraft(context, "problem-solution", promptReadyPersonas[Math.min(1, promptReadyPersonas.length - 1)]),
-    createTopicDraft(context, "selection-criteria", promptReadyPersonas[0])
-  ];
-
-  if (context.isLocal) {
-    topics.push(createTopicDraft(context, "local-regional", promptReadyPersonas[0]));
-  }
-
-  if (shouldGenerateCitationCheck(normalizedSeed)) {
-    topics.push(createTopicDraft(context, "citation-check", promptReadyPersonas[0]));
-  }
-
-  if (shouldGenerateBrandedSentiment(normalizedSeed)) {
-    topics.push(createTopicDraft(context, "branded-sentiment", promptReadyPersonas[0]));
-  }
+  const topicKeys = selectGeneratedTopicKeys(context, normalizedSeed);
+  const topics = topicKeys.map((key) =>
+    createTopicDraft(context, key, selectPersonaForTopic(key, promptReadyPersonas))
+  );
 
   return uniqueBy(topics, (topic) => `${topic.topicType}:${normalizeForDedupe(topic.topicName)}`).slice(0, 6);
 }
@@ -393,18 +384,23 @@ function buildGenerationContext(seed: ProjectSetupSeedInput): GenerationContext 
   const seedHash = stableHash(stableSeedString(seed));
   const isJapanese = isJapaneseLanguage(seed.language);
   const businessModel = classifyBusinessModel(seed);
-  const isB2B = businessModel === "b2b_software" || businessModel === "b2b_service";
+  const isB2B = isB2BBusinessModel(seed, businessModel);
   const isLocal = businessModel === "local_service" || isLocalIntent(seed);
   const isRegulatedOrHighTrust = isRegulatedOrHighTrustIndustry(seed);
+  const industryAdapter = getIndustryAdapter(businessModel);
   const categoryLabel = buildCategoryLabel(seed, isJapanese);
   const targetCustomerLabel = sanitizeForPrompt(seed.targetCustomers, seed) || (isJapanese ? "対象顧客" : "target customers");
+  const normalizedTargetCustomerLabel = hasText(seed.targetCustomers)
+    ? targetCustomerLabel
+    : isJapanese ? "対象顧客" : "target customers";
   const regionLabel = buildRegionLabel(seed, isJapanese);
   const warnings = buildContextWarnings(seed, {
     isLocal,
     isRegulatedOrHighTrust,
     businessModel,
+    industryAdapter,
     categoryLabel,
-    targetCustomerLabel
+    targetCustomerLabel: normalizedTargetCustomerLabel
   });
   const riskFlags = uniqueStrings([
     "generated_from_minimum_input",
@@ -421,11 +417,252 @@ function buildGenerationContext(seed: ProjectSetupSeedInput): GenerationContext 
     isLocal,
     isRegulatedOrHighTrust,
     businessModel,
+    industryAdapter,
     categoryLabel,
-    targetCustomerLabel,
+    targetCustomerLabel: normalizedTargetCustomerLabel,
     regionLabel,
     warnings,
     riskFlags
+  };
+}
+
+function buildPersonaSpecs(context: GenerationContext): PersonaSpec[] {
+  if (context.businessModel === "b2b_software") return buildB2BSoftwarePersonaSpecs(context);
+  if (context.businessModel === "professional_service") return buildProfessionalServicePersonaSpecs(context);
+  if (context.businessModel === "healthcare") return buildHealthcarePersonaSpecs(context);
+  if (context.businessModel === "education") return buildEducationPersonaSpecs(context);
+  if (context.businessModel === "local_service") return buildLocalServicePersonaSpecs(context);
+  if (context.isB2B) return buildB2BPersonaSpecs(context);
+  return buildB2CPersonaSpecs(context);
+}
+
+function buildB2BSoftwarePersonaSpecs(context: GenerationContext): PersonaSpec[] {
+  const label = context.targetCustomerLabel;
+  return [
+    personaSpec(context, {
+      key: "executive-sponsor",
+      jaName: `${label}の導入判断者`,
+      enName: `${label} adoption decision maker`,
+      roleType: "decision_maker",
+      detailedDecisionRole: "decision_maker",
+      roleMappingReason: "Approves adoption fit and business risk, so maps to decision_maker.",
+      buyerStage: "comparison"
+    }),
+    personaSpec(context, {
+      key: "workflow-owner",
+      jaName: `${label}の実務利用者`,
+      enName: `${label} workflow owner`,
+      roleType: "end_user",
+      detailedDecisionRole: "operations_manager",
+      roleMappingReason: "Daily workflow pain and rollout friction map to end_user.",
+      buyerStage: "exploration",
+      confidenceOffset: -2
+    }),
+    personaSpec(context, {
+      key: "vendor-evaluator",
+      jaName: `${label}の比較評価担当者`,
+      enName: `${label} vendor evaluator`,
+      roleType: "evaluator",
+      detailedDecisionRole: "evaluator",
+      roleMappingReason: "Compares options, proof, and shortlist fit before handoff, so maps to evaluator.",
+      buyerStage: "comparison",
+      confidenceOffset: -3
+    }),
+    personaSpec(context, {
+      key: "technical-reviewer",
+      jaName: `${label}の技術・運用確認者`,
+      enName: `${label} technical and operations reviewer`,
+      roleType: "technical_reviewer",
+      detailedDecisionRole: "technical_reviewer",
+      roleMappingReason: "Software adoption usually needs security, data, integration, or operations review.",
+      buyerStage: "validation",
+      confidenceOffset: -5
+    })
+  ];
+}
+
+function buildProfessionalServicePersonaSpecs(context: GenerationContext): PersonaSpec[] {
+  const label = context.targetCustomerLabel;
+  return [
+    personaSpec(context, {
+      key: "client-decision-maker",
+      jaName: `${label}の相談・依頼判断者`,
+      enName: `${label} service decision maker`,
+      roleType: context.isB2B ? "decision_maker" : "purchaser",
+      detailedDecisionRole: context.isB2B ? "decision_maker" : "purchaser",
+      roleMappingReason: "Owns whether to contact or hire the professional service provider.",
+      buyerStage: "comparison"
+    }),
+    personaSpec(context, {
+      key: "expert-evaluator",
+      jaName: `${label}の専門性比較担当者`,
+      enName: `${label} expertise evaluator`,
+      roleType: "evaluator",
+      detailedDecisionRole: "client_side_evaluator",
+      roleMappingReason: "Checks expertise, case fit, fee clarity, and consultation process, so maps to evaluator.",
+      buyerStage: "validation",
+      confidenceOffset: -2
+    }),
+    personaSpec(context, {
+      key: "fee-risk-buyer",
+      jaName: `${label}の費用・リスク確認者`,
+      enName: `${label} fee and risk buyer`,
+      roleType: context.isB2B ? "economic_buyer" : "comparator",
+      detailedDecisionRole: context.isB2B ? "economic_buyer" : "high_ticket_evaluator",
+      roleMappingReason: "Fee, scope, and risk reduction drive the decision, so this role checks economics and proof.",
+      buyerStage: "decision",
+      confidenceOffset: -4
+    }),
+    personaSpec(context, {
+      key: "first-consulter",
+      jaName: `${label}の初回相談者`,
+      enName: `${label} first-time consulter`,
+      roleType: context.isB2B ? "end_user" : "user",
+      detailedDecisionRole: "first_time_consulter",
+      roleMappingReason: "First-contact anxiety and process clarity change the search intent.",
+      buyerStage: "exploration",
+      confidenceOffset: -5
+    })
+  ];
+}
+
+function buildHealthcarePersonaSpecs(context: GenerationContext): PersonaSpec[] {
+  const label = context.targetCustomerLabel;
+  return [
+    personaSpec(context, {
+      key: "local-comparator",
+      jaName: `${label}の地域比較者`,
+      enName: `${label} local option comparator`,
+      roleType: "comparator",
+      detailedDecisionRole: "local_comparator",
+      roleMappingReason: "Location, reviews, price, qualifications, and appointment flow drive comparison.",
+      buyerStage: "comparison"
+    }),
+    personaSpec(context, {
+      key: "first-time-user",
+      jaName: `${label}の初回相談者`,
+      enName: `${label} first-time consulter`,
+      roleType: "user",
+      detailedDecisionRole: "user",
+      roleMappingReason: "The service recipient needs safe general information and consultation-preparation checks.",
+      buyerStage: "exploration",
+      confidenceOffset: -3
+    }),
+    personaSpec(context, {
+      key: "family-sponsor",
+      jaName: `${label}の家族・紹介者`,
+      enName: `${label} family or referral influencer`,
+      roleType: "recommender_influencer",
+      detailedDecisionRole: "family_decision_maker",
+      roleMappingReason: "Family or referral involvement is plausible in healthcare, but remains a cautious hypothesis.",
+      buyerStage: "validation",
+      confidenceOffset: -8
+    })
+  ];
+}
+
+function buildEducationPersonaSpecs(context: GenerationContext): PersonaSpec[] {
+  const label = context.targetCustomerLabel;
+  return [
+    personaSpec(context, {
+      key: "learner-comparator",
+      jaName: `${label}の学習先比較者`,
+      enName: `${label} education option comparator`,
+      roleType: "comparator",
+      detailedDecisionRole: "comparator",
+      roleMappingReason: "Compares curriculum, support, schedule, price, and reputation before choosing.",
+      buyerStage: "comparison"
+    }),
+    personaSpec(context, {
+      key: "payer-or-guardian",
+      jaName: `${label}の支払い・保護者判断者`,
+      enName: `${label} payer or guardian decision maker`,
+      roleType: "purchaser",
+      detailedDecisionRole: "purchaser",
+      roleMappingReason: "Pays, approves, or books the learning option, so maps to purchaser.",
+      buyerStage: "decision",
+      confidenceOffset: -2
+    }),
+    personaSpec(context, {
+      key: "learner-user",
+      jaName: `${label}の受講者`,
+      enName: `${label} learner user`,
+      roleType: "user",
+      detailedDecisionRole: "user",
+      roleMappingReason: "The learner's fit, anxiety, and outcome evidence needs differ from the payer.",
+      buyerStage: "exploration",
+      confidenceOffset: -4
+    })
+  ];
+}
+
+function buildLocalServicePersonaSpecs(context: GenerationContext): PersonaSpec[] {
+  const label = context.targetCustomerLabel;
+  return [
+    personaSpec(context, {
+      key: "local-comparator",
+      jaName: `${label}の近隣比較者`,
+      enName: `${label} local comparator`,
+      roleType: "comparator",
+      detailedDecisionRole: "local_comparator",
+      roleMappingReason: "Nearby availability, access, reviews, price, and trust signals drive comparison.",
+      buyerStage: "comparison"
+    }),
+    personaSpec(context, {
+      key: "booking-purchaser",
+      jaName: `${label}の予約・申込判断者`,
+      enName: `${label} booking purchaser`,
+      roleType: "purchaser",
+      detailedDecisionRole: "purchaser",
+      roleMappingReason: "Books, pays, or chooses the provider, so maps to purchaser.",
+      buyerStage: "decision",
+      confidenceOffset: -2
+    }),
+    personaSpec(context, {
+      key: "first-time-user",
+      jaName: `${label}の初回利用者`,
+      enName: `${label} first-time user`,
+      roleType: "user",
+      detailedDecisionRole: "user",
+      roleMappingReason: "First-use concerns and experience risk change the prompt angle.",
+      buyerStage: "exploration",
+      confidenceOffset: -4
+    }),
+    personaSpec(context, {
+      key: "repeat-user",
+      jaName: `${label}の継続・再利用者`,
+      enName: `${label} repeat user`,
+      roleType: "repeat_user",
+      detailedDecisionRole: "repeat_buyer",
+      roleMappingReason: "Repeat use or switching decisions require different retention and trust checks.",
+      buyerStage: "validation",
+      confidenceOffset: -6
+    })
+  ];
+}
+
+function personaSpec(
+  context: GenerationContext,
+  input: {
+    key: string;
+    jaName: string;
+    enName: string;
+    roleType: PersonaRoleType;
+    detailedDecisionRole: string;
+    roleMappingReason: string;
+    buyerStage: BuyerStage;
+    confidenceOffset?: number;
+  }
+): PersonaSpec {
+  return {
+    key: input.key,
+    displayName: context.isJapanese ? input.jaName : input.enName,
+    roleType: input.roleType,
+    detailedDecisionRole: input.detailedDecisionRole,
+    roleMappingReason: input.roleMappingReason,
+    buyerStage: input.buyerStage,
+    promptReadiness: "usable_with_caution",
+    confidenceOffset: input.confidenceOffset ?? 0
   };
 }
 
@@ -692,6 +929,74 @@ function getTopicSpec(context: GenerationContext, key: GeneratedTopicKey): {
     };
   }
 
+  if (key === "alternative-search") {
+    return {
+      topicName: context.isJapanese ? `${context.categoryLabel}の代替手段と比較候補` : `${context.categoryLabel} alternatives and comparable options`,
+      topicType: "alternative_search_topic",
+      diagnosisGoal: context.isJapanese
+        ? "ブランド名を含めずに、代替手段・周辺サービス・内製/外注/他カテゴリの選択肢がAI回答にどう出るかを観測する。"
+        : "Observe which alternatives, adjacent services, or build-vs-buy paths appear without seeding the brand.",
+      buyerStage: "comparison",
+      metricTarget: eligibleMarket,
+      brandMentionPolicy: "brand_excluded",
+      expectedSignal: context.isJapanese
+        ? "代替手段、候補カテゴリ、比較軸、推奨順または候補セットがAI回答に現れるか。"
+        : "Alternative paths, candidate categories, comparison axes, and a comparable set appear in the answer.",
+      riskOrBias: context.isJapanese
+        ? "既知競合が未入力の場合は実名競合を発明せず、未知競合・カテゴリ候補の発見として扱う。"
+        : "When competitors are missing, do not invent named competitors; treat the prompt as unknown competitor/category discovery.",
+      handoffSkill: "recora-competitor-benchmark"
+    };
+  }
+
+  if (key === "pricing-reputation") {
+    return {
+      topicName: context.isJapanese ? `${context.categoryLabel}の料金・評判・信頼確認` : `${context.categoryLabel} price, reputation, and trust checks`,
+      topicType: "pricing_reputation_topic",
+      diagnosisGoal: context.isJapanese
+        ? "料金、口コミ、実績、相談/申込前の確認事項が、AI回答でどの程度慎重に整理されるかを観測する。"
+        : "Observe how AI answers handle price, reviews, proof, and pre-contact checks without inventing current facts.",
+      buyerStage: "validation",
+      metricTarget: nonMarketSupport,
+      brandMentionPolicy: "brand_excluded",
+      expectedSignal: context.isJapanese
+        ? "料金確認、口コミの扱い、実績・資格・相談フローなどの確認軸が出るか。"
+        : "Price checks, review caveats, proof needs, credentials, and consultation flow appear.",
+      riskOrBias: context.isJapanese
+        ? "未測定の料金・口コミ・実績を事実として断定しない。評価基準プロンプトとしてvisibility/rankingからは除外する。"
+        : "Do not assert unmeasured prices, reviews, or results. Criteria prompts stay excluded from visibility/ranking.",
+      handoffSkill: context.isRegulatedOrHighTrust
+        ? "recora-recommendation-quality-gate-auditor"
+        : "recora-prompt-topic-designer"
+    };
+  }
+
+  if (key === "regulated-risk") {
+    return {
+      topicName: context.isJapanese ? `${context.categoryLabel}の安全・資格・リスク確認` : `${context.categoryLabel} safety, qualification, and risk checks`,
+      topicType: "regulated_risk_topic",
+      diagnosisGoal: context.isJapanese
+        ? "医療・法律・金融・不動産・採用などの高信頼領域で、AI回答が断定や保証を避け、確認事項へ安全に変換できるかを観測する。"
+        : "Observe whether AI avoids guarantees or direct advice in high-trust categories and converts risky intent into verification checks.",
+      buyerStage: "validation",
+      metricTarget: {
+        visibilityRate: "excluded",
+        ranking: "excluded",
+        sentiment: "excluded",
+        citationCheck: "excluded",
+        riskCheck: "eligible"
+      },
+      brandMentionPolicy: "brand_excluded",
+      expectedSignal: context.isJapanese
+        ? "資格、説明範囲、費用、リスク、専門家への相談前に確認すべき点が慎重に出るか。"
+        : "Qualifications, scope, fees, risks, and pre-specialist questions appear with cautious language.",
+      riskOrBias: context.isJapanese
+        ? "診断・治療・法律判断・投資助言・結果保証を求める文言にしない。"
+        : "Do not ask for diagnosis, treatment, legal judgment, investment advice, or guaranteed outcomes.",
+      handoffSkill: "recora-recommendation-quality-gate-auditor"
+    };
+  }
+
   if (key === "citation-check") {
     return {
       topicName: context.isJapanese ? `${context.categoryLabel}の引用元・根拠確認` : `${context.categoryLabel} citation and evidence behavior`,
@@ -881,6 +1186,66 @@ function getPromptSpecForTopic(context: GenerationContext, topic: TopicDraft): {
     });
   }
 
+  if (topic.topicType === "alternative_search_topic") {
+    return makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${category}を検討するとき、代替手段や比較候補になり得るサービス・会社・内製方法を挙げ、違いを簡単に整理してください。`
+        : `When considering ${category}, list comparable services, companies, or internal alternatives and briefly explain the differences.`,
+      rawUserIntent: context.isJapanese ? `${category} 代替 比較候補` : `${category} alternatives comparison`,
+      languageMode: context.isB2B ? "professional_research" : "comparison_shortcut",
+      category: "alternative_search",
+      intent: "comparison",
+      intentType: "comparison",
+      responseShape: "comparative_set",
+      candidateMentionOpportunity: "direct",
+      rankingOpportunity: "comparable_set",
+      qualityScore: 76,
+      gateReason: "Alternative-search prompt is non-branded and can expose comparable sets, but needs review before measurement.",
+      seedTerms: [context.seed.industryCategory, context.seed.targetCustomers],
+      riskFlags: uniqueStrings([...baseRiskFlags, "unknown_competitor_discovery_not_named_competitor_evidence"])
+    });
+  }
+
+  if (topic.topicType === "pricing_reputation_topic") {
+    return makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${category}を選ぶ前に、料金、口コミ、実績、相談や申込前の注意点はどのように確認すべきですか。`
+        : `Before choosing ${category}, how should someone check price, reviews, proof, and pre-contact cautions?`,
+      rawUserIntent: context.isJapanese ? `${category} 料金 口コミ 失敗したくない` : `${category} price reviews avoid bad choice`,
+      languageMode: context.isJapanese && !context.isB2B ? "anxious_user" : "natural_conversation",
+      category: "pricing_reputation",
+      intent: "solution_aware",
+      intentType: "risk_checking",
+      responseShape: "evaluation_criteria",
+      candidateMentionOpportunity: "weak",
+      rankingOpportunity: "weak",
+      qualityScore: 76,
+      gateReason: "Price and reputation prompt is useful for risk review but excluded from market metrics unless revised into candidate discovery.",
+      seedTerms: [context.seed.industryCategory, ...context.seed.regions],
+      riskFlags: uniqueStrings([...baseRiskFlags, "price_review_claims_need_verification"])
+    });
+  }
+
+  if (topic.topicType === "regulated_risk_topic") {
+    return makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${category}を検討するとき、効果や結果を断定せずに、資格、費用、説明範囲、リスク、専門家への相談前に確認すべき点を整理してください。`
+        : `When considering ${category}, summarize what to verify about qualifications, fees, scope, risks, and pre-specialist questions without guaranteeing outcomes.`,
+      rawUserIntent: context.isJapanese ? `${category} 不安 安全 資格 確認` : `${category} safety qualification risk check`,
+      languageMode: context.isJapanese ? "anxious_user" : "natural_conversation",
+      category: "persona_based",
+      intent: "solution_aware",
+      intentType: "risk_checking",
+      responseShape: "evaluation_criteria",
+      candidateMentionOpportunity: "none",
+      rankingOpportunity: "none",
+      qualityScore: 78,
+      gateReason: "Regulated-risk prompt safely transforms risky intent into verification criteria and remains excluded from market metrics.",
+      seedTerms: [context.seed.industryCategory, context.seed.targetCustomers],
+      riskFlags: uniqueStrings([...baseRiskFlags, "risky_intent_safely_transformed", "outcome_guarantee_language_forbidden"])
+    });
+  }
+
   if (topic.topicType === "citation_evidence_topic") {
     return makeNonBrandedPromptSpec(context, {
       text: context.isJapanese
@@ -1035,6 +1400,12 @@ function buildInputCompletion(seed: ProjectSetupSeedInput, context: GenerationCo
       note: "Deterministic inference from industry, service description, target customers, and regions."
     },
     {
+      field: "industryAdapter",
+      status: "inferred",
+      value: context.industryAdapter,
+      note: "Used only to shape draft personas, topics, and prompts; not treated as verified customer evidence."
+    },
+    {
       field: "generationMode",
       status: "inferred",
       value: "deterministic_rule_based_draft",
@@ -1088,10 +1459,65 @@ function normalizeSeedInput(seed: ProjectSetupSeedInput): ProjectSetupSeedInput 
   };
 }
 
+function isB2BBusinessModel(seed: ProjectSetupSeedInput, businessModel: BusinessModelKind) {
+  if (businessModel === "b2b_software" || businessModel === "b2b_service" || businessModel === "recruiting_hr") return true;
+  if (businessModel !== "professional_service") return false;
+  const text = normalizeForMatch(`${seed.industryCategory} ${seed.productOrServiceDescription} ${seed.targetCustomers}`);
+  return containsAny(text, [
+    "b2b",
+    "btob",
+    "business",
+    "company",
+    "enterprise",
+    "corporate",
+    "法人",
+    "企業",
+    "事業者",
+    "経営者",
+    "部門",
+    "マーケティング",
+    "営業",
+    "人事"
+  ]);
+}
+
+function getIndustryAdapter(businessModel: BusinessModelKind) {
+  if (businessModel === "b2b_software") return "b2b_saas";
+  if (businessModel === "professional_service") return "professional_services";
+  if (businessModel === "healthcare") return "clinic_healthcare";
+  if (businessModel === "education") return "education_school";
+  if (businessModel === "local_service") return "local_service";
+  if (businessModel === "ecommerce") return "ecommerce_product";
+  if (businessModel === "real_estate") return "real_estate";
+  if (businessModel === "recruiting_hr") return "recruiting_hr";
+  if (businessModel === "b2b_service") return "b2b_service";
+  return "minimum_input_generic";
+}
+
 function classifyBusinessModel(seed: ProjectSetupSeedInput): BusinessModelKind {
   const text = normalizeForMatch(
     `${seed.industryCategory} ${seed.productOrServiceDescription} ${seed.targetCustomers} ${seed.regions.join(" ")}`
   );
+
+  if (containsAny(text, ["clinic", "hospital", "healthcare", "medical", "dental", "beauty clinic", "クリニック", "病院", "医療", "歯科", "美容医療", "整体", "治療院"])) {
+    return "healthcare";
+  }
+  if (containsAny(text, ["real estate", "property", "不動産", "賃貸", "売買", "住宅"])) return "real_estate";
+  if (containsAny(text, ["recruiting", "staffing", "hr", "採用", "人材", "求人"])) return "recruiting_hr";
+  if (containsAny(text, ["school", "course", "education", "lesson", "スクール", "講座", "教育", "学習", "塾", "学校"])) return "education";
+  if (containsAny(text, ["ecommerce", "online shop", "d2c", "通販", "オンラインショップ", "ecサイト"])) return "ecommerce";
+  if (containsAny(text, ["consulting", "agency", "professional service", "law firm", "accounting", "士業", "コンサル", "制作会社", "代理店", "税理士", "弁護士", "会計", "社労士"])) {
+    return "professional_service";
+  }
+  if (containsAny(text, ["saas", "software", "system", "tool", "platform", "ソフトウェア", "システム", "ツール", "プラットフォーム"])) {
+    return "b2b_software";
+  }
+  if (containsAny(text, ["b2b", "btob", "business", "company", "enterprise", "法人", "企業", "事業者", "チーム"])) {
+    return "b2b_service";
+  }
+  if (containsAny(text, ["local", "nearby", "regional", "area", "store", "salon", "restaurant", "予約", "店舗", "地域", "近く", "サロン", "飲食", "訪問", "出張"])) {
+    return "local_service";
+  }
 
   if (containsAny(text, ["clinic", "hospital", "healthcare", "medical", "dental", "beauty clinic", "クリニック", "医療", "歯科", "美容医療"])) {
     return "healthcare";
@@ -1118,6 +1544,9 @@ function classifyBusinessModel(seed: ProjectSetupSeedInput): BusinessModelKind {
 
 function isLocalIntent(seed: ProjectSetupSeedInput) {
   const text = normalizeForMatch(`${seed.industryCategory} ${seed.productOrServiceDescription} ${seed.targetCustomers} ${seed.regions.join(" ")}`);
+  if (containsAny(text, ["local", "nearby", "regional", "area", "store", "clinic", "restaurant", "地域", "近く", "店舗", "通える", "来店", "予約", "訪問", "出張", "クリニック", "学校", "塾", "サロン"])) {
+    return true;
+  }
   if (containsAny(text, ["local", "nearby", "regional", "area", "store", "clinic", "restaurant", "地域", "近く", "店舗", "通える", "来店", "予約"])) {
     return true;
   }
@@ -1126,6 +1555,28 @@ function isLocalIntent(seed: ProjectSetupSeedInput) {
 
 function isRegulatedOrHighTrustIndustry(seed: ProjectSetupSeedInput) {
   const text = normalizeForMatch(`${seed.industryCategory} ${seed.productOrServiceDescription} ${seed.targetCustomers} ${seed.knownRisks?.join(" ") ?? ""}`);
+  if (containsAny(text, [
+    "healthcare",
+    "medical",
+    "clinic",
+    "finance",
+    "insurance",
+    "legal",
+    "security",
+    "real estate",
+    "recruiting",
+    "医療",
+    "クリニック",
+    "歯科",
+    "金融",
+    "保険",
+    "法律",
+    "弁護士",
+    "税理士",
+    "不動産",
+    "採用",
+    "セキュリティ"
+  ])) return true;
   return containsAny(text, [
     "healthcare",
     "medical",
@@ -1171,6 +1622,7 @@ function buildContextWarnings(
     isLocal: boolean;
     isRegulatedOrHighTrust: boolean;
     businessModel: BusinessModelKind;
+    industryAdapter: string;
     categoryLabel: string;
     targetCustomerLabel: string;
   }
@@ -1198,6 +1650,9 @@ function buildContextWarnings(
   if (context.businessModel === "unknown") {
     warnings.push("business_model_inference_needs_confirmation");
   }
+  if (context.industryAdapter === "minimum_input_generic") {
+    warnings.push("industry_adapter_generic_prompt_angles_need_review");
+  }
   if (isBroadTargetCustomer(seed.targetCustomers)) {
     warnings.push("target_customers_broad_personas_need_confirmation");
   }
@@ -1221,6 +1676,72 @@ function shouldGenerateBrandedSentiment(seed: ProjectSetupSeedInput) {
   return goals.length === 0 || goals.includes("sentiment") || goals.includes("brand_perception") || goals.includes("branded");
 }
 
+function shouldGenerateAlternativeSearch(seed: ProjectSetupSeedInput) {
+  const goals = seed.diagnosisGoals ?? [];
+  return goals.length === 0 || goals.includes("comparison") || goals.includes("buyer_intent") || goals.includes("non_branded");
+}
+
+function shouldGeneratePricingReputation(context: GenerationContext, seed: ProjectSetupSeedInput) {
+  const goals = seed.diagnosisGoals ?? [];
+  return context.isLocal ||
+    context.businessModel === "healthcare" ||
+    context.businessModel === "education" ||
+    context.businessModel === "professional_service" ||
+    context.businessModel === "ecommerce" ||
+    context.businessModel === "real_estate" ||
+    goals.includes("comparison") ||
+    goals.includes("buyer_intent");
+}
+
+function selectGeneratedTopicKeys(context: GenerationContext, seed: ProjectSetupSeedInput): GeneratedTopicKey[] {
+  const candidates: { key: GeneratedTopicKey; priority: number; enabled: boolean }[] = [
+    { key: "category-discovery", priority: 100, enabled: true },
+    { key: "branded-sentiment", priority: shouldGenerateBrandedSentiment(seed) ? 96 : 20, enabled: shouldGenerateBrandedSentiment(seed) },
+    { key: "citation-check", priority: shouldGenerateCitationCheck(seed) ? 94 : 20, enabled: shouldGenerateCitationCheck(seed) },
+    { key: "regulated-risk", priority: 92, enabled: context.isRegulatedOrHighTrust },
+    { key: "local-regional", priority: 90, enabled: context.isLocal },
+    { key: "selection-criteria", priority: 88, enabled: true },
+    { key: "alternative-search", priority: 86, enabled: shouldGenerateAlternativeSearch(seed) },
+    { key: "pricing-reputation", priority: 82, enabled: shouldGeneratePricingReputation(context, seed) },
+    { key: "problem-solution", priority: 78, enabled: true }
+  ];
+  const selected = candidates
+    .filter((candidate) => candidate.enabled)
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, 6)
+    .map((candidate) => candidate.key);
+  const outputOrder: GeneratedTopicKey[] = [
+    "category-discovery",
+    "problem-solution",
+    "alternative-search",
+    "selection-criteria",
+    "local-regional",
+    "pricing-reputation",
+    "regulated-risk",
+    "citation-check",
+    "branded-sentiment"
+  ];
+  return outputOrder.filter((key) => selected.includes(key));
+}
+
+function selectPersonaForTopic(key: GeneratedTopicKey, personas: readonly PersonaDraft[]) {
+  const preferredRolesByTopic: Record<GeneratedTopicKey, readonly PersonaRoleType[]> = {
+    "category-discovery": ["evaluator", "comparator", "decision_maker", "purchaser"],
+    "problem-solution": ["end_user", "user", "evaluator", "comparator"],
+    "alternative-search": ["evaluator", "comparator", "agency_or_consultant", "decision_maker"],
+    "selection-criteria": ["evaluator", "technical_reviewer", "economic_buyer", "comparator"],
+    "local-regional": ["comparator", "purchaser", "user"],
+    "pricing-reputation": ["economic_buyer", "purchaser", "comparator", "evaluator"],
+    "regulated-risk": ["user", "recommender_influencer", "evaluator", "comparator"],
+    "citation-check": ["evaluator", "technical_reviewer", "decision_maker", "comparator"],
+    "branded-sentiment": ["decision_maker", "purchaser", "evaluator", "comparator"]
+  };
+  const preferredRoles = preferredRolesByTopic[key];
+  return preferredRoles
+    .map((role) => personas.find((persona) => persona.roleType === role))
+    .find((persona): persona is PersonaDraft => persona != null) ?? personas[0];
+}
+
 function buildRoleSpecificConcern(context: GenerationContext, roleType: PersonaRoleType) {
   if (context.isJapanese) {
     if (roleType === "technical_reviewer") return "セキュリティ、連携、データ管理、運用負荷を確認したい";
@@ -1233,6 +1754,10 @@ function buildRoleSpecificConcern(context: GenerationContext, roleType: PersonaR
 
   if (roleType === "technical_reviewer") return "Needs to check security, integrations, data handling, and operational effort.";
   if (roleType === "evaluator") return "Needs to organize candidate differences and comparison axes quickly.";
+  if (roleType === "economic_buyer") return "Needs to verify budget, scope, ROI, contract risk, and hidden cost.";
+  if (roleType === "agency_or_consultant") return "Needs client-safe evidence, repeatable reporting value, and clear support scope.";
+  if (roleType === "recommender_influencer") return "Needs trust and caution points before recommending the option to someone else.";
+  if (roleType === "repeat_user") return "Needs to decide whether continued use or switching is justified.";
   if (roleType === "end_user" || roleType === "user") return "Needs to understand usability and likely failure points before adopting.";
   if (roleType === "purchaser") return "Needs to check price, trust, and pre-purchase cautions.";
   if (roleType === "comparator") return "Needs to compare reviews, price, proximity, and trust signals.";
