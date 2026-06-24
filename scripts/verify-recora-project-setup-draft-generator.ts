@@ -21,6 +21,9 @@ import {
   validateGeneratedProjectSetupDraft
 } from "../lib/recora/project-setup-draft-generator";
 
+const MAX_PROMPTS_PER_TOPIC = 4;
+const MAX_GENERATED_PROMPTS = 18;
+
 type ValidCase = {
   id: string;
   seed: ProjectSetupSeedInput;
@@ -191,6 +194,11 @@ console.log(JSON.stringify({
     nonBrandedPromptsExcludeBrandSignals: true,
     brandedPromptsExcludedFromVisibilityRankingSov: true,
     brandedSentimentSeparated: true,
+    multiplePromptVariantsPerTopic: true,
+    promptVariantCountsBounded: true,
+    promptVariantLanguageModesCovered: true,
+    selectionTopicHasCriteriaAndCandidateVariants: true,
+    citationCheckSeparatedFromMarketMetrics: true,
     buyerIntentAndAlternativePromptsCanBeMetricEligible: true,
     criteriaAndRiskPromptsExcludedFromMarketMetrics: true,
     unapprovedPromptsNotMeasurementReady: true,
@@ -215,7 +223,8 @@ function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
   assert.ok(draft.personas.length <= 4);
   assert.ok(draft.topics.length >= 3);
   assert.ok(draft.topics.length <= 6);
-  assert.ok(draft.prompts.length >= draft.topics.length);
+  assert.ok(draft.prompts.length >= draft.topics.length + 3);
+  assert.ok(draft.prompts.length <= MAX_GENERATED_PROMPTS);
   assert.equal(draft.competitors.length, 0);
   assert.equal(draft.citationAngles.length, 0);
   assert.equal(draft.pageImprovementAngles.length, 0);
@@ -224,6 +233,7 @@ function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
   assertNoDuplicateValues(draft.topics.map((topic) => topic.topicId), "topicId");
   assertNoDuplicateValues(draft.prompts.map((prompt) => prompt.promptId), "promptId");
   assertNoDuplicateValues(draft.prompts.map((prompt) => normalize(prompt.text)), "prompt text");
+  assertPromptVariantCoverage(draft);
 
   for (const item of draft.inputCompletion) {
     assert.ok(item.status === "provided" || item.status === "inferred" || item.status === "missing" || item.status === "needs_confirmation");
@@ -289,6 +299,11 @@ function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
   const sentimentEligibility = derivePromptMetricEligibility(brandedSentimentPrompt, brandIdentity);
   assert.equal(sentimentEligibility.sentiment, "eligible");
   assert.equal(sentimentEligibility.brandPerception, "eligible");
+  const brandedPrompts = draft.prompts.filter((prompt) => prompt.brandMentionRule === "brand_included");
+  assert.ok(brandedPrompts.length >= 1);
+  assert.ok(brandedPrompts.length <= 2);
+  assert.ok(brandedPrompts.some((prompt) => prompt.intent === "sentiment"));
+  assert.ok(brandedPrompts.some((prompt) => prompt.intent === "brand_perception"));
 
   const marketPrompt = draft.prompts.find((prompt) =>
     prompt.brandMentionRule === "brand_excluded" &&
@@ -306,6 +321,54 @@ function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
   assert.ok(materializationDecision.blockers.includes("draft_review_status_not_approved"));
 }
 
+function assertPromptVariantCoverage(draft: ProjectSetupDraft) {
+  const brandIdentity = getBrandIdentityFromDraft(draft);
+  const promptsByTopic = new Map<string, PromptDraft[]>();
+  for (const prompt of draft.prompts) {
+    promptsByTopic.set(prompt.topicId, [...(promptsByTopic.get(prompt.topicId) ?? []), prompt]);
+  }
+
+  for (const topic of draft.topics) {
+    const topicPrompts = promptsByTopic.get(topic.topicId) ?? [];
+    assert.ok(topicPrompts.length >= topic.minimumPromptCount, `${topic.topicType} has too few prompts`);
+    assert.ok(topicPrompts.length <= MAX_PROMPTS_PER_TOPIC, `${topic.topicType} has too many prompts`);
+    if (topic.minimumPromptCount >= 3) {
+      assert.ok(new Set(topicPrompts.map((prompt) => prompt.languageMode)).size >= 2, `${topic.topicType} lacks language mode variety`);
+    }
+  }
+
+  const multiPromptTopics = draft.topics.filter((topic) =>
+    topic.topicType !== "citation_evidence_topic" && topic.topicType !== "branded_sentiment_topic"
+  );
+  assert.ok(multiPromptTopics.every((topic) => (promptsByTopic.get(topic.topicId) ?? []).length >= 2));
+
+  const selectionTopic = draft.topics.find((topic) => topic.topicType === "persona_specific_topic");
+  assert.ok(selectionTopic);
+  const selectionPrompts = promptsByTopic.get(selectionTopic.topicId) ?? [];
+  assert.ok(selectionPrompts.length >= 3);
+  assert.ok(selectionPrompts.some((prompt) => prompt.responseShape === "evaluation_criteria"));
+  assert.ok(selectionPrompts.some((prompt) => {
+    const eligibility = derivePromptMetricEligibility(prompt, brandIdentity);
+    return prompt.brandMentionRule === "brand_excluded" &&
+      prompt.responseShape === "ranked_recommendation" &&
+      eligibility.visibilityRate === "eligible" &&
+      eligibility.ranking === "eligible";
+  }));
+
+  const citationPrompts = draft.prompts.filter((prompt) => prompt.intent === "citation_check" || prompt.category === "citation_check");
+  if (draft.topics.some((topic) => topic.topicType === "citation_evidence_topic")) {
+    assert.ok(citationPrompts.length >= 1);
+    assert.ok(citationPrompts.length <= 2);
+  } else {
+    assert.equal(citationPrompts.length, 0);
+  }
+  for (const prompt of citationPrompts) {
+    const eligibility = derivePromptMetricEligibility(prompt, brandIdentity);
+    assertMarketMetricsExcluded(prompt, eligibility);
+    assert.equal(eligibility.citationCheck, "eligible");
+  }
+}
+
 function assertCaseSpecificQuality(testCase: ValidCase, draft: ProjectSetupDraft) {
   const roleTypes = new Set(draft.personas.map((persona) => persona.roleType));
   for (const role of testCase.requiredRoles) {
@@ -320,8 +383,9 @@ function assertCaseSpecificQuality(testCase: ValidCase, draft: ProjectSetupDraft
   if (testCase.requiresRegulatedReview) {
     assert.ok(draft.riskFlags.includes("regulated_or_high_trust_review_required"));
     assert.ok(draft.topics.some((topic) => topic.topicType === "regulated_risk_topic" && topic.metricTarget.riskCheck === "eligible"));
-    const regulatedPrompt = draft.prompts.find((prompt) => prompt.intentType === "risk_checking");
+    const regulatedPrompt = draft.prompts.find((prompt) => prompt.riskFlags.includes("risky_intent_safely_transformed"));
     assert.ok(regulatedPrompt);
+    assert.equal(regulatedPrompt.intentType, "risk_checking");
     assert.ok(regulatedPrompt.riskFlags.includes("risky_intent_safely_transformed"));
     assertNoUnsafeRegulatedPrompt(regulatedPrompt.text);
   }

@@ -71,15 +71,32 @@ npm run recora:project-setup-draft-generator:eval
 
 まだスキル同等ではない点:
 
-- 1 topic につき prompt は最小1件なので、標準診断の prompt set 密度には届かない。
+- topicごとの prompt variant は増えたが、site text や customer evidence に基づく標準診断の prompt set 密度にはまだ届かない。
 - persona は site/customer evidence ではなく最小入力からの仮説で、validated customer segment ではない。
 - 実競合、実引用URL、source-to-claim、ページ改善候補は生成しない。
 - raw search-like / anxious wording は一部に入ったが、業界ごとの語彙はまだ固定ルール中心。
 - citation / competitor / schema skill への本格 handoff payload は未実装。
 
+## prompt variation policy
+
+今回のgeneratorは、`1 topic -> 1 prompt` の薄い設計から、topicごとに複数の `PromptDraft` を作る設計へ広げる。
+
+基本方針:
+
+- 通常topicは2件前後、selection/localのようにbuyer intentや意思決定が濃いtopicは3件前後、citation/brandedは1から2件に抑える。
+- 全体は最大18件、topic単位では最大4件に抑え、標準診断の下書きとして過剰生成しない。
+- 追加promptは、同じ意味の言い換えではなく、buyer journey、persona role、language mode、response shape、metric eligibility のいずれかが変わることを条件にする。
+- `persona_specific_topic` は、criteria確認だけでなく、候補が自然に出るnon-branded shortlist promptも持つ。ただしcriteria-only promptはvisibility/ranking/SOVに入れない。
+- `citation_evidence_topic` は citation/source 確認専用で、ranking evidence として扱わない。
+- `branded_sentiment_topic` は sentiment / brand perception 専用で、visibility/ranking/SOVから除外する。
+- non-branded promptにはbrand name、alias、domainを混ぜない。比較promptにtarget brandが入る場合は市場metric対象にしない。
+- BtoB SaaS、professional services、clinic/school、regional service では、文体と確認軸を変える。BtoBでは承認・運用負荷・証拠、専門サービスでは費用・実績・相談前確認、clinic/schoolでは不安・資格・リスク、地域サービスでは近さ・予約・口コミ・料金を重視する。
+- 不十分seedではprompt数を無理に増やさず、blocker/warningと空draftを返す。
+- 生成promptはすべて `needs_review` / `revise_before_measurement` のままにし、`derivePromptMetricEligibility` と `getPromptMeasurementReadiness` で既存のmetric/readiness判定を通す。
+
 ## 次のPR候補
 
-- topic ごとの prompt variant を2-3件に増やし、buyer stage と language mode の coverage を広げる。
+- site text / customer evidence を受け取れるようになった後、prompt variant の語彙を実データで段階的に上げる。
 - seed に `knownCompetitors` がある場合だけ competitor comparison prompt を安全に分離する。
 - site text / customer evidence を受け取れるようになった後、persona confidence と sourceStatus を段階的に上げる。
 - `recora-ai-citation-analysis` 向けの source observation placeholder を、生成ではなく handoff plan として設計する。

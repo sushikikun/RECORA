@@ -43,6 +43,8 @@ export const PROJECT_SETUP_DRAFT_GENERATOR_VERSION = "project_setup_draft_genera
 const GENERATED_DRAFT_REVIEW_STATUS: DraftReviewStatus = "needs_review";
 const GENERATED_ITEM_REVIEW_STATUS: DraftReviewStatus = "needs_review";
 const DEFAULT_GENERATED_AT: string | null = null;
+const MAX_PROMPTS_PER_TOPIC = 4;
+const MAX_GENERATED_PROMPTS = 18;
 
 type BusinessModelKind =
   | "b2b_software"
@@ -93,6 +95,32 @@ type PersonaSpec = {
   buyerStage: BuyerStage;
   promptReadiness: PersonaPromptReadiness;
   confidenceOffset: number;
+};
+
+type PromptSpec = {
+  text: string;
+  rawUserIntent: string;
+  languageMode: PromptLanguageMode;
+  category: PromptCategory;
+  intent: PromptIntent;
+  intentType: PromptIntentType;
+  brandingMode: PromptDraft["brandingMode"];
+  brandMentionRule: PromptBrandMentionRule;
+  competitorMentionRule: PromptCompetitorMentionRule;
+  responseShape: PromptResponseShape;
+  candidateMentionOpportunity: PromptCandidateMentionOpportunity;
+  rankingOpportunity: PromptRankingOpportunity;
+  qualityScore: number;
+  gateDecision: PromptGateDecision;
+  gateReason: string;
+  seedTerms: readonly string[];
+  seedContaminationRisk: PromptSeedContaminationRisk;
+  confidenceScore: number;
+  riskFlags: readonly string[];
+};
+
+type PromptVariantSpec = PromptSpec & {
+  variantKey: string;
 };
 
 export type ProjectSetupDraftGenerationOptions = {
@@ -218,10 +246,17 @@ export function generatePromptDrafts(
   const context = buildGenerationContext(normalizedSeed);
   const personaById = new Map(personas.map((persona) => [persona.personaId, persona]));
   const prompts = topics
-    .map((topic) => createPromptDraftForTopic(context, topic, personaById.get(topic.targetPersonaId ?? "")))
-    .filter((prompt): prompt is PromptDraft => prompt !== null);
+    .flatMap((topic) =>
+      generatePromptVariantsForTopic(
+        context,
+        topic,
+        personas,
+        personaById.get(topic.targetPersonaId ?? "")
+      )
+    );
 
-  return uniqueBy(prompts, (prompt) => normalizeForDedupe(prompt.text));
+  return uniqueBy(prompts, (prompt) => normalizePromptTextForDeduplication(prompt.text))
+    .slice(0, MAX_GENERATED_PROMPTS);
 }
 
 export function deduplicateProjectSetupDraft(draft: ProjectSetupDraft): ProjectSetupDraft {
@@ -300,6 +335,19 @@ export function validateGeneratedProjectSetupDraft(draft: ProjectSetupDraft): Pr
     if (prompt.brandMentionRule === "brand_included" && prompt.responseShape !== "branded_sentiment_answer") {
       warnings.push(`prompt ${prompt.promptId} branded_prompt_should_use_branded_sentiment_response_shape`);
     }
+  }
+
+  for (const topic of draft.topics) {
+    const topicPrompts = draft.prompts.filter((prompt) => prompt.topicId === topic.topicId);
+    if (topicPrompts.length < topic.minimumPromptCount) {
+      blockers.push(`topic ${topic.topicId} generated_topic_under_minimum_prompt_count`);
+    }
+    if (topicPrompts.length > MAX_PROMPTS_PER_TOPIC) {
+      blockers.push(`topic ${topic.topicId} generated_topic_over_prompt_count_cap`);
+    }
+  }
+  if (draft.prompts.length > MAX_GENERATED_PROMPTS) {
+    blockers.push("generated_prompt_count_exceeds_cap");
   }
 
   return {
@@ -839,7 +887,7 @@ function createTopicDraft(context: GenerationContext, key: GeneratedTopicKey, pe
     metricTarget: topic.metricTarget,
     brandMentionPolicy: topic.brandMentionPolicy,
     expectedSignal: topic.expectedSignal,
-    minimumPromptCount: 1,
+    minimumPromptCount: getMinimumPromptCountForTopic(topic.topicType),
     riskOrBias: topic.riskOrBias,
     handoffSkill: topic.handoffSkill,
     topicQualityDecision: "topic_ready",
@@ -847,6 +895,14 @@ function createTopicDraft(context: GenerationContext, key: GeneratedTopicKey, pe
     confidenceScore: clampScore(72 - (context.isRegulatedOrHighTrust ? 5 : 0)),
     reviewStatus: GENERATED_ITEM_REVIEW_STATUS
   };
+}
+
+function getMinimumPromptCountForTopic(topicType: TopicType) {
+  if (topicType === "persona_specific_topic") return 3;
+  if (topicType === "local_regional_topic") return 3;
+  if (topicType === "citation_evidence_topic") return 1;
+  if (topicType === "branded_sentiment_topic") return 1;
+  return 2;
 }
 
 function getTopicSpec(context: GenerationContext, key: GeneratedTopicKey): {
@@ -1076,15 +1132,38 @@ function getTopicSpec(context: GenerationContext, key: GeneratedTopicKey): {
   };
 }
 
-function createPromptDraftForTopic(
+function generatePromptVariantsForTopic(
   context: GenerationContext,
   topic: TopicDraft,
-  persona: PersonaDraft | undefined
+  personas: readonly PersonaDraft[],
+  primaryPersona: PersonaDraft | undefined
+): PromptDraft[] {
+  if (!primaryPersona) return [];
+
+  const variantKeys = selectPromptVariantKeysForTopic(topic);
+  const variantPersonas = selectPromptVariantPersonas(topic, personas, primaryPersona, variantKeys.length);
+  const prompts = variantKeys
+    .map((variantKey, index) => {
+      const persona = variantPersonas[index] ?? primaryPersona;
+      const spec = getPromptVariantSpecForTopic(context, topic, persona, variantKey);
+      return createPromptDraftForTopicVariant(context, topic, persona, spec);
+    })
+    .filter((prompt): prompt is PromptDraft => prompt !== null);
+
+  return uniqueBy(prompts, (prompt) => normalizePromptTextForDeduplication(prompt.text))
+    .slice(0, MAX_PROMPTS_PER_TOPIC);
+}
+
+function createPromptDraftForTopicVariant(
+  context: GenerationContext,
+  topic: TopicDraft,
+  persona: PersonaDraft | undefined,
+  spec: PromptVariantSpec
 ): PromptDraft | null {
   if (!persona) return null;
 
-  const spec = getPromptSpecForTopic(context, topic);
-  const promptId = buildScopedId("prompt", context.seedHash, topic.topicId.replace(/^topic-[^-]+-/, ""));
+  const topicKey = topic.topicId.replace(/^topic-[^-]+-/, "");
+  const promptId = buildScopedId("prompt", context.seedHash, `${topicKey}-${spec.variantKey}`);
 
   return {
     promptId,
@@ -1117,27 +1196,304 @@ function createPromptDraftForTopic(
   };
 }
 
-function getPromptSpecForTopic(context: GenerationContext, topic: TopicDraft): {
-  text: string;
-  rawUserIntent: string;
-  languageMode: PromptLanguageMode;
-  category: PromptCategory;
-  intent: PromptIntent;
-  intentType: PromptIntentType;
-  brandingMode: PromptDraft["brandingMode"];
-  brandMentionRule: PromptBrandMentionRule;
-  competitorMentionRule: PromptCompetitorMentionRule;
-  responseShape: PromptResponseShape;
-  candidateMentionOpportunity: PromptCandidateMentionOpportunity;
-  rankingOpportunity: PromptRankingOpportunity;
-  qualityScore: number;
-  gateDecision: PromptGateDecision;
-  gateReason: string;
-  seedTerms: readonly string[];
-  seedContaminationRisk: PromptSeedContaminationRisk;
-  confidenceScore: number;
-  riskFlags: readonly string[];
-} {
+function selectPromptVariantKeysForTopic(topic: TopicDraft): string[] {
+  if (topic.topicType === "persona_specific_topic") {
+    return ["criteria-check", "candidate-shortlist", "implementation-approval"];
+  }
+  if (topic.topicType === "local_regional_topic") {
+    return ["local-ranked", "local-review-price", "local-first-visit"];
+  }
+  if (topic.topicType === "citation_evidence_topic") {
+    return ["citation-source-check", "citation-evidence-types"];
+  }
+  if (topic.topicType === "branded_sentiment_topic") {
+    return ["brand-reputation", "brand-perception-fit"];
+  }
+  if (topic.topicType === "regulated_risk_topic") {
+    return ["risk-verification", "qualification-source-check"];
+  }
+  if (topic.topicType === "alternative_search_topic") {
+    return ["alternative-comparable-set", "build-buy-substitute"];
+  }
+  if (topic.topicType === "pricing_reputation_topic") {
+    return ["price-review-check", "trust-proof-check"];
+  }
+  if (topic.topicType === "problem_solution_topic") {
+    return ["problem-aware-candidate", "solution-category-comparison"];
+  }
+  return ["category-ranked-shortlist", "category-comparison-axes"];
+}
+
+function getPromptVariantSpecForTopic(
+  context: GenerationContext,
+  topic: TopicDraft,
+  persona: PersonaDraft,
+  variantKey: string
+): PromptVariantSpec {
+  if (variantKey === "criteria-check" ||
+    variantKey === "local-ranked" ||
+    variantKey === "citation-source-check" ||
+    variantKey === "brand-reputation" ||
+    variantKey === "risk-verification" ||
+    variantKey === "alternative-comparable-set" ||
+    variantKey === "price-review-check" ||
+    variantKey === "problem-aware-candidate" ||
+    variantKey === "category-ranked-shortlist"
+  ) {
+    return withVariantKey(variantKey, getPromptSpecForTopic(context, topic));
+  }
+
+  const category = context.categoryLabel;
+  const region = context.regionLabel;
+  const brand = context.seed.brandName;
+  const personaLead = buildPersonaPromptLead(context, persona);
+  const personaConcern = buildRoleSpecificConcern(context, persona.roleType);
+  const baseRiskFlags = uniqueStrings([
+    "generated_prompt_needs_review",
+    "prompt_variant_generated_from_topic",
+    ...(context.isRegulatedOrHighTrust ? ["regulated_or_high_trust_review_required"] : [])
+  ]);
+
+  if (variantKey === "candidate-shortlist") {
+    return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${personaLead}、${category}の候補を比較するなら、条件に合いそうなサービスや会社を3つほど挙げ、価格・実績・サポートの観点でおすすめ順に整理してください。`
+        : `${personaLead}, when comparing ${category}, list about three suitable services or companies and order them by price, proof, and support fit.`,
+      rawUserIntent: context.isJapanese ? `${category} 候補 おすすめ 比較 条件` : `${category} shortlist recommended comparison criteria`,
+      languageMode: "comparison_shortcut",
+      category: "persona_based",
+      intent: "buyer_intent",
+      intentType: "commercial_investigation",
+      responseShape: "ranked_recommendation",
+      candidateMentionOpportunity: "direct",
+      rankingOpportunity: "direct",
+      qualityScore: 76,
+      gateReason: "Selection shortlist prompt can expose candidate mentions while staying non-branded and review-gated.",
+      seedTerms: [context.seed.industryCategory, context.seed.targetCustomers],
+      riskFlags: baseRiskFlags
+    }));
+  }
+
+  if (variantKey === "implementation-approval") {
+    return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${personaLead}、${category}を導入・依頼する前に、社内承認、運用負荷、サポート範囲、失敗しやすい点をどう確認すべきですか。`
+        : `${personaLead}, before adopting or hiring ${category}, what should be checked about approval, operating effort, support scope, and likely failure points?`,
+      rawUserIntent: context.isJapanese ? `${category} 導入前 承認 運用負荷 サポート 失敗` : `${category} approval implementation effort support risk`,
+      languageMode: context.isB2B ? "professional_research" : "anxious_user",
+      category: "persona_based",
+      intent: "solution_aware",
+      intentType: "risk_checking",
+      responseShape: "evaluation_criteria",
+      candidateMentionOpportunity: "weak",
+      rankingOpportunity: "weak",
+      qualityScore: 76,
+      gateReason: "Implementation and approval prompt supports decision quality but remains excluded from visibility/ranking.",
+      seedTerms: [context.seed.industryCategory],
+      riskFlags: baseRiskFlags
+    }));
+  }
+
+  if (variantKey === "local-review-price") {
+    return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${region}で${category}を探す人は、料金、口コミ、予約しやすさ、アクセスをどう比べると失敗を避けやすいですか。`
+        : `When looking for ${category} in ${region}, how should someone compare price, reviews, booking ease, and access to avoid a poor choice?`,
+      rawUserIntent: context.isJapanese ? `${region} ${category} 口コミ 料金 予約しやすい` : `${region} ${category} reviews price booking`,
+      languageMode: "anxious_user",
+      category: "pricing_reputation",
+      intent: "solution_aware",
+      intentType: "risk_checking",
+      responseShape: "evaluation_criteria",
+      candidateMentionOpportunity: "weak",
+      rankingOpportunity: "weak",
+      qualityScore: 76,
+      gateReason: "Local price and review prompt keeps consumer anxiety while excluding criteria-only answers from market metrics.",
+      seedTerms: [context.seed.industryCategory, ...context.seed.regions],
+      riskFlags: uniqueStrings([...baseRiskFlags, "local_review_price_claims_need_verification"])
+    }));
+  }
+
+  if (variantKey === "local-first-visit") {
+    return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${region}で初めて${category}を利用するなら、近くの候補や代替手段をどう探し、問い合わせ前に何を確認すべきですか。`
+        : `For a first-time user in ${region}, how should they find nearby ${category} options or substitutes, and what should they check before contacting one?`,
+      rawUserIntent: context.isJapanese ? `${region} ${category} 初めて 近く 代替 問い合わせ前` : `${region} ${category} first time nearby alternatives before contact`,
+      languageMode: "raw_search_like",
+      category: "alternative_search",
+      intent: "comparison",
+      intentType: "comparison",
+      responseShape: "comparative_set",
+      candidateMentionOpportunity: "likely",
+      rankingOpportunity: "comparable_set",
+      qualityScore: 76,
+      gateReason: "Local first-visit prompt broadens nearby and substitute discovery without naming the target brand.",
+      seedTerms: [context.seed.industryCategory, ...context.seed.regions],
+      riskFlags: uniqueStrings([...baseRiskFlags, "local_market_claims_not_measured"])
+    }));
+  }
+
+  if (variantKey === "citation-evidence-types") {
+    return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${category}を比較するAI回答では、公式ページ、事例、料金、口コミ、専門家情報など、どの種類の情報源を確認すると判断しやすいですか。`
+        : `When an AI answer compares ${category}, which source types such as official pages, case studies, pricing, reviews, or expert information should be checked?`,
+      rawUserIntent: context.isJapanese ? `${category} AI回答 情報源 公式 事例 料金 口コミ` : `${category} AI answer source types official case pricing reviews`,
+      languageMode: "professional_research",
+      category: "citation_check",
+      intent: "citation_check",
+      intentType: "evidence_seeking",
+      responseShape: "evidence_answer",
+      candidateMentionOpportunity: "none",
+      rankingOpportunity: "none",
+      qualityScore: 75,
+      gateReason: "Citation evidence prompt is source-analysis only and must not be treated as ranking evidence.",
+      seedTerms: [context.seed.industryCategory],
+      riskFlags: uniqueStrings([...baseRiskFlags, "citation_check_not_ranking_evidence"])
+    }));
+  }
+
+  if (variantKey === "brand-perception-fit") {
+    return {
+      variantKey,
+      text: context.isJapanese
+        ? `${brand}は${category}を検討している人に向いていますか。利用前に確認したい強み、不安、注意点を教えてください。`
+        : `Is ${brand} a fit for someone considering ${category}? Explain strengths, concerns, and cautions to check before using it.`,
+      rawUserIntent: context.isJapanese ? `${brand} 向いている 不安 注意点` : `${brand} fit concerns cautions`,
+      languageMode: "natural_conversation",
+      category: "branded",
+      intent: "brand_perception",
+      intentType: "reputational",
+      brandingMode: "branded",
+      brandMentionRule: "brand_included",
+      competitorMentionRule: "no_competitor",
+      responseShape: "branded_sentiment_answer",
+      candidateMentionOpportunity: "none",
+      rankingOpportunity: "none",
+      qualityScore: 74,
+      gateDecision: "revise_before_measurement",
+      gateReason: "Generated brand-perception prompt is sentiment-only and excluded from visibility/ranking.",
+      seedTerms: [brand, ...(context.seed.brandAliases ?? [])],
+      seedContaminationRisk: "low",
+      confidenceScore: clampScore(68 - (context.isRegulatedOrHighTrust ? 5 : 0)),
+      riskFlags: uniqueStrings([...baseRiskFlags, "branded_prompt_excluded_from_market_metrics"])
+    };
+  }
+
+  if (variantKey === "qualification-source-check") {
+    return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${category}を慎重に比較する人は、資格、説明範囲、費用、リスク、相談前に見るべき情報源をどの順で確認するとよいですか。`
+        : `When carefully comparing ${category}, in what order should someone verify qualifications, scope, fees, risks, and sources before consulting a provider?`,
+      rawUserIntent: context.isJapanese ? `${category} 資格 費用 リスク 情報源 相談前` : `${category} qualification fee risk source before consultation`,
+      languageMode: "anxious_user",
+      category: "persona_based",
+      intent: "solution_aware",
+      intentType: "risk_checking",
+      responseShape: "evaluation_criteria",
+      candidateMentionOpportunity: "none",
+      rankingOpportunity: "none",
+      qualityScore: 78,
+      gateReason: "High-trust source-check prompt converts risky intent into verification steps and stays out of market metrics.",
+      seedTerms: [context.seed.industryCategory, context.seed.targetCustomers],
+      riskFlags: uniqueStrings([...baseRiskFlags, "risky_intent_safely_transformed", "outcome_guarantee_language_forbidden"])
+    }));
+  }
+
+  if (variantKey === "build-buy-substitute") {
+    return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${personaLead}、${category}を選ぶ前に、内製、外注、専門会社、ツール、既存のやり方をどう比べるべきですか。候補カテゴリも含めて整理してください。`
+        : `${personaLead}, before choosing ${category}, how should they compare in-house work, outsourcing, specialist providers, tools, and the current approach? Include candidate categories.`,
+      rawUserIntent: context.isJapanese ? `${category} 内製 外注 ツール 専門会社 代替` : `${category} in-house outsourcing tool agency alternatives`,
+      languageMode: context.isB2B ? "professional_research" : "comparison_shortcut",
+      category: "alternative_search",
+      intent: "comparison",
+      intentType: "comparison",
+      responseShape: "comparative_set",
+      candidateMentionOpportunity: "likely",
+      rankingOpportunity: "comparable_set",
+      qualityScore: 77,
+      gateReason: "Build-vs-buy variant supports unknown competitor and substitute discovery without inventing named competitors.",
+      seedTerms: [context.seed.industryCategory, context.seed.targetCustomers],
+      riskFlags: uniqueStrings([...baseRiskFlags, "unknown_competitor_discovery_not_named_competitor_evidence"])
+    }));
+  }
+
+  if (variantKey === "trust-proof-check") {
+    return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${personaLead}、${category}の料金や評判を見て迷う場合、実績、資格、説明内容、契約前の確認点をどう切り分けて判断すべきですか。`
+        : `${personaLead}, when price or reputation for ${category} is unclear, how should they separate proof, qualifications, explanation quality, and pre-contract checks?`,
+      rawUserIntent: context.isJapanese ? `${category} 料金 評判 実績 資格 契約前` : `${category} price reputation proof qualification pre-contract`,
+      languageMode: context.isB2B ? "professional_research" : "anxious_user",
+      category: "pricing_reputation",
+      intent: "solution_aware",
+      intentType: "risk_checking",
+      responseShape: "evaluation_criteria",
+      candidateMentionOpportunity: "weak",
+      rankingOpportunity: "weak",
+      qualityScore: 76,
+      gateReason: "Trust-proof prompt checks pricing and reputation risk without asserting unmeasured facts.",
+      seedTerms: [context.seed.industryCategory],
+      riskFlags: uniqueStrings([...baseRiskFlags, "price_review_claims_need_verification"])
+    }));
+  }
+
+  if (variantKey === "solution-category-comparison") {
+    return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
+      text: context.isJapanese
+        ? `${personaLead}、${personaConcern}という状況なら、${category}以外も含めてどんな解決策カテゴリを比べるべきですか。`
+        : `${personaLead}, if the issue is that ${personaConcern.toLowerCase()}, which solution categories should be compared, including options beyond ${category}?`,
+      rawUserIntent: context.isJapanese ? `${category} 課題 解決策カテゴリ 比較` : `${category} problem solution categories compare`,
+      languageMode: context.isB2B ? "professional_research" : "natural_conversation",
+      category: "problem_solution",
+      intent: "solution_aware",
+      intentType: "informational",
+      responseShape: "candidate_list",
+      candidateMentionOpportunity: "likely",
+      rankingOpportunity: "weak",
+      qualityScore: 75,
+      gateReason: "Solution-category variant observes candidate categories without forcing ranking.",
+      seedTerms: [context.seed.industryCategory, context.seed.targetCustomers],
+      riskFlags: baseRiskFlags
+    }));
+  }
+
+  return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
+    text: context.isJapanese
+      ? `${personaLead}、${category}を比較するとき、候補を絞る前にどの評価軸と代替カテゴリを確認すべきですか。`
+      : `${personaLead}, when comparing ${category}, what evaluation axes and alternative categories should be checked before narrowing the shortlist?`,
+    rawUserIntent: context.isJapanese ? `${category} 比較 評価軸 代替カテゴリ` : `${category} comparison criteria alternative categories`,
+    languageMode: context.isB2B ? "professional_research" : "natural_conversation",
+    category: "non_branded",
+    intent: "comparison",
+    intentType: "comparison",
+    responseShape: "comparative_set",
+    candidateMentionOpportunity: "likely",
+    rankingOpportunity: "comparable_set",
+    qualityScore: 76,
+    gateReason: "Category comparison-axis prompt broadens non-branded discovery without naming the target brand.",
+    seedTerms: [context.seed.industryCategory, context.seed.targetCustomers],
+    riskFlags: baseRiskFlags
+  }));
+}
+
+function withVariantKey(variantKey: string, spec: PromptSpec): PromptVariantSpec {
+  return {
+    ...spec,
+    variantKey
+  };
+}
+
+function buildPersonaPromptLead(context: GenerationContext, persona: PersonaDraft) {
+  return context.isJapanese
+    ? `${persona.displayName}の立場で`
+    : `From the perspective of ${persona.displayName}`;
+}
+
+function getPromptSpecForTopic(context: GenerationContext, topic: TopicDraft): PromptSpec {
   const category = context.categoryLabel;
   const region = context.regionLabel;
   const brand = context.seed.brandName;
@@ -1348,7 +1704,7 @@ function makeNonBrandedPromptSpec(
     seedTerms: readonly string[];
     riskFlags: readonly string[];
   }
-) {
+): PromptSpec {
   const brandIdentity = buildBrandIdentityFromSeed(context.seed);
   const text = ensureBrandExcludedPromptText(input.text, context, brandIdentity);
   const rawUserIntent = ensureBrandExcludedPromptText(input.rawUserIntent, context, brandIdentity);
@@ -1742,6 +2098,35 @@ function selectPersonaForTopic(key: GeneratedTopicKey, personas: readonly Person
     .find((persona): persona is PersonaDraft => persona != null) ?? personas[0];
 }
 
+function selectPromptVariantPersonas(
+  topic: TopicDraft,
+  personas: readonly PersonaDraft[],
+  primaryPersona: PersonaDraft,
+  count: number
+) {
+  const preferredRolesByTopic: Partial<Record<TopicType, readonly PersonaRoleType[]>> = {
+    category_discovery_topic: ["evaluator", "comparator", "decision_maker", "purchaser"],
+    problem_solution_topic: ["end_user", "user", "evaluator", "comparator"],
+    alternative_search_topic: ["evaluator", "comparator", "decision_maker", "agency_or_consultant"],
+    persona_specific_topic: ["evaluator", "technical_reviewer", "economic_buyer", "purchaser", "comparator"],
+    local_regional_topic: ["comparator", "purchaser", "user", "repeat_user"],
+    pricing_reputation_topic: ["economic_buyer", "purchaser", "comparator", "evaluator"],
+    regulated_risk_topic: ["user", "recommender_influencer", "evaluator", "comparator"],
+    citation_evidence_topic: ["evaluator", "technical_reviewer", "decision_maker", "comparator"],
+    branded_sentiment_topic: ["decision_maker", "purchaser", "evaluator", "comparator"]
+  };
+  const preferredRoles = preferredRolesByTopic[topic.topicType] ?? [];
+  const orderedPersonas = uniqueBy([
+    primaryPersona,
+    ...preferredRoles
+      .map((role) => personas.find((persona) => persona.roleType === role))
+      .filter((persona): persona is PersonaDraft => persona != null),
+    ...personas
+  ], (persona) => persona.personaId);
+
+  return Array.from({ length: count }, (_, index) => orderedPersonas[index % orderedPersonas.length] ?? primaryPersona);
+}
+
 function buildRoleSpecificConcern(context: GenerationContext, roleType: PersonaRoleType) {
   if (context.isJapanese) {
     if (roleType === "technical_reviewer") return "セキュリティ、連携、データ管理、運用負荷を確認したい";
@@ -1884,6 +2269,10 @@ function normalizeForMatch(value: string) {
 
 function normalizeForDedupe(value: string) {
   return normalizeForMatch(value).replace(/\s+/g, "").trim();
+}
+
+function normalizePromptTextForDeduplication(value: string) {
+  return normalizeForDedupe(value);
 }
 
 function containsAny(value: string, needles: readonly string[]) {
