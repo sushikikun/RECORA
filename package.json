@@ -13,8 +13,9 @@
     "recora:doctor": "tsx scripts/recora-dev-checks.ts doctor",
     "recora:dashboard-read-model:check": "tsx scripts/recora-dev-checks.ts dashboard-read-model-check",
     "recora:recommendation-publication-surface:check": "tsx scripts/verify-recommendation-publication-surface.ts",
+    "recora:project-setup-draft:check": "tsx scripts/verify-recora-project-setup-draft.ts",
     "recora:phase1:operator": "tsx scripts/run-recora-phase1-operator-flow.ts",
-    "recora:preflight": "npm run recora:whereami && npm run recora:before-codex && npm run recora:doctor && npm run recora:dashboard-read-model:check && npm run recora:recommendation-publication-surface:check",
+    "recora:preflight": "npm run recora:whereami && npm run recora:before-codex && npm run recora:doctor && npm run recora:dashboard-read-model:check && npm run recora:recommendation-publication-surface:check && npm run recora:project-setup-draft:check",
     "recora:preflight:full": "npm run recora:preflight && npm run typecheck",
     "recora:commit-check": "tsx scripts/recora-safe-commit.ts commit-check",
     "recora:safe-commit": "tsx scripts/recora-safe-commit.ts safe-commit"
