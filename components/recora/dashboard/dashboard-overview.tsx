@@ -110,27 +110,32 @@ const LINE_ICON_STROKE = 1.8;
 
 export function DashboardOverview({
   dashboardData = null,
-  homeReadModelData = null
+  homeReadModelData = null,
+  previewModeLabel = null
 }: {
   dashboardData?: RecoraDashboardDbData | null;
   homeReadModelData?: RecoraHomeReadModelDbData | null;
+  previewModeLabel?: string | null;
 }) {
   const view = createDashboardOverviewView(dashboardData, homeReadModelData);
 
   if (!view.isReportReady) {
     return (
       <div className="min-w-0 space-y-4">
-        <DashboardHeader view={view} />
+        <DashboardHeader view={view} previewModeLabel={previewModeLabel} />
         <DashboardPreparationPanel view={view} />
+        <TrendUnavailablePanel />
       </div>
     );
   }
 
   return (
     <div className="min-w-0 space-y-4">
-      <DashboardHeader view={view} />
+      <DashboardHeader view={view} previewModeLabel={previewModeLabel} />
 
       <VisibilitySummary view={view} />
+
+      <TrendUnavailablePanel />
 
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
         <PromptCategoryPanel rows={view.topicRows} />
@@ -156,11 +161,19 @@ export function DashboardOverview({
   );
 }
 
-function DashboardHeader({ view }: { view: DashboardOverviewView }) {
+function DashboardHeader({ view, previewModeLabel }: { view: DashboardOverviewView; previewModeLabel?: string | null }) {
   return (
     <header className="min-w-0">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
+          {previewModeLabel ? (
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="inline-flex w-fit items-center rounded-md border border-[#BFDAD4] bg-[#E6F4F1] px-2.5 py-1 text-xs font-bold text-[#005C50]">
+                {previewModeLabel}
+              </span>
+              <span className="text-xs font-semibold text-[#64748B]">本物の顧客データではありません</span>
+            </div>
+          ) : null}
           <h1 className="text-2xl font-bold tracking-normal text-[#0F172A] sm:text-3xl">
             ダッシュボード
           </h1>
@@ -182,6 +195,28 @@ function DashboardHeader({ view }: { view: DashboardOverviewView }) {
         </div>
       </div>
     </header>
+  );
+}
+
+function TrendUnavailablePanel() {
+  return (
+    <section id="trends" className="rounded-lg border border-[#D8E0E3] bg-white p-4 sm:p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="inline-flex items-center gap-2 rounded-md border border-[#D8E0E3] bg-[#FBFCFC] px-2.5 py-1 text-xs font-bold text-[#005C50]">
+            <BarChart3 className="h-4 w-4" strokeWidth={LINE_ICON_STROKE} />
+            推移
+          </div>
+          <h2 className="mt-3 text-lg font-bold tracking-normal text-[#0F172A]">比較データなし</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#64748B]">
+            比較可能な測定が2回以上ある場合に表示します。
+          </p>
+        </div>
+        <span className="w-fit rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-800">
+          NEEDS_READ_MODEL
+        </span>
+      </div>
+    </section>
   );
 }
 
@@ -398,7 +433,7 @@ function PromptCategoryPanel({ rows }: { rows: SnapshotRow[] }) {
           <div className="grid grid-cols-[minmax(150px,1.2fr)_minmax(170px,1fr)_120px_120px] gap-0 bg-[#FBFCFC] px-4 py-3 text-sm font-bold text-[#64748B] max-lg:hidden">
             <span>カテゴリ</span>
             <span>AI表示率</span>
-            <span>平均順位</span>
+            <span>平均表示位置</span>
             <span>比較</span>
           </div>
           <div className="divide-y divide-[#D8E0E3]">
@@ -491,11 +526,11 @@ function CompetitorAuditPanel({ rows }: { rows: CompetitorRow[] }) {
                       {row.isPrimary ? "自社" : "競合"}
                     </span>
                   </div>
-                  <p className="mt-1 text-sm text-[#64748B]">平均順位 {row.averagePositionLabel}</p>
+                  <p className="mt-1 text-sm text-[#64748B]">平均表示位置 {row.averagePositionLabel}</p>
                 </div>
                 <InlineBar value={(row.visibility / maxVisibility) * 100} label={row.visibilityLabel} />
                 <div className="min-w-0 rounded-md border border-[#D8E0E3] bg-[#FBFCFC] px-3 py-2 2xl:border-0 2xl:bg-transparent 2xl:px-0 2xl:py-0">
-                  <p className="text-[11px] font-bold text-[#64748B] 2xl:hidden">言及比率</p>
+                  <p className="text-[11px] font-bold text-[#64748B] 2xl:hidden">言及シェア</p>
                   <p className="whitespace-nowrap text-sm font-bold tabular-nums text-[#0F172A]">{row.shareOfVoiceLabel}</p>
                 </div>
                 <div className="min-w-0 rounded-md border border-[#D8E0E3] bg-[#FBFCFC] px-3 py-2 2xl:border-0 2xl:bg-transparent 2xl:px-0 2xl:py-0">
@@ -649,7 +684,7 @@ function IssuesPanel({ rows }: { rows: IssueRow[] }) {
 function DashboardCautionPanel({ messages }: { messages: string[] }) {
   const visibleMessages = messages.length > 0
     ? messages.slice(0, 4)
-    : ["表示値はRecoraの観測範囲に基づく参考値です。"];
+    : ["表示値はRecoraの観測範囲に基づく確認材料です。"];
 
   return (
     <section className="rounded-lg border border-amber-200 bg-white p-4 sm:p-5">
@@ -853,14 +888,14 @@ function createKpis(
       icon: CheckCircle2
     },
     {
-      label: "平均掲載順位",
+      label: "平均表示位置",
       value: formatAveragePosition(snapshot?.average_position),
-      helper: "表示時の平均順位",
+      helper: "表示時の平均位置",
       tone: "mint",
       icon: BarChart3
     },
     {
-      label: "言及比率",
+      label: "言及シェア",
       value: formatPercentOrDash(snapshot?.share_of_voice),
       helper: "回答内のブランド言及率",
       tone: "slate",
@@ -987,7 +1022,7 @@ function createVisibilityComment({ hasLatestMetrics }: { hasLatestMetrics: boole
     return "観測データが揃うまで、AI検索での表示状況は準備中として扱います。";
   }
 
-  return "AI検索での露出は確認できていますが、カテゴリや競合比較では差が出る可能性があります。";
+  return "AI検索での露出は確認できています。カテゴリや競合比較の差分は各詳細で確認します。";
 }
 
 function createPreparationMessage(data?: RecoraDashboardDbData | null) {
@@ -1007,7 +1042,7 @@ function createCautionMessages(flags: RecoraHomeDataCautionFlag[]) {
       seed_measurements_excluded: "seedを含む測定は organic discovery の証拠として扱いません。",
       aggregate_runs_excluded_from_cumulative: "aggregate run は通算ホームのcountから除外しています。",
       unsafe_run_items_excluded: "失敗・partial・error の可能性がある観測はcountから除外しています。",
-      small_sample_caution: "少数観測のため、追加測定で傾向が変わる可能性があります。",
+      small_sample_caution: "サンプル不足です。",
       trend_comparability_needs_verification: "推移はcount系のみです。測定条件の完全一致は追加確認が必要です。",
       no_ai_visibility_or_competitive_gap_trend_p0: "AI可視性や競合差分の推移はP0では表示していません。"
     };
@@ -1015,7 +1050,7 @@ function createCautionMessages(flags: RecoraHomeDataCautionFlag[]) {
     if (known[flag.code]) return known[flag.code];
     if (flag.severity === "warning") return "集計値は注意付きで確認してください。";
     if (flag.severity === "needs_verification") return "一部の集計条件は追加確認が必要です。";
-    return "表示値はRecoraの観測範囲に基づく参考値です。";
+    return "表示値はRecoraの観測範囲に基づく確認材料です。";
   });
 
   return Array.from(new Set(messages));

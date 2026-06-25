@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { ReportHelpTooltip } from "@/components/recora/report-ui/report-help-tooltip";
 import { cn } from "@/lib/utils";
 
 type Tone = "blue" | "green" | "amber" | "rose" | "slate" | "purple";
@@ -120,15 +121,18 @@ export function MetricCard({
   return (
     <Card
       title={helper ? `${label}: ${helper}` : label}
-      className="min-w-0 rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]"
+      className="min-w-0 rounded-lg border border-[#D8E0E3] bg-white p-5 shadow-none"
     >
-      <div className="flex min-h-[126px] min-w-0 flex-col justify-between gap-4">
-        <p className="truncate whitespace-nowrap text-sm font-medium leading-5 text-[#64748B]">
-          {label}
-        </p>
+      <div className="flex min-h-[112px] min-w-0 flex-col justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <p className="truncate whitespace-nowrap text-sm font-medium leading-5 text-[#64748B]">
+            {label}
+          </p>
+          {helper ? <ReportHelpTooltip text={helper} label={`${label}の補足説明`} /> : null}
+        </div>
         <div className="flex min-w-0 items-end justify-between gap-3">
           <div className="min-w-0">
-            <p className="whitespace-nowrap text-4xl font-bold tracking-tight text-[#0F172A]">
+            <p className="break-words text-[clamp(1.75rem,2.1vw,2.25rem)] font-bold leading-tight tracking-normal text-[#0F172A]">
               {value}
             </p>
             <div className="mt-2 flex min-h-5 items-center gap-2">
@@ -139,9 +143,7 @@ export function MetricCard({
             <div className="w-24 shrink-0 sm:w-28 lg:w-24 2xl:w-28">
               <MiniSparkline values={sparkline} tone={tone} type={chartType} />
             </div>
-          ) : (
-            <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", toneClasses[tone])} />
-          )}
+          ) : null}
         </div>
       </div>
     </Card>
@@ -168,7 +170,6 @@ export function MetricTile({
       helper={helper}
       delta={delta}
       tone={tone === "amber" ? "amber" : tone}
-      sparkline={[34, 42, 38, 52, 49, 58, 55, 61]}
     />
   );
 }
@@ -369,8 +370,9 @@ export function SentimentPill({ value }: { value: "positive" | "neutral" | "nega
 }
 
 export function HeatmapCell({ value }: { value: number }) {
-  const alpha = 0.08 + (Math.max(0, Math.min(value, 100)) / 100) * 0.62;
-  const color = value >= 65 ? "37, 99, 235" : value >= 45 ? "14, 165, 233" : "249, 115, 22";
+  const normalized = Math.max(0, Math.min(value, 100));
+  const alpha = 0.10 + (normalized / 100) * 0.58;
+  const color = value >= 65 ? "0, 121, 107" : value >= 45 ? "20, 184, 166" : "148, 163, 184";
 
   return (
     <div

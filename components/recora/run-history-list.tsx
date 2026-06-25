@@ -27,7 +27,7 @@ export function RunHistoryList({ projectSlug, runsData, loadError = false }: Run
     <DataCard
       className="mt-5"
       title="測定履歴"
-      description="過去の測定runと集計runを確認できます。"
+      description="このレポートに紐づく測定と集計の状態を確認できます。"
       action={
         <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
           {loadError ? "取得失敗" : `${runs.length}件`}
@@ -41,21 +41,21 @@ export function RunHistoryList({ projectSlug, runsData, loadError = false }: Run
       ) : runs.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
           <p className="text-sm font-bold text-slate-700">測定履歴はまだありません。</p>
-          <p className="mt-2 text-sm leading-6 text-slate-500">小規模測定を実行すると、ここにrun履歴が表示されます。</p>
+          <p className="mt-2 text-sm leading-6 text-slate-500">小規模測定を実行すると、ここに測定履歴が表示されます。</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-        <Table className="min-w-[1120px]">
+        <>
+        <RunStatusSummary runs={runs} />
+        <div className="mt-5 min-w-0">
+        <Table className="w-full table-fixed text-sm">
           <TableHeader>
             <TableRow>
-              <TableHead className="min-w-[230px]">run id</TableHead>
-              <TableHead className="min-w-[160px]">種別・状態</TableHead>
-              <TableHead className="min-w-[220px]">実行日時</TableHead>
-              <TableHead className="min-w-[220px]">source / search</TableHead>
-              <TableHead className="min-w-[180px]">測定数</TableHead>
-              <TableHead className="min-w-[180px]">観測データ</TableHead>
-              <TableHead className="min-w-[170px]">集計</TableHead>
-              <TableHead className="min-w-[230px]">確認URL</TableHead>
+              <TableHead className="w-[130px]">測定ID</TableHead>
+              <TableHead className="w-[140px]">状態</TableHead>
+              <TableHead className="w-[170px]">実行日時</TableHead>
+              <TableHead className="w-[190px]">取得条件</TableHead>
+              <TableHead className="w-[220px]">件数</TableHead>
+              <TableHead>確認URL</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -79,7 +79,7 @@ export function RunHistoryList({ projectSlug, runsData, loadError = false }: Run
                 </TableCell>
                 <TableCell>
                   <div className="space-y-1.5">
-                    <div className="text-xs font-semibold text-slate-500">source</div>
+                    <div className="text-xs font-semibold text-slate-500">元測定</div>
                     <div className="font-mono text-xs font-bold text-slate-800" title={run.sourceRunId ?? ""}>
                       {run.sourceRunId ? shortId(run.sourceRunId) : "-"}
                     </div>
@@ -87,7 +87,7 @@ export function RunHistoryList({ projectSlug, runsData, loadError = false }: Run
                       {formatSearchMode(run.searchMode)}
                     </Badge>
                     <div className="pt-1">
-                      <div className="text-xs font-semibold text-slate-500">profile</div>
+                      <div className="text-xs font-semibold text-slate-500">測定条件</div>
                       <Badge variant="outline" className="rounded-sm border-teal-100 bg-teal-50/70 text-teal-700">
                         {formatProfileLabel(run)}
                       </Badge>
@@ -95,23 +95,12 @@ export function RunHistoryList({ projectSlug, runsData, loadError = false }: Run
                   </div>
                 </TableCell>
                 <TableCell>
-                  <CountLine label="prompt" value={run.promptCount} />
-                  <CountLine label="run_items" value={run.runItemCount} />
-                  {run.measurementProfileExpectedRunItems !== null ? (
-                    <CountLine label="profile run_items" value={run.measurementProfileExpectedRunItems} />
-                  ) : null}
-                </TableCell>
-                <TableCell>
+                  <CountLine label="プロンプト" value={run.promptCount} />
+                  <CountLine label="観測単位" value={run.runItemCount} />
                   <CountLine label="AI回答" value={run.aiConversationCount} />
                   <CountLine label="ブランド言及" value={run.brandMentionCount} />
                   <CountLine label="引用" value={run.citationCount} />
-                </TableCell>
-                <TableCell>
-                  <div className="mb-2">
-                    <AggregationBadge run={run} />
-                  </div>
-                  <CountLine label="snapshots" value={run.metricSnapshotCount} />
-                  {run.aggregateSnapshotCount > 0 ? <CountLine label="aggregate snapshots" value={run.aggregateSnapshotCount} /> : null}
+                  <CountLine label="集計値" value={run.metricSnapshotCount} />
                 </TableCell>
                 <TableCell>
                   <RunLinks projectSlug={projectSlug} run={run} />
@@ -121,15 +110,58 @@ export function RunHistoryList({ projectSlug, runsData, loadError = false }: Run
           </TableBody>
         </Table>
         </div>
+        </>
       )}
     </DataCard>
   );
 }
 
+function RunStatusSummary({ runs }: { runs: RecoraRunHistoryItem[] }) {
+  const statuses = [
+    { key: "completed", label: "完了", className: "bg-emerald-600", count: runs.filter((run) => run.status === "completed").length },
+    { key: "running", label: "実行中", className: "bg-teal-500", count: runs.filter((run) => run.status === "running").length },
+    { key: "failed", label: "失敗", className: "bg-rose-500", count: runs.filter((run) => run.status === "failed").length },
+    { key: "draft", label: "下書き", className: "bg-slate-300", count: runs.filter((run) => run.status === "draft").length }
+  ];
+  const total = Math.max(1, runs.length);
+
+  return (
+    <div className="rounded-lg border border-[#D8E0E3] bg-[#F7FAF9] p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm font-bold text-slate-950">状態の内訳</p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">このレポートに紐づく測定の完了・失敗・実行中を確認します。</p>
+        </div>
+        <p className="text-sm font-bold text-slate-600">合計 {runs.length}件</p>
+      </div>
+      <div className="mt-4 overflow-hidden rounded-full border border-slate-200 bg-white">
+        <div className="flex h-3">
+          {statuses.map((status) => (
+            <div
+              key={status.key}
+              className={cn("h-full", status.className)}
+              style={{ width: `${Math.max(status.count > 0 ? 5 : 0, Math.round((status.count / total) * 100))}%` }}
+              title={`${status.label}: ${status.count}件`}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {statuses.map((status) => (
+          <span key={status.key} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-600">
+            <span className={cn("h-2 w-2 rounded-full", status.className)} />
+            {status.label} {status.count}件
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RunKindBadge({ kind }: { kind: RecoraRunHistoryKind }) {
   const label = {
-    measurement: "OpenAI測定",
-    aggregate: "集計run",
+    measurement: "計測済み",
+    aggregate: "集計",
     sample: "初期データ",
     unknown: "不明"
   }[kind];
@@ -165,28 +197,6 @@ function RunStatusBadge({ status }: { status: RecoraRunHistoryItem["status"] }) 
   );
 }
 
-function AggregationBadge({ run }: { run: RecoraRunHistoryItem }) {
-  if (run.kind === "aggregate") {
-    return (
-      <Badge variant="outline" className="rounded-sm border-emerald-200 bg-emerald-50 text-emerald-700">
-        集計run
-      </Badge>
-    );
-  }
-
-  return (
-    <Badge
-      variant="outline"
-      className={cn(
-        "rounded-sm",
-        run.isAggregated ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600"
-      )}
-    >
-      {run.isAggregated ? "集計済み" : "未集計"}
-    </Badge>
-  );
-}
-
 function RunDateLine({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="flex min-w-0 justify-between gap-3 text-xs leading-5">
@@ -206,12 +216,13 @@ function CountLine({ label, value }: { label: string; value: number }) {
 }
 
 function RunLinks({ projectSlug, run }: { projectSlug: string; run: RecoraRunHistoryItem }) {
+  const homeHref = projectSlug === "design-check" ? "/dashboard?design-check=1" : "/dashboard";
   const detailLink = { label: "詳細", href: `/dashboard/reports/${projectSlug}/runs/${run.id}` };
   const links = run.kind === "aggregate"
     ? [
         detailLink,
-        { label: "Dashboard", href: "/dashboard" },
-        { label: "Leaderboard", href: `/dashboard/reports/${projectSlug}/leaderboard` }
+        { label: "ホーム", href: homeHref },
+        { label: "ブランド比較", href: `/dashboard/reports/${projectSlug}/leaderboard` }
       ]
     : [
         detailLink,
@@ -240,18 +251,20 @@ function shortId(value: string) {
 }
 
 function formatSearchMode(value: string | null) {
-  if (!value) return "search: -";
-  if (value === "no-search") return "no-search";
-  if (value === "web-search") return "web-search";
-  if (value === "combined") return "combined";
-  if (value === "both") return "both";
+  if (!value) return "取得条件なし";
+  if (value === "no-search") return "検索なし";
+  if (value === "web-search") return "Web検索";
+  if (value === "combined") return "検索併用";
+  if (value === "both") return "検索併用";
   return value;
 }
 
 function formatProfileLabel(run: RecoraRunHistoryItem) {
+  if (run.measurementProfileId === "design-check-local") return "表示確認用";
+  if (run.measurementProfileLabel === "LOCAL DESIGN PREVIEW") return "表示確認用";
   if (run.measurementProfileLabel) return run.measurementProfileLabel;
   if (run.kind === "measurement") return "個別測定";
-  if (run.kind === "aggregate") return "集計run";
+  if (run.kind === "aggregate") return "集計";
   if (run.kind === "sample") return "初期データ";
   return "-";
 }

@@ -1,6 +1,6 @@
 import { SourcesPage } from "@/components/recora/report-pages";
-import { getRecoraSourcesData } from "@/lib/recora/db";
 import {
+  canUseDesignCheckReport,
   normalizeReportSlug,
   renderCustomerReadyReportRoute,
   type ReportSlugPageProps
@@ -12,6 +12,11 @@ export default async function ReportSourcesPage({ params }: ReportSlugPageProps)
   const projectSlug = normalizeReportSlug(params.id);
 
   return renderCustomerReadyReportRoute(projectSlug, async () => {
+    if (canUseDesignCheckReport(projectSlug)) {
+      const { getDesignCheckSourcesData } = await import("@/lib/recora/dev-preview/design-check-report-fixture");
+      return <SourcesPage sourcesData={getDesignCheckSourcesData()} />;
+    }
+
     const sourcesData = await getSourcesDataOrNull(projectSlug);
 
     return <SourcesPage sourcesData={sourcesData} />;
@@ -20,6 +25,7 @@ export default async function ReportSourcesPage({ params }: ReportSlugPageProps)
 
 async function getSourcesDataOrNull(projectSlug: string) {
   try {
+    const { getRecoraSourcesData } = await import("@/lib/recora/db");
     const data = await getRecoraSourcesData(projectSlug);
     return data.project ? data : null;
   } catch (error) {
