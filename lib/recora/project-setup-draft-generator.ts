@@ -43,6 +43,7 @@ export const PROJECT_SETUP_DRAFT_GENERATOR_VERSION = "project_setup_draft_genera
 const GENERATED_DRAFT_REVIEW_STATUS: DraftReviewStatus = "needs_review";
 const GENERATED_ITEM_REVIEW_STATUS: DraftReviewStatus = "needs_review";
 const DEFAULT_GENERATED_AT: string | null = null;
+const MAX_GENERATED_PERSONAS = 5;
 const MAX_PROMPTS_PER_TOPIC = 4;
 const MAX_GENERATED_PROMPTS = 18;
 
@@ -214,7 +215,7 @@ export function generatePersonaDrafts(seed: ProjectSetupSeedInput): PersonaDraft
   const builders = buildPersonaSpecs(context);
   const uniqueSpecs = uniqueBy(builders, (spec) => `${spec.key}:${spec.roleType}:${spec.buyerStage}`);
 
-  return uniqueSpecs.slice(0, 4).map((spec) => createPersonaDraft(context, spec));
+  return uniqueSpecs.slice(0, MAX_GENERATED_PERSONAS).map((spec) => createPersonaDraft(context, spec));
 }
 
 export function generateTopicDrafts(seed: ProjectSetupSeedInput, personas: readonly PersonaDraft[]): TopicDraft[] {
@@ -516,6 +517,18 @@ function buildB2BSoftwarePersonaSpecs(context: GenerationContext): PersonaSpec[]
       buyerStage: "comparison",
       confidenceOffset: -3
     }),
+    ...(isHighConsiderationB2BContext(context) ? [
+      personaSpec(context, {
+        key: "economic-buyer",
+        jaName: `${label}の予算・稟議確認者`,
+        enName: `${label} budget and approval owner`,
+        roleType: "economic_buyer",
+        detailedDecisionRole: "economic_buyer",
+        roleMappingReason: "High-ticket or approval-heavy adoption needs budget, ROI, contract, and approval-risk review.",
+        buyerStage: "decision",
+        confidenceOffset: -4
+      })
+    ] : []),
     personaSpec(context, {
       key: "technical-reviewer",
       jaName: `${label}の技術・運用確認者`,
@@ -792,7 +805,19 @@ function buildB2CPersonaSpecs(context: GenerationContext): PersonaSpec[] {
       buyerStage: "exploration" as const,
       promptReadiness: "usable_with_caution" as const,
       confidenceOffset: -4
-    }
+    },
+    ...(context.businessModel === "ecommerce" ? [
+      {
+        key: "repeat-or-return-risk-user",
+        displayName: context.isJapanese ? `${label}の継続・返品条件確認者` : `${label} repeat or return-risk checker`,
+        roleType: "repeat_user" as const,
+        detailedDecisionRole: "repeat_buyer",
+        roleMappingReason: "E-commerce comparison often depends on repeat use, return policy, warranty, and post-purchase satisfaction.",
+        buyerStage: "validation" as const,
+        promptReadiness: "usable_with_caution" as const,
+        confidenceOffset: -6
+      }
+    ] : [])
   ];
 }
 
@@ -1248,6 +1273,9 @@ function getPromptVariantSpecForTopic(
   const brand = context.seed.brandName;
   const personaLead = buildPersonaPromptLead(context, persona);
   const personaConcern = buildRoleSpecificConcern(context, persona.roleType);
+  const decisionChecks = buildDecisionCheckItems(context);
+  const candidateLabel = buildCandidateEntityLabel(context);
+  const alternativeOptions = buildAlternativeOptionLabel(context);
   const baseRiskFlags = uniqueStrings([
     "generated_prompt_needs_review",
     "prompt_variant_generated_from_topic",
@@ -1257,9 +1285,9 @@ function getPromptVariantSpecForTopic(
   if (variantKey === "candidate-shortlist") {
     return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
       text: context.isJapanese
-        ? `${personaLead}、${category}の候補を比較するなら、条件に合いそうなサービスや会社を3つほど挙げ、価格・実績・サポートの観点でおすすめ順に整理してください。`
-        : `${personaLead}, when comparing ${category}, list about three suitable services or companies and order them by price, proof, and support fit.`,
-      rawUserIntent: context.isJapanese ? `${category} 候補 おすすめ 比較 条件` : `${category} shortlist recommended comparison criteria`,
+        ? `${personaLead}、${category}の候補を比較するなら、条件に合いそうな${candidateLabel}を3つほど挙げ、${decisionChecks}の観点でおすすめ順に整理してください。`
+        : `${personaLead}, when comparing ${category}, list about three suitable ${candidateLabel} and order them by ${decisionChecks}.`,
+      rawUserIntent: context.isJapanese ? `${category} 候補 おすすめ 比較 ${decisionChecks}` : `${category} shortlist recommended comparison ${decisionChecks}`,
       languageMode: "comparison_shortcut",
       category: "persona_based",
       intent: "buyer_intent",
@@ -1277,9 +1305,9 @@ function getPromptVariantSpecForTopic(
   if (variantKey === "implementation-approval") {
     return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
       text: context.isJapanese
-        ? `${personaLead}、${category}を導入・依頼する前に、社内承認、運用負荷、サポート範囲、失敗しやすい点をどう確認すべきですか。`
-        : `${personaLead}, before adopting or hiring ${category}, what should be checked about approval, operating effort, support scope, and likely failure points?`,
-      rawUserIntent: context.isJapanese ? `${category} 導入前 承認 運用負荷 サポート 失敗` : `${category} approval implementation effort support risk`,
+        ? `${personaLead}、${category}を導入・依頼・購入する前に、${decisionChecks}と失敗しやすい点をどう確認すべきですか。`
+        : `${personaLead}, before adopting, hiring, or buying ${category}, what should be checked about ${decisionChecks} and likely failure points?`,
+      rawUserIntent: context.isJapanese ? `${category} 導入前 購入前 ${decisionChecks} 失敗` : `${category} before purchase adoption ${decisionChecks} risk`,
       languageMode: context.isB2B ? "professional_research" : "anxious_user",
       category: "persona_based",
       intent: "solution_aware",
@@ -1404,9 +1432,9 @@ function getPromptVariantSpecForTopic(
   if (variantKey === "build-buy-substitute") {
     return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
       text: context.isJapanese
-        ? `${personaLead}、${category}を選ぶ前に、内製、外注、専門会社、ツール、既存のやり方をどう比べるべきですか。候補カテゴリも含めて整理してください。`
-        : `${personaLead}, before choosing ${category}, how should they compare in-house work, outsourcing, specialist providers, tools, and the current approach? Include candidate categories.`,
-      rawUserIntent: context.isJapanese ? `${category} 内製 外注 ツール 専門会社 代替` : `${category} in-house outsourcing tool agency alternatives`,
+        ? `${personaLead}、${category}を選ぶ前に、${alternativeOptions}をどう比べるべきですか。候補カテゴリも含めて整理してください。`
+        : `${personaLead}, before choosing ${category}, how should they compare ${alternativeOptions}? Include candidate categories.`,
+      rawUserIntent: context.isJapanese ? `${category} ${alternativeOptions} 代替` : `${category} ${alternativeOptions} alternatives`,
       languageMode: context.isB2B ? "professional_research" : "comparison_shortcut",
       category: "alternative_search",
       intent: "comparison",
@@ -1424,9 +1452,9 @@ function getPromptVariantSpecForTopic(
   if (variantKey === "trust-proof-check") {
     return withVariantKey(variantKey, makeNonBrandedPromptSpec(context, {
       text: context.isJapanese
-        ? `${personaLead}、${category}の料金や評判を見て迷う場合、実績、資格、説明内容、契約前の確認点をどう切り分けて判断すべきですか。`
-        : `${personaLead}, when price or reputation for ${category} is unclear, how should they separate proof, qualifications, explanation quality, and pre-contract checks?`,
-      rawUserIntent: context.isJapanese ? `${category} 料金 評判 実績 資格 契約前` : `${category} price reputation proof qualification pre-contract`,
+        ? `${personaLead}、${category}の料金や評判を見て迷う場合、${decisionChecks}と契約・購入前の確認点をどう切り分けて判断すべきですか。`
+        : `${personaLead}, when price or reputation for ${category} is unclear, how should they separate ${decisionChecks} and pre-contract or pre-purchase checks?`,
+      rawUserIntent: context.isJapanese ? `${category} 料金 評判 ${decisionChecks} 契約前 購入前` : `${category} price reputation ${decisionChecks} pre-contract pre-purchase`,
       languageMode: context.isB2B ? "professional_research" : "anxious_user",
       category: "pricing_reputation",
       intent: "solution_aware",
@@ -1497,6 +1525,9 @@ function getPromptSpecForTopic(context: GenerationContext, topic: TopicDraft): P
   const category = context.categoryLabel;
   const region = context.regionLabel;
   const brand = context.seed.brandName;
+  const decisionChecks = buildDecisionCheckItems(context);
+  const candidateLabel = buildCandidateEntityLabel(context);
+  const alternativeOptions = buildAlternativeOptionLabel(context);
   const baseRiskFlags = uniqueStrings([
     "generated_prompt_needs_review",
     ...(context.isRegulatedOrHighTrust ? ["regulated_or_high_trust_review_required"] : [])
@@ -1525,10 +1556,10 @@ function getPromptSpecForTopic(context: GenerationContext, topic: TopicDraft): P
   if (topic.topicType === "persona_specific_topic") {
     return makeNonBrandedPromptSpec(context, {
       text: context.isJapanese
-        ? `${category}を選ぶ前に、価格、実績、サポート、運用負荷はどの順番で確認すべきですか？`
-        : `Before choosing ${category}, how should price, proof, support, and adoption effort be checked?`,
-      rawUserIntent: context.isJapanese ? `${category} 選び方 確認点` : `${category} selection criteria checks`,
-      languageMode: context.isB2B ? "professional_research" : "natural_conversation",
+        ? `${category}を選ぶ前に、${decisionChecks}はどの順番で確認すべきですか？`
+        : `Before choosing ${category}, how should ${decisionChecks} be checked?`,
+      rawUserIntent: context.isJapanese ? `${category} 選び方 ${decisionChecks}` : `${category} selection criteria ${decisionChecks}`,
+      languageMode: context.isB2B ? "professional_research" : context.businessModel === "ecommerce" ? "raw_search_like" : "natural_conversation",
       category: "persona_based",
       intent: "solution_aware",
       intentType: "commercial_investigation",
@@ -1545,9 +1576,9 @@ function getPromptSpecForTopic(context: GenerationContext, topic: TopicDraft): P
   if (topic.topicType === "alternative_search_topic") {
     return makeNonBrandedPromptSpec(context, {
       text: context.isJapanese
-        ? `${category}を検討するとき、代替手段や比較候補になり得るサービス・会社・内製方法を挙げ、違いを簡単に整理してください。`
-        : `When considering ${category}, list comparable services, companies, or internal alternatives and briefly explain the differences.`,
-      rawUserIntent: context.isJapanese ? `${category} 代替 比較候補` : `${category} alternatives comparison`,
+        ? `${category}を検討するとき、代替手段や比較候補になり得る${alternativeOptions}を挙げ、違いを簡単に整理してください。`
+        : `When considering ${category}, list comparable ${alternativeOptions} and briefly explain the differences.`,
+      rawUserIntent: context.isJapanese ? `${category} ${alternativeOptions} 比較候補` : `${category} ${alternativeOptions} comparison`,
       languageMode: context.isB2B ? "professional_research" : "comparison_shortcut",
       category: "alternative_search",
       intent: "comparison",
@@ -1565,9 +1596,9 @@ function getPromptSpecForTopic(context: GenerationContext, topic: TopicDraft): P
   if (topic.topicType === "pricing_reputation_topic") {
     return makeNonBrandedPromptSpec(context, {
       text: context.isJapanese
-        ? `${category}を選ぶ前に、料金、口コミ、実績、相談や申込前の注意点はどのように確認すべきですか。`
-        : `Before choosing ${category}, how should someone check price, reviews, proof, and pre-contact cautions?`,
-      rawUserIntent: context.isJapanese ? `${category} 料金 口コミ 失敗したくない` : `${category} price reviews avoid bad choice`,
+        ? `${category}を選ぶ前に、${decisionChecks}と申込・購入前の注意点はどのように確認すべきですか。`
+        : `Before choosing ${category}, how should someone check ${decisionChecks} and pre-contact or pre-purchase cautions?`,
+      rawUserIntent: context.isJapanese ? `${category} ${decisionChecks} 失敗したくない` : `${category} ${decisionChecks} avoid bad choice`,
       languageMode: context.isJapanese && !context.isB2B ? "anxious_user" : "natural_conversation",
       category: "pricing_reputation",
       intent: "solution_aware",
@@ -1670,10 +1701,10 @@ function getPromptSpecForTopic(context: GenerationContext, topic: TopicDraft): P
 
   return makeNonBrandedPromptSpec(context, {
     text: context.isJapanese
-      ? `${category}を検討するとき、候補になるサービスや会社をおすすめ順に3つほど挙げてください。選ぶ理由も簡単に教えてください。`
-      : `When considering ${category}, list about three recommended services or companies in order and briefly explain why.`,
+      ? `${category}を検討するとき、候補になる${candidateLabel}をおすすめ順に3つほど挙げてください。選ぶ理由も簡単に教えてください。`
+      : `When considering ${category}, list about three recommended ${candidateLabel} in order and briefly explain why.`,
     rawUserIntent: context.isJapanese ? `${category} おすすめ 比較` : `${category} recommended comparison`,
-    languageMode: context.isB2B ? "professional_research" : "natural_conversation",
+    languageMode: context.isB2B ? "professional_research" : context.businessModel === "ecommerce" ? "raw_search_like" : "natural_conversation",
     category: "non_branded",
     intent: "buyer_intent",
     intentType: "commercial_investigation",
@@ -1685,6 +1716,60 @@ function getPromptSpecForTopic(context: GenerationContext, topic: TopicDraft): P
     seedTerms: [context.seed.industryCategory, context.seed.targetCustomers],
     riskFlags: baseRiskFlags
   });
+}
+
+function buildDecisionCheckItems(context: GenerationContext) {
+  if (context.isJapanese) {
+    if (context.businessModel === "ecommerce") return "価格、口コミ、返品条件、素材や品質";
+    if (context.businessModel === "healthcare") return "料金、口コミ、資格、リスク説明";
+    if (context.businessModel === "professional_service") return "費用、実績、専門性、相談前の確認点";
+    if (context.businessModel === "local_service") return "料金、口コミ、予約しやすさ、アクセス";
+    if (isHighConsiderationB2BContext(context)) return "費用対効果、移行負荷、セキュリティ、運用体制";
+    return "価格、実績、サポート、運用負荷";
+  }
+
+  if (context.businessModel === "ecommerce") return "price, reviews, return policy, material or quality";
+  if (context.businessModel === "healthcare") return "fees, reviews, qualifications, and risk explanations";
+  if (context.businessModel === "professional_service") return "fees, track record, expertise, and pre-consultation checks";
+  if (context.businessModel === "local_service") return "price, reviews, booking ease, and access";
+  if (isHighConsiderationB2BContext(context)) return "ROI, migration effort, security, and operating model";
+  return "price, proof, support, and adoption effort";
+}
+
+function buildCandidateEntityLabel(context: GenerationContext) {
+  if (context.isJapanese) {
+    if (context.businessModel === "ecommerce") return "商品やブランド";
+    if (context.businessModel === "local_service" || context.businessModel === "healthcare" || context.businessModel === "education") {
+      return "サービスや店舗";
+    }
+    if (context.businessModel === "professional_service") return "専門サービスや会社";
+    return "サービスや会社";
+  }
+
+  if (context.businessModel === "ecommerce") return "products or brands";
+  if (context.businessModel === "local_service" || context.businessModel === "healthcare" || context.businessModel === "education") {
+    return "services or local providers";
+  }
+  if (context.businessModel === "professional_service") return "professional services or firms";
+  return "services or companies";
+}
+
+function buildAlternativeOptionLabel(context: GenerationContext) {
+  if (context.isJapanese) {
+    if (context.businessModel === "ecommerce") return "別ブランド、低価格品、上位品、中古・レンタル、購入先";
+    if (context.businessModel === "local_service" || context.businessModel === "healthcare" || context.businessModel === "education") {
+      return "近隣候補、別エリア、オンライン相談、予約方法、代替サービス";
+    }
+    if (context.businessModel === "professional_service") return "専門会社、個人専門家、内製、ツール、初回相談";
+    return "内製、外注、専門会社、ツール、既存のやり方";
+  }
+
+  if (context.businessModel === "ecommerce") return "other brands, budget options, premium options, used or rental options, and purchase channels";
+  if (context.businessModel === "local_service" || context.businessModel === "healthcare" || context.businessModel === "education") {
+    return "nearby providers, other areas, online consultation, booking paths, and substitute services";
+  }
+  if (context.businessModel === "professional_service") return "specialist firms, individual experts, in-house work, tools, and first consultations";
+  return "in-house work, outsourcing, specialist providers, tools, and the current approach";
 }
 
 function makeNonBrandedPromptSpec(
@@ -1834,6 +1919,47 @@ function isB2BBusinessModel(seed: ProjectSetupSeedInput, businessModel: Business
     "マーケティング",
     "営業",
     "人事"
+  ]);
+}
+
+function isHighConsiderationB2BContext(context: GenerationContext) {
+  if (!context.isB2B) return false;
+  const text = normalizeForMatch([
+    context.seed.industryCategory,
+    context.seed.productOrServiceDescription,
+    context.seed.targetCustomers,
+    ...(context.seed.knownRisks ?? [])
+  ].join(" "));
+
+  return containsAny(text, [
+    "enterprise",
+    "procurement",
+    "budget",
+    "contract",
+    "roi",
+    "security",
+    "integration",
+    "migration",
+    "implementation",
+    "approval",
+    "high ticket",
+    "high-ticket",
+    "高単価",
+    "基幹",
+    "複数拠点",
+    "全社",
+    "大企業",
+    "エンタープライズ",
+    "予算",
+    "稟議",
+    "契約",
+    "費用対効果",
+    "セキュリティ",
+    "連携",
+    "移行",
+    "導入費用",
+    "導入負荷",
+    "dx投資"
   ]);
 }
 
@@ -2129,6 +2255,7 @@ function selectPromptVariantPersonas(
 
 function buildRoleSpecificConcern(context: GenerationContext, roleType: PersonaRoleType) {
   if (context.isJapanese) {
+    if (roleType === "economic_buyer") return "予算、費用対効果、契約条件、稟議リスクを確認したい";
     if (roleType === "technical_reviewer") return "セキュリティ、連携、データ管理、運用負荷を確認したい";
     if (roleType === "evaluator") return "候補の違いと比較軸を短時間で整理したい";
     if (roleType === "end_user" || roleType === "user") return "実際の使いやすさや失敗しやすい点を事前に知りたい";
