@@ -13,7 +13,7 @@
 ## 主な関数
 
 - `generateProjectSetupDraft(seed, options)`: 下書き、blocker、warning、生成summaryを返す。
-- `generatePersonaDrafts(seed)`: 最小入力から persona 仮説を2から4件作る。
+- `generatePersonaDrafts(seed)`: 最小入力から persona 仮説を2から5件作る。通常は3から4件に抑え、高単価・稟議・セキュリティ確認が重いBtoBでは予算/稟議roleを追加できる。
 - `generateTopicDrafts(seed, personas)`: topic-firstで3から6件の診断topicを作る。
 - `generatePromptDrafts(seed, personas, topics)`: topic/personaに紐づく自然文promptを必要最小限作る。
 - `deduplicateProjectSetupDraft(draft)`: persona/topic/promptの重複候補を安定的に落とす。
@@ -42,7 +42,8 @@
 persona は顧客セグメントの確定値ではなく、prompt設計のための仮説として扱う。
 
 - BtoBでは導入判断者、比較評価担当者、技術/運用確認者または実務利用者を分ける。
-- BtoC/地域サービスでは比較検討者、購入/申込判断者、初回利用者を分ける。
+- 高単価・稟議・セキュリティ確認が重いBtoBでは、予算、費用対効果、契約条件を確認する `economic_buyer` も分ける。
+- BtoC/地域サービスでは比較検討者、購入/申込判断者、初回利用者を分ける。EC/商品比較では継続利用、返品条件、保証、購入後満足を確認する `repeat_user` も慎重な仮説として扱う。
 - `reviewStatus` は `needs_review`。
 - `promptReadiness` は原則 `usable_with_caution`。
 - `sourceStatus` は `inferred`。
@@ -70,6 +71,8 @@ prompt は必ず `topicId` と `personaId` を持つ。
 - non-branded prompt はブランド名、alias、domainを含めない。
 - buyer intent prompt は候補や推薦順を自然に聞く形にし、market metric対象になり得る。
 - selection criteria prompt は評価軸確認用で、visibility/ranking対象にしない。
+- EC/商品比較では、サービス会社向け語彙ではなく、商品、ブランド、価格、口コミ、返品条件、素材や品質を確認軸にする。
+- 高単価BtoBでは、価格だけでなく費用対効果、移行負荷、セキュリティ、運用体制を確認軸にする。
 - citation_check prompt は citation確認用として分離し、ranking evidenceにしない。
 - branded prompt は sentiment / brand perception確認用だけにする。
 - 生成promptの `reviewStatus` は `needs_review`、`gateDecision` は `revise_before_measurement`。
@@ -93,7 +96,11 @@ warningは主に次を示す。
 `scripts/verify-recora-project-setup-draft-generator.ts` は架空seedだけを使う。
 
 - BtoBソフトウェア
+- BtoB高単価導入検討
+- BtoC比較検討/EC商品
 - 地域サービス/BtoC寄りサービス
+- 士業またはコンサル系
+- クリニックまたはスクール系
 - 最小入力不足seed
 
 検証すること:
@@ -104,6 +111,8 @@ warningは主に次を示す。
 - branded promptがvisibility/ranking/SOV対象にならない
 - branded sentiment promptがsentiment / brandPerception用になる
 - buyer intentのnon-branded promptがmarket metric対象になり得る
+- 高単価BtoBで `economic_buyer`、費用対効果、移行負荷、セキュリティ確認が出る
+- BtoC/EC比較で `repeat_user`、raw-search-like/anxious/comparison-shortcutの文体、口コミ/返品条件/素材などの確認軸が出る
 - 未承認promptがmeasurement readyにならない
 - 重複persona/topic/promptがない
 - 入力不足時にblockerが返る

@@ -14,6 +14,7 @@ import type {
 import { generateProjectSetupDraft } from "../lib/recora/project-setup-draft-generator";
 
 const MAX_PROMPTS_PER_TOPIC = 4;
+const MAX_GENERATED_PERSONAS = 5;
 const MAX_GENERATED_PROMPTS = 18;
 
 type EvalCase = {
@@ -24,6 +25,8 @@ type EvalCase = {
   minScore: number;
   regulated?: boolean;
   local?: boolean;
+  highTicketB2B?: boolean;
+  b2cComparison?: boolean;
 };
 
 type CheckResult = {
@@ -121,6 +124,50 @@ const evalCases: readonly EvalCase[] = [
     requiredTopics: ["local_regional_topic", "pricing_reputation_topic", "alternative_search_topic", "branded_sentiment_topic"],
     minScore: 82,
     local: true
+  },
+  {
+    id: "b2b-high-ticket-adoption",
+    seed: {
+      companyName: "Kansai Factory Cloud Inc.",
+      brandName: "FactoryPilot",
+      officialSiteUrl: "https://factorypilot.example",
+      productOrServiceDescription: "製造業の複数拠点向けに、設備保全、在庫、作業実績を統合する高単価な業務基盤クラウド。",
+      industryCategory: "製造業向けBtoBクラウド・基幹業務SaaS",
+      targetCustomers: "複数拠点の製造業で、DX投資を検討する経営企画、工場長、情報システム、現場責任者",
+      regions: ["Japan"],
+      language: "ja",
+      serviceName: "FactoryPilot",
+      brandAliases: ["ファクトリーパイロット"],
+      strengths: ["複数拠点の業務統合", "導入支援", "既存システム連携"],
+      knownRisks: ["導入費用、移行負荷、セキュリティ審査が重い"],
+      diagnosisGoals: ["non_branded", "buyer_intent", "comparison", "citation_check", "sentiment"]
+    },
+    requiredRoles: ["decision_maker", "economic_buyer", "evaluator", "technical_reviewer"],
+    requiredTopics: ["category_discovery_topic", "alternative_search_topic", "regulated_risk_topic", "citation_evidence_topic", "branded_sentiment_topic"],
+    minScore: 84,
+    highTicketB2B: true
+  },
+  {
+    id: "b2c-comparison-product",
+    seed: {
+      companyName: "Kokochi Life Co.",
+      brandName: "NemuruFit",
+      officialSiteUrl: "https://nemurufit.example",
+      productOrServiceDescription: "睡眠に悩む一般消費者向けに、素材、価格、返品条件を明示して販売するD2C寝具ブランド。",
+      industryCategory: "D2C寝具・EC商品",
+      targetCustomers: "寝心地、価格、口コミ、返品条件を比較してから購入したい一般消費者",
+      regions: ["Japan"],
+      language: "ja",
+      serviceName: "NemuruFit",
+      brandAliases: ["ねむるフィット"],
+      strengths: ["素材情報の明示", "返品条件のわかりやすさ"],
+      knownRisks: ["効果や口コミ評価を断定しない"],
+      diagnosisGoals: ["non_branded", "buyer_intent", "comparison", "sentiment"]
+    },
+    requiredRoles: ["comparator", "purchaser", "user", "repeat_user"],
+    requiredTopics: ["problem_solution_topic", "alternative_search_topic", "pricing_reputation_topic", "branded_sentiment_topic"],
+    minScore: 84,
+    b2cComparison: true
   }
 ];
 
@@ -169,7 +216,7 @@ function evaluateCase(testCase: EvalCase) {
   const draft = result.draft;
   const checks: CheckResult[] = [
     check("no_blockers", 8, result.blockers.length === 0, result.blockers.join(", ")),
-    check("generated_counts_within_contract", 8, draft.personas.length >= 2 && draft.personas.length <= 4 && draft.topics.length >= 3 && draft.topics.length <= 6 && draft.prompts.length >= draft.topics.length + 3 && draft.prompts.length <= MAX_GENERATED_PROMPTS),
+    check("generated_counts_within_contract", 8, draft.personas.length >= 2 && draft.personas.length <= MAX_GENERATED_PERSONAS && draft.topics.length >= 3 && draft.topics.length <= 6 && draft.prompts.length >= draft.topics.length + 3 && draft.prompts.length <= MAX_GENERATED_PROMPTS),
     check("draft_requires_review", 7, draft.reviewStatus === "needs_review" && draft.personas.every((persona) => persona.reviewStatus === "needs_review") && draft.topics.every((topic) => topic.reviewStatus === "needs_review") && draft.prompts.every((prompt) => prompt.reviewStatus === "needs_review")),
     check("persona_role_split", 12, includesAll(draft.personas.map((persona) => persona.roleType), testCase.requiredRoles)),
     check("persona_prompt_readiness_cautious", 8, draft.personas.every((persona) => persona.promptReadiness === "usable_with_caution" && persona.needsVerification && persona.sourceStatus === "inferred")),
@@ -342,6 +389,27 @@ function industryPromptAngleVariety(draft: ProjectSetupDraft, testCase: EvalCase
     return languageModes.has("raw_search_like") &&
       languageModes.has("comparison_shortcut") &&
       draft.topics.some((topic) => topic.topicType === "local_regional_topic");
+  }
+  if (testCase.id === "b2b-high-ticket-adoption") {
+    return draft.personas.some((persona) => persona.roleType === "economic_buyer") &&
+      draft.prompts.some((prompt) =>
+        prompt.text.includes("費用対効果") ||
+        prompt.text.includes("移行負荷") ||
+        prompt.text.includes("セキュリティ") ||
+        prompt.text.toLowerCase().includes("roi")
+      );
+  }
+  if (testCase.id === "b2c-comparison-product") {
+    return languageModes.has("raw_search_like") &&
+      languageModes.has("anxious_user") &&
+      languageModes.has("comparison_shortcut") &&
+      draft.personas.some((persona) => persona.roleType === "repeat_user") &&
+      draft.prompts.some((prompt) =>
+        prompt.text.includes("返品条件") ||
+        prompt.text.includes("口コミ") ||
+        prompt.text.includes("素材") ||
+        prompt.text.toLowerCase().includes("return policy")
+      );
   }
   return true;
 }

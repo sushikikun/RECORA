@@ -22,6 +22,7 @@ import {
 } from "../lib/recora/project-setup-draft-generator";
 
 const MAX_PROMPTS_PER_TOPIC = 4;
+const MAX_GENERATED_PERSONAS = 5;
 const MAX_GENERATED_PROMPTS = 18;
 
 type ValidCase = {
@@ -32,6 +33,8 @@ type ValidCase = {
   requiredTopics: readonly TopicType[];
   requiresRegulatedReview?: boolean;
   requiresLocalPrompt?: boolean;
+  requiresHighTicketB2BReview?: boolean;
+  requiresB2CComparisonReview?: boolean;
 };
 
 const b2bSoftwareSeed: ProjectSetupSeedInput = {
@@ -97,6 +100,38 @@ const localServiceSeed: ProjectSetupSeedInput = {
   diagnosisGoals: ["non_branded", "buyer_intent", "comparison", "sentiment"]
 };
 
+const highTicketB2BSeed: ProjectSetupSeedInput = {
+  companyName: "Kansai Factory Cloud Inc.",
+  brandName: "FactoryPilot",
+  officialSiteUrl: "https://factorypilot.example",
+  productOrServiceDescription: "製造業の複数拠点向けに、設備保全、在庫、作業実績を統合する高単価な業務基盤クラウド。",
+  industryCategory: "製造業向けBtoBクラウド・基幹業務SaaS",
+  targetCustomers: "複数拠点の製造業で、DX投資を検討する経営企画、工場長、情報システム、現場責任者",
+  regions: ["Japan"],
+  language: "ja",
+  serviceName: "FactoryPilot",
+  brandAliases: ["ファクトリーパイロット"],
+  strengths: ["複数拠点の業務統合", "導入支援", "既存システム連携"],
+  knownRisks: ["導入費用、移行負荷、セキュリティ審査が重い"],
+  diagnosisGoals: ["non_branded", "buyer_intent", "comparison", "citation_check", "sentiment"]
+};
+
+const b2cComparisonSeed: ProjectSetupSeedInput = {
+  companyName: "Kokochi Life Co.",
+  brandName: "NemuruFit",
+  officialSiteUrl: "https://nemurufit.example",
+  productOrServiceDescription: "睡眠に悩む一般消費者向けに、素材、価格、返品条件を明示して販売するD2C寝具ブランド。",
+  industryCategory: "D2C寝具・EC商品",
+  targetCustomers: "寝心地、価格、口コミ、返品条件を比較してから購入したい一般消費者",
+  regions: ["Japan"],
+  language: "ja",
+  serviceName: "NemuruFit",
+  brandAliases: ["ねむるフィット"],
+  strengths: ["素材情報の明示", "返品条件のわかりやすさ"],
+  knownRisks: ["効果や口コミ評価を断定しない"],
+  diagnosisGoals: ["non_branded", "buyer_intent", "comparison", "sentiment"]
+};
+
 const incompleteSeed: ProjectSetupSeedInput = {
   companyName: "",
   brandName: "",
@@ -139,6 +174,22 @@ const validCases: readonly ValidCase[] = [
     requiredRoles: ["comparator", "purchaser", "user", "repeat_user"],
     requiredTopics: ["local_regional_topic", "pricing_reputation_topic", "alternative_search_topic", "branded_sentiment_topic"],
     requiresLocalPrompt: true
+  },
+  {
+    id: "highTicketB2B",
+    seed: highTicketB2BSeed,
+    expectedBusinessModel: "b2b_software",
+    requiredRoles: ["decision_maker", "economic_buyer", "evaluator", "technical_reviewer"],
+    requiredTopics: ["category_discovery_topic", "alternative_search_topic", "regulated_risk_topic", "citation_evidence_topic", "branded_sentiment_topic"],
+    requiresHighTicketB2BReview: true
+  },
+  {
+    id: "b2cComparison",
+    seed: b2cComparisonSeed,
+    expectedBusinessModel: "ecommerce",
+    requiredRoles: ["comparator", "purchaser", "user", "repeat_user"],
+    requiredTopics: ["problem_solution_topic", "alternative_search_topic", "pricing_reputation_topic", "branded_sentiment_topic"],
+    requiresB2CComparisonReview: true
   }
 ];
 
@@ -190,6 +241,8 @@ console.log(JSON.stringify({
     professionalServiceAdapter: true,
     clinicRegulatedSafety: true,
     localServiceRegionalIntent: true,
+    highTicketB2BBudgetApprovalRole: true,
+    b2cComparisonProductAdapter: true,
     personaTopicPromptReferences: true,
     nonBrandedPromptsExcludeBrandSignals: true,
     brandedPromptsExcludedFromVisibilityRankingSov: true,
@@ -220,7 +273,7 @@ function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
 
   assert.equal(draft.reviewStatus, "needs_review");
   assert.ok(draft.personas.length >= 2);
-  assert.ok(draft.personas.length <= 4);
+  assert.ok(draft.personas.length <= MAX_GENERATED_PERSONAS);
   assert.ok(draft.topics.length >= 3);
   assert.ok(draft.topics.length <= 6);
   assert.ok(draft.prompts.length >= draft.topics.length + 3);
@@ -396,6 +449,36 @@ function assertCaseSpecificQuality(testCase: ValidCase, draft: ProjectSetupDraft
     assert.equal(regionalPrompt.responseShape, "ranked_recommendation");
     assert.equal(regionalPrompt.candidateMentionOpportunity, "direct");
     assert.equal(regionalPrompt.rankingOpportunity, "direct");
+  }
+
+  if (testCase.requiresHighTicketB2BReview) {
+    assert.ok(roleTypes.has("economic_buyer"));
+    const budgetPersona = draft.personas.find((persona) => persona.roleType === "economic_buyer");
+    assert.ok(budgetPersona);
+    assert.ok(
+      budgetPersona.painPoints.some((painPoint) =>
+        painPoint.includes("予算") || painPoint.includes("費用対効果") || painPoint.toLowerCase().includes("budget")
+      )
+    );
+    assert.ok(draft.prompts.some((prompt) =>
+      prompt.text.includes("費用対効果") ||
+      prompt.text.includes("移行負荷") ||
+      prompt.text.includes("セキュリティ") ||
+      prompt.text.toLowerCase().includes("roi")
+    ));
+  }
+
+  if (testCase.requiresB2CComparisonReview) {
+    const languageModes = new Set(draft.prompts.map((prompt) => prompt.languageMode));
+    assert.ok(languageModes.has("raw_search_like"));
+    assert.ok(languageModes.has("anxious_user"));
+    assert.ok(languageModes.has("comparison_shortcut"));
+    assert.ok(draft.prompts.some((prompt) =>
+      prompt.text.includes("返品条件") ||
+      prompt.text.includes("口コミ") ||
+      prompt.text.includes("素材") ||
+      prompt.text.toLowerCase().includes("return policy")
+    ));
   }
 }
 
