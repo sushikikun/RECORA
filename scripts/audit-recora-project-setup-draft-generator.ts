@@ -13,6 +13,9 @@ import type {
 } from "../lib/recora/project-setup-draft";
 import { generateProjectSetupDraft } from "../lib/recora/project-setup-draft-generator";
 
+const MAX_PROMPTS_PER_TOPIC = 4;
+const MAX_GENERATED_PROMPTS = 18;
+
 type EvalCase = {
   id: string;
   seed: ProjectSetupSeedInput;
@@ -154,8 +157,9 @@ console.log(JSON.stringify({
     blockers: insufficientInput.blockers
   },
   remainingGaps: [
-    "one_prompt_per_topic_is_a_scoping_draft_not_a_full_standard_prompt_set",
+    "prompt_variants_are_deterministic_drafts_not_skill_authored_prompt_sets",
     "personas_are_inferred_hypotheses_until_site_or_customer_evidence_is_reviewed",
+    "prompt_variants_use_generic_industry_adapters_until_site_text_or_customer_language_is_available",
     "competitor_citation_and_page_improvement_candidates_remain_empty_by_design"
   ]
 }, null, 2));
@@ -165,16 +169,21 @@ function evaluateCase(testCase: EvalCase) {
   const draft = result.draft;
   const checks: CheckResult[] = [
     check("no_blockers", 8, result.blockers.length === 0, result.blockers.join(", ")),
-    check("generated_counts_within_contract", 8, draft.personas.length >= 2 && draft.personas.length <= 4 && draft.topics.length >= 3 && draft.topics.length <= 6 && draft.prompts.length >= draft.topics.length),
+    check("generated_counts_within_contract", 8, draft.personas.length >= 2 && draft.personas.length <= 4 && draft.topics.length >= 3 && draft.topics.length <= 6 && draft.prompts.length >= draft.topics.length + 3 && draft.prompts.length <= MAX_GENERATED_PROMPTS),
     check("draft_requires_review", 7, draft.reviewStatus === "needs_review" && draft.personas.every((persona) => persona.reviewStatus === "needs_review") && draft.topics.every((topic) => topic.reviewStatus === "needs_review") && draft.prompts.every((prompt) => prompt.reviewStatus === "needs_review")),
     check("persona_role_split", 12, includesAll(draft.personas.map((persona) => persona.roleType), testCase.requiredRoles)),
     check("persona_prompt_readiness_cautious", 8, draft.personas.every((persona) => persona.promptReadiness === "usable_with_caution" && persona.needsVerification && persona.sourceStatus === "inferred")),
     check("topic_coverage", 12, includesAll(draft.topics.map((topic) => topic.topicType), testCase.requiredTopics)),
     check("topic_metric_separation", 10, topicsKeepMetricsSeparated(draft)),
+    check("prompt_variant_depth", 10, promptVariantDepthCheck(draft)),
+    check("prompt_count_bounded", 6, draft.prompts.length <= MAX_GENERATED_PROMPTS),
+    check("prompt_text_deduplicated", 5, promptTextsAreUnique(draft)),
+    check("buyer_journey_prompt_coverage", 8, buyerJourneyPromptCoverage(draft)),
     check("brand_nonbrand_separation", 12, promptsKeepBrandSeparated(draft)),
     check("market_metric_derivation", 10, promptsDeriveMarketMetricsCorrectly(draft)),
     check("unsupported_sections_empty", 6, draft.competitors.length === 0 && draft.citationAngles.length === 0 && draft.pageImprovementAngles.length === 0),
-    check("industry_safety_adapter", 7, industryAdapterCheck(draft, testCase))
+    check("industry_safety_adapter", 7, industryAdapterCheck(draft, testCase)),
+    check("industry_prompt_angle_variety", 6, industryPromptAngleVariety(draft, testCase))
   ];
   const score = checks.reduce((sum, item) => sum + item.points, 0);
   const maxScore = checks.reduce((sum, item) => sum + item.maxPoints, 0);
@@ -201,6 +210,49 @@ function check(label: string, maxPoints: number, passed: boolean, detail?: strin
     severity: passed ? "pass" : "fail",
     detail
   };
+}
+
+function promptVariantDepthCheck(draft: ProjectSetupDraft) {
+  const promptsByTopic = groupPromptsByTopic(draft);
+  return draft.topics.every((topic) => {
+    const topicPromptCount = promptsByTopic.get(topic.topicId)?.length ?? 0;
+    if (topicPromptCount < topic.minimumPromptCount) return false;
+    if (topicPromptCount > MAX_PROMPTS_PER_TOPIC) return false;
+    if (
+      topic.topicType !== "citation_evidence_topic" &&
+      topic.topicType !== "branded_sentiment_topic" &&
+      topicPromptCount < 2
+    ) return false;
+    if ((topic.topicType === "persona_specific_topic" || topic.topicType === "local_regional_topic") && topicPromptCount < 3) return false;
+    return true;
+  });
+}
+
+function promptTextsAreUnique(draft: ProjectSetupDraft) {
+  const normalizedTexts = draft.prompts.map((prompt) => normalize(prompt.text));
+  return new Set(normalizedTexts).size === normalizedTexts.length;
+}
+
+function buyerJourneyPromptCoverage(draft: ProjectSetupDraft) {
+  const promptIntents = new Set(draft.prompts.map((prompt) => prompt.intent));
+  const hasDiscovery = promptIntents.has("problem_aware") || promptIntents.has("comparison");
+  const hasSolutionOrBuyer = promptIntents.has("solution_aware") || promptIntents.has("buyer_intent");
+  const hasCitationWhenTopicExists =
+    !draft.topics.some((topic) => topic.topicType === "citation_evidence_topic") ||
+    promptIntents.has("citation_check");
+  const hasBrandWhenTopicExists =
+    !draft.topics.some((topic) => topic.topicType === "branded_sentiment_topic") ||
+    (promptIntents.has("sentiment") && promptIntents.has("brand_perception"));
+  const selectionTopic = draft.topics.find((topic) => topic.topicType === "persona_specific_topic");
+  const selectionPrompts = selectionTopic ? draft.prompts.filter((prompt) => prompt.topicId === selectionTopic.topicId) : [];
+  const hasCriteriaAndCandidateSelection = selectionPrompts.some((prompt) => prompt.responseShape === "evaluation_criteria") &&
+    selectionPrompts.some((prompt) => prompt.responseShape === "ranked_recommendation");
+
+  return hasDiscovery &&
+    hasSolutionOrBuyer &&
+    hasCitationWhenTopicExists &&
+    hasBrandWhenTopicExists &&
+    hasCriteriaAndCandidateSelection;
 }
 
 function topicsKeepMetricsSeparated(draft: ProjectSetupDraft) {
@@ -257,9 +309,10 @@ function industryAdapterCheck(draft: ProjectSetupDraft, testCase: EvalCase) {
   const inputCompletion = Object.fromEntries(draft.inputCompletion.map((item) => [item.field, item.value]));
   if (!inputCompletion.industryAdapter) return false;
   if (testCase.regulated) {
-    const riskyPrompt = draft.prompts.find((prompt) => prompt.intentType === "risk_checking");
+    const riskyPrompt = draft.prompts.find((prompt) => prompt.riskFlags.includes("risky_intent_safely_transformed"));
     return draft.riskFlags.includes("regulated_or_high_trust_review_required") &&
       Boolean(riskyPrompt) &&
+      riskyPrompt?.intentType === "risk_checking" &&
       riskyPrompt?.riskFlags.includes("risky_intent_safely_transformed") === true &&
       !containsUnsafeRegulatedWording(riskyPrompt.text);
   }
@@ -268,6 +321,41 @@ function industryAdapterCheck(draft: ProjectSetupDraft, testCase: EvalCase) {
       draft.prompts.some((prompt) => prompt.languageMode === "comparison_shortcut" || prompt.languageMode === "anxious_user");
   }
   return true;
+}
+
+function industryPromptAngleVariety(draft: ProjectSetupDraft, testCase: EvalCase) {
+  const languageModes = new Set(draft.prompts.map((prompt) => prompt.languageMode));
+  const promptCategories = new Set(draft.prompts.map((prompt) => prompt.category));
+  if (testCase.id === "japanese-b2b-saas") {
+    return languageModes.has("professional_research") &&
+      draft.prompts.some((prompt) => prompt.riskFlags.includes("unknown_competitor_discovery_not_named_competitor_evidence"));
+  }
+  if (testCase.id === "professional-services") {
+    return promptCategories.has("pricing_reputation") &&
+      draft.prompts.some((prompt) => prompt.intentType === "risk_checking");
+  }
+  if (testCase.id === "clinic-or-school") {
+    return languageModes.has("anxious_user") &&
+      draft.prompts.some((prompt) => prompt.riskFlags.includes("risky_intent_safely_transformed"));
+  }
+  if (testCase.id === "regional-service") {
+    return languageModes.has("raw_search_like") &&
+      languageModes.has("comparison_shortcut") &&
+      draft.topics.some((topic) => topic.topicType === "local_regional_topic");
+  }
+  return true;
+}
+
+function groupPromptsByTopic(draft: ProjectSetupDraft) {
+  const grouped = new Map<string, ProjectSetupDraft["prompts"]>();
+  for (const prompt of draft.prompts) {
+    grouped.set(prompt.topicId, [...(grouped.get(prompt.topicId) ?? []), prompt]);
+  }
+  return grouped;
+}
+
+function normalize(value: string) {
+  return value.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
 }
 
 function containsUnsafeRegulatedWording(text: string) {
