@@ -4,6 +4,10 @@ import {
   isRecoraDesignPreviewEnabled
 } from "@/lib/recora/dev-preview/design-preview-access";
 import {
+  getRecoraVisualVariant,
+  withRecoraVisualVariantSearchParam
+} from "@/lib/recora/dev-preview/design-visual-variant";
+import {
   getDefaultReportSlug,
   getReportRouteDashboardDataOrNull,
   ReportPreparationPage
@@ -11,12 +15,20 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportsPage() {
+type ReportsPageProps = {
+  searchParams?: {
+    visual?: string;
+  };
+};
+
+export default async function ReportsPage({ searchParams }: ReportsPageProps) {
+  const visualVariant = getRecoraVisualVariant(searchParams);
+
   if (isRecoraDesignPreviewEnabled()) {
     return (
       <ReportsIndexPage
         previewModeLabel={getRecoraDesignPreviewLabel()}
-        previewReportRows={[await getDesignCheckPreviewReportRow()]}
+        previewReportRows={[await getDesignCheckPreviewReportRow(visualVariant)]}
       />
     );
   }
@@ -36,7 +48,7 @@ async function getDashboardDataOrNull() {
   return getReportRouteDashboardDataOrNull(projectSlug);
 }
 
-async function getDesignCheckPreviewReportRow(): Promise<ReportsIndexPreviewRow> {
+async function getDesignCheckPreviewReportRow(visualVariant = getRecoraVisualVariant()): Promise<ReportsIndexPreviewRow> {
   const { DESIGN_CHECK_REPORT_SLUG, designCheckReportSummary } = await import(
     "@/lib/recora/dev-preview/design-check-report-fixture"
   );
@@ -52,6 +64,6 @@ async function getDesignCheckPreviewReportRow(): Promise<ReportsIndexPreviewRow>
     validObservations: `${designCheckReportSummary.validObservations.toLocaleString("ja-JP")}件`,
     averageRank: `${designCheckReportSummary.averageRank.toFixed(1)}位`,
     mentionRate: `${designCheckReportSummary.mentionRate}%`,
-    href: `/dashboard/reports/${DESIGN_CHECK_REPORT_SLUG}`
+    href: withRecoraVisualVariantSearchParam(`/dashboard/reports/${DESIGN_CHECK_REPORT_SLUG}`, visualVariant)
   };
 }

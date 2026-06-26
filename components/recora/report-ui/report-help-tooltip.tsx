@@ -54,7 +54,7 @@ export function ReportHelpTooltip({
         aria-label={label}
         aria-describedby={open ? id : undefined}
         aria-expanded={open}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#C9D8D4] bg-white text-[10px] font-bold leading-none text-[#00796B] transition hover:border-[#00796B] hover:bg-[#E6F4F1] focus:outline-none focus:ring-2 focus:ring-[#00796B]/25"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#C9D8D4] bg-white text-[10px] font-bold leading-none text-[#00796B] transition hover:border-[#00796B] hover:bg-[#E6F4F1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B]/25"
         onClick={() => setOpen((current) => !current)}
         onFocus={() => setOpen(true)}
       >
@@ -64,7 +64,7 @@ export function ReportHelpTooltip({
         <span
           id={id}
           role="tooltip"
-          className="absolute left-1/2 top-6 z-50 w-max max-w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-[#D8E0E3] bg-white px-3 py-2 text-left text-xs font-medium leading-5 text-[#334155] shadow-[0_8px_24px_rgba(15,23,42,0.10)]"
+          className="absolute left-1/2 top-6 z-50 w-max max-w-[min(18rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-[#D8E0E3] bg-white px-3 py-2 text-left text-xs font-medium leading-5 text-[#334155] shadow-[0_8px_24px_rgba(15,23,42,0.10)]"
         >
           {text}
         </span>

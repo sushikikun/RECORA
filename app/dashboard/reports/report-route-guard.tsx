@@ -15,6 +15,9 @@ export type ReportSlugPageProps = {
   params: {
     id: string;
   };
+  searchParams?: {
+    visual?: string;
+  };
 };
 
 export function getDefaultReportSlug() {
@@ -125,11 +128,11 @@ export function DesignCheckPreviewNotice() {
   if (!label) return null;
 
   return (
-    <div className="mb-4 rounded-lg border border-[#BFDAD4] bg-[#E6F4F1] px-4 py-3 text-sm text-[#005C50]">
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <span className="font-bold">{label}</span>
-        <span className="font-semibold text-[#0F766E]">本物の顧客データではありません</span>
-      </div>
+    <div className="mb-2 flex min-h-7 flex-wrap items-center gap-2 text-xs text-[#005C50]">
+      <span className="inline-flex h-6 items-center rounded-sm border border-[#BFDAD4] bg-[#E6F4F1] px-2 font-bold">
+        {label}
+      </span>
+      <span className="font-semibold text-[#0F766E]">本物の顧客データではありません</span>
     </div>
   );
 }

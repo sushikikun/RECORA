@@ -1,6 +1,6 @@
 # Recora Customer Report Product Spec
 
-最終更新: 2026-06-25
+最終更新: 2026-06-26
 
 この文書は、Recora の顧客向けレポートを「ある1回の計測時点の監査結果」として扱うための正本です。レポート詳細は単一計測の証拠、比較、参照元、改善候補を確認する場所であり、時系列や期間比較はメインの `/dashboard` に集約します。
 
@@ -9,6 +9,12 @@
 顧客向けレポートは、公開可否の確認が済んだ計測結果だけを、社内共有しやすい粒度で整理した画面です。DB、measurement、recommendation 生成、report ready gate、customer_ready 条件はこの仕様では変更しません。
 
 fixture は development かつ `design-check` の確認用レポートだけで使います。production では確認用レポートを一覧や通常レポートに混ぜません。
+
+## 標準UI
+
+`Data-rich Final` を `/dashboard` と顧客向けレポートの標準UIとします。通常URL、`visual` なし、または `visual=data-rich` は development、Vercel Preview、production のいずれでも `Data-rich Final` を表示します。
+
+旧UIは、`isRecoraDesignPreviewEnabled() === true` の環境で `visual=current` を付けた場合だけ `legacy-current` として表示します。production では `visual=current` を付けても `Data-rich Final` を表示します。旧UIのデータ取得ロジックは、ロールバック確認用に残し、顧客向け標準導線には使いません。表示名、補助文、品質状態、表示範囲は `lib/recora/metric-definitions.ts` の表示モデルを参照します。
 
 ## 通常表示する7タブ
 

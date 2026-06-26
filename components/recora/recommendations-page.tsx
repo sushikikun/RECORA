@@ -4,6 +4,7 @@ import { ExternalLink, Share2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataCard, MetricTile, PageHeader } from "@/components/recora/ui";
+import { ReportHelpTooltip } from "@/components/recora/report-ui/report-help-tooltip";
 import { reportDetailTabs } from "@/lib/recora/nav-config";
 import type { RecoraRecommendationRow, RecoraRecommendationsDbData } from "@/lib/recora/db";
 import { getRecommendationPublicationState } from "@/lib/recora/report-eligibility";
@@ -86,44 +87,127 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
       />
       <DetailTabs items={reportDetailTabs.recommendations} />
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <MetricTile label="改善候補数" value={String(view.items.length)} helper={view.sourceLabel} />
-        <MetricTile label="高重要度" value={String(view.highPriorityCount)} helper="次に判断したい候補" tone="amber" />
-        <MetricTile label="根拠あり候補数" value={String(view.evidenceBackedCount)} helper="観測根拠を確認できる候補" tone="green" />
-      </div>
+      <div data-recora-current-only>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <MetricTile label="改善候補数" value={String(view.items.length)} helper={view.sourceLabel} />
+          <MetricTile label="高重要度" value={String(view.highPriorityCount)} helper="次に判断したい候補" tone="amber" />
+          <MetricTile label="根拠あり候補数" value={String(view.evidenceBackedCount)} helper="観測根拠を確認できる候補" tone="green" />
+        </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <DataCard title="優先して確認したい改善候補" description="観測結果から表示する確認材料です。">
-          <div className="space-y-4">
-            {topItems.length > 0 ? topItems.map((item) => (
-              <RecommendationActionCard key={item.id} item={item} />
-            )) : (
-              <EmptyStateBlock title="表示できる改善候補がありません" description="表示対象の改善候補が保存されると、ここに表示されます。" />
-            )}
-          </div>
-        </DataCard>
-
-        <DataCard title="確認状況" description="改善候補の確認状態を要約しています。">
-          <div className="space-y-4">
-            <RecommendationStatusRow label="未着手" value={view.openCount} tone="rose" />
-            <RecommendationStatusRow label="計画中" value={view.plannedCount} tone="amber" />
-            <RecommendationStatusRow label="完了" value={view.doneCount} tone="green" />
-            <div className="rounded-lg border border-teal-100 bg-teal-50/70 p-3">
-              <p className="text-xs font-bold text-teal-900">表示前の確認</p>
-              <p className="mt-1 text-2xl font-bold tracking-normal text-teal-950">
-                {view.preQualityGateCandidateCount === null ? "-" : view.preQualityGateCandidateCount}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-teal-800">
-                確認待ち候補です。公開前の品質確認を通過したものだけを表示します。
-              </p>
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <DataCard title="優先して確認したい改善候補" description="観測結果から表示する確認材料です。">
+            <div className="space-y-4">
+              {topItems.length > 0 ? topItems.map((item) => (
+                <RecommendationActionCard key={item.id} item={item} />
+              )) : (
+                <EmptyStateBlock title="表示できる改善候補がありません" description="表示対象の改善候補が保存されると、ここに表示されます。" />
+              )}
             </div>
-          </div>
+          </DataCard>
+
+          <DataCard title="確認状況" description="改善候補の確認状態を要約しています。">
+            <div className="space-y-4">
+              <RecommendationStatusRow label="未着手" value={view.openCount} tone="rose" />
+              <RecommendationStatusRow label="計画中" value={view.plannedCount} tone="amber" />
+              <RecommendationStatusRow label="完了" value={view.doneCount} tone="green" />
+              <div className="rounded-lg border border-teal-100 bg-teal-50/70 p-3">
+                <p className="text-xs font-bold text-teal-900">表示前の確認</p>
+                <p className="mt-1 text-2xl font-bold tracking-normal text-teal-950">
+                  {view.preQualityGateCandidateCount === null ? "-" : view.preQualityGateCandidateCount}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-teal-800">
+                  確認待ち候補です。公開前の品質確認を通過したものだけを表示します。
+                </p>
+              </div>
+            </div>
+          </DataCard>
+        </div>
+
+        <DataCard title="改善候補一覧" description={`${view.sourceLabel}由来の表示対象だけを、区分と観測根拠付きで表示します。`}>
+          <RecommendationListCards rows={view.items} />
         </DataCard>
       </div>
 
-      <DataCard title="改善候補一覧" description={`${view.sourceLabel}由来の表示対象だけを、区分と観測根拠付きで表示します。`}>
-        <RecommendationListCards rows={view.items} />
-      </DataCard>
+      <div data-recora-data-rich-only>
+        <DataRichRecommendationsView view={view} />
+      </div>
+    </div>
+  );
+}
+
+function DataRichRecommendationsView({ view }: { view: RecommendationsViewModel }) {
+  return (
+    <div className="min-w-0 space-y-3">
+      <section className="overflow-hidden rounded-lg border border-[#E1E8E5] bg-white" data-recora-kpi-strip>
+        <div className="grid min-w-0 md:grid-cols-3">
+          <DataRichRecommendationKpi label="改善候補数" value={`${view.items.length}件`} helper={view.sourceLabel} />
+          <DataRichRecommendationKpi label="高優先度" value={`${view.highPriorityCount}件`} helper="次に判断したい候補" tone="amber" />
+          <DataRichRecommendationKpi label="根拠あり" value={`${view.evidenceBackedCount}件`} helper="観測根拠を確認できる候補" />
+        </div>
+      </section>
+
+      <section className="recora-data-rich-split">
+        <div className="min-w-0">
+          <div className="border-b border-[#E1E8E5] px-4 py-3">
+            <h2 className="text-base font-bold text-[#0F172A]">改善候補一覧</h2>
+            <p className="mt-1 text-sm leading-6 text-[#64748B]">
+              優先度、観測根拠、影響範囲、次に確認することを同じ行で確認します。
+            </p>
+          </div>
+          <RecommendationsTable rows={view.items} />
+        </div>
+        <aside className="min-w-0 bg-[#FAFCFB] p-4">
+          <h3 className="text-sm font-bold text-[#0F172A]">確認状況</h3>
+          <div className="mt-3 divide-y divide-[#E1E8E5] rounded-md border border-[#E1E8E5] bg-white">
+            <DataRichStatusLine label="未着手" value={view.openCount} tone="rose" />
+            <DataRichStatusLine label="計画中" value={view.plannedCount} tone="amber" />
+            <DataRichStatusLine label="完了" value={view.doneCount} tone="green" />
+          </div>
+          <div className="mt-4 rounded-md border border-[#E1E8E5] bg-white px-3 py-3">
+            <p className="text-xs font-bold text-[#64748B]">凡例</p>
+            <p className="mt-2 text-sm leading-6 text-[#475569]">
+              表示候補は公開前の品質確認を通過したものだけです。効果予測や担当者・期限はこの顧客画面では表示しません。
+            </p>
+          </div>
+        </aside>
+      </section>
+    </div>
+  );
+}
+
+function DataRichRecommendationKpi({
+  label,
+  value,
+  helper,
+  tone = "green"
+}: {
+  label: string;
+  value: string;
+  helper: string;
+  tone?: "green" | "amber";
+}) {
+  return (
+    <div className="min-w-0 border-b border-[#E1E8E5] px-4 py-4 md:border-r md:last:border-r-0 xl:border-b-0">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <p className="truncate text-xs font-bold text-[#64748B]" title={label}>{label}</p>
+        <ReportHelpTooltip text={helper} label={`${label}の定義`} />
+      </div>
+      <p className={cn("mt-2 text-[30px] font-bold leading-none tracking-normal", tone === "amber" ? "text-amber-700" : "text-[#005C50]")}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function DataRichStatusLine({ label, value, tone }: { label: string; value: number; tone: "rose" | "amber" | "green" }) {
+  const toneClass = tone === "rose" ? "bg-rose-400" : tone === "amber" ? "bg-amber-400" : "bg-emerald-500";
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+      <span className="flex min-w-0 items-center gap-2 text-sm font-bold text-[#0F172A]">
+        <span className={cn("h-2 w-2 shrink-0 rounded-full", toneClass)} />
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="font-bold tabular-nums text-[#0F172A]">{value}</span>
     </div>
   );
 }
@@ -251,7 +335,7 @@ function RecommendationActionCard({ item }: { item: RecommendationDisplayItem })
         </div>
         <div className="grid min-w-[150px] gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
           <div>
-            <p className="text-xs font-bold text-slate-500">対象プロンプト</p>
+            <p className="text-xs font-bold text-slate-500">影響する質問</p>
             <p className="mt-1 text-lg font-bold text-teal-700">{item.evidenceMetrics.promptCount}</p>
           </div>
           <div>
@@ -291,7 +375,7 @@ function RecommendationEvidenceMetrics({ item }: { item: RecommendationDisplayIt
 
   return (
     <div className="mt-4 grid gap-3 sm:grid-cols-3">
-      <RecommendationMetric label="対象プロンプト" value={metrics.promptCount} />
+      <RecommendationMetric label="影響する質問" value={metrics.promptCount} />
       <RecommendationMetric label="参照URL数" value={metrics.citationCount} />
       <RecommendationMetric label="根拠の手がかり" value={metrics.matchedClueCount} />
     </div>
@@ -377,7 +461,7 @@ function RecommendationListCards({ rows }: { rows: RecommendationDisplayItem[] }
           </div>
 
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            <SmallEvidenceMetric label="対象プロンプト" value={`${item.evidenceMetrics.promptCount}件`} />
+            <SmallEvidenceMetric label="影響する質問" value={`${item.evidenceMetrics.promptCount}件`} />
             <SmallEvidenceMetric label="参照URL" value={`${item.evidenceMetrics.citationCount}件`} />
             <SmallEvidenceMetric label="確からしさ" value={item.confidenceLabel} />
           </div>
@@ -411,51 +495,56 @@ function SmallEvidenceMetric({ label, value }: { label: string; value: string })
 
 function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
   return (
-    <Table className="min-w-[980px]">
+    <Table className="w-full table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead>タイトル</TableHead>
-          <TableHead>優先度</TableHead>
-          <TableHead>表示区分</TableHead>
-          <TableHead>確からしさ</TableHead>
-          <TableHead>観測根拠</TableHead>
-          <TableHead>状態</TableHead>
-          <TableHead>関連項目</TableHead>
-          <TableHead>次の判断</TableHead>
+          <TableHead className="w-[86px]">優先度</TableHead>
+          <TableHead>課題</TableHead>
+          <TableHead className="w-[170px]">観測根拠</TableHead>
+          <TableHead className="w-[118px]">影響する質問</TableHead>
+          <TableHead className="w-[110px]">影響AIモデル</TableHead>
+          <TableHead>次に確認すること</TableHead>
+          <TableHead className="w-[92px]">状態</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.length > 0 ? rows.map((row) => (
           <TableRow key={row.id}>
-            <TableCell className="min-w-[260px]">
-              <div className="font-bold text-slate-950">{row.title}</div>
+            <TableCell className="whitespace-nowrap"><RecommendationPriorityBadge item={row} /></TableCell>
+            <TableCell>
+              <div className="line-clamp-2 font-bold text-slate-950">{row.title}</div>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                <DisplayCategoryBadge item={row} />
+                <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-slate-50 text-slate-600">
+                  {row.confidenceLabel}
+                </Badge>
+              </div>
               <div className="mt-1 text-xs font-semibold text-slate-400">{row.createdAt}</div>
             </TableCell>
-            <TableCell className="whitespace-nowrap"><RecommendationPriorityBadge item={row} /></TableCell>
-            <TableCell className="whitespace-nowrap"><DisplayCategoryBadge item={row} /></TableCell>
-            <TableCell className="whitespace-nowrap font-semibold text-slate-700">{row.confidenceLabel}</TableCell>
-            <TableCell className="min-w-[170px] text-xs leading-5 text-slate-600">
-              <div>観測数: <span className="font-bold text-slate-950">{row.evidenceMetrics.observationCount}</span></div>
+            <TableCell className="text-xs leading-5 text-slate-600">
               <div>{row.evidenceMetrics.focusedObservationLabel}: <span className="font-bold text-slate-950">{row.evidenceMetrics.focusedObservationCount}</span></div>
               <div>参照URL: <span className="font-bold text-slate-950">{row.evidenceMetrics.citationCount}</span></div>
+              <div>手がかり: <span className="font-bold text-slate-950">{row.evidenceMetrics.matchedClueCount}</span></div>
             </TableCell>
-            <TableCell className="whitespace-nowrap">{row.statusLabel}</TableCell>
-            <TableCell className="min-w-[220px] text-sm leading-6 text-slate-600">
+            <TableCell className="font-semibold tabular-nums text-slate-800">
+              {row.evidenceMetrics.promptCount}件
+            </TableCell>
+            <TableCell className="text-sm font-semibold text-slate-600">要確認</TableCell>
+            <TableCell className="text-sm leading-6 text-slate-600">
               <div className="font-semibold text-slate-800">{row.relatedTopic}</div>
               <div className="text-xs text-slate-500">{row.relatedBrand}</div>
-            </TableCell>
-            <TableCell className="min-w-[260px] text-sm leading-6 text-slate-600">
               {row.targetUrl ? (
-                <Link href={row.targetUrl} className="inline-flex max-w-[240px] items-center gap-1 truncate font-semibold text-[#00796B] hover:text-[#005C50]">
+                <Link href={row.targetUrl} className="mt-1 inline-flex max-w-full items-center gap-1 truncate font-semibold text-[#00796B] hover:text-[#005C50]">
                   <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate">{row.action}</span>
                 </Link>
               ) : row.action}
             </TableCell>
+            <TableCell className="whitespace-nowrap font-semibold text-slate-700">{row.statusLabel}</TableCell>
           </TableRow>
         )) : (
           <TableRow>
-            <TableCell colSpan={8} className="text-sm text-slate-500">
+            <TableCell colSpan={7} className="text-sm text-slate-500">
               表示できる改善候補がありません。表示対象が保存されるとここに表示されます。
             </TableCell>
           </TableRow>

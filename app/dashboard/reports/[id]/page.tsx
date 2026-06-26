@@ -6,11 +6,13 @@ import {
   normalizeReportSlug,
   type ReportSlugPageProps
 } from "../report-route-guard";
+import { getRecoraVisualVariant } from "@/lib/recora/dev-preview/design-visual-variant";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportPage({ params }: ReportSlugPageProps) {
+export default async function ReportPage({ params, searchParams }: ReportSlugPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
+  const visualVariant = getRecoraVisualVariant(searchParams);
 
   assertPublicReportRouteAllowed(projectSlug);
 
@@ -19,7 +21,7 @@ export default async function ReportPage({ params }: ReportSlugPageProps) {
     return (
       <>
         <DesignCheckPreviewNotice />
-        <ReportLandingPage projectSlug={projectSlug} data={getDesignCheckReportOverviewData()} />
+        <ReportLandingPage projectSlug={projectSlug} data={getDesignCheckReportOverviewData()} visualVariant={visualVariant} />
       </>
     );
   }

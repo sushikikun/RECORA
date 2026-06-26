@@ -93,6 +93,98 @@ body {
   }
 }
 
+[data-recora-data-rich-only] {
+  display: none;
+}
+
+[data-recora-visual="legacy-current"] [data-recora-data-rich-only] {
+  display: none !important;
+}
+[data-recora-visual="data-rich-final"] {
+  --recora-final-bg: #f6f8f7;
+  --recora-final-panel: #ffffff;
+  --recora-final-line: #dfe6e2;
+  --recora-final-line-soft: #e5eae8;
+  --recora-final-muted: #64748b;
+  --recora-final-green: #006b57;
+  background: var(--recora-final-bg);
+}
+
+[data-recora-visual="data-rich-final"] [data-recora-current-only] {
+  display: none !important;
+}
+
+[data-recora-visual="data-rich-final"] [data-recora-data-rich-only] {
+  display: block !important;
+}
+
+[data-recora-visual="data-rich-final"] main {
+  background: var(--recora-final-bg);
+}
+
+[data-recora-visual="data-rich-final"] table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-recora-visual="data-rich-final"] th {
+  height: 36px;
+  border-bottom: 1px solid var(--recora-final-line);
+  background: #f8faf9;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+[data-recora-visual="data-rich-final"] td {
+  border-bottom: 1px solid var(--recora-final-line-soft);
+  color: #1f2937;
+  font-size: 13px;
+  line-height: 1.5;
+  vertical-align: middle;
+}
+
+[data-recora-visual="data-rich-final"] tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+[data-recora-visual="data-rich-final"] tbody tr:hover {
+  background: #f8fbfa;
+}
+
+[data-recora-visual="data-rich-final"] .overflow-x-auto {
+  overflow-x: visible;
+}
+
+[data-recora-visual="data-rich-final"] .recora-data-rich-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 28%);
+  overflow: hidden;
+  border: 1px solid var(--recora-final-line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+[data-recora-visual="data-rich-final"] .recora-data-rich-split > * + * {
+  border-left: 1px solid var(--recora-final-line-soft);
+}
+
+@media (max-width: 1023px) {
+  [data-recora-visual="data-rich-final"] .recora-data-rich-split {
+    grid-template-columns: 1fr;
+  }
+
+  [data-recora-visual="data-rich-final"] .recora-data-rich-split > * + * {
+    border-left: 0;
+    border-top: 1px solid var(--recora-final-line-soft);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

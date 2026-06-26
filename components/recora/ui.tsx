@@ -37,7 +37,7 @@ export function PageHeader({
   meta?: ReactNode;
 }) {
   return (
-    <section className="mb-6">
+    <section className="mb-6" data-recora-page-header>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           {eyebrow ? (
@@ -76,13 +76,14 @@ export function DashboardCard({
 }) {
   return (
     <Card
+      data-recora-panel
       className={cn(
         "min-w-0 max-w-full rounded-[18px] border border-[rgba(15,23,42,0.06)] bg-white shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_rgba(15,23,42,.06)]",
         className
       )}
     >
       {title || description || action ? (
-        <div className="flex flex-col gap-3 border-b border-[#DDE8E5]/80 px-6 py-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 border-b border-[#DDE8E5]/80 px-6 py-5 sm:flex-row sm:items-start sm:justify-between" data-recora-panel-header>
           <div className="min-w-0">
             {title ? <h2 className="text-base font-bold tracking-tight text-[#0F172A]">{title}</h2> : null}
             {description ? (
@@ -92,7 +93,7 @@ export function DashboardCard({
           {action ? <div className="shrink-0">{action}</div> : null}
         </div>
       ) : null}
-      <div className={cn("min-w-0", dense ? "p-5" : "p-6")}>{children}</div>
+      <div className={cn("min-w-0", dense ? "p-5" : "p-6")} data-recora-panel-body>{children}</div>
     </Card>
   );
 }
@@ -120,6 +121,7 @@ export function MetricCard({
 }) {
   return (
     <Card
+      data-recora-metric-card
       title={helper ? `${label}: ${helper}` : label}
       className="min-w-0 rounded-lg border border-[#D8E0E3] bg-white p-5 shadow-none"
     >

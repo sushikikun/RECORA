@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
 import {
+  getRecoraVisualVariant,
+  withRecoraVisualVariantSearchParam
+} from "@/lib/recora/dev-preview/design-visual-variant";
+import {
   assertPublicReportRouteAllowed,
   normalizeReportSlug,
   type ReportSlugPageProps
@@ -7,10 +11,10 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportOverviewPage({ params }: ReportSlugPageProps) {
+export default async function ReportOverviewPage({ params, searchParams }: ReportSlugPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
 
   assertPublicReportRouteAllowed(projectSlug);
 
-  redirect(`/dashboard/reports/${projectSlug}`);
+  redirect(withRecoraVisualVariantSearchParam(`/dashboard/reports/${projectSlug}`, getRecoraVisualVariant(searchParams)));
 }

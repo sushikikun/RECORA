@@ -5,12 +5,14 @@ import {
   getRecoraDesignPreviewLabel,
   isRecoraDesignPreviewEnabled
 } from "@/lib/recora/dev-preview/design-preview-access";
+import { getRecoraVisualVariant } from "@/lib/recora/dev-preview/design-visual-variant";
 
 export const dynamic = "force-dynamic";
 
 type DashboardPageProps = {
   searchParams?: {
     "design-check"?: string;
+    visual?: string;
   };
 };
 
@@ -27,6 +29,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         dashboardData={getDesignCheckDashboardData()}
         homeReadModelData={null}
         previewModeLabel={getRecoraDesignPreviewLabel()}
+        visualVariant={getRecoraVisualVariant(searchParams)}
       />
     );
   }
