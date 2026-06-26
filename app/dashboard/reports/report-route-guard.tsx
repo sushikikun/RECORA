@@ -1,7 +1,12 @@
 import type { ReactNode } from "react";
+import { notFound } from "next/navigation";
 
 import { DataCard, PageHeader } from "@/components/recora/ui";
-import { getDefaultRecoraProjectSlug, getRecoraDashboardData } from "@/lib/recora/db";
+import {
+  canUseRecoraDesignCheck,
+  getRecoraDesignPreviewLabel,
+  isRecoraDesignCheckSlug
+} from "@/lib/recora/dev-preview/design-preview-access";
 
 export const CURRENT_REPORT_SLUG = "mieruca-seo-demo";
 export const LEGACY_REPORT_SLUG = "recora-growth-q2";
@@ -10,21 +15,51 @@ export type ReportSlugPageProps = {
   params: {
     id: string;
   };
+  searchParams?: {
+    visual?: string;
+  };
 };
 
 export function getDefaultReportSlug() {
-  return getDefaultRecoraProjectSlug();
+  return process.env.RECORA_DEFAULT_PROJECT_SLUG?.trim() ?? "";
 }
 
 export function normalizeReportSlug(reportSlug: string) {
   return reportSlug === LEGACY_REPORT_SLUG ? CURRENT_REPORT_SLUG : reportSlug;
 }
 
+export function isDesignCheckReportSlug(projectSlug: string) {
+  return isRecoraDesignCheckSlug(projectSlug);
+}
+
+export function canUseDesignCheckReport(projectSlug: string) {
+  return canUseRecoraDesignCheck(projectSlug);
+}
+
+export function assertPublicReportRouteAllowed(projectSlug: string) {
+  if (isDesignCheckReportSlug(projectSlug) && !canUseDesignCheckReport(projectSlug)) {
+    notFound();
+  }
+}
+
 export async function renderCustomerReadyReportRoute(
   projectSlug: string,
   renderReadyRoute: () => ReactNode | Promise<ReactNode>
 ) {
-  if (!(await isCustomerReadyReport(projectSlug))) {
+  const normalizedSlug = normalizeReportSlug(projectSlug);
+
+  if (canUseDesignCheckReport(normalizedSlug)) {
+    return (
+      <>
+        <DesignCheckPreviewNotice />
+        {await renderReadyRoute()}
+      </>
+    );
+  }
+
+  assertPublicReportRouteAllowed(normalizedSlug);
+
+  if (!(await isCustomerReadyReport(normalizedSlug))) {
     return <ReportPreparationPage />;
   }
 
@@ -32,15 +67,29 @@ export async function renderCustomerReadyReportRoute(
 }
 
 export async function isCustomerReadyReport(projectSlug: string) {
-  const dashboardData = await getReportRouteDashboardDataOrNull(projectSlug);
+  const normalizedSlug = normalizeReportSlug(projectSlug);
+
+  if (canUseDesignCheckReport(normalizedSlug)) return true;
+
+  assertPublicReportRouteAllowed(normalizedSlug);
+
+  const dashboardData = await getReportRouteDashboardDataOrNull(normalizedSlug);
   return dashboardData?.reportReadyGate.status === "customer_ready";
 }
 
 export async function getReportRouteDashboardDataOrNull(projectSlug: string) {
-  const normalizedSlug = projectSlug.trim();
+  const normalizedSlug = normalizeReportSlug(projectSlug.trim());
   if (!normalizedSlug) return null;
 
+  if (canUseDesignCheckReport(normalizedSlug)) {
+    const { getDesignCheckDashboardData } = await import("@/lib/recora/dev-preview/design-check-report-fixture");
+    return getDesignCheckDashboardData();
+  }
+
+  assertPublicReportRouteAllowed(normalizedSlug);
+
   try {
+    const { getRecoraDashboardData } = await import("@/lib/recora/db");
     const dashboardData = await getRecoraDashboardData(normalizedSlug);
     return dashboardData.project ? dashboardData : null;
   } catch (error) {
@@ -69,6 +118,21 @@ export function ReportPreparationPage() {
           </p>
         </div>
       </DataCard>
+    </div>
+  );
+}
+
+export function DesignCheckPreviewNotice() {
+  const label = getRecoraDesignPreviewLabel();
+
+  if (!label) return null;
+
+  return (
+    <div className="mb-2 flex min-h-7 flex-wrap items-center gap-2 text-xs text-[#005C50]">
+      <span className="inline-flex h-6 items-center rounded-sm border border-[#BFDAD4] bg-[#E6F4F1] px-2 font-bold">
+        {label}
+      </span>
+      <span className="font-semibold text-[#0F766E]">本物の顧客データではありません</span>
     </div>
   );
 }

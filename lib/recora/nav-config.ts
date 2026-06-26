@@ -1,7 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  ClipboardList,
-  Cpu,
+  CircleGauge,
   Database,
   Gauge,
   Home,
@@ -9,8 +8,7 @@ import {
   Lightbulb,
   MessageSquareText,
   Radar,
-  Swords,
-  Users
+  Swords
 } from "lucide-react";
 
 export type RecoraNavStatus = "ready" | "preparing";
@@ -44,29 +42,18 @@ export type RecoraNavBuildOptions = {
   showReportContextItems?: boolean;
 };
 
-// P1/Pending:
-// - 「測定条件」「根拠確認」はレポート配下の専用route作成後に追加する。
-// - 「新しい測定」「測定プロファイル」は今回のnavには出さない。
-// - 現行runs画面はreportId選択後に「実行履歴」として残す。
-export function buildRecoraNavItems(reportId?: string, options: RecoraNavBuildOptions = {}): RecoraNavItem[] {
+export function buildRecoraNavItems(reportId?: string, _options: RecoraNavBuildOptions = {}): RecoraNavItem[] {
   const reportBase = reportId ? `/dashboard/reports/${reportId}` : undefined;
-  const showReportContextItems = Boolean(reportBase) || options.showReportContextItems === true;
+  const dashboardHref = reportId === "design-check" ? "/dashboard?design-check=1" : "/dashboard";
 
   const reportDetailItems: RecoraNavItem[] = reportBase
     ? [
         {
-          label: "レポート概要",
+          label: "概要",
           href: reportBase,
           section: "レポート",
           status: "ready",
           icon: Radar
-        },
-        {
-          label: "AI回答",
-          href: `${reportBase}/conversations`,
-          section: "レポート",
-          status: "ready",
-          icon: MessageSquareText
         },
         {
           label: "ブランド比較",
@@ -76,11 +63,32 @@ export function buildRecoraNavItems(reportId?: string, options: RecoraNavBuildOp
           icon: Swords
         },
         {
+          label: "質問別分析",
+          href: `${reportBase}/prompts`,
+          section: "レポート",
+          status: "ready",
+          icon: Layers3
+        },
+        {
+          label: "AI回答",
+          href: `${reportBase}/conversations`,
+          section: "レポート",
+          status: "ready",
+          icon: MessageSquareText
+        },
+        {
           label: "参照元",
           href: `${reportBase}/sources`,
           section: "レポート",
           status: "ready",
           icon: Database
+        },
+        {
+          label: "ブランド認知",
+          href: `${reportBase}/brand-perception`,
+          section: "レポート",
+          status: "ready",
+          icon: CircleGauge
         },
         {
           label: "改善候補",
@@ -92,60 +100,10 @@ export function buildRecoraNavItems(reportId?: string, options: RecoraNavBuildOp
       ]
     : [];
 
-  const reportContextItems: RecoraNavItem[] = showReportContextItems
-    ? [
-        {
-          label: "ペルソナ",
-          href: "/dashboard/config/personas",
-          section: "レポート",
-          status: "ready",
-          icon: Users,
-          description: "レポート解釈に使うペルソナ設定を確認します。"
-        },
-        {
-          label: "トピック・プロンプト",
-          href: "/dashboard/config/topics-prompts",
-          section: "レポート",
-          status: "ready",
-          icon: Layers3,
-          description: "AI回答の観測条件に関わるトピック・プロンプトを確認します。"
-        },
-        {
-          label: "比較ブランド",
-          href: "/dashboard/config/competitors",
-          section: "レポート",
-          status: "ready",
-          icon: Swords,
-          description: "レポートで比較するブランド設定を確認します。"
-        },
-        {
-          label: "AIモデル",
-          href: "/dashboard/config/models",
-          section: "レポート",
-          status: "ready",
-          icon: Cpu,
-          description: "観測に使うAIモデル設定を確認します。"
-        }
-      ]
-    : [];
-
-  const reportRunItems: RecoraNavItem[] = reportBase
-    ? [
-        {
-          label: "実行履歴",
-          href: `${reportBase}/runs`,
-          section: "レポート",
-          status: "ready",
-          icon: ClipboardList,
-          description: "選択中レポートの実行履歴を確認します。"
-        }
-      ]
-    : [];
-
   return [
     {
       label: "ホーム",
-      href: "/dashboard",
+      href: dashboardHref,
       section: "ホーム",
       status: "ready",
       icon: Gauge,
@@ -159,9 +117,7 @@ export function buildRecoraNavItems(reportId?: string, options: RecoraNavBuildOp
       icon: Home,
       description: "レポート一覧を確認します。"
     },
-    ...reportDetailItems,
-    ...reportContextItems,
-    ...reportRunItems
+    ...reportDetailItems
   ];
 }
 
@@ -177,13 +133,13 @@ export function buildRecoraNavGroups(reportId?: string, options: RecoraNavBuildO
 }
 
 export const reportDetailTabs = {
-  overview: ["レポート概要"],
+  overview: ["概要"],
   conversations: ["AI回答"],
-  prompts: ["プロンプト分析", "プロンプト分類"],
-  leaderboard: ["ブランド比較", "AI内シェア", "比較ブランド候補"],
-  sources: ["参照元", "参照ページ", "ドメイン分析", "参照元の差分"],
-  brandPerception: ["ブランド認識", "強み・弱み分析", "文脈・感情分析"],
-  recommendations: ["改善候補", "根拠サマリー"],
+  prompts: ["質問別分析"],
+  leaderboard: ["ブランド比較"],
+  sources: ["参照元"],
+  brandPerception: ["ブランド認知"],
+  recommendations: ["改善候補"],
   contentOpportunities: ["コンテンツ改善候補", "ページ改善候補", "改善マップ", "コンテンツ不足"],
   technicalAudit: ["サイト技術診断", "FAQ・構造化データ提案"],
   actionPlan: ["改善プラン", "30/60/90日プラン", "タスク管理"]
@@ -203,7 +159,7 @@ export const placeholderRouteSummaries = {
     description: "レポート、表、参照元データ、改善タスクをCSVや共有用資料として出力する画面です。"
   },
   prompts: {
-    title: "プロンプト分析",
+    title: "質問別分析",
     description: "プロンプト分類、意図、AI表示率、競合差分を整理し、AI回答での露出改善に使う画面です。"
   },
   recommendations: {

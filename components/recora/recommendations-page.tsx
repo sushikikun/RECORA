@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { Download, ExternalLink, RefreshCw, Share2 } from "lucide-react";
+import { ExternalLink, Share2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataCard, MetricTile, PageHeader } from "@/components/recora/ui";
+import { ReportHelpTooltip } from "@/components/recora/report-ui/report-help-tooltip";
 import { reportDetailTabs } from "@/lib/recora/nav-config";
 import type { RecoraRecommendationRow, RecoraRecommendationsDbData } from "@/lib/recora/db";
 import { getRecommendationPublicationState } from "@/lib/recora/report-eligibility";
@@ -53,6 +54,7 @@ type RecommendationsViewModel = {
   sourceLabel: string;
   items: RecommendationDisplayItem[];
   highPriorityCount: number;
+  evidenceBackedCount: number;
   observationCount: number;
   citationUrlCount: number;
   preQualityGateCandidateCount: number | null;
@@ -80,51 +82,132 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
       <PageHeader
         eyebrow="レポート詳細"
         title="改善候補"
-        description="AI検索での観測結果から、次に確認したい改善候補を整理します。承認済み施策や効果保証ではありません。"
-        meta={<ReportFilters compact data={recommendationsData} />}
+        description="AI検索での観測結果から、優先して確認する改善候補を整理します。"
         actions={<HeaderActions />}
       />
       <DetailTabs items={reportDetailTabs.recommendations} />
 
-      <div className="grid gap-4 lg:grid-cols-4">
-        <MetricTile label="表示候補数" value={String(view.items.length)} helper={view.sourceLabel} />
-        <MetricTile label="高重要度" value={String(view.highPriorityCount)} helper="次に判断したい候補" tone="amber" />
-        <MetricTile label="観測回答数" value={String(view.observationCount)} helper="根拠に使われた回答範囲" />
-        <MetricTile label="参照URL数" value={String(view.citationUrlCount)} helper="根拠確認済み数ではありません" tone="slate" />
-      </div>
+      <div data-recora-current-only>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <MetricTile label="改善候補数" value={String(view.items.length)} helper={view.sourceLabel} />
+          <MetricTile label="高重要度" value={String(view.highPriorityCount)} helper="次に判断したい候補" tone="amber" />
+          <MetricTile label="根拠あり候補数" value={String(view.evidenceBackedCount)} helper="観測根拠を確認できる候補" tone="green" />
+        </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <DataCard title="優先して確認したい改善候補" description="断定ではなく、AI検索での観測結果から表示する確認材料です。">
-          <div className="space-y-4">
-            {topItems.length > 0 ? topItems.map((item) => (
-              <RecommendationActionCard key={item.id} item={item} />
-            )) : (
-              <EmptyStateBlock title="表示できる改善候補がありません" description="表示対象の改善候補が保存されると、ここに表示されます。" />
-            )}
-          </div>
-        </DataCard>
-
-        <DataCard title="確認状況" description="改善候補の状態を要約しています。完了は効果保証を意味しません。">
-          <div className="space-y-4">
-            <RecommendationStatusRow label="未着手" value={view.openCount} tone="rose" />
-            <RecommendationStatusRow label="計画中" value={view.plannedCount} tone="amber" />
-            <RecommendationStatusRow label="完了" value={view.doneCount} tone="green" />
-            <div className="rounded-lg border border-teal-100 bg-teal-50/70 p-3">
-              <p className="text-xs font-bold text-teal-900">品質ゲート</p>
-              <p className="mt-1 text-2xl font-bold tracking-normal text-teal-950">
-                {view.preQualityGateCandidateCount === null ? "-" : view.preQualityGateCandidateCount}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-teal-800">
-                確認待ち候補です。画面表示対象であっても、承認済み施策や成果保証ではありません。
-              </p>
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <DataCard title="優先して確認したい改善候補" description="観測結果から表示する確認材料です。">
+            <div className="space-y-4">
+              {topItems.length > 0 ? topItems.map((item) => (
+                <RecommendationActionCard key={item.id} item={item} />
+              )) : (
+                <EmptyStateBlock title="表示できる改善候補がありません" description="表示対象の改善候補が保存されると、ここに表示されます。" />
+              )}
             </div>
-          </div>
+          </DataCard>
+
+          <DataCard title="確認状況" description="改善候補の確認状態を要約しています。">
+            <div className="space-y-4">
+              <RecommendationStatusRow label="未着手" value={view.openCount} tone="rose" />
+              <RecommendationStatusRow label="計画中" value={view.plannedCount} tone="amber" />
+              <RecommendationStatusRow label="完了" value={view.doneCount} tone="green" />
+              <div className="rounded-lg border border-teal-100 bg-teal-50/70 p-3">
+                <p className="text-xs font-bold text-teal-900">表示前の確認</p>
+                <p className="mt-1 text-2xl font-bold tracking-normal text-teal-950">
+                  {view.preQualityGateCandidateCount === null ? "-" : view.preQualityGateCandidateCount}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-teal-800">
+                  確認待ち候補です。公開前の品質確認を通過したものだけを表示します。
+                </p>
+              </div>
+            </div>
+          </DataCard>
+        </div>
+
+        <DataCard title="改善候補一覧" description={`${view.sourceLabel}由来の表示対象だけを、区分と観測根拠付きで表示します。`}>
+          <RecommendationListCards rows={view.items} />
         </DataCard>
       </div>
 
-      <DataCard title="改善候補一覧" description={`${view.sourceLabel}由来の表示対象だけを、区分と観測根拠付きで表示します。`}>
-        <RecommendationListCards rows={view.items} />
-      </DataCard>
+      <div data-recora-data-rich-only>
+        <DataRichRecommendationsView view={view} />
+      </div>
+    </div>
+  );
+}
+
+function DataRichRecommendationsView({ view }: { view: RecommendationsViewModel }) {
+  return (
+    <div className="min-w-0 space-y-3">
+      <section className="overflow-hidden rounded-lg border border-[#E1E8E5] bg-white" data-recora-kpi-strip>
+        <div className="grid min-w-0 md:grid-cols-3">
+          <DataRichRecommendationKpi label="改善候補" value={`${view.items.length}件`} helper={view.sourceLabel} />
+          <DataRichRecommendationKpi label="高優先度" value={`${view.highPriorityCount}件`} helper="次に判断したい候補" tone="amber" />
+          <DataRichRecommendationKpi label="根拠あり" value={`${view.evidenceBackedCount}件`} helper="観測根拠を確認できる候補" />
+        </div>
+      </section>
+
+      <section className="recora-data-rich-split">
+        <div className="min-w-0">
+          <div className="border-b border-[#E1E8E5] px-4 py-3">
+            <h2 className="text-base font-bold text-[#0F172A]">改善候補一覧</h2>
+            <p className="mt-1 text-sm leading-6 text-[#64748B]">
+              優先度、観測根拠、影響範囲、次に確認することを同じ行で確認します。
+            </p>
+          </div>
+          <RecommendationsTable rows={view.items} />
+        </div>
+        <aside className="min-w-0 bg-[#FAFCFB] p-4">
+          <h3 className="text-sm font-bold text-[#0F172A]">確認状況</h3>
+          <div className="mt-3 divide-y divide-[#E1E8E5] rounded-md border border-[#E1E8E5] bg-white">
+            <DataRichStatusLine label="未着手" value={view.openCount} tone="rose" />
+            <DataRichStatusLine label="計画中" value={view.plannedCount} tone="amber" />
+            <DataRichStatusLine label="完了" value={view.doneCount} tone="green" />
+          </div>
+          <div className="mt-4 rounded-md border border-[#E1E8E5] bg-white px-3 py-3">
+            <p className="text-xs font-bold text-[#64748B]">凡例</p>
+            <p className="mt-2 text-sm leading-6 text-[#475569]">
+              表示候補は公開前の品質確認を通過したものだけです。効果予測や担当者・期限はこの顧客画面では表示しません。
+            </p>
+          </div>
+        </aside>
+      </section>
+    </div>
+  );
+}
+
+function DataRichRecommendationKpi({
+  label,
+  value,
+  helper,
+  tone = "green"
+}: {
+  label: string;
+  value: string;
+  helper: string;
+  tone?: "green" | "amber";
+}) {
+  return (
+    <div className="min-w-0 border-b border-[#E1E8E5] px-4 py-4 md:border-r md:last:border-r-0 xl:border-b-0">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <p className="truncate text-xs font-bold text-[#64748B]" title={label}>{label}</p>
+        <ReportHelpTooltip text={helper} label={`${label}の定義`} />
+      </div>
+      <p className={cn("mt-2 text-[30px] font-bold leading-none tracking-normal", tone === "amber" ? "text-amber-700" : "text-[#005C50]")}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function DataRichStatusLine({ label, value, tone }: { label: string; value: number; tone: "rose" | "amber" | "green" }) {
+  const toneClass = tone === "rose" ? "bg-rose-400" : tone === "amber" ? "bg-amber-400" : "bg-emerald-500";
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+      <span className="flex min-w-0 items-center gap-2 text-sm font-bold text-[#0F172A]">
+        <span className={cn("h-2 w-2 shrink-0 rounded-full", toneClass)} />
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="font-bold tabular-nums text-[#0F172A]">{value}</span>
     </div>
   );
 }
@@ -132,6 +215,11 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
 function createRecommendationsViewModel(data?: RecoraRecommendationsDbData | null): RecommendationsViewModel {
   const items = data?.project ? createDbRecommendationItems(data) : [];
   const highPriorityCount = items.filter((item) => item.priority === "High").length;
+  const evidenceBackedCount = items.filter((item) =>
+    item.evidenceMetrics.focusedObservationCount > 0 ||
+    item.evidenceMetrics.citationCount > 0 ||
+    item.evidenceMetrics.matchedClueCount > 0
+  ).length;
   const observationCount = Math.max(0, ...items.map((item) => item.evidenceMetrics.observationCount));
   const citationUrlCount = Math.max(0, ...items.map((item) => item.evidenceMetrics.citationCount));
 
@@ -139,9 +227,10 @@ function createRecommendationsViewModel(data?: RecoraRecommendationsDbData | nul
     sourceLabel: data?.project ? getRecommendationSourceLabel(data.recommendations) : "表示できるデータがありません",
     items,
     highPriorityCount,
+    evidenceBackedCount,
     observationCount,
     citationUrlCount,
-    preQualityGateCandidateCount: null,
+    preQualityGateCandidateCount: data?.preQualityGateCandidateCount ?? null,
     openCount: items.filter((item) => item.statusLabel === "未着手").length,
     plannedCount: items.filter((item) => item.statusLabel === "計画中").length,
     doneCount: items.filter((item) => item.statusLabel === "完了").length
@@ -152,10 +241,10 @@ function getRecommendationSourceLabel(recommendations: RecoraRecommendationRow[]
   const metadata = getMetadataRecord(recommendations[0]?.metadata);
   const profileId = getMetadataString(metadata, "measurement_profile_id");
 
-  if (profileId === "custom-openai-run") return "custom OpenAI実測run";
-  if (profileId === "standard-v01") return "最新standard-v01";
+  if (profileId === "custom-openai-run") return "カスタム測定";
+  if (profileId === "standard-v01") return "標準測定";
 
-  return "OpenAI実測run";
+  return "観測データ";
 }
 
 function createDbRecommendationItems(data: RecoraRecommendationsDbData): RecommendationDisplayItem[] {
@@ -200,7 +289,7 @@ function createDbRecommendationItems(data: RecoraRecommendationsDbData): Recomme
         customerFacingCaution: safeRecoraNotice(getMetadataString(metadata, "customer_facing_caution")),
         recoraMetricNotice: safeRecoraNotice(getMetadataString(metadata, "recora_metric_notice")),
         sampleSizeCaution: displayCategory === "サンプル不足"
-          ? "サンプル数が少ないため、追加測定で傾向が変わる可能性があります。"
+          ? "サンプル不足です。"
           : null,
         evidenceDescription: buildEvidenceDescription(displayCategory, evidenceMetrics),
         evidenceMetrics,
@@ -214,79 +303,18 @@ function createDbRecommendationItems(data: RecoraRecommendationsDbData): Recomme
     });
 }
 
-function DetailTabs({ items, active = 0 }: { items: readonly string[]; active?: number }) {
-  return (
-    <div className="mb-5 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 shadow-[0_8px_28px_rgba(15,23,42,0.035)]">
-      <div className="flex min-w-max gap-1">
-        {items.map((item, index) => (
-          <span
-            key={item}
-            className={cn(
-              "rounded-md px-3 py-2 text-xs font-bold text-slate-500",
-              index === active ? "bg-[#00796B] text-white shadow-sm" : "hover:bg-[#E6F4F1] hover:text-[#005C50]"
-            )}
-          >
-            {item}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
+function DetailTabs(_props: { items: readonly string[]; active?: number }) {
+  return null;
 }
 
 function HeaderActions() {
   return (
     <>
-      <Button variant="outline">
-        <Download className="h-4 w-4" />
-        エクスポート
-      </Button>
       <Button>
         <Share2 className="h-4 w-4" />
         レポート共有
       </Button>
     </>
-  );
-}
-
-function ReportFilters({ compact = false, data }: { compact?: boolean; data?: RecoraRecommendationsDbData | null }) {
-  const latestRun = data?.latestRun;
-  const projectName = data?.project?.name ?? "Recora";
-  const dateScope = getRecommendationDateScope(latestRun?.period_start, latestRun?.period_end, data?.project?.default_period);
-  const comparisonPeriod = latestRun?.comparison_start && latestRun.comparison_end ? latestRun.comparison_start + " - " + latestRun.comparison_end : "-";
-
-  return (
-    <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-[0_8px_28px_rgba(15,23,42,0.035)] md:grid-cols-2 xl:grid-cols-[1.1fr_1.1fr_1.1fr_0.8fr_auto]">
-      <FilterBox label="プロジェクト" value={projectName} />
-      <FilterBox label={dateScope.label} value={dateScope.value} />
-      {!compact ? <FilterBox label="比較期間" value={comparisonPeriod} /> : <FilterBox label="比較期間" value={comparisonPeriod} />}
-      <FilterBox label="地域" value={"\u65e5\u672c\u8a9e\uff08\u65e5\u672c\uff09"} />
-      <div className="flex items-center justify-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
-        <RefreshCw className="h-4 w-4 text-[#00796B]" />
-        最終更新
-      </div>
-    </div>
-  );
-}
-
-function getRecommendationDateScope(start?: string | null, end?: string | null, fallback?: string | null) {
-  if (start && end && start === end) {
-    return { label: "測定日", value: start };
-  }
-
-  if (start || end) {
-    return { label: "測定期間", value: `${start ?? "-"} - ${end ?? "-"}` };
-  }
-
-  return { label: "測定日", value: fallback ?? "-" };
-}
-
-function FilterBox({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded-md border border-slate-200 bg-white px-3 py-2">
-      <p className="text-xs font-semibold text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-sm font-bold text-slate-950">{value}</p>
-    </div>
   );
 }
 
@@ -307,12 +335,12 @@ function RecommendationActionCard({ item }: { item: RecommendationDisplayItem })
         </div>
         <div className="grid min-w-[150px] gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
           <div>
-            <p className="text-xs font-bold text-slate-500">観測数</p>
-            <p className="mt-1 text-lg font-bold text-teal-700">{item.evidenceMetrics.observationCount}</p>
+            <p className="text-xs font-bold text-slate-500">影響する質問</p>
+            <p className="mt-1 text-lg font-bold text-teal-700">{item.evidenceMetrics.promptCount}</p>
           </div>
           <div>
-            <p className="text-xs font-bold text-slate-500">対象プロンプト</p>
-            <p className="mt-1 text-sm font-bold text-slate-800">{item.evidenceMetrics.promptCount}</p>
+            <p className="text-xs font-bold text-slate-500">参照URL</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{item.evidenceMetrics.citationCount}</p>
           </div>
           <div>
             <p className="text-xs font-bold text-slate-500">確からしさ</p>
@@ -328,7 +356,7 @@ function RecommendationActionCard({ item }: { item: RecommendationDisplayItem })
       <RecommendationEvidenceMetrics item={item} />
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <RecommendationNote label="観測根拠の説明" value={item.evidenceDescription} />
-        <RecommendationNote label="品質ゲートの扱い" value={item.qualityGateNote} />
+        <RecommendationNote label="表示前の確認" value={item.qualityGateNote} />
       </div>
       {item.sampleSizeCaution ? (
         <div className="mt-3 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-bold leading-5 text-orange-800">
@@ -346,11 +374,10 @@ function RecommendationEvidenceMetrics({ item }: { item: RecommendationDisplayIt
   const metrics = item.evidenceMetrics;
 
   return (
-    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <RecommendationMetric label={metrics.focusedObservationLabel} value={metrics.focusedObservationCount} />
+    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <RecommendationMetric label="影響する質問" value={metrics.promptCount} />
       <RecommendationMetric label="参照URL数" value={metrics.citationCount} />
-      <RecommendationMetric label="参照ドメイン数" value={metrics.uniqueDomainCount} />
-      <RecommendationMetric label="根拠clue数" value={metrics.matchedClueCount} />
+      <RecommendationMetric label="根拠の手がかり" value={metrics.matchedClueCount} />
     </div>
   );
 }
@@ -406,13 +433,13 @@ function RecommendationStatusRow({ label, value, tone }: { label: string; value:
 
 function RecommendationListCards({ rows }: { rows: RecommendationDisplayItem[] }) {
   if (rows.length === 0) {
-    return <EmptyStateBlock title="表示できる改善候補がありません" description="品質ゲート後に表示できる候補が保存されると、ここに一覧表示されます。" />;
+    return <EmptyStateBlock title="表示できる改善候補がありません" description="表示できる候補が保存されると、ここに一覧表示されます。" />;
   }
 
   return (
     <div className="grid gap-3 lg:grid-cols-2">
       {rows.map((item) => (
-        <article key={item.id} className="min-w-0 rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_6px_18px_rgba(15,23,42,0.035)]">
+        <article key={item.id} className="min-w-0 rounded-lg border border-[#D8E0E3] bg-white p-4 shadow-none">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap gap-1.5">
@@ -433,9 +460,8 @@ function RecommendationListCards({ rows }: { rows: RecommendationDisplayItem[] }
             </div>
           </div>
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <SmallEvidenceMetric label="観測" value={`${item.evidenceMetrics.observationCount}件`} />
-            <SmallEvidenceMetric label={item.evidenceMetrics.focusedObservationLabel} value={`${item.evidenceMetrics.focusedObservationCount}件`} />
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <SmallEvidenceMetric label="影響する質問" value={`${item.evidenceMetrics.promptCount}件`} />
             <SmallEvidenceMetric label="参照URL" value={`${item.evidenceMetrics.citationCount}件`} />
             <SmallEvidenceMetric label="確からしさ" value={item.confidenceLabel} />
           </div>
@@ -469,51 +495,56 @@ function SmallEvidenceMetric({ label, value }: { label: string; value: string })
 
 function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
   return (
-    <Table className="min-w-[980px]">
+    <Table className="w-full table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead>タイトル</TableHead>
-          <TableHead>優先度</TableHead>
-          <TableHead>表示区分</TableHead>
-          <TableHead>確からしさ</TableHead>
-          <TableHead>観測根拠</TableHead>
-          <TableHead>状態</TableHead>
-          <TableHead>関連項目</TableHead>
-          <TableHead>次の判断</TableHead>
+          <TableHead className="w-[86px]">優先度</TableHead>
+          <TableHead>課題</TableHead>
+          <TableHead className="w-[170px]">観測根拠</TableHead>
+          <TableHead className="w-[118px]">影響する質問</TableHead>
+          <TableHead className="w-[110px]">影響AIモデル</TableHead>
+          <TableHead>次に確認すること</TableHead>
+          <TableHead className="w-[92px]">状態</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.length > 0 ? rows.map((row) => (
           <TableRow key={row.id}>
-            <TableCell className="min-w-[260px]">
-              <div className="font-bold text-slate-950">{row.title}</div>
+            <TableCell className="whitespace-nowrap"><RecommendationPriorityBadge item={row} /></TableCell>
+            <TableCell>
+              <div className="line-clamp-2 font-bold text-slate-950">{row.title}</div>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                <DisplayCategoryBadge item={row} />
+                <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-slate-50 text-slate-600">
+                  {row.confidenceLabel}
+                </Badge>
+              </div>
               <div className="mt-1 text-xs font-semibold text-slate-400">{row.createdAt}</div>
             </TableCell>
-            <TableCell className="whitespace-nowrap"><RecommendationPriorityBadge item={row} /></TableCell>
-            <TableCell className="whitespace-nowrap"><DisplayCategoryBadge item={row} /></TableCell>
-            <TableCell className="whitespace-nowrap font-semibold text-slate-700">{row.confidenceLabel}</TableCell>
-            <TableCell className="min-w-[170px] text-xs leading-5 text-slate-600">
-              <div>観測数: <span className="font-bold text-slate-950">{row.evidenceMetrics.observationCount}</span></div>
+            <TableCell className="text-xs leading-5 text-slate-600">
               <div>{row.evidenceMetrics.focusedObservationLabel}: <span className="font-bold text-slate-950">{row.evidenceMetrics.focusedObservationCount}</span></div>
               <div>参照URL: <span className="font-bold text-slate-950">{row.evidenceMetrics.citationCount}</span></div>
+              <div>手がかり: <span className="font-bold text-slate-950">{row.evidenceMetrics.matchedClueCount}</span></div>
             </TableCell>
-            <TableCell className="whitespace-nowrap">{row.statusLabel}</TableCell>
-            <TableCell className="min-w-[220px] text-sm leading-6 text-slate-600">
+            <TableCell className="font-semibold tabular-nums text-slate-800">
+              {row.evidenceMetrics.promptCount}件
+            </TableCell>
+            <TableCell className="text-sm font-semibold text-slate-600">要確認</TableCell>
+            <TableCell className="text-sm leading-6 text-slate-600">
               <div className="font-semibold text-slate-800">{row.relatedTopic}</div>
               <div className="text-xs text-slate-500">{row.relatedBrand}</div>
-            </TableCell>
-            <TableCell className="min-w-[260px] text-sm leading-6 text-slate-600">
               {row.targetUrl ? (
-                <Link href={row.targetUrl} className="inline-flex max-w-[240px] items-center gap-1 truncate font-semibold text-[#00796B] hover:text-[#005C50]">
+                <Link href={row.targetUrl} className="mt-1 inline-flex max-w-full items-center gap-1 truncate font-semibold text-[#00796B] hover:text-[#005C50]">
                   <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate">{row.action}</span>
                 </Link>
               ) : row.action}
             </TableCell>
+            <TableCell className="whitespace-nowrap font-semibold text-slate-700">{row.statusLabel}</TableCell>
           </TableRow>
         )) : (
           <TableRow>
-            <TableCell colSpan={8} className="text-sm text-slate-500">
+            <TableCell colSpan={7} className="text-sm text-slate-500">
               表示できる改善候補がありません。表示対象が保存されるとここに表示されます。
             </TableCell>
           </TableRow>
@@ -663,7 +694,7 @@ function buildEvidenceMetrics(evidence: Record<string, unknown>, displayCategory
 
 function focusedObservationLabel(displayCategory: string) {
   if (displayCategory === "改善候補") return "未表示観測数";
-  if (displayCategory === "引用確認事項") return "web-search観測数";
+  if (displayCategory === "引用確認事項") return "Web検索あり回答数";
   if (displayCategory === "サンプル不足") return "対象観測数";
   return "対象観測数";
 }
@@ -674,11 +705,11 @@ function buildEvidenceDescription(displayCategory: string, metrics: EvidenceMetr
   }
 
   if (displayCategory === "引用確認事項") {
-    return `web-search由来の引用URLを${metrics.citationCount}件、unique domainを${metrics.uniqueDomainCount}件確認しました。引用URLは確認されていますが、回答内容を支持しているかは確認が必要です。`;
+    return `Web検索ありの回答で引用URLを${metrics.citationCount}件、参照ドメインを${metrics.uniqueDomainCount}件確認しました。引用URLは確認されていますが、回答内容を支持しているかは確認が必要です。`;
   }
 
   if (displayCategory === "サンプル不足") {
-    return `事例確認promptの回答から、確認不足の兆候を${metrics.matchedClueCount}件確認しました。追加確認する余地があります。`;
+    return `事例確認質問の回答から、確認不足の兆候を${metrics.matchedClueCount}件確認しました。追加確認する余地があります。`;
   }
 
   return "今回の観測範囲にもとづく確認材料です。";
@@ -699,7 +730,7 @@ function getRecommendationQualityGate(metadata: Record<string, unknown>, status:
   }
 
   if (publicationState === "customer_visible") {
-    return { label: "表示対象", note: "顧客向けに表示可能な候補です。施策の成果を保証するものではありません。" };
+    return { label: "表示対象", note: "顧客向けに表示可能な確認材料です。" };
   }
 
   if (publicationState === "review_required") {
@@ -710,11 +741,11 @@ function getRecommendationQualityGate(metadata: Record<string, unknown>, status:
     return { label: "候補のみ", note: "管理者確認用の候補です。顧客向け表示には使いません。" };
   }
 
-  return { label: "品質確認前", note: "品質ゲート前の候補です。顧客向け成果物としては扱いません。" };
+  return { label: "確認前", note: "表示前確認中の候補です。顧客向け成果物としては扱いません。" };
 }
 
 function safeRecoraNotice(value: string | undefined) {
-  const fallback = "Recoraの観測範囲に基づく確認材料です。効果保証やAI各社の公式評価ではありません。";
+  const fallback = "Recoraの観測範囲に基づく確認材料です。AI各社の公式な評価ではありません。";
   if (!value) return fallback;
   return value
     .replace("Recora独自の観測であり、AIプラットフォーム公式評価ではありません。", "Recora独自の観測です。AI各社の公式な評価ではありません。")

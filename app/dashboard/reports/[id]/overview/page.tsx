@@ -1,18 +1,20 @@
-import { OverviewPage } from "@/components/recora/report-pages";
+import { redirect } from "next/navigation";
+import {
+  getRecoraVisualVariant,
+  withRecoraVisualVariantSearchParam
+} from "@/lib/recora/dev-preview/design-visual-variant";
+import {
+  assertPublicReportRouteAllowed,
+  normalizeReportSlug,
+  type ReportSlugPageProps
+} from "../../report-route-guard";
 
-const CURRENT_REPORT_SLUG = "mieruca-seo-demo";
-const LEGACY_REPORT_SLUG = "recora-growth-q2";
+export const dynamic = "force-dynamic";
 
-type ReportOverviewPageProps = {
-  params: {
-    id: string;
-  };
-};
+export default async function ReportOverviewPage({ params, searchParams }: ReportSlugPageProps) {
+  const projectSlug = normalizeReportSlug(params.id);
 
-export default function ReportOverviewPage({ params }: ReportOverviewPageProps) {
-  return <OverviewPage projectSlug={normalizeReportSlug(params.id)} />;
-}
+  assertPublicReportRouteAllowed(projectSlug);
 
-function normalizeReportSlug(reportSlug: string) {
-  return reportSlug === LEGACY_REPORT_SLUG ? CURRENT_REPORT_SLUG : reportSlug;
+  redirect(withRecoraVisualVariantSearchParam(`/dashboard/reports/${projectSlug}`, getRecoraVisualVariant(searchParams)));
 }

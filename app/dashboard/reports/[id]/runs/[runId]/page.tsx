@@ -1,6 +1,6 @@
 import { RunDetailPage } from "@/components/recora/run-detail-page";
-import { getRecoraRunDetailData } from "@/lib/recora/db";
 import {
+  canUseDesignCheckReport,
   normalizeReportSlug,
   renderCustomerReadyReportRoute
 } from "../../../report-route-guard";
@@ -18,6 +18,10 @@ export default async function ReportRunDetailPage({ params }: ReportRunDetailPag
   const projectSlug = normalizeReportSlug(params.id);
 
   return renderCustomerReadyReportRoute(projectSlug, async () => {
+    if (canUseDesignCheckReport(projectSlug)) {
+      return <RunDetailPage data={null} projectSlug={projectSlug} runId={params.runId} />;
+    }
+
     const runDetailData = await getRunDetailDataOrNull(projectSlug, params.runId);
 
     return <RunDetailPage data={runDetailData} projectSlug={projectSlug} runId={params.runId} />;
@@ -26,6 +30,7 @@ export default async function ReportRunDetailPage({ params }: ReportRunDetailPag
 
 async function getRunDetailDataOrNull(projectSlug: string, runId: string) {
   try {
+    const { getRecoraRunDetailData } = await import("@/lib/recora/db");
     const data = await getRecoraRunDetailData(projectSlug, runId);
     return data.project ? data : null;
   } catch (error) {

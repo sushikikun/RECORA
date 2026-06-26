@@ -1,9 +1,39 @@
+import { notFound } from "next/navigation";
+
 import { DashboardOverview } from "@/components/recora/dashboard/dashboard-overview";
-import { getDefaultRecoraProjectSlug, getRecoraDashboardData, getRecoraHomeReadModelData } from "@/lib/recora/db";
+import {
+  getRecoraDesignPreviewLabel,
+  isRecoraDesignPreviewEnabled
+} from "@/lib/recora/dev-preview/design-preview-access";
+import { getRecoraVisualVariant } from "@/lib/recora/dev-preview/design-visual-variant";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
+type DashboardPageProps = {
+  searchParams?: {
+    "design-check"?: string;
+    visual?: string;
+  };
+};
+
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+  if (searchParams?.["design-check"] === "1") {
+    if (!isRecoraDesignPreviewEnabled()) {
+      notFound();
+    }
+
+    const { getDesignCheckDashboardData } = await import("@/lib/recora/dev-preview/design-check-report-fixture");
+
+    return (
+      <DashboardOverview
+        dashboardData={getDesignCheckDashboardData()}
+        homeReadModelData={null}
+        previewModeLabel={getRecoraDesignPreviewLabel()}
+        visualVariant={getRecoraVisualVariant(searchParams)}
+      />
+    );
+  }
+
   const [dashboardData, homeReadModelData] = await Promise.all([
     getDashboardDataOrNull(),
     getHomeReadModelDataOrNull()
@@ -14,6 +44,7 @@ export default async function DashboardPage() {
 
 async function getDashboardDataOrNull() {
   try {
+    const { getDefaultRecoraProjectSlug, getRecoraDashboardData } = await import("@/lib/recora/db");
     const projectSlug = getDefaultRecoraProjectSlug();
     if (!projectSlug) return null;
 
@@ -27,6 +58,7 @@ async function getDashboardDataOrNull() {
 
 async function getHomeReadModelDataOrNull() {
   try {
+    const { getDefaultRecoraProjectSlug, getRecoraHomeReadModelData } = await import("@/lib/recora/db");
     const projectSlug = getDefaultRecoraProjectSlug();
     if (!projectSlug) return null;
 

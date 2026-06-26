@@ -1,5 +1,6 @@
 import { BrandPerceptionPage } from "@/components/recora/report-pages";
 import {
+  canUseDesignCheckReport,
   normalizeReportSlug,
   renderCustomerReadyReportRoute,
   type ReportSlugPageProps
@@ -10,5 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function ReportBrandPerceptionPage({ params }: ReportSlugPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
 
-  return renderCustomerReadyReportRoute(projectSlug, () => <BrandPerceptionPage />);
+  return renderCustomerReadyReportRoute(projectSlug, () => (
+    <BrandPerceptionPage qualityState={canUseDesignCheckReport(projectSlug) ? "limited" : "unavailable"} />
+  ));
 }
