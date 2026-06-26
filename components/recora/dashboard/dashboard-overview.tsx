@@ -75,6 +75,8 @@ type CompetitorRow = {
   isPrimary: boolean;
 };
 
+type SnapshotScope = "topic" | "model";
+
 type SourceCompositionRow = {
   key: string;
   label: string;
@@ -354,7 +356,12 @@ function DataRichAiVisibilityCell({ view }: { view: DashboardOverviewView }) {
     <div className="min-w-0 border-b border-[#E1E8E5] px-4 py-4 md:border-r xl:border-b-0">
       <div className="flex min-w-0 items-center justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs font-bold text-[#64748B]">AI表示率</p>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="truncate text-xs font-bold text-[#64748B]" title={recoraDisplayMetricLabels.aiVisibility}>
+              {recoraDisplayMetricLabels.aiVisibility}
+            </p>
+            <ReportHelpTooltip text={recoraDisplayMetricHelpers.aiVisibility} label={`${recoraDisplayMetricLabels.aiVisibility}の定義`} />
+          </div>
           <p className="mt-1 text-[44px] font-bold leading-none tracking-normal text-[#005C50]">{displayLabel}</p>
         </div>
         <ShieldCheck className="h-5 w-5 shrink-0 text-[#006B57]" strokeWidth={LINE_ICON_STROKE} aria-hidden="true" />
@@ -1174,8 +1181,8 @@ function createDashboardOverviewView(
   const sourceComposition = createSourceCompositionRows(homeSummary?.sourceDomainRanking ?? [], homeSummary?.citationOccurrenceCount ?? 0);
   const sourceDomains = createSourceDomainRows(homeSummary?.sourceDomainRanking ?? [], homeSummary?.citationOccurrenceCount ?? 0);
   const competitorRows = createCompetitorRows(brandSnapshots, brandById, primaryBrand?.id ?? null);
-  const topicRows: SnapshotRow[] = [];
-  const modelRows: SnapshotRow[] = [];
+  const topicRows = createSnapshotRows(data?.metricSnapshots ?? [], "topic");
+  const modelRows = createSnapshotRows(data?.metricSnapshots ?? [], "model");
 
   return {
     projectName: data?.project?.name ?? "Recora",
@@ -1276,6 +1283,32 @@ function createCompetitorRows(
   });
 
   return rows.sort((a, b) => b.visibility - a.visibility || Number(b.isPrimary) - Number(a.isPrimary));
+}
+
+function createSnapshotRows(
+  snapshots: RecoraMetricSnapshotRow[],
+  scope: SnapshotScope
+): SnapshotRow[] {
+  return snapshots
+    .filter((snapshot) => snapshot.scope_type === scope && snapshot.scope_id)
+    .map((snapshot) => {
+      const visibility = Math.round(snapshot.ai_visibility);
+      const mentionCount = Math.max(0, Math.round(snapshot.ai_mention_count));
+      const citationCount = Math.max(0, Math.round(snapshot.citation_count));
+
+      return {
+        id: snapshot.id,
+        label: snapshot.scope_id ?? scope,
+        visibility,
+        visibilityLabel: formatPercent(visibility),
+        averagePositionLabel: formatAveragePosition(snapshot.average_position),
+        observationLabel: formatCount(mentionCount),
+        deltaLabel: typeof snapshot.competitive_gap === "number" ? formatSignedPt(snapshot.competitive_gap) : "比較データなし",
+        qualityLabel: `言及 ${formatCount(mentionCount)} / 参照 ${formatCount(citationCount)}`
+      };
+    })
+    .sort((a, b) => b.visibility - a.visibility || a.label.localeCompare(b.label))
+    .slice(0, 5);
 }
 
 function createSourceCompositionRows(

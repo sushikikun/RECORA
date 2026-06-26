@@ -140,7 +140,7 @@ function DataRichRecommendationsView({ view }: { view: RecommendationsViewModel 
     <div className="min-w-0 space-y-3">
       <section className="overflow-hidden rounded-lg border border-[#E1E8E5] bg-white" data-recora-kpi-strip>
         <div className="grid min-w-0 md:grid-cols-3">
-          <DataRichRecommendationKpi label="改善候補数" value={`${view.items.length}件`} helper={view.sourceLabel} />
+          <DataRichRecommendationKpi label="改善候補" value={`${view.items.length}件`} helper={view.sourceLabel} />
           <DataRichRecommendationKpi label="高優先度" value={`${view.highPriorityCount}件`} helper="次に判断したい候補" tone="amber" />
           <DataRichRecommendationKpi label="根拠あり" value={`${view.evidenceBackedCount}件`} helper="観測根拠を確認できる候補" />
         </div>

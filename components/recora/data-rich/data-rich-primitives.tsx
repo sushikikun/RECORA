@@ -84,7 +84,10 @@ export function DataRichPrimaryAction({ href, children }: { href?: string; child
 }
 
 export function DataRichToolbar({ items }: { items: ToolbarItem[] }) {
-  const visibleItems = items.filter((item) => item.value.trim() !== "" && item.value !== "-");
+  const visibleItems = items.filter((item) => {
+    const value = item.value.trim();
+    return value !== "" && value !== "-";
+  });
   const gridClass =
     visibleItems.length <= 1 ? "xl:grid-cols-1" :
     visibleItems.length === 2 ? "xl:grid-cols-2" :
