@@ -9446,11 +9446,11 @@ function SourcesTable({ rows = [] }: { rows?: SourceDisplayRow[] }) {
 
 function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
   return (
-    <Table className="min-w-[980px] table-fixed text-sm">
+    <Table className="min-w-[1070px] table-fixed text-sm">
       <TableHeader>
         <TableRow>
           <TableHead className="w-[280px]">{"タイトル・URL"}</TableHead>
-          <TableHead className="w-[160px]">{"ドメイン"}</TableHead>
+          <TableHead className="w-[250px]">{"ドメイン"}</TableHead>
           <TableHead className="w-[90px]">{"カテゴリ"}</TableHead>
           <TableHead className="w-[90px]">{"参照出現数"}</TableHead>
           <TableHead className="w-[130px]">{"鮮度確認"}</TableHead>
@@ -9473,8 +9473,8 @@ function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
                 </Badge>
               </div>
             </TableCell>
-            <TableCell className="font-semibold text-slate-700">{citation.domain}</TableCell>
-            <TableCell>{citation.sourceType}</TableCell>
+            <TableCell className="break-words font-semibold leading-5 text-slate-700" title={citation.domain}>{citation.domain}</TableCell>
+            <TableCell className="whitespace-nowrap">{citation.sourceType}</TableCell>
             <TableCell className="font-semibold">{citation.occurrences}</TableCell>
             <TableCell>
               <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-slate-50 text-slate-600">
