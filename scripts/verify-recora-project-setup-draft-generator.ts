@@ -37,6 +37,30 @@ type ValidCase = {
   requiresB2CComparisonReview?: boolean;
 };
 
+const B2B_HEAVY_PROMPT_TERMS = [
+  "導入",
+  "稟議",
+  "ROI",
+  "費用対効果",
+  "ベンダー選定",
+  "SaaS",
+  "セキュリティ",
+  "既存ツール連携",
+  "社内承認",
+  "運用負荷"
+] as const;
+
+const B2C_HEAVY_PROMPT_TERMS = [
+  "近く",
+  "近隣",
+  "家族",
+  "子ども",
+  "子供",
+  "口コミだけ",
+  "初めてで不安",
+  "通いやす"
+] as const;
+
 const b2bSoftwareSeed: ProjectSetupSeedInput = {
   companyName: "Hikari Metric Labs Inc.",
   brandName: "PromptHarbor",
@@ -48,6 +72,7 @@ const b2bSoftwareSeed: ProjectSetupSeedInput = {
   language: "ja",
   serviceName: "PromptHarbor",
   brandAliases: ["プロンプトハーバー", "PHARBOR"],
+  knownCompetitors: ["AnswerScope", "GeoLens"],
   strengths: ["AI検索での表示確認", "引用元確認"],
   knownRisks: ["競合名や引用元は未測定では断定しない"],
   diagnosisGoals: ["non_branded", "buyer_intent", "comparison", "citation_check", "sentiment"]
@@ -63,6 +88,7 @@ const professionalServiceSeed: ProjectSetupSeedInput = {
   regions: ["Japan"],
   language: "ja",
   serviceName: "Nagai Growth Advisory",
+  knownCompetitors: ["GrowthPilot", "MarketCraft"],
   strengths: ["戦略設計と実行支援", "BtoBマーケティング経験"],
   knownRisks: ["成果や売上向上を保証しない"],
   diagnosisGoals: ["non_branded", "buyer_intent", "comparison", "sentiment"]
@@ -79,6 +105,7 @@ const clinicSeed: ProjectSetupSeedInput = {
   language: "ja",
   serviceName: "Sakura Skin",
   brandAliases: ["サクラ スキン"],
+  knownCompetitors: ["Aoba Skin", "Shinjuku Beauty Lab"],
   strengths: ["医師情報の明示", "料金と相談前説明"],
   knownRisks: ["治療効果や安全性を保証しない"],
   diagnosisGoals: ["non_branded", "buyer_intent", "citation_check", "sentiment"]
@@ -95,6 +122,7 @@ const localServiceSeed: ProjectSetupSeedInput = {
   language: "ja",
   serviceName: "Mizunowa",
   brandAliases: ["ミズノワ"],
+  knownCompetitors: ["CareBridge", "Local Mate"],
   strengths: ["予約制の相談", "地域で通いやすい支援"],
   knownRisks: ["健康効果や安全性を断定しない"],
   diagnosisGoals: ["non_branded", "buyer_intent", "comparison", "sentiment"]
@@ -111,6 +139,7 @@ const highTicketB2BSeed: ProjectSetupSeedInput = {
   language: "ja",
   serviceName: "FactoryPilot",
   brandAliases: ["ファクトリーパイロット"],
+  knownCompetitors: ["PlantBoard", "FactoryGrid"],
   strengths: ["複数拠点の業務統合", "導入支援", "既存システム連携"],
   knownRisks: ["導入費用、移行負荷、セキュリティ審査が重い"],
   diagnosisGoals: ["non_branded", "buyer_intent", "comparison", "citation_check", "sentiment"]
@@ -127,6 +156,7 @@ const b2cComparisonSeed: ProjectSetupSeedInput = {
   language: "ja",
   serviceName: "NemuruFit",
   brandAliases: ["ねむるフィット"],
+  knownCompetitors: ["SleepMate", "Yasuragi Mattress"],
   strengths: ["素材情報の明示", "返品条件のわかりやすさ"],
   knownRisks: ["効果や口コミ評価を断定しない"],
   diagnosisGoals: ["non_branded", "buyer_intent", "comparison", "sentiment"]
@@ -247,6 +277,9 @@ console.log(JSON.stringify({
     nonBrandedPromptsExcludeBrandSignals: true,
     brandedPromptsExcludedFromVisibilityRankingSov: true,
     brandedSentimentSeparated: true,
+    knownCompetitorsExcludedFromNonBrandedPrompts: true,
+    nonBrandedPromptsAvoidAbstractOrKeywordListWording: true,
+    b2bB2CPromptContextSeparation: true,
     multiplePromptVariantsPerTopic: true,
     promptVariantCountsBounded: true,
     promptVariantLanguageModesCovered: true,
@@ -332,6 +365,9 @@ function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
 
     if (prompt.brandMentionRule === "brand_excluded") {
       assert.equal(promptTextContainsBrandSignal(prompt.text, brandIdentity), false, prompt.promptId);
+      assert.equal(promptTextContainsKnownCompetitorSignal(prompt.text, draft.seedInput), false, prompt.promptId);
+      assert.equal(isOverlyAbstractRecommendationPrompt(prompt.text), false, prompt.promptId);
+      assert.equal(looksLikeKeywordListPrompt(prompt.text), false, prompt.promptId);
     }
     if (prompt.brandMentionRule === "brand_included" || promptTextContainsBrandSignal(prompt.text, brandIdentity)) {
       assertMarketMetricsExcluded(prompt, eligibility);
@@ -480,6 +516,8 @@ function assertCaseSpecificQuality(testCase: ValidCase, draft: ProjectSetupDraft
       prompt.text.toLowerCase().includes("return policy")
     ));
   }
+
+  assertNonBrandedPromptBusinessContext(testCase, draft);
 }
 
 function assertNoUnsafeRegulatedPrompt(text: string) {
@@ -504,4 +542,84 @@ function assertNoDuplicateValues(values: readonly string[], label: string) {
 
 function normalize(value: string) {
   return value.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+}
+
+function assertNonBrandedPromptBusinessContext(testCase: ValidCase, draft: ProjectSetupDraft) {
+  const nonBrandedPrompts = draft.prompts.filter((prompt) => prompt.brandMentionRule === "brand_excluded");
+  const isB2B = isB2BTestCase(testCase);
+  for (const prompt of nonBrandedPrompts) {
+    if (isB2B) {
+      assert.equal(containsAny(prompt.text, B2C_HEAVY_PROMPT_TERMS), false, prompt.promptId);
+    } else {
+      assert.equal(containsAny(prompt.text, B2B_HEAVY_PROMPT_TERMS), false, prompt.promptId);
+    }
+  }
+
+  if (isB2B) {
+    assert.ok(nonBrandedPrompts.some((prompt) =>
+      prompt.text.includes("導入") ||
+      prompt.text.includes("費用対効果") ||
+      prompt.text.includes("社内承認") ||
+      prompt.text.includes("運用負荷") ||
+      prompt.text.includes("既存ツール連携")
+    ), `${testCase.id} lacks BtoB adoption decision wording`);
+    return;
+  }
+
+  assert.ok(nonBrandedPrompts.some((prompt) =>
+    prompt.text.includes("失敗") ||
+    prompt.text.includes("口コミ") ||
+    prompt.text.includes("自分に合う") ||
+    prompt.text.includes("料金")
+  ), `${testCase.id} lacks BtoC consumer decision wording`);
+}
+
+function isB2BTestCase(testCase: ValidCase) {
+  if (testCase.expectedBusinessModel === "b2b_software" || testCase.expectedBusinessModel === "b2b_service" || testCase.expectedBusinessModel === "recruiting_hr") {
+    return true;
+  }
+  if (testCase.expectedBusinessModel !== "professional_service") return false;
+  const text = normalizeForMatch(`${testCase.seed.industryCategory} ${testCase.seed.productOrServiceDescription} ${testCase.seed.targetCustomers}`);
+  return containsAny(text, ["b2b", "btob", "法人", "企業", "経営者", "マーケティング", "営業", "部門"]);
+}
+
+function promptTextContainsKnownCompetitorSignal(text: string, seed: ProjectSetupSeedInput) {
+  const normalizedText = normalizeForMatch(text);
+  return [
+    ...(seed.knownCompetitors ?? []),
+    ...(seed.avoidCompetitors ?? [])
+  ]
+    .map((signal) => signal.normalize("NFKC").trim())
+    .filter((signal) => signal.length >= 2)
+    .some((signal) => normalizedText.includes(normalizeForMatch(signal)));
+}
+
+function isOverlyAbstractRecommendationPrompt(text: string) {
+  const compact = normalizeForMatch(text).replace(/\s+/g, "");
+  if (/^(おすすめは|どこがいい|何がいい|なにがいい|どれがいい)[?？。]*$/.test(compact)) return true;
+  return compact.length <= 18 &&
+    (compact.includes("おすすめ") || compact.includes("どこがいい")) &&
+    !containsAny(compact, ["比較", "確認", "料金", "口コミ", "導入", "費用対効果", "自分に合う"]);
+}
+
+function looksLikeKeywordListPrompt(text: string) {
+  const normalized = normalizeForMatch(text);
+  const hasQuestionOrInstructionShape =
+    /[?？。]$/.test(text.trim()) ||
+    containsAny(normalized, ["どう", "どの", "どんな", "何", "なに", "比較", "確認", "整理", "選ぶ", "探す", "should", "how", "what", "which", "compare", "check", "choose", "find"]);
+  if (hasQuestionOrInstructionShape) return false;
+
+  const separators =
+    (text.match(/[、,・/|]/g) ?? []).length +
+    (text.match(/\s+/g) ?? []).length;
+  return separators >= 3 && text.trim().length <= 90;
+}
+
+function normalizeForMatch(value: string) {
+  return value.normalize("NFKC").toLowerCase();
+}
+
+function containsAny(value: string, fragments: readonly string[]) {
+  const normalized = normalizeForMatch(value);
+  return fragments.some((fragment) => normalized.includes(normalizeForMatch(fragment)));
 }

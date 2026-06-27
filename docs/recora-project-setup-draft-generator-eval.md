@@ -60,6 +60,10 @@ npm run recora:project-setup-draft-generator:eval
 - 必要 topic type が出ること
 - branded sentiment / citation / regulated risk が visibility/ranking に混ざらないこと
 - non-branded prompt にブランド名、alias、domain が混入しないこと
+- non-branded prompt に known competitor / avoid competitor 名が混入しないこと
+- BtoB prompt に「近く」「家族」「子ども」「口コミだけ」「初めてで不安」のようなBtoC色が強い語彙が不自然に混ざらないこと
+- BtoC prompt に「導入」「稟議」「ROI」「費用対効果」「ベンダー選定」「SaaS」「セキュリティ」「既存ツール連携」のようなBtoB色が強い語彙が不自然に混ざらないこと
+- non-branded prompt が「おすすめは？」「どこがいい？」だけに近い抽象文やキーワード羅列にならないこと
 - candidate/recommendation/comparative-set の prompt だけが market metrics 対象になること
 - competitor / citation angle / page improvement angle を生成しないこと
 - regulated case で危険な診断・保証・結果断定の wording を避けること
@@ -75,6 +79,9 @@ npm run recora:project-setup-draft-generator:eval
 - Persona は shallow label ではなく、業種別の decision role と prompt handoff 可能な仮説に近づいた。
 - 高単価BtoBでは、決裁・評価・技術確認に加えて、予算/稟議の確認roleを分けられるようになった。
 - BtoC/ECでは、商品比較、口コミ、返品条件、素材や品質のような消費者語彙へ寄せられるようになった。
+- BtoB/BtoC別に non-branded prompt の自然文テンプレートを分け、BtoBは導入判断、社内承認、費用対効果、運用負荷、既存ツール連携に寄せた。
+- BtoC/地域/クリニック/スクール/ECでは、失敗回避、口コミ、料金、自分に合うか、通いやすさ、初めて選ぶ不安に寄せた。
+- `knownCompetitors` / `avoidCompetitors` がseedにあっても、non-branded prompt には競合名を混ぜない検証を追加した。
 - Topic-first で metric target / expected signal / brand mention policy を保てている。
 - Branded sentiment と non-branded visibility/ranking の分離は維持できている。
 - Regulated / high-trust では、診断・治療・成果保証ではなく、資格・費用・リスク・相談前確認へ変換できる。
@@ -99,8 +106,8 @@ npm run recora:project-setup-draft-generator:eval
 - `persona_specific_topic` は、criteria確認だけでなく、候補が自然に出るnon-branded shortlist promptも持つ。ただしcriteria-only promptはvisibility/ranking/SOVに入れない。
 - `citation_evidence_topic` は citation/source 確認専用で、ranking evidence として扱わない。
 - `branded_sentiment_topic` は sentiment / brand perception 専用で、visibility/ranking/SOVから除外する。
-- non-branded promptにはbrand name、alias、domainを混ぜない。比較promptにtarget brandが入る場合は市場metric対象にしない。
-- BtoB SaaS、BtoB高単価導入、professional services、clinic/school、regional service、BtoC/EC商品比較では、文体と確認軸を変える。BtoBでは承認・運用負荷・証拠、高単価BtoBでは費用対効果・移行負荷・セキュリティ・運用体制、専門サービスでは費用・実績・相談前確認、clinic/schoolでは不安・資格・リスク、地域サービスでは近さ・予約・口コミ・料金、BtoC/ECでは価格・口コミ・返品条件・素材や品質を重視する。
+- non-branded promptにはbrand name、alias、domain、known competitor、avoid competitorを混ぜない。比較promptにtarget brandや実名競合が入る場合は市場metric対象にしない。
+- BtoB SaaS、BtoB高単価導入、professional services、clinic/school、regional service、BtoC/EC商品比較では、文体と確認軸を変える。BtoBでは導入判断・比較検討・社内承認・運用負荷・既存ツール連携、高単価BtoBでは費用対効果・移行負荷・セキュリティ・契約前確認、専門サービスでは費用・実績・相談前確認、clinic/schoolでは初めて選ぶ不安・口コミ・資格・リスク、地域サービスでは通いやすさ・予約・口コミ・料金、BtoC/ECでは料金・口コミ・返品条件・自分に合うかを重視する。
 - 不十分seedではprompt数を無理に増やさず、blocker/warningと空draftを返す。
 - 生成promptはすべて `needs_review` / `revise_before_measurement` のままにし、`derivePromptMetricEligibility` と `getPromptMeasurementReadiness` で既存のmetric/readiness判定を通す。
 
