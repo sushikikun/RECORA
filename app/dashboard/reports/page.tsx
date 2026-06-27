@@ -8,6 +8,11 @@ import {
   withRecoraVisualVariantSearchParam
 } from "@/lib/recora/dev-preview/design-visual-variant";
 import {
+  getRecoraRealDbPreviewLabel,
+  isRecoraRealDbPreviewEnabled,
+  RECORA_REAL_DB_PREVIEW_PROJECT_SLUG
+} from "@/lib/recora/dev-preview/real-db-preview-access";
+import {
   getDefaultReportSlug,
   getReportRouteDashboardDataOrNull,
   ReportPreparationPage
@@ -17,12 +22,23 @@ export const dynamic = "force-dynamic";
 
 type ReportsPageProps = {
   searchParams?: {
+    data?: string | string[];
     visual?: string;
   };
 };
 
 export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const visualVariant = getRecoraVisualVariant(searchParams);
+
+  if (isRecoraRealDbPreviewEnabled(searchParams)) {
+    return (
+      <ReportsIndexPage
+        dashboardData={await getReportRouteDashboardDataOrNull(RECORA_REAL_DB_PREVIEW_PROJECT_SLUG)}
+        previewModeLabel={getRecoraRealDbPreviewLabel(searchParams)}
+        realDbPreviewEnabled
+      />
+    );
+  }
 
   if (isRecoraDesignPreviewEnabled()) {
     return (

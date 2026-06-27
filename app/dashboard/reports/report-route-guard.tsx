@@ -7,6 +7,14 @@ import {
   getRecoraDesignPreviewLabel,
   isRecoraDesignCheckSlug
 } from "@/lib/recora/dev-preview/design-preview-access";
+import {
+  getRecoraRealDbPreviewLabel,
+  getRecoraRealDbPreviewQueryValue,
+  isRecoraRealDbPreviewEnabled,
+  isRecoraRealDbPreviewProjectAllowed,
+  RECORA_REAL_DB_PREVIEW_QUERY_VALUE,
+  type RecoraRealDbPreviewSearchParams
+} from "@/lib/recora/dev-preview/real-db-preview-access";
 
 export const CURRENT_REPORT_SLUG = "mieruca-seo-demo";
 export const LEGACY_REPORT_SLUG = "recora-growth-q2";
@@ -17,7 +25,12 @@ export type ReportSlugPageProps = {
   };
   searchParams?: {
     visual?: string;
+    data?: string | string[];
   };
+};
+
+type ReportRouteOptions = {
+  searchParams?: ReportSlugPageProps["searchParams"];
 };
 
 export function getDefaultReportSlug() {
@@ -36,6 +49,27 @@ export function canUseDesignCheckReport(projectSlug: string) {
   return canUseRecoraDesignCheck(projectSlug);
 }
 
+export function canUseReadOnlyRealDbPreview(
+  projectSlug: string,
+  searchParams?: RecoraRealDbPreviewSearchParams | null
+) {
+  if (!isRecoraRealDbPreviewEnabled(searchParams)) return false;
+
+  if (!isRecoraRealDbPreviewProjectAllowed(normalizeReportSlug(projectSlug))) {
+    notFound();
+  }
+
+  return true;
+}
+
+export function getReadOnlyRealDbPreviewLabel(searchParams?: RecoraRealDbPreviewSearchParams | null) {
+  return getRecoraRealDbPreviewLabel(searchParams);
+}
+
+export function hasReadOnlyRealDbPreviewQuery(searchParams?: RecoraRealDbPreviewSearchParams | null) {
+  return getRecoraRealDbPreviewQueryValue(searchParams) === RECORA_REAL_DB_PREVIEW_QUERY_VALUE;
+}
+
 export function assertPublicReportRouteAllowed(projectSlug: string) {
   if (isDesignCheckReportSlug(projectSlug) && !canUseDesignCheckReport(projectSlug)) {
     notFound();
@@ -44,9 +78,20 @@ export function assertPublicReportRouteAllowed(projectSlug: string) {
 
 export async function renderCustomerReadyReportRoute(
   projectSlug: string,
-  renderReadyRoute: () => ReactNode | Promise<ReactNode>
+  renderReadyRoute: () => ReactNode | Promise<ReactNode>,
+  options: ReportRouteOptions = {}
 ) {
   const normalizedSlug = normalizeReportSlug(projectSlug);
+  const realDbPreviewAllowed = canUseReadOnlyRealDbPreview(normalizedSlug, options.searchParams);
+
+  if (realDbPreviewAllowed) {
+    return (
+      <>
+        <ReadOnlyRealDbPreviewNotice searchParams={options.searchParams} />
+        {await renderReadyRoute()}
+      </>
+    );
+  }
 
   if (canUseDesignCheckReport(normalizedSlug)) {
     return (
@@ -128,11 +173,30 @@ export function DesignCheckPreviewNotice() {
   if (!label) return null;
 
   return (
-    <div className="mb-2 flex min-h-7 flex-wrap items-center gap-2 text-xs text-[#005C50]">
-      <span className="inline-flex h-6 items-center rounded-sm border border-[#BFDAD4] bg-[#E6F4F1] px-2 font-bold">
+    <div className="mb-2 flex min-h-6 min-w-0 items-center gap-2 overflow-hidden text-xs text-[#005C50]">
+      <span className="inline-flex h-5 shrink-0 items-center rounded-sm border border-[#BFDAD4] bg-[#E6F4F1] px-2 text-[10px] font-bold">
         {label}
       </span>
-      <span className="font-semibold text-[#0F766E]">本物の顧客データではありません</span>
+      <span className="min-w-0 truncate font-semibold text-[#0F766E]">本物の顧客データではありません</span>
+    </div>
+  );
+}
+
+export function ReadOnlyRealDbPreviewNotice({
+  searchParams
+}: {
+  searchParams?: RecoraRealDbPreviewSearchParams | null;
+}) {
+  const label = getReadOnlyRealDbPreviewLabel(searchParams);
+
+  if (!label) return null;
+
+  return (
+    <div className="mb-2 flex min-h-6 min-w-0 items-center gap-2 overflow-hidden text-xs text-[#005C50]">
+      <span className="inline-flex h-5 shrink-0 items-center rounded-sm border border-[#BFDAD4] bg-[#E6F4F1] px-2 text-[10px] font-bold">
+        {label}
+      </span>
+      <span className="min-w-0 truncate font-semibold text-[#0F766E]">本番Supabaseの実測データを読み取り専用で表示しています</span>
     </div>
   );
 }

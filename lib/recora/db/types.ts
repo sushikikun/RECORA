@@ -326,6 +326,8 @@ export type RecoraConversationsDbData = {
   citations: RecoraCitationRow[];
 };
 
+export type RecoraBrandPerceptionDbData = RecoraConversationsDbData;
+
 export type RecoraSourcesDbData = {
   project: RecoraProjectRow | null;
   latestRun: RecoraMeasurementRunRow | null;

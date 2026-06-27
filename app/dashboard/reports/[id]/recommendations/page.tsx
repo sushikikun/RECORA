@@ -8,7 +8,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportRecommendationsPage({ params }: ReportSlugPageProps) {
+export default async function ReportRecommendationsPage({ params, searchParams }: ReportSlugPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
 
   return renderCustomerReadyReportRoute(projectSlug, async () => {
@@ -20,7 +20,7 @@ export default async function ReportRecommendationsPage({ params }: ReportSlugPa
     const recommendationsData = await getRecommendationsDataOrNull(projectSlug);
 
     return <RecommendationsPage recommendationsData={recommendationsData} />;
-  });
+  }, { searchParams });
 }
 
 async function getRecommendationsDataOrNull(projectSlug: string) {

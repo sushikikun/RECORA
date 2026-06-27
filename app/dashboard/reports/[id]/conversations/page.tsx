@@ -8,7 +8,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportConversationsPage({ params }: ReportSlugPageProps) {
+export default async function ReportConversationsPage({ params, searchParams }: ReportSlugPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
 
   return renderCustomerReadyReportRoute(projectSlug, async () => {
@@ -20,7 +20,7 @@ export default async function ReportConversationsPage({ params }: ReportSlugPage
     const conversationsData = await getConversationsDataOrNull(projectSlug);
 
     return <ConversationsPage conversationsData={conversationsData} />;
-  });
+  }, { searchParams });
 }
 
 async function getConversationsDataOrNull(projectSlug: string) {

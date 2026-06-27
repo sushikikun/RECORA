@@ -50,7 +50,7 @@ export function formatRecoraDisplayRange(displayedCount: number, totalCount: num
   const safeDisplayedCount = Math.max(0, displayedCount);
 
   if (typeof totalCount === "number" && totalCount > 0 && safeDisplayedCount > 0) {
-    return `全${totalCount.toLocaleString("ja-JP")}件中 1-${safeDisplayedCount.toLocaleString("ja-JP")}件を表示`;
+    return `全${totalCount.toLocaleString("ja-JP")}件中 1–${safeDisplayedCount.toLocaleString("ja-JP")}件`;
   }
 
   if (safeDisplayedCount === 0) return "0件を表示";

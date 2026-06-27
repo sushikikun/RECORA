@@ -8,7 +8,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportLeaderboardPage({ params }: ReportSlugPageProps) {
+export default async function ReportLeaderboardPage({ params, searchParams }: ReportSlugPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
 
   return renderCustomerReadyReportRoute(projectSlug, async () => {
@@ -20,7 +20,7 @@ export default async function ReportLeaderboardPage({ params }: ReportSlugPagePr
     const leaderboardData = await getLeaderboardDataOrNull(projectSlug);
 
     return <LeaderboardPage leaderboardData={leaderboardData} />;
-  });
+  }, { searchParams });
 }
 
 async function getLeaderboardDataOrNull(projectSlug: string) {

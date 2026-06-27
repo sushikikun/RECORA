@@ -3,28 +3,22 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { createRecoraSupabaseClient } from "@/lib/supabase/server";
 import {
   getDefaultRecoraProjectSlug,
-  getLatestRunWithMetricSnapshots,
-  getRecoraProject,
-  getSourceMeasurementRunId
+  getRecoraProject
 } from "./dashboard";
+import { getLatestRecoraReportContext } from "./report-context";
 import {
   isDisplayableCitation,
   isDisplayableSourceDomain,
-  isOpenAiAggregateRun,
-  isOpenAiMeasuredConversation,
-  isSeedMeasurementRunId
+  isOpenAiMeasuredConversation
 } from "./display-filters";
 import type {
   RecoraAiConversationRow,
   RecoraCitationRow,
-  RecoraMeasurementRunRow,
   RecoraRunItemRow,
   RecoraSourcesDbData,
   RecoraSourceDomainRow
 } from "./types";
 
-const MEASUREMENT_RUN_COLUMNS =
-  "id, project_id, status, period_start, period_end, comparison_start, comparison_end, region, language, started_at, completed_at, metadata, created_at, updated_at";
 const SOURCE_DOMAIN_COLUMNS =
   "id, project_id, domain, source_type, owner_brand_id, trust_label, created_at, updated_at";
 const CITATION_COLUMNS =
@@ -38,36 +32,24 @@ export async function getRecoraSourcesData(
   projectSlug = getDefaultRecoraProjectSlug()
 ): Promise<RecoraSourcesDbData> {
   const supabase = createRecoraSupabaseClient();
-  const project = await getRecoraProject(projectSlug, supabase);
+  const reportContext = await getLatestRecoraReportContext(projectSlug, supabase);
+  const project = reportContext.project ?? await getRecoraProject(projectSlug, supabase);
 
   if (!project) {
     return emptySourcesData();
   }
 
-  const [sourceDomains, completedRuns, latestAggregateRun] = await Promise.all([
-    getSourceDomains(project.id, supabase),
-    getCompletedRuns(project.id, supabase),
-    getLatestRunWithMetricSnapshots(project.id, supabase)
-  ]);
-  const measurementRunIds = completedRuns
-    .filter((run) => !isSeedMeasurementRunId(run.id) && !isOpenAiAggregateRun(run))
-    .map((run) => run.id);
-  const sourceMeasurementRunId = getSourceMeasurementRunId(latestAggregateRun);
-  const candidateRunIds =
-    sourceMeasurementRunId && measurementRunIds.includes(sourceMeasurementRunId)
-      ? [sourceMeasurementRunId]
-      : measurementRunIds;
+  const sourceDomains = await getSourceDomains(project.id, supabase);
+  const sourceMeasurementRunId = reportContext.sourceMeasurementRunId;
 
-  if (candidateRunIds.length === 0) {
+  if (!sourceMeasurementRunId || !reportContext.sourceMeasurementRun) {
     return { ...emptySourcesData(), project, latestRun: null, sourceDomains };
   }
 
-  const candidateRunItems = await getRunItemsForRuns(candidateRunIds, supabase);
+  const candidateRunItems = await getRunItemsForRuns([sourceMeasurementRunId], supabase);
   const conversations = (await getAiConversations(candidateRunItems.map((item) => item.id), supabase))
     .filter(isOpenAiMeasuredConversation);
-  const visibleRunItemIds = new Set(conversations.map((item) => item.run_item_id));
-  const runItems = candidateRunItems.filter((item) => visibleRunItemIds.has(item.id));
-  const latestRun = getLatestRunForRunItems(completedRuns, runItems);
+  const latestRun = reportContext.sourceMeasurementRun;
   const conversationIds = conversations.map((conversation) => conversation.id);
   const citations = await getCitations(conversationIds, supabase);
 
@@ -100,19 +82,6 @@ async function getSourceDomains(projectId: string, supabase: RecoraSupabaseClien
 
   throwIfSupabaseError("source_domains", error);
   return ((data ?? []) as RecoraSourceDomainRow[]).filter(isDisplayableSourceDomain);
-}
-
-async function getCompletedRuns(projectId: string, supabase: RecoraSupabaseClient) {
-  const { data, error } = await supabase
-    .from("measurement_runs")
-    .select(MEASUREMENT_RUN_COLUMNS)
-    .eq("project_id", projectId)
-    .eq("status", "completed")
-    .order("completed_at", { ascending: false })
-    .order("created_at", { ascending: false });
-
-  throwIfSupabaseError("measurement_runs", error);
-  return (data ?? []) as RecoraMeasurementRunRow[];
 }
 
 async function getRunItemsForRuns(runIds: string[], supabase: RecoraSupabaseClient) {
@@ -151,11 +120,6 @@ async function getCitations(conversationIds: string[], supabase: RecoraSupabaseC
 
   throwIfSupabaseError("citations", error);
   return ((data ?? []) as RecoraCitationRow[]).filter(isDisplayableCitation);
-}
-
-function getLatestRunForRunItems(runs: RecoraMeasurementRunRow[], runItems: RecoraRunItemRow[]) {
-  const runIds = new Set(runItems.map((item) => item.run_id));
-  return runs.find((run) => runIds.has(run.id)) ?? null;
 }
 
 function throwIfSupabaseError(context: string, error: PostgrestError | null) {
