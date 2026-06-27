@@ -32,10 +32,10 @@ export default function SignupPage({ searchParams = {} }: SignupPageProps) {
             <div className="mt-12 max-w-sm">
               <p className="text-sm font-bold text-[#D8F36A]">無料AI検索診断</p>
               <h1 className="mt-3 text-3xl font-bold leading-tight tracking-normal sm:text-4xl">
-                無料AI検索診断をはじめる
+                無料AI検索診断の準備をはじめる
               </h1>
               <p className="mt-4 text-base leading-7 text-white/78">
-                診断結果を安全に保存するため、アカウントを作成してください。メール確認後、会社情報を入力して無料診断へ進めます。
+                診断準備と結果保存のため、アカウントを作成してください。メール確認後、診断に必要な会社情報の入力へ進めます。
               </p>
             </div>
             <ul className="mt-10 space-y-3 text-sm leading-6 text-white/72">
@@ -45,7 +45,7 @@ export default function SignupPage({ searchParams = {} }: SignupPageProps) {
               </li>
               <li className="flex gap-2">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#D8F36A]" />
-                メール確認後に診断へ進めます
+                メール確認後に会社情報を入力できます
               </li>
               <li className="flex gap-2">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#D8F36A]" />
@@ -190,6 +190,13 @@ function getSignupMessage(searchParams: SignupPageProps["searchParams"]): AuthMe
     return {
       tone: "error",
       text: "Supabaseの認証設定が不足しています。"
+    };
+  }
+
+  if (searchParams?.error === "auth_origin") {
+    return {
+      tone: "error",
+      text: "認証用URLの設定が不足しています。時間をおいて再度お試しください。"
     };
   }
 

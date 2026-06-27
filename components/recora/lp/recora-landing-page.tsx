@@ -75,7 +75,7 @@ export function RecoraLandingPage() {
                 </Link>
               </div>
               <div className={styles.heroMicro} aria-label="無料診断の条件">
-                <span>無料登録後に診断</span>
+                <span>無料登録後、会社情報を入力</span>
                 <span>クレジットカード不要</span>
                 <span>専門知識・設定不要</span>
                 <span>診断結果は非公開</span>
@@ -413,7 +413,7 @@ function DiagnosisResultSection({
         <p className={styles.caption}>AI回答は日時・質問・モデルなどの条件で変化します。</p>
         <div className={styles.sampleCta}>
           <PrimaryCta analyticsId="sample-signup" />
-          <small>無料登録後に診断を開始できます</small>
+          <small>無料登録後、診断に必要な会社情報の入力へ進めます</small>
         </div>
       </div>
     </section>
@@ -571,11 +571,11 @@ function DiagnosisFlowSection() {
   const steps = [
     {
       title: "無料登録",
-      text: "メールアドレスで、診断結果を保存する御社専用ページを作ります。",
+      text: "メールアドレスで、診断結果を保存するためのアカウントを作成します。",
       visual: (
         <div className={`${styles.flowVisual} ${styles.fakeLogin}`} aria-hidden="true">
           <span>メールアドレス</span>
-          <span>診断ページを作成</span>
+          <span>入力準備ページへ</span>
         </div>
       )
     },
@@ -610,7 +610,7 @@ function DiagnosisFlowSection() {
           <h2 id="flow-heading">
             無料登録から、
             <br />
-            診断結果の確認まで3ステップ。
+            診断に必要な会社情報の入力まで3ステップ。
           </h2>
         </div>
         <div className={styles.flowGrid}>
@@ -710,7 +710,7 @@ function FinalCtaSection() {
           <ArrowRight aria-hidden="true" />
         </Link>
         <div className={styles.finalMicro}>
-          <span>無料登録後に診断開始</span>
+          <span>登録後に会社情報を入力</span>
           <span>クレジットカード不要</span>
           <span>専門知識不要</span>
           <span>診断結果は非公開</span>

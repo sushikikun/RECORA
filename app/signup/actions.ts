@@ -1,9 +1,9 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { sanitizeRecoraAuthNextPath } from "@/lib/recora/auth-access";
+import { getRecoraAuthRedirectOrigin } from "@/lib/recora/auth-origin";
 import { createRecoraSupabaseServerClient, hasSupabaseReadConfig } from "@/lib/supabase/server";
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -35,6 +35,12 @@ export async function createRecoraAccount(formData: FormData) {
     redirect(`/signup?error=config&next=${encodedNext}`);
   }
 
+  const redirectOrigin = await getRecoraAuthRedirectOrigin();
+  if (!redirectOrigin.ok) {
+    console.warn("Failed to create Recora account.", { code: "auth_redirect_origin_unavailable" });
+    redirect(`/signup?error=auth_origin&next=${encodedNext}`);
+  }
+
   let signUpError: unknown = null;
 
   try {
@@ -43,7 +49,7 @@ export async function createRecoraAccount(formData: FormData) {
       email,
       password,
       options: {
-        emailRedirectTo: `${await getRequestOrigin()}/auth/confirm?next=${encodedNext}`
+        emailRedirectTo: `${redirectOrigin.origin}/auth/confirm?next=${encodedNext}`
       }
     });
     signUpError = error;
@@ -61,29 +67,6 @@ export async function createRecoraAccount(formData: FormData) {
 
 function isLikelyEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
-async function getRequestOrigin() {
-  const headerList = await headers();
-  const configuredOrigin = getConfiguredSiteOrigin();
-  if (configuredOrigin) return configuredOrigin;
-
-  const host = headerList.get("x-forwarded-host") ?? headerList.get("host");
-  const protocol = headerList.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
-
-  if (!host) return "http://localhost:3000";
-  return `${protocol}://${host}`;
-}
-
-function getConfiguredSiteOrigin() {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim() ?? process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (!siteUrl) return undefined;
-
-  try {
-    return new URL(siteUrl).origin;
-  } catch {
-    return undefined;
-  }
 }
 
 function getSafeAuthError(error: unknown) {

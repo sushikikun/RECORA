@@ -131,6 +131,13 @@ function getForgotPasswordMessage(searchParams: ForgotPasswordPageProps["searchP
     };
   }
 
+  if (searchParams?.error === "auth_origin") {
+    return {
+      tone: "error",
+      text: "認証用URLの設定が不足しています。時間をおいて再度お試しください。"
+    };
+  }
+
   if (searchParams?.error) {
     return {
       tone: "error",
