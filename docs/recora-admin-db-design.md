@@ -143,6 +143,20 @@ recora_admin.plan_configs
 
 `organization_id` と `project_id` は管理用DBでも必ず保持し、customer boundary を追えるようにする。`measurement_run_id` は実行済みの診断runへの参照であり、管理用DB側にrun結果を複製するためのキーではない。
 
+### Tenant Consistency Requirements
+
+P0-A migration 前に、`organization_id` / `project_id` の整合性制約を明文化する。
+
+`customer_profiles`, `customer_subscriptions`, `diagnostic_intakes`, `measurement_schedules` などで `organization_id` と `project_id` の両方を持つ場合、`project_id` が同じ `organization_id` に属することをDB制約または同等の検証で保証する。現案で `project_id` を持たないテーブルに後から project scope を足す場合も同じ扱いにする。
+
+実装方式は migration PR で既存schemaと実DBを確認して決める。候補は次の通り。
+
+- `public.projects` に `unique(id, organization_id)` 相当の補助 unique index / constraint を置き、管理用テーブルから `(project_id, organization_id)` の composite FK を張る。
+- 管理用テーブル側に補助 unique index を置き、FK と check を組み合わせる。
+- Postgres の通常FKだけで表現しづらい参照、たとえば `measurement_run_id` / `aggregate_run_id` が指す run の `project_id` と `organization_id` 検証は constraint trigger で担保する。
+
+P0-B / P0-C で `measurement_run_id` や `aggregate_run_id` を持つ場合も、参照先 run が同じ `project_id` に属し、その project が同じ `organization_id` に属することを検証する。管理用DBは cross-tenant な参照を持たない。
+
 ## 6. P0 / P1 / P2 Split
 
 P0 は、無料診断受付、顧客状態、契約状態、調査予定、batch、公開確認、prompt変更履歴、内部メモを最低限管理できる状態を目指す。
@@ -657,6 +671,10 @@ Write actors:
 - operator script。
 - 明示承認された server-side action。
 
+`/internal` write 操作は、durable internal operator auth と per-action authorization が入るまで出さない。現状の `/internal` は local flag 限定かつ read-only であり、DB write、OpenAI実行、子プロセス実行はしない。
+
+将来の write 操作は別PRで分離する。write PR では、operator identity、required role、action-level permission、audit event、rollback / retry、rate limit、対象DBを明示してから実装する。
+
 Forbidden actors and actions:
 
 - 顧客用画面から write。
@@ -689,6 +707,16 @@ Safety rules:
 - `dry_run_summary` で対象件数、除外件数、推定run数、推定コストを保持できるようにする。
 - `excluded_reason` を残し、なぜ対象外になったかを後で説明できるようにする。
 - `failed` item の retry は別 batch または明示的な retry flow で扱う。
+
+P0-B migration 前に、`measurement_batch_items.idempotency_key` の仕様を確定する。
+
+検討事項:
+
+- unique 制約の単位。候補は `unique(project_id, idempotency_key) where idempotency_key is not null`、または `batch_type` / `schedule_id` / `run_window_start` を含めた制約。
+- status 遷移。`queued` -> `running` -> `completed` / `failed` / `canceled` / `excluded` / `skipped` のように、retry 可能状態と terminal 状態を分ける。
+- worker retry 時に既存 `measurement_run_id` がある場合、新しい run を作らず既存 run を再利用する。
+- run 作成後に `measurement_batch_items.measurement_run_id` の紐付け更新で失敗した場合、replay は同じ idempotency key / correlation を使って既存 run を探し、重複 run を作らず item へ再リンクする。
+- retry は HTTP request 内で OpenAI 計測を直接実行しない方針を維持し、script / worker / operator command 側で扱う。
 
 ## 11. Prompt Immediate Update And Snapshot Policy
 
@@ -752,6 +780,16 @@ JSONB に逃がす理由:
 
 ただし、検索や JOIN に常用するキーは後続PRで first-class column 化を検討する。`organization_id`, `project_id`, `status`, `plan_code`, `schedule_id`, `batch_id`, `measurement_run_id` のような境界 / 状態 / 参照キーは JSONB に閉じ込めない。
 
+### JSONB / Notes / Snapshot Payload Safety
+
+`diagnostic_snapshot`, `blocker_snapshot`, `operation_events.details`, `diagnostic_intakes.intake_payload`, `internal_notes.body` などは内部運用の補助情報であり、診断結果本体の保存先ではない。
+
+これらの payload / note には、secrets、API key、token、cookie、private key、DB URL、service role、OpenAI key、AI回答本文、引用本文、集計値の完全コピー、recommendation 本体、不要なPIIを保存しない。
+
+保存してよい候補は、ID参照、status token、短い operator summary、blocker code、件数、dry-run の要約、公開判断に必要な最小限の理由に限定する。migration 前に、許可する要約項目、禁止項目、サイズ上限、PII / retention / deletion 方針を具体化する。
+
+管理用DBは引き続き、診断結果本体、AI回答、集計値、recommendation 本体を複製しない。必要な場合は `public.measurement_runs`, `public.run_items`, `public.ai_conversations`, `public.metric_snapshots`, `public.recommendations` への参照で traceability を保つ。
+
 ## 14. Items To Separate From Existing Metadata
 
 現状は一部の運用状態を既存 `metadata` や script manifest / log に持たせている。管理用DB導入後は、次の項目を段階的に分離したい。
@@ -809,7 +847,7 @@ PR は責務ごとに分ける。
 4. PR 4: publication / prompt / notes migration
 5. PR 5: read model
 6. PR 6: `/internal` read-only 画面
-7. PR 7: `/internal` write 操作
+7. PR 7: `/internal` write 操作。durable internal operator auth と per-action authorization が入るまで出さない。
 
 Migration PR では、対象DB、環境、DB host、dry-run、RLS、grant、rollback、existing data への影響を別途確認する。migration と UI 実装を同じPRに混ぜない。
 
