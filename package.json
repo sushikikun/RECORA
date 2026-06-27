@@ -16,8 +16,10 @@
     "recora:project-setup-draft:check": "tsx scripts/verify-recora-project-setup-draft.ts",
     "recora:project-setup-draft-generator:check": "tsx scripts/verify-recora-project-setup-draft-generator.ts",
     "recora:project-setup-draft-generator:eval": "tsx scripts/audit-recora-project-setup-draft-generator.ts",
+    "recora:page-evidence:inspect": "tsx scripts/inspect-recora-page-evidence.ts",
+    "recora:page-evidence:check": "tsx tests/page-evidence.test.ts",
     "recora:phase1:operator": "tsx scripts/run-recora-phase1-operator-flow.ts",
-    "recora:preflight": "npm run recora:whereami && npm run recora:before-codex && npm run recora:doctor && npm run recora:dashboard-read-model:check && npm run recora:recommendation-publication-surface:check && npm run recora:project-setup-draft:check && npm run recora:project-setup-draft-generator:check && npm run recora:project-setup-draft-generator:eval",
+    "recora:preflight": "npm run recora:whereami && npm run recora:before-codex && npm run recora:doctor && npm run recora:dashboard-read-model:check && npm run recora:recommendation-publication-surface:check && npm run recora:project-setup-draft:check && npm run recora:project-setup-draft-generator:check && npm run recora:project-setup-draft-generator:eval && npm run recora:page-evidence:check",
     "recora:preflight:full": "npm run recora:preflight && npm run typecheck",
     "recora:commit-check": "tsx scripts/recora-safe-commit.ts commit-check",
     "recora:safe-commit": "tsx scripts/recora-safe-commit.ts safe-commit"
