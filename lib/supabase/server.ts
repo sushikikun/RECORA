@@ -1,36 +1,28 @@
 import "server-only";
 
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
 
-const SUPABASE_URL_ENV = "SUPABASE_URL";
-const SUPABASE_ANON_KEY_ENV = "SUPABASE_ANON_KEY";
-const NEXT_PUBLIC_SUPABASE_URL_ENV = "NEXT_PUBLIC_SUPABASE_URL";
-const NEXT_PUBLIC_SUPABASE_ANON_KEY_ENV = "NEXT_PUBLIC_SUPABASE_ANON_KEY";
-const SUPABASE_SERVICE_ROLE_KEY_ENV = "SUPABASE_SERVICE_ROLE_KEY";
+import {
+  NEXT_PUBLIC_SUPABASE_URL_ENV,
+  SUPABASE_SERVICE_ROLE_KEY_ENV,
+  SUPABASE_URL_ENV,
+  getRecoraSupabaseReadConfig,
+  hasSupabaseReadConfig,
+  readEnv,
+  readFirstEnv
+} from "@/lib/supabase/env";
 
-function readEnv(name: string) {
-  const value = process.env[name]?.trim();
-  return value ? value : undefined;
-}
+export { hasSupabaseReadConfig } from "@/lib/supabase/env";
 
-function readFirstEnv(...names: string[]) {
-  for (const name of names) {
-    const value = readEnv(name);
-    if (value) return value;
-  }
-
-  return undefined;
-}
+type MutableCookieStore = {
+  getAll: () => { name: string; value: string }[];
+  set: (name: string, value: string, options?: CookieOptions) => void;
+};
 
 export function hasSupabaseConfig() {
   return hasSupabaseReadConfig();
-}
-
-export function hasSupabaseReadConfig() {
-  return Boolean(
-    readFirstEnv(SUPABASE_URL_ENV, NEXT_PUBLIC_SUPABASE_URL_ENV) &&
-      readFirstEnv(SUPABASE_ANON_KEY_ENV, NEXT_PUBLIC_SUPABASE_ANON_KEY_ENV)
-  );
 }
 
 export function hasSupabaseServiceRoleConfig() {
@@ -40,16 +32,32 @@ export function hasSupabaseServiceRoleConfig() {
 }
 
 export function createRecoraSupabaseClient(): SupabaseClient {
-  const supabaseUrl = readFirstEnv(SUPABASE_URL_ENV, NEXT_PUBLIC_SUPABASE_URL_ENV);
-  const supabaseKey = readFirstEnv(SUPABASE_ANON_KEY_ENV, NEXT_PUBLIC_SUPABASE_ANON_KEY_ENV);
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error(
-      `Missing Supabase read environment variables: ${SUPABASE_URL_ENV}/${NEXT_PUBLIC_SUPABASE_URL_ENV} and ${SUPABASE_ANON_KEY_ENV}/${NEXT_PUBLIC_SUPABASE_ANON_KEY_ENV}. Dashboard reads must not fall back to ${SUPABASE_SERVICE_ROLE_KEY_ENV}.`
-    );
-  }
+  const { supabaseUrl, supabaseKey } = getRecoraSupabaseReadConfig();
 
   return createRecoraSupabaseClientWithKey(supabaseUrl, supabaseKey);
+}
+
+export async function createRecoraSupabaseServerClient(): Promise<SupabaseClient> {
+  const { supabaseUrl, supabaseKey } = getRecoraSupabaseReadConfig();
+  const cookieStore = await cookies();
+
+  return createServerClient(supabaseUrl, supabaseKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        try {
+          const mutableCookieStore = cookieStore as MutableCookieStore;
+          cookiesToSet.forEach(({ name, value, options }) => {
+            mutableCookieStore.set(name, value, options);
+          });
+        } catch {
+          // Server Components cannot set cookies; middleware refreshes auth cookies.
+        }
+      }
+    }
+  });
 }
 
 export function createRecoraSupabaseServiceRoleClient(): SupabaseClient {
