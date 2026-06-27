@@ -9,6 +9,16 @@ This repository is the Recora product repository. Read `docs/recora-dev-workflow
 - Keep `.agents/skills/**` changes separate from product-code changes under `app/**`, `components/**`, `lib/**`, `scripts/**`, or `supabase/**`.
 - Use the existing Recora skill stack for strategy, implementation architecture, specialist analysis, and recommendation quality gates.
 
+## Codex App startup
+
+- New work should start from the ChatGPT project `recora-main`, start mode `New Worktree`, environment `recora-main-local`, and base branch `master`.
+- Do not use the old `recora` / `recora_2` projects or OneDrive-derived Recora worktrees for new work.
+- Before editing, staging, committing, or pushing, run `git fetch origin` and report the repo root, `git-common-dir`, current branch or detached `HEAD`, short `HEAD`, short `origin/master`, and dirty state.
+- If `git-common-dir` points to OneDrive, stop and report it in Japanese.
+- If a Codex-managed worktree starts in detached `HEAD`, continue only when `HEAD == origin/master` and the working tree is clean, then create a task branch before editing. If detached `HEAD` differs from `origin/master`, or the tree is dirty, stop and ask for direction.
+- If `master` is older than `origin/master`, stop and ask for direction before editing.
+- For project setup or measurement-design tasks, do not touch LP, Auth, or handoff areas, including `_handoff/**`, `app/auth/**`, `app/login/**`, `app/signup/**`, `app/forgot-password/**`, `middleware.ts`, `lib/supabase/**`, `lib/recora/auth-access.ts`, `components/recora/lp/**`, `components/recora/brand/**`, or `public/**`.
+
 ## Tools
 
 - Use `/plan` before `/goal` for multi-file, database, deployment, or long-running work.
@@ -53,3 +63,10 @@ npm run recora:dashboard-read-model:check
 ```
 
 Use `npm run recora:commit-check` before committing. Codex must not push unless the task explicitly authorizes it.
+
+## Git safety
+
+- Do not run `reset`, `clean`, branch deletion, worktree deletion, or `stash drop` without explicit human confirmation.
+- When using stash, inspect and preserve entries; do not delete stash entries without human confirmation.
+- In PowerShell, quote stash refs such as `"stash@{0}"`.
+- Stage only the explicitly intended files. Do not use `git add .` or broad staging commands.

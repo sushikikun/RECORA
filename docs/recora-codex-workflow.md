@@ -1,8 +1,41 @@
 # Recora Codex Operating Workflow
 
-Last updated: 2026-06-22
+Last updated: 2026-06-27
 
 This document describes the project-scoped Codex operating layer for Recora. It complements `docs/recora-dev-workflow.md`; it does not replace the existing database, measurement, commit, or deployment procedures.
+
+## Standard Codex App workspace
+
+New Codex App work should use this starting point:
+
+- ChatGPT project: `recora-main`
+- Start mode: `New Worktree`
+- Environment: `recora-main-local`
+- Base branch: `master`
+- Task branch: `codex/<short-task-name>`
+
+Do not start new work from old `recora` / `recora_2` ChatGPT projects or from OneDrive-derived Recora worktrees.
+
+Before editing, staging, committing, or pushing, Codex must fetch and report the current Git state:
+
+```powershell
+git fetch origin
+git rev-parse --show-toplevel
+git rev-parse --git-common-dir
+git branch --show-current
+git rev-parse --short HEAD
+git rev-parse --short origin/master
+git status --short --untracked-files=all
+```
+
+Decision rules:
+
+- If `git-common-dir` points to OneDrive, stop and report that in Japanese.
+- If the worktree is on `master` and `HEAD == origin/master` with a clean tree, create the task branch before editing.
+- If a Codex-managed worktree is in detached `HEAD` and `HEAD == origin/master` with a clean tree, create the task branch before editing and continue.
+- If detached `HEAD` differs from `origin/master`, or the tree is dirty, stop and ask for direction.
+- If local `master` is older than `origin/master`, stop and ask whether to update, recreate the worktree, or choose another base.
+- If there are uncommitted changes that were not explicitly assigned to the current task, stop or isolate them before editing.
 
 ## Architecture
 
@@ -88,6 +121,26 @@ Finish with:
 /review
 ```
 
+## Protected areas for setup and measurement tasks
+
+Project setup, client configuration, prompt planning, and measurement-design tasks must not modify LP, Auth, or handoff surfaces unless the user explicitly scopes that work.
+
+Protected paths include:
+
+```text
+_handoff/**
+app/auth/**
+app/login/**
+app/signup/**
+app/forgot-password/**
+middleware.ts
+lib/supabase/**
+lib/recora/auth-access.ts
+components/recora/lp/**
+components/recora/brand/**
+public/**
+```
+
 ## Hooks
 
 SessionStart injects the latest commit and working-tree status using safe `git` inspection commands. It does not run repository-controlled package scripts automatically.
@@ -143,7 +196,9 @@ Capture route, viewport, steps, visible result, console errors, failed requests,
 
 ## Worktrees
 
-The normal local checkout remains `$env:USERPROFILE\work\recora`. Codex App worktrees may live outside that path, so Recora dev checks allow them only when the directory is a Git repo with the expected Recora repo signals; path, env, secret, and OneDrive warnings still run.
+The standard Codex App starting point is `recora-main` with `New Worktree`, `recora-main-local`, and `master`. Codex App worktrees may live outside `$env:USERPROFILE\work\recora`, so Recora dev checks allow them only when the directory is a Git repo with the expected Recora repo signals; path, env, secret, and OneDrive warnings still run.
+
+Every new Codex task should create a task branch before edits. If the worktree opens in detached `HEAD`, it is acceptable only when `HEAD == origin/master` and the tree is clean; create the task branch immediately, then continue.
 
 Use one worktree per independently reviewable lane:
 
@@ -190,6 +245,24 @@ codex mcp login vercel_recora
 ```
 
 Use it for deployment status, preview URLs, runtime logs, and post-deploy smoke checks.
+
+## Stash and destructive Git safety
+
+Stash handling:
+
+- Prefer preserving stash entries and asking the human which entry to inspect or apply.
+- Do not run `stash drop` or otherwise delete stash entries without explicit human confirmation.
+- In PowerShell, quote stash refs such as `"stash@{0}"`.
+
+Destructive or history-changing operations require explicit human confirmation before execution:
+
+```text
+git reset
+git clean
+git branch -d / -D
+git worktree remove
+git stash drop
+```
 
 ## Commit procedure
 
