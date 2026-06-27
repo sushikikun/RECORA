@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { BriefcaseBusiness, ClipboardList, Gauge } from "lucide-react";
+import { BriefcaseBusiness, ClipboardList, FileText, Gauge } from "lucide-react";
 
 import type { RecoraInternalAdminAccess, RecoraInternalRole } from "@/lib/recora/internal-admin-access";
 
@@ -30,6 +30,14 @@ const internalNavItems: RecoraInternalNavItem[] = [
     icon: BriefcaseBusiness,
     status: "ready",
     requiredRole: "viewer"
+  },
+  {
+    label: "案件設定",
+    href: "/internal/project-setup/new",
+    description: "最小入力からpersona、topic、promptの未承認下書きを作成し、内部レビューします。",
+    icon: FileText,
+    status: "ready",
+    requiredRole: "reviewer"
   },
   {
     label: "実行管理",
