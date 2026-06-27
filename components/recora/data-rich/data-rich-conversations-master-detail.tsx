@@ -212,8 +212,8 @@ function ExternalSourceLink({ source }: { source: DataRichConversationSourceLink
     >
       <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <span className="min-w-0">
-        <span className="block truncate text-[#0F172A]">{source.title || source.domain}</span>
-        <span className="block truncate text-[#64748B]">{href}</span>
+        <span className="block line-clamp-2 break-words leading-5 text-[#0F172A]">{source.title || source.domain}</span>
+        <span className="block line-clamp-2 break-all leading-5 text-[#64748B]">{href}</span>
       </span>
     </a>
   );

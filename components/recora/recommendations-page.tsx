@@ -489,10 +489,10 @@ function RecommendationTargetLink({ url, label }: { url: string; label: string }
       target="_blank"
       rel="noopener noreferrer"
       title={safeHref}
-      className="mt-1 inline-flex max-w-full min-w-0 items-center gap-1 text-xs font-bold text-[#00796B] hover:text-[#005C50] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/70"
+      className="mt-1 inline-flex max-w-full min-w-0 items-start gap-1 text-xs font-bold text-[#00796B] hover:text-[#005C50] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/70"
     >
       <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      <span className="truncate">{label}</span>
+      <span className="line-clamp-3 min-w-0 break-words leading-5">{label}</span>
     </a>
   );
 }
@@ -515,7 +515,7 @@ function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
           <TableRow key={row.id}>
             <TableCell className="whitespace-nowrap"><RecommendationPriorityBadge item={row} /></TableCell>
             <TableCell>
-              <div className="line-clamp-2 font-bold text-slate-950">{row.title}</div>
+              <div className="line-clamp-3 font-bold leading-5 text-slate-950">{row.title}</div>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 <DisplayCategoryBadge item={row} />
                 <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-slate-50 text-slate-600">
