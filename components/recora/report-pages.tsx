@@ -26,6 +26,7 @@ import {
   type RecoraVisualVariant,
   withRecoraVisualVariantSearchParam
 } from "@/lib/recora/dev-preview/design-visual-variant";
+import { withRecoraRealDbPreviewSearchParam } from "@/lib/recora/dev-preview/real-db-preview-url";
 import {
   Table,
   TableBody,
@@ -69,6 +70,7 @@ import { placeholderRouteSummaries, reportDetailTabs } from "@/lib/recora/nav-co
 import {
   getRecoraDashboardData,
   getRecoraLeaderboardData,
+  type RecoraBrandPerceptionDbData,
   type RecoraBrandRow,
   type RecoraConversationsDbData,
   type RecoraCumulativeSourceDomainRank,
@@ -102,6 +104,10 @@ import {
 } from "@/components/recora/ui";
 import { ReportHelpTooltip } from "@/components/recora/report-ui/report-help-tooltip";
 import {
+  DataRichConversationsMasterDetail,
+  type DataRichConversationMasterRow
+} from "@/components/recora/data-rich/data-rich-conversations-master-detail";
+import {
   DataRichBadge,
   DataRichEmpty,
   DataRichInlineBar,
@@ -109,11 +115,13 @@ import {
   DataRichPageHeader,
   DataRichPanel,
   DataRichPrimaryAction,
-  DataRichSplit,
   DataRichStackedBar,
   DataRichTableWrap,
   DataRichToolbar
 } from "@/components/recora/data-rich/data-rich-primitives";
+import {
+  DataRichSourcesMasterDetail
+} from "@/components/recora/data-rich/data-rich-sources-master-detail";
 
 const currentReportSlug = "mieruca-seo-demo";
 const reportBase = `/dashboard/reports/${currentReportSlug}`;
@@ -866,7 +874,7 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
   const mentionStats = new Map<string, BrandMentionAggregate>();
 
   for (const mention of data.brandMentions) {
-    if (!mention.mentioned || !promptScope.comparisonConversationIds.has(mention.conversation_id)) continue;
+    if (!mention.mentioned) continue;
 
     const stat = getBrandMentionAggregate(mentionStats, mention.brand_id);
     stat.mentionCount += getMentionCount(mention);
@@ -891,17 +899,16 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
 
   const citationCounts = new Map<string, number>();
   for (const citation of data.citations) {
-    if (!citation.brand_id || !promptScope.comparisonConversationIds.has(citation.conversation_id)) continue;
+    if (!citation.brand_id) continue;
     citationCounts.set(citation.brand_id, (citationCounts.get(citation.brand_id) ?? 0) + Number(citation.occurrence_count ?? 1));
   }
 
-  const comparisonAnswerCount = promptScope.comparisonConversationIds.size;
   const primaryStat = mentionStats.get(primaryBrand.id);
   const primarySnapshot = snapshotByBrandId.get(primaryBrand.id);
   const primaryDisplayAnswerCount = primaryStat?.displayConversationIds.size ?? 0;
-  const primaryVisibility = comparisonAnswerCount > 0
-    ? Math.round(calculateVisibility(primaryDisplayAnswerCount, comparisonAnswerCount))
-    : Math.round(primarySnapshot?.ai_visibility ?? 0);
+  const primaryVisibility = typeof primarySnapshot?.ai_visibility === "number"
+    ? round1(primarySnapshot.ai_visibility)
+    : round1(calculateVisibility(primaryDisplayAnswerCount, data.conversations.length));
   const totalBrandMentions = Math.max(
     1,
     Array.from(mentionStats.values()).reduce((sum, stat) => sum + stat.mentionCount, 0)
@@ -913,29 +920,31 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
       .map((item) => {
         const stat = mentionStats.get(item.id);
         const snapshot = snapshotByBrandId.get(item.id);
-        return comparisonAnswerCount > 0
-          ? Math.round(calculateVisibility(stat?.displayConversationIds.size ?? 0, comparisonAnswerCount))
-          : Math.round(snapshot?.ai_visibility ?? 0);
+        return typeof snapshot?.ai_visibility === "number"
+          ? round1(snapshot.ai_visibility)
+          : round1(calculateVisibility(stat?.displayConversationIds.size ?? 0, data.conversations.length));
       })
   );
-  const primaryGap = comparisonAnswerCount > 0
-    ? primaryVisibility - topCompetitorVisibility
-    : Math.round(primarySnapshot?.competitive_gap ?? primaryVisibility - topCompetitorVisibility);
-  const coMentionedCompetitorsByBrandId = createCoMentionedCompetitorsByBrandId(data, promptScope.comparisonConversationIds);
+  const primaryGap = typeof primarySnapshot?.competitive_gap === "number"
+    ? round1(primarySnapshot.competitive_gap)
+    : round1(primaryVisibility - topCompetitorVisibility);
+  const coMentionedCompetitorsByBrandId = createCoMentionedCompetitorsByBrandId(data);
 
   const rankingRows = data.brands
     .map((brandItem) => {
       const snapshot = snapshotByBrandId.get(brandItem.id);
       const stat = mentionStats.get(brandItem.id);
       const displayAnswerCount = stat?.displayConversationIds.size ?? 0;
-      const mentionCount = Math.round(stat?.mentionCount ?? (comparisonAnswerCount > 0 ? 0 : snapshot?.ai_mention_count ?? 0));
+      const mentionCount = Math.round(snapshot?.ai_mention_count ?? stat?.mentionCount ?? 0);
       const citationCountFromRows = citationCounts.get(brandItem.id) ?? 0;
-      const citationCount = Math.round(citationCountFromRows || (comparisonAnswerCount > 0 ? 0 : snapshot?.citation_count ?? 0));
-      const averagePosition = average(stat?.positions ?? []) ?? (comparisonAnswerCount > 0 ? null : snapshot?.average_position ?? null);
-      const visibility = comparisonAnswerCount > 0
-        ? Math.round(calculateVisibility(displayAnswerCount, comparisonAnswerCount))
-        : Math.round(snapshot?.ai_visibility ?? 0);
-      const shareOfVoice = Math.round(snapshot?.share_of_voice ?? ((stat?.mentionCount ?? 0) / totalBrandMentions) * 100);
+      const citationCount = Math.round(snapshot?.citation_count ?? citationCountFromRows ?? 0);
+      const averagePosition = snapshot ? snapshot.average_position : average(stat?.positions ?? []);
+      const visibility = typeof snapshot?.ai_visibility === "number"
+        ? round1(snapshot.ai_visibility)
+        : round1(calculateVisibility(displayAnswerCount, data.conversations.length));
+      const shareOfVoice = typeof snapshot?.share_of_voice === "number"
+        ? round1(snapshot.share_of_voice)
+        : round1(((stat?.mentionCount ?? 0) / totalBrandMentions) * 100);
       const recommendationCount = stat?.recommendationCount ?? 0;
       const winRate = mentionCount > 0 ? Math.round((recommendationCount / mentionCount) * 100) : 0;
       const strongTopic = displayAnswerCount > 0 ? getTopMapKey(stat?.topicCounts) ?? brandItem.category ?? "-" : "未表示";
@@ -985,7 +994,7 @@ function createLeaderboardViewModel(data?: RecoraLeaderboardDbData | null): Lead
     primaryVisibility: formatPercent(primaryRow?.visibility ?? primaryVisibility),
     competitiveGapValue: formatSignedPt(primaryGap),
     competitiveGapDelta: primaryGap,
-    primaryCitationShare: formatPercent(primaryRow?.citationShare ?? 0),
+    primaryCitationShare: formatReportOverviewPercent(primaryRow?.citationShare ?? primarySnapshot?.share_of_voice ?? null),
     comparisonScope: promptScope.view,
     brandSentiment: createBrandSentimentSummary(data, primaryBrand, promptScope.brandedConversationIds),
     rankingRows,
@@ -2751,6 +2760,7 @@ export type ReportsIndexPreviewRow = {
   name: string;
   projectName: string;
   period: string;
+  periodLabel?: string;
   lastUpdated: string;
   status: string;
   aiVisibility: string;
@@ -2768,18 +2778,23 @@ type ReportsIndexRow = ReportsIndexPreviewRow & {
 export function ReportsIndexPage({
   dashboardData = null,
   previewReportRows = [],
-  previewModeLabel = null
+  previewModeLabel = null,
+  realDbPreviewEnabled = false
 }: {
   dashboardData?: RecoraDashboardDbData | null;
   previewReportRows?: ReportsIndexPreviewRow[];
   previewModeLabel?: string | null;
+  realDbPreviewEnabled?: boolean;
 }) {
   const dashboardView = createDashboardHomeViewModel(dashboardData, null);
   const projectSlug = dashboardData?.project?.slug ?? currentReportSlug;
-  const reportHref = `/dashboard/reports/${projectSlug}`;
+  const reportHref = withRecoraRealDbPreviewSearchParam(`/dashboard/reports/${projectSlug}`, realDbPreviewEnabled);
   const hasReport = Boolean(dashboardData?.project);
   const primarySnapshot = getReportsIndexPrimarySnapshot(dashboardData);
   const previewSummary = previewReportRows[0] ?? null;
+  const previewDescription = realDbPreviewEnabled
+    ? "本番Supabaseの実測データを読み取り専用で表示しています"
+    : "本物の顧客データではありません";
   const reportRows: ReportsIndexRow[] = [
     ...(hasReport
     ? [{
@@ -2787,6 +2802,7 @@ export function ReportsIndexPage({
         name: dashboardView.projectName,
         projectName: dashboardView.projectName,
         period: dashboardView.period,
+        periodLabel: dashboardView.periodLabel,
         lastUpdated: dashboardView.lastUpdated,
         status: dashboardData?.reportReadyGate.status === "customer_ready" ? "公開中" : "準備中",
         aiVisibility: dashboardView.brandVisibilityValue,
@@ -2803,6 +2819,7 @@ export function ReportsIndexPage({
       isPreview: true
     }))
   ];
+  const reportPeriodColumnLabel = getReportsIndexPeriodColumnLabel(reportRows, dashboardView.periodLabel);
   return (
     <>
     <div className="min-w-0 space-y-5" data-recora-current-only>
@@ -2814,7 +2831,7 @@ export function ReportsIndexPage({
                 <span className="inline-flex w-fit items-center rounded-md border border-[#BFDAD4] bg-[#E6F4F1] px-2.5 py-1 text-xs font-bold text-[#005C50]">
                   {previewModeLabel}
                 </span>
-                <span className="text-xs font-semibold text-[#64748B]">本物の顧客データではありません</span>
+                <span className="text-xs font-semibold text-[#64748B]">{previewDescription}</span>
               </div>
             ) : null}
             <p className="text-sm font-semibold text-[#00796B]">レポート一覧</p>
@@ -2847,7 +2864,7 @@ export function ReportsIndexPage({
                 <TableRow>
                   <TableHead className="w-[220px]">レポート名</TableHead>
                   <TableHead className="w-[150px]">対象プロジェクト</TableHead>
-                  <TableHead className="w-[180px]">測定期間</TableHead>
+                  <TableHead className="w-[180px]">{reportPeriodColumnLabel}</TableHead>
                   <TableHead className="w-[120px]">AI表示率</TableHead>
                   <TableHead className="w-[110px]">状態</TableHead>
                   <TableHead className="w-[160px]">最終更新</TableHead>
@@ -2879,7 +2896,7 @@ export function ReportsIndexPage({
                     <TableCell className="text-right">
                       <Button asChild size="sm" className="whitespace-nowrap px-3">
                         <Link href={row.href} className="whitespace-nowrap">
-                          開く
+                          レポートを開く
                           <ArrowRight className="h-4 w-4" />
                         </Link>
                       </Button>
@@ -2901,8 +2918,10 @@ export function ReportsIndexPage({
       <DataRichReportsIndexView
         dashboardView={dashboardView}
         previewModeLabel={previewModeLabel}
+        previewDescription={previewDescription}
         previewSummary={previewSummary}
         reportRows={reportRows}
+        periodColumnLabel={reportPeriodColumnLabel}
       />
     </div>
     </>
@@ -2912,13 +2931,17 @@ export function ReportsIndexPage({
 function DataRichReportsIndexView({
   dashboardView,
   previewModeLabel,
+  previewDescription,
   previewSummary,
-  reportRows
+  reportRows,
+  periodColumnLabel
 }: {
   dashboardView: DashboardHomeViewModel;
   previewModeLabel: string | null;
+  previewDescription: string;
   previewSummary: ReportsIndexPreviewRow | null;
   reportRows: ReportsIndexRow[];
+  periodColumnLabel: string;
 }) {
   return (
     <div className="min-w-0 space-y-3">
@@ -2928,52 +2951,58 @@ function DataRichReportsIndexView({
         description="表示できるレポートを選び、概要・ブランド比較・質問分析・参照元・改善候補へ移動します。"
         badge={previewModeLabel ?? undefined}
       />
+      {previewModeLabel ? (
+        <div className="min-w-0 truncate text-[11px] font-semibold text-[#64748B]">
+          {previewDescription}
+        </div>
+      ) : null}
       <DataRichToolbar
         items={[
           { label: "対象プロジェクト", value: previewSummary?.projectName ?? dashboardView.projectName },
           { label: "レポート数", value: `${reportRows.length.toLocaleString("ja-JP")}件` },
           { label: "最新更新", value: reportRows[0]?.lastUpdated ?? "-" },
-          { label: "対象期間", value: reportRows[0]?.period ?? dashboardView.period },
+          { label: periodColumnLabel, value: reportRows[0]?.period ?? dashboardView.period },
           { label: recoraDisplayMetricLabels.aiVisibility, value: reportRows[0]?.aiVisibility ?? "-" },
           { label: "状態", value: reportRows[0]?.status ?? "-" }
         ]}
       />
-      <DataRichPanel title="レポート一覧" description="最新レポートを先頭に、確認用レポートを同じ表で表示します。" bodyClassName="p-0">
+      <DataRichPanel title="レポート一覧" description="表示できるレポートを同じ表で表示します。" bodyClassName="p-0">
         {reportRows.length > 0 ? (
           <DataRichTableWrap>
             <Table className="w-full table-fixed text-sm">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[250px]">レポート</TableHead>
-                  <TableHead className="w-[180px]">プロジェクト</TableHead>
-                  <TableHead className="w-[180px]">対象期間</TableHead>
-                  <TableHead className="w-[110px]">AI表示率</TableHead>
-                  <TableHead className="w-[120px]">有効観測</TableHead>
-                  <TableHead className="w-[120px]">平均表示位置</TableHead>
-                  <TableHead className="w-[120px]">言及シェア</TableHead>
-                  <TableHead className="w-[120px]">状態</TableHead>
-                  <TableHead className="w-[100px] text-right">詳細</TableHead>
+                  <TableHead className="w-[230px]">レポート</TableHead>
+                  <TableHead className="w-[145px]">プロジェクト</TableHead>
+                  <TableHead className="w-[114px]">{periodColumnLabel}</TableHead>
+                  <TableHead className="w-[90px]">AI表示率</TableHead>
+                  <TableHead className="w-[90px]">有効観測</TableHead>
+                  <TableHead className="w-[78px]">状態</TableHead>
+                  <TableHead className="w-[160px] text-right">レポートを開く</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {reportRows.map((row) => (
                   <TableRow key={row.id} className={row.isPreview ? undefined : "bg-[#EAF6F0]/45"}>
                     <TableCell>
-                      <div className="truncate font-bold text-[#0F172A]" title={row.name}>{row.name}</div>
+                      <div className="line-clamp-2 font-bold leading-5 text-[#0F172A]" title={row.name}>{row.name}</div>
                       <div className="mt-0.5 truncate text-[11px] font-semibold text-[#64748B]" title={row.note}>{row.note}</div>
                     </TableCell>
-                    <TableCell className="truncate font-semibold text-[#1F2937]" title={row.projectName}>{row.projectName}</TableCell>
+                    <TableCell className="font-semibold text-[#1F2937]">
+                      <span className="line-clamp-2 break-words" title={row.projectName}>{row.projectName}</span>
+                    </TableCell>
                     <TableCell className="truncate tabular-nums">{row.period}</TableCell>
                     <TableCell className="font-bold tabular-nums text-[#006B57]">{row.aiVisibility}</TableCell>
                     <TableCell className="tabular-nums">{row.validObservations}</TableCell>
-                    <TableCell className="tabular-nums">{row.averageRank}</TableCell>
-                    <TableCell className="tabular-nums">{row.mentionRate}</TableCell>
                     <TableCell>
                       <DataRichBadge tone={row.isPreview ? "green" : "default"}>{row.status}</DataRichBadge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link href={row.href} className="inline-flex items-center justify-end gap-1 text-[12px] font-bold text-[#006B57] hover:text-[#005548]">
-                        開く
+                      <Link
+                        href={row.href}
+                        className="inline-flex h-8 min-w-[142px] whitespace-nowrap items-center justify-center gap-1 rounded-md bg-[#006B57] px-3 text-[12px] font-bold text-white hover:bg-[#005548] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/70 focus-visible:ring-offset-2"
+                      >
+                        レポートを開く
                         <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden="true" />
                       </Link>
                     </TableCell>
@@ -2988,6 +3017,18 @@ function DataRichReportsIndexView({
       </DataRichPanel>
     </div>
   );
+}
+
+function getReportsIndexPeriodColumnLabel(rows: ReportsIndexRow[], fallback: string) {
+  const explicitLabel = rows.find((row) => row.periodLabel)?.periodLabel;
+  if (explicitLabel) return explicitLabel;
+
+  const firstPeriod = rows[0]?.period;
+  if (firstPeriod && firstPeriod !== "-") {
+    return isSingleDayRangeLabel(firstPeriod) ? "測定日" : "対象期間";
+  }
+
+  return fallback;
 }
 
 function getReportsIndexPrimarySnapshot(data?: RecoraDashboardDbData | null) {
@@ -3068,6 +3109,7 @@ type ReportOverviewInsight = {
 type ReportOverviewViewModel = {
   hasReportData: boolean;
   reportBase: string;
+  realDbPreviewEnabled: boolean;
   projectName: string;
   period: string;
   periodLabel: string;
@@ -3075,6 +3117,7 @@ type ReportOverviewViewModel = {
   comparisonPeriod: string;
   lastUpdated: string;
   primaryBrandName: string;
+  targetAiModelCountValue: string;
   aiVisibilityValue: string;
   aiVisibilityNumber: number | null;
   summaryStats: ReportOverviewStat[];
@@ -3105,29 +3148,47 @@ type ReportOverviewViewModel = {
 export async function ReportLandingPage({
   projectSlug = currentReportSlug,
   data,
-  visualVariant = "data-rich-final"
+  visualVariant = "data-rich-final",
+  readOnlyRealDbPreviewEnabled = false
 }: {
   projectSlug?: string;
   data?: ReportOverviewDataBundle;
   visualVariant?: RecoraVisualVariant;
+  readOnlyRealDbPreviewEnabled?: boolean;
 } = {}) {
   const overviewData = data ?? await getReportOverviewData(projectSlug);
 
-  return <ReportOverviewTab data={overviewData} projectSlug={projectSlug} visualVariant={visualVariant} />;
+  return (
+    <ReportOverviewTab
+      data={overviewData}
+      projectSlug={projectSlug}
+      visualVariant={visualVariant}
+      readOnlyRealDbPreviewEnabled={readOnlyRealDbPreviewEnabled}
+    />
+  );
 }
 
 export async function OverviewPage({
   projectSlug = currentReportSlug,
   data,
-  visualVariant = "data-rich-final"
+  visualVariant = "data-rich-final",
+  readOnlyRealDbPreviewEnabled = false
 }: {
   projectSlug?: string;
   data?: ReportOverviewDataBundle;
   visualVariant?: RecoraVisualVariant;
+  readOnlyRealDbPreviewEnabled?: boolean;
 } = {}) {
   const overviewData = data ?? await getReportOverviewData(projectSlug);
 
-  return <ReportOverviewTab data={overviewData} projectSlug={projectSlug} visualVariant={visualVariant} />;
+  return (
+    <ReportOverviewTab
+      data={overviewData}
+      projectSlug={projectSlug}
+      visualVariant={visualVariant}
+      readOnlyRealDbPreviewEnabled={readOnlyRealDbPreviewEnabled}
+    />
+  );
 }
 
 async function getReportOverviewData(projectSlug = currentReportSlug): Promise<ReportOverviewDataBundle> {
@@ -3172,7 +3233,11 @@ function getSafeReportDataError(error: unknown) {
   return { message: String(error) };
 }
 
-function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSlug = currentReportSlug): ReportOverviewViewModel {
+function createReportOverviewViewModel(
+  data: ReportOverviewDataBundle,
+  projectSlug = currentReportSlug,
+  options: { readOnlyRealDbPreviewEnabled?: boolean } = {}
+): ReportOverviewViewModel {
   const dashboardData = data.dashboardData;
   const leaderboardData = data.leaderboardData;
   const leaderboardView = createLeaderboardViewModel(leaderboardData);
@@ -3194,6 +3259,7 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
     ?? (typeof primaryRankingRow?.visibility === "number" ? primaryRankingRow.visibility : null);
   const competitorCount = brands.length > 0 ? brands.filter((item) => item.brand_type === "competitor").length : null;
   const aiAnswerCount = leaderboardData?.conversations.length ?? dashboardData?.counts.aiConversations ?? null;
+  const targetAiModelCount = getReportTargetAiModelCount(leaderboardData);
   const validObservationCount = dashboardData?.counts.validObservations ?? aiAnswerCount;
   const brandDisplayedAnswerCount = getPrimaryBrandDisplayedAnswerCount(leaderboardData, primaryBrand?.id);
   const brandMentionCount = getRoundedNumber(primarySnapshot?.ai_mention_count ?? projectSnapshot?.ai_mention_count) ?? primaryRankingRow?.aiMentionCount ?? null;
@@ -3213,6 +3279,8 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
   const weakestPersonaRows = getWeakestAudienceRows(personaRows);
   const strongestTopicRows = getStrongestAudienceRows(topicRows);
   const weakestTopicRows = getWeakestAudienceRows(topicRows);
+  const realDbPreviewEnabled = options.readOnlyRealDbPreviewEnabled === true;
+  const withPreviewHref = (href: string) => withRecoraRealDbPreviewSearchParam(href, realDbPreviewEnabled);
   const positionSummary = {
     rankValue: primaryRankIndex >= 0 ? `${primaryRankIndex + 1}位` : "-",
     competitorGapValue: primaryRankingRow ? formatSignedPt(primaryRankingRow.competitiveGap) : "-",
@@ -3232,6 +3300,7 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
   return {
     hasReportData: Boolean(project),
     reportBase: currentReportBase,
+    realDbPreviewEnabled,
     projectName: project?.name ?? "Recora",
     period: reportDateScope.value,
     periodLabel: reportDateScope.label,
@@ -3239,6 +3308,7 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
     comparisonPeriod: formatReportPeriod(latestRun?.comparison_start, latestRun?.comparison_end),
     lastUpdated: formatDateTime(latestRun?.completed_at ?? project?.updated_at),
     primaryBrandName: primaryBrand?.name ?? leaderboardView.primaryBrandName,
+    targetAiModelCountValue: formatRecoraModelCount(targetAiModelCount ?? 0),
     aiVisibilityValue: formatReportOverviewPercent(aiVisibilityNumber),
     aiVisibilityNumber,
     validObservationsValue: formatReportOverviewCount(validObservationCount),
@@ -3269,30 +3339,30 @@ function createReportOverviewViewModel(data: ReportOverviewDataBundle, projectSl
       sourceToClaimNeedsReviewCount,
       positionSummary,
       competitorCount
-    }),
+    }).map((link) => ({ ...link, href: withPreviewHref(link.href) })),
     detailLinks: [
       {
         title: "AI回答",
         description: "実際の回答内でブランドがどう扱われたかを見る",
-        href: `/dashboard/reports/${projectSlug}/conversations`,
+        href: withPreviewHref(`/dashboard/reports/${projectSlug}/conversations`),
         icon: Search
       },
       {
         title: "ブランド比較",
         description: "比較ブランド内での見え方を確認する",
-        href: `/dashboard/reports/${projectSlug}/leaderboard`,
+        href: withPreviewHref(`/dashboard/reports/${projectSlug}/leaderboard`),
         icon: BarChart3
       },
       {
         title: "参照元",
         description: "AI回答が参照した情報源を確認する",
-        href: `/dashboard/reports/${projectSlug}/sources`,
+        href: withPreviewHref(`/dashboard/reports/${projectSlug}/sources`),
         icon: ExternalLink
       },
       {
         title: "改善候補",
         description: "観測結果から次に確認すべき候補を見る",
-        href: `/dashboard/reports/${projectSlug}/recommendations`,
+        href: withPreviewHref(`/dashboard/reports/${projectSlug}/recommendations`),
         icon: ListChecks
       }
     ]
@@ -3364,19 +3434,35 @@ function createReportOverviewInsights({
   ];
 }
 
+function getReportTargetAiModelCount(data?: RecoraLeaderboardDbData | null) {
+  if (!data?.project) return null;
+
+  const runItemById = new Map(data.runItems.map((item) => [item.id, item]));
+  const modelNames = uniqueStrings(data.conversations.map((conversation) => {
+    const runItem = runItemById.get(conversation.run_item_id);
+    return conversation.model_returned ?? conversation.model_requested ?? conversation.model_snapshot ?? runItem?.model_id ?? "";
+  }).filter(Boolean));
+
+  if (modelNames.length > 0) return modelNames.length;
+
+  return uniqueStrings(data.runItems.map((item) => item.model_id).filter(Boolean)).length;
+}
+
 function ReportOverviewTab({
   data,
   projectSlug = currentReportSlug,
-  visualVariant
+  visualVariant,
+  readOnlyRealDbPreviewEnabled = false
 }: {
   data: ReportOverviewDataBundle;
   projectSlug?: string;
   visualVariant: RecoraVisualVariant;
+  readOnlyRealDbPreviewEnabled?: boolean;
 }) {
-  const view = createReportOverviewViewModel(data, projectSlug);
+  const view = createReportOverviewViewModel(data, projectSlug, { readOnlyRealDbPreviewEnabled });
   const reportReadyGate = data.dashboardData?.reportReadyGate ?? null;
 
-  if (!view.hasReportData || reportReadyGate?.status !== "customer_ready") {
+  if (!view.hasReportData || (!readOnlyRealDbPreviewEnabled && reportReadyGate?.status !== "customer_ready")) {
     return <ReportNotReadyPage />;
   }
 
@@ -3420,14 +3506,23 @@ function DataRichReportOverviewView({
         eyebrow="レポート概要"
         title={view.projectName}
         description="AI検索での表示、競合との差、引用元、確認すべき論点を同じ画面で確認します。"
-        action={<DataRichPrimaryAction href={withRecoraVisualVariantSearchParam(`${view.reportBase}/leaderboard`, visualVariant)}>比較を見る</DataRichPrimaryAction>}
+        action={
+          <DataRichPrimaryAction
+            href={withRecoraRealDbPreviewSearchParam(
+              withRecoraVisualVariantSearchParam(`${view.reportBase}/leaderboard`, visualVariant),
+              view.realDbPreviewEnabled
+            )}
+          >
+            比較を見る
+          </DataRichPrimaryAction>
+        }
       />
       <DataRichToolbar
         items={[
           { label: "対象ブランド", value: view.primaryBrandName },
           { label: view.periodLabel, value: view.period },
           { label: "比較期間", value: view.comparisonPeriod },
-          { label: recoraDisplayMetricLabels.targetAiModelCount, value: formatRecoraModelCount(models.length) },
+          { label: recoraDisplayMetricLabels.targetAiModelCount, value: view.targetAiModelCountValue },
           { label: recoraDisplayMetricLabels.validObservations, value: view.validObservationsValue },
           { label: "最終更新", value: view.lastUpdated }
         ]}
@@ -3504,9 +3599,9 @@ function DataRichOverviewRankingRows({ rows }: { rows: DashboardRankingRow[] }) 
       <Table className="w-full table-fixed text-sm">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[64px]">競合内順位</TableHead>
-            <TableHead>ブランド</TableHead>
-            <TableHead className="w-[190px]">AI表示率</TableHead>
+            <TableHead className="w-[54px]">順位</TableHead>
+            <TableHead className="w-[230px]">ブランド</TableHead>
+            <TableHead className="w-[170px]">AI表示率</TableHead>
             <TableHead className="w-[118px]">平均表示位置</TableHead>
             <TableHead className="w-[110px]">言及シェア</TableHead>
           </TableRow>
@@ -3516,8 +3611,8 @@ function DataRichOverviewRankingRows({ rows }: { rows: DashboardRankingRow[] }) 
             <TableRow key={row.brandId} className={row.isPrimary ? "bg-[#EAF6F0]/70" : undefined}>
               <TableCell className="font-bold tabular-nums text-[#64748B]">{index + 1}</TableCell>
               <TableCell>
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate font-bold text-[#0F172A]" title={row.name}>{row.name}</span>
+                <div className="flex min-w-0 items-start gap-2">
+                  <span className="line-clamp-2 min-w-0 font-bold leading-5 text-[#0F172A]" title={row.name}>{row.name}</span>
                   {row.isPrimary ? <DataRichBadge tone="green">自社</DataRichBadge> : null}
                 </div>
               </TableCell>
@@ -4127,7 +4222,7 @@ function ReportOverviewLeaderboard({ view }: { view: ReportOverviewViewModel }) 
             このレポート内の観測順位です。公式順位や市場シェアではありません。
           </p>
         </div>
-        <Link href={`${view.reportBase}/leaderboard`} className="inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]">
+        <Link href={withRecoraRealDbPreviewSearchParam(`${view.reportBase}/leaderboard`, view.realDbPreviewEnabled)} className="inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]">
           ブランド比較へ
           <ArrowRight className="h-4 w-4" />
         </Link>
@@ -4183,7 +4278,7 @@ function ReportOverviewSources({ view }: { view: ReportOverviewViewModel }) {
             このレポートのAI回答でよく出ている参照元ドメインです。
           </p>
         </div>
-        <Link href={`${view.reportBase}/sources`} className="inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]">
+        <Link href={withRecoraRealDbPreviewSearchParam(`${view.reportBase}/sources`, view.realDbPreviewEnabled)} className="inline-flex items-center gap-1 text-sm font-bold text-[#00796B] hover:text-[#005C50]">
           参照元へ
           <ArrowRight className="h-4 w-4" />
         </Link>
@@ -4394,6 +4489,17 @@ function getCitationDomain(url: string | null) {
   }
 }
 
+function getSafeExternalHref(value: string | null | undefined) {
+  if (!value) return null;
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function getRoundedNumber(value: number | null | undefined) {
   return typeof value === "number" ? Math.round(value) : null;
 }
@@ -4425,14 +4531,27 @@ function getReportDateScope(start?: string | null, end?: string | null, fallback
 
   return {
     label: "測定日",
-    value: fallback ?? "-",
+    value: normalizeReportPeriodFallback(fallback),
     helper: "測定日が取得できない場合は既定値を表示"
   };
 }
 
 function formatReportPeriod(start?: string | null, end?: string | null, fallback?: string | null) {
+  if (start && end) return start === end ? start : `${start} - ${end}`;
   if (start || end) return `${start ?? "-"} - ${end ?? "-"}`;
-  return fallback ?? "-";
+  return normalizeReportPeriodFallback(fallback);
+}
+
+function normalizeReportPeriodFallback(value?: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed) return "-";
+
+  const singleDayRange = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s*-\s*\1$/);
+  return singleDayRange?.[1] ?? trimmed;
+}
+
+function isSingleDayRangeLabel(value: string) {
+  return Boolean(value.trim().match(/^(\d{4}-\d{2}-\d{2})(?:\s*-\s*\1)?$/));
 }
 
 export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: RecoraLeaderboardDbData | null }) {
@@ -4477,6 +4596,7 @@ export function LeaderboardPage({ leaderboardData = null }: { leaderboardData?: 
 function DataRichLeaderboardView({ view }: { view: LeaderboardViewModel }) {
   const primaryIndex = view.rankingRows.findIndex((row) => row.isPrimary);
   const primaryRow = view.rankingRows.find((row) => row.isPrimary) ?? view.rankingRows[0] ?? null;
+  const hasModelRows = view.modelRows.length > 0;
 
   return (
     <div className="min-w-0 space-y-3">
@@ -4507,14 +4627,21 @@ function DataRichLeaderboardView({ view }: { view: LeaderboardViewModel }) {
         columns="xl:grid-cols-5"
       />
 
-      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)]">
+      <div className={cn("grid min-w-0 gap-3", hasModelRows ? "xl:grid-cols-[minmax(0,1.16fr)_minmax(320px,0.84fr)]" : "xl:grid-cols-1")}>
         <DataRichPanel title="ブランド比較" description="AI表示率、平均表示位置、言及シェアを同じ行で確認します。" bodyClassName="p-0">
           <DataRichOverviewRankingRows rows={view.rankingRows} />
         </DataRichPanel>
-        <DataRichPanel title="AIモデル別" description="モデル別の表示率と引用率を比較します。" bodyClassName="p-0">
-          <DataRichLeaderboardModelRows rows={view.modelRows} />
-        </DataRichPanel>
+        {hasModelRows ? (
+          <DataRichPanel title="AIモデル別" description="モデル別の表示率と引用率を比較します。" bodyClassName="p-0">
+            <DataRichLeaderboardModelRows rows={view.modelRows} />
+          </DataRichPanel>
+        ) : null}
       </div>
+      {!hasModelRows ? (
+        <DataRichPanel title="AIモデル別" description="モデル別に分けられる実測集計がある場合だけ表示します。" bodyClassName="p-3">
+          <DataRichEmpty message="このレポートではAIモデル別の集計スナップショットはまだありません。" />
+        </DataRichPanel>
+      ) : null}
 
       <DataRichPanel title="カテゴリ別の勝ち負け" description="自社が見えやすい領域と、競合が強い領域を確認します。" bodyClassName="p-0">
         <LeaderboardCategorySignals rows={view.rankingRows} />
@@ -4568,7 +4695,9 @@ type ConversationDisplayRow = {
   sentiment: "positive" | "neutral" | "negative";
   mentionedBrands: string[];
   citedDomains: string[];
+  sourceLinks: DataRichConversationMasterRow["sourceLinks"];
   answerSummary: string;
+  rawAnswer: string;
   observationKind: ObservationKind;
   observationLabel: string;
   providerLabel: string;
@@ -4604,7 +4733,9 @@ function createConversationDisplayRows(data?: RecoraConversationsDbData | null):
       (a, b) => (a.position ?? 999) - (b.position ?? 999)
     );
     const primaryMention = mentions.find((item) => item.brand_id === primaryBrand?.id);
-    const domains = uniqueStrings((citationsByConversationId.get(conversation.id) ?? []).map((item) => item.domain));
+    const citationsForConversation = citationsByConversationId.get(conversation.id) ?? [];
+    const domains = uniqueStrings(citationsForConversation.map((item) => item.domain));
+    const sourceLinks = createConversationSourceLinks(citationsForConversation);
     const mentionedBrands = mentions
       .filter((item) => item.mentioned)
       .map((item) => brandById.get(item.brand_id) ?? "不明")
@@ -4622,7 +4753,9 @@ function createConversationDisplayRows(data?: RecoraConversationsDbData | null):
       sentiment: normalizeConversationSentiment(primaryMention?.sentiment ?? mentions[0]?.sentiment),
       mentionedBrands,
       citedDomains: domains,
+      sourceLinks,
       answerSummary: conversation.answer_summary ?? conversation.raw_answer.slice(0, 180),
+      rawAnswer: conversation.raw_answer,
       observationKind,
       observationLabel: getObservationLabel(observationKind),
       providerLabel: formatProviderLabel(conversation.provider),
@@ -4645,6 +4778,27 @@ function groupBy<T>(items: T[], getKey: (item: T) => string) {
   return map;
 }
 
+function createConversationSourceLinks(
+  citationsForConversation: RecoraConversationsDbData["citations"]
+): DataRichConversationMasterRow["sourceLinks"] {
+  const seen = new Set<string>();
+  const links: DataRichConversationMasterRow["sourceLinks"] = [];
+
+  for (const citation of citationsForConversation) {
+    const url = citation.canonical_url ?? citation.url;
+    if (!url || seen.has(url)) continue;
+
+    seen.add(url);
+    links.push({
+      domain: citation.domain,
+      title: citation.title ?? citation.domain,
+      url
+    });
+  }
+
+  return links;
+}
+
 function uniqueStrings(values: string[]) {
   return values.filter((value, index, list) => list.indexOf(value) === index);
 }
@@ -4659,7 +4813,7 @@ function getObservationLabel(kind: ObservationKind) {
 
 function formatProviderLabel(value: string | null | undefined) {
   if (!value) return "不明";
-  return value === "openai" ? "OpenAI" : value;
+  return value === "openai" ? "計測済み" : formatCustomerFacingSourceLabel(value, "要確認");
 }
 
 function formatCitationStatus(value: string | null | undefined) {
@@ -4675,9 +4829,9 @@ function formatCitationStatus(value: string | null | undefined) {
 }
 
 function formatWebSearchLabel(value: boolean | null | undefined) {
-  if (value === true) return "Web検索あり";
-  if (value === false) return "Web検索なし";
-  return "不明";
+  if (value === true) return "検索で取得";
+  if (value === false) return "通常取得";
+  return "要確認";
 }
 
 function formatBrandRelatedness(value: string | null | undefined) {
@@ -4847,9 +5001,9 @@ function DataRichConversationsView({
   rows: ConversationDisplayRow[];
   totalCount: number | null;
 }) {
-  const selected = rows[0] ?? null;
   const mentionedCount = rows.filter((row) => row.recoraMentioned).length;
   const citedCount = rows.filter((row) => row.citedDomains.length > 0).length;
+  const displayRange = getConversationRangeLabel(rows.length, totalCount ?? rows.length);
 
   return (
     <div className="min-w-0 space-y-3">
@@ -4865,80 +5019,11 @@ function DataRichConversationsView({
           { label: "AIモデル", value: "すべて" },
           { label: "ブランド表示回答", value: formatRecoraCount(mentionedCount) },
           { label: "引用あり回答", value: formatRecoraCount(citedCount) },
-          { label: recoraDisplayMetricLabels.displayCount, value: getConversationRangeLabel(rows.length, totalCount) },
+          { label: recoraDisplayMetricLabels.displayCount, value: displayRange },
           { label: "品質状態", value: "確認対象" }
         ]}
       />
-      <DataRichSplit
-        main={
-          <DataRichPanel title="質問単位の回答" description="表示中の回答を質問、モデル、表示状況、引用元で確認します。" className="border-0" bodyClassName="p-0">
-            {rows.length > 0 ? (
-              <div className="divide-y divide-[#E5EAE8]">
-                {rows.slice(0, 8).map((row, index) => (
-                  <div key={row.id} className={cn("grid min-w-0 gap-3 px-4 py-3 text-sm xl:grid-cols-[40px_minmax(0,1.45fr)_140px_150px_minmax(0,0.82fr)] xl:items-center", index === 0 && "bg-[#EAF6F0]/55")}>
-                    <div className="font-bold tabular-nums text-[#64748B]">{index + 1}</div>
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <span className="truncate font-bold text-[#0F172A]" title={row.promptText}>{row.promptText}</span>
-                        <DataRichBadge tone={row.observationKind === "openai" ? "green" : "default"}>{row.observationLabel}</DataRichBadge>
-                      </div>
-                      <p className="mt-1 truncate text-[12px] font-semibold text-[#64748B]" title={row.topicName}>{row.topicName}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate font-bold text-[#0F172A]" title={row.modelName}>{row.modelName}</p>
-                      <p className="mt-1 truncate text-[11px] font-semibold text-[#64748B]">{row.date}</p>
-                    </div>
-                    <div className="space-y-1">
-                      {row.recoraMentioned ? <DataRichBadge tone="green">{`表示 ${row.recoraRank ?? "-"}`}</DataRichBadge> : <DataRichBadge tone="red">未表示</DataRichBadge>}
-                      <p className="truncate text-[11px] font-semibold text-[#64748B]" title={row.mentionedBrands.join(" / ")}>{row.mentionedBrands.join(" / ") || "-"}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-[12px] font-bold text-[#0F172A]" title={row.citedDomains.join(" / ")}>{row.citedDomains.join(" / ") || "引用なし"}</p>
-                      <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-[#64748B]">{row.answerSummary}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4"><DataRichEmpty message="AI回答ログはまだありません。測定が完了するとここに表示します。" /></div>
-            )}
-          </DataRichPanel>
-        }
-        aside={
-          <div className="space-y-3 p-4">
-            <h2 className="text-[15px] font-bold text-[#0F172A]">選択中の回答</h2>
-            {selected ? (
-              <div className="rounded-md border border-[#DFE6E2] bg-white p-3">
-                <div className="border-b border-[#E5EAE8] pb-3">
-                  <p className="text-[12px] font-bold text-[#64748B]">質問</p>
-                  <p className="mt-1 line-clamp-4 text-[13px] font-semibold leading-6 text-[#0F172A]">{selected.promptText}</p>
-                </div>
-                <dl className="grid gap-0 divide-y divide-[#E5EAE8]">
-                  <DataRichConversationFact label="AIモデル" value={selected.modelName} />
-                  <DataRichConversationFact label="表示状況" value={selected.recoraMentioned ? `表示 ${selected.recoraRank ?? "-"}` : "未表示"} />
-                  <DataRichConversationFact label="引用状態" value={selected.citationStatusLabel} />
-                  <DataRichConversationFact label="確認日時" value={selected.measuredAtLabel} />
-                </dl>
-                <div className="border-t border-[#E5EAE8] pt-3">
-                  <p className="text-[12px] font-bold text-[#64748B]">回答要約</p>
-                  <p className="mt-1 text-[13px] leading-6 text-[#1F2937]">{selected.answerSummary}</p>
-                </div>
-              </div>
-            ) : (
-              <DataRichEmpty message="選択できる回答がまだありません。" />
-            )}
-          </div>
-        }
-      />
-    </div>
-  );
-}
-
-function DataRichConversationFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 py-2">
-      <dt className="text-[11px] font-bold text-[#64748B]">{label}</dt>
-      <dd className="truncate text-[13px] font-bold tabular-nums text-[#0F172A]" title={value}>{value}</dd>
+      <DataRichConversationsMasterDetail rows={rows} />
     </div>
   );
 }
@@ -4999,7 +5084,6 @@ function DataRichSourcesView({
   hasSourceData: boolean;
 }) {
   const segments = createSourceCompositionSegments(sourceDisplay);
-  const selected = sourceDisplay.sourceRows[0] ?? null;
 
   return (
     <div className="min-w-0 space-y-3">
@@ -5028,90 +5112,11 @@ function DataRichSourcesView({
           className: segment.className
         }))} />
       </DataRichPanel>
-      <DataRichSplit
-        main={
-          <DataRichPanel title="参照元ドメイン一覧" description="出現数、構成比、品質状態、主なURLをドメイン単位で確認します。" className="border-0" bodyClassName="p-0">
-            <DataRichSourcesDomainTable rows={sourceDisplay.sourceRows} />
-          </DataRichPanel>
-        }
-        aside={
-          <div className="space-y-3 p-4">
-            <h2 className="text-[15px] font-bold text-[#0F172A]">選択中のドメイン</h2>
-            {selected ? (
-              <div className="rounded-md border border-[#DFE6E2] bg-white p-3">
-                <div className="border-b border-[#E5EAE8] pb-3">
-                  <p className="truncate text-[16px] font-bold text-[#0F172A]" title={selected.domain}>{selected.domain}</p>
-                  <p className="mt-1 text-[12px] font-semibold text-[#64748B]">{selected.category}</p>
-                </div>
-                <dl className="grid gap-0 divide-y divide-[#E5EAE8]">
-                  <DataRichConversationFact label="引用出現" value={`${selected.appearances.toLocaleString("ja-JP")}件`} />
-                  <DataRichConversationFact label="引用シェア" value={`${selected.citationShare}%`} />
-                  <DataRichConversationFact label="状態" value={selected.trustLabel} />
-                  <DataRichConversationFact label="要確認" value={`${selected.needsClaimReviewCount.toLocaleString("ja-JP")}件`} />
-                </dl>
-                <div className="border-t border-[#E5EAE8] pt-3">
-                  <p className="text-[12px] font-bold text-[#64748B]">主なURL</p>
-                  <div className="mt-2 space-y-1.5">
-                    {(selected.urls.length > 0 ? selected.urls : [selected.domain]).slice(0, 4).map((url) => (
-                      <p key={url} className="truncate text-[12px] font-semibold text-[#0F172A]" title={url}>{url}</p>
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-3 border-t border-[#E5EAE8] pt-3">
-                  <p className="text-[12px] font-bold text-[#64748B]">次に確認すること</p>
-                  <p className="mt-1 text-[13px] leading-6 text-[#1F2937]">{selected.recommendedAction}</p>
-                </div>
-              </div>
-            ) : (
-              <DataRichEmpty message="参照元ドメインはまだありません。" />
-            )}
-          </div>
-        }
-      />
+      <DataRichSourcesMasterDetail rows={sourceDisplay.sourceRows} />
       <DataRichPanel title="参照されたURL" description="URL単位の引用状況と根拠確認状態です。" bodyClassName="p-0">
         <DataRichCitationsTable rows={sourceDisplay.citationRows} />
       </DataRichPanel>
     </div>
-  );
-}
-
-function DataRichSourcesDomainTable({ rows }: { rows: SourceDisplayRow[] }) {
-  if (rows.length === 0) {
-    return <div className="p-4"><DataRichEmpty message="参照元ドメインはまだありません。引用URLが保存されると表示します。" /></div>;
-  }
-
-  const max = Math.max(1, ...rows.map((row) => row.appearances));
-
-  return (
-    <DataRichTableWrap>
-      <Table className="w-full table-fixed text-sm">
-        <TableHeader>
-          <TableRow>
-            <TableHead>ドメイン</TableHead>
-            <TableHead className="w-[140px]">分類</TableHead>
-            <TableHead className="w-[190px]">引用出現</TableHead>
-            <TableHead className="w-[100px]">シェア</TableHead>
-            <TableHead className="w-[110px]">状態</TableHead>
-            <TableHead className="w-[130px]">要確認</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.slice(0, 8).map((row) => (
-            <TableRow key={row.domain}>
-              <TableCell>
-                <div className="truncate font-bold text-[#0F172A]" title={row.domain}>{row.domain}</div>
-                <div className="mt-0.5 truncate text-[11px] font-semibold text-[#64748B]" title={row.urls[0]}>{row.urls[0] ?? "-"}</div>
-              </TableCell>
-              <TableCell className="truncate">{row.category}</TableCell>
-              <TableCell><DataRichInlineBar value={(row.appearances / max) * 100} label={`${row.appearances}件`} /></TableCell>
-              <TableCell className="font-semibold tabular-nums">{row.citationShare}%</TableCell>
-              <TableCell><DataRichBadge tone={row.trustScore >= 70 ? "green" : row.trustScore >= 45 ? "amber" : "red"}>{row.trustLabel}</DataRichBadge></TableCell>
-              <TableCell className="font-semibold tabular-nums">{row.needsClaimReviewCount}件</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </DataRichTableWrap>
   );
 }
 
@@ -5133,18 +5138,40 @@ function DataRichCitationsTable({ rows }: { rows: CitationDisplayRow[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.slice(0, 6).map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>
-                <div className="truncate font-bold text-[#0F172A]" title={row.title}>{row.title}</div>
-                <div className="mt-0.5 truncate text-[11px] font-semibold text-[#64748B]" title={row.url}>{row.url}</div>
-              </TableCell>
-              <TableCell className="truncate font-semibold">{row.domain}</TableCell>
-              <TableCell className="font-semibold tabular-nums">{row.occurrences}</TableCell>
-              <TableCell><DataRichBadge>{row.sourceFreshnessLabel}</DataRichBadge></TableCell>
-              <TableCell><DataRichBadge tone={row.sourceToClaimTone === "green" ? "green" : row.sourceToClaimTone === "amber" ? "amber" : row.sourceToClaimTone === "rose" ? "red" : "default"}>{row.supportsClaimLabel}</DataRichBadge></TableCell>
-            </TableRow>
-          ))}
+          {rows.slice(0, 6).map((row) => {
+            const safeHref = getSafeExternalHref(row.url);
+
+            return (
+              <TableRow key={row.id}>
+                <TableCell>
+                  {safeHref ? (
+                    <a
+                      href={safeHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={safeHref}
+                      className="group block min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/70"
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5 font-bold text-[#0F172A] group-hover:text-[#006B57]">
+                        <span className="truncate" title={row.title}>{row.title}</span>
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[#006B57]" aria-hidden="true" />
+                      </span>
+                      <span className="mt-0.5 block truncate text-[11px] font-semibold text-[#64748B]">{safeHref}</span>
+                    </a>
+                  ) : (
+                    <>
+                      <div className="truncate font-bold text-[#0F172A]" title={row.title}>{row.title}</div>
+                      <div className="mt-0.5 truncate text-[11px] font-semibold text-[#64748B]" title={row.url}>{row.url}</div>
+                    </>
+                  )}
+                </TableCell>
+                <TableCell className="truncate font-semibold">{row.domain}</TableCell>
+                <TableCell className="font-semibold tabular-nums">{row.occurrences}</TableCell>
+                <TableCell><DataRichBadge>{row.sourceFreshnessLabel}</DataRichBadge></TableCell>
+                <TableCell><DataRichBadge tone={row.sourceToClaimTone === "green" ? "green" : row.sourceToClaimTone === "amber" ? "amber" : row.sourceToClaimTone === "rose" ? "red" : "default"}>{row.supportsClaimLabel}</DataRichBadge></TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </DataRichTableWrap>
@@ -5462,7 +5489,7 @@ function createSourcesDisplayData(data?: RecoraSourcesDbData | null): SourcesDis
       appearances: 0,
       citationShare: 0,
       trustScore: 0,
-      trustLabel: sourceDomain?.trust_label ?? getSourceTypeLabel(sourceType),
+      trustLabel: formatCustomerFacingSourceLabel(sourceDomain?.trust_label, getSourceTypeLabel(sourceType)),
       supportingCitationCount: 0,
       needsClaimReviewCount: 0,
       sourceToClaimSummary: "",
@@ -5632,7 +5659,7 @@ function getSourceToClaimStatusLabel(citation: {
     return { label: "主張と不一致", status, tone: "amber", isSupported: false };
   }
   if (status === "not_reviewed") {
-    return { label: "未レビュー", status, tone: "slate", isSupported: false };
+    return { label: "要確認", status, tone: "slate", isSupported: false };
   }
   return { label: "要確認", status, tone: "amber", isSupported: false };
 }
@@ -5673,7 +5700,7 @@ function getSourceFreshnessLabel(citation: {
   if (status === "recent") return { label: "最近", note: age ?? formatDateTime(date) };
   if (status === "stale") return { label: "古い可能性", note: age ?? formatDateTime(date) };
   if (status === "unknown") return { label: "未確認", note: "公開日・更新日の確認が必要" };
-  return { label: "未取得", note: "現行データでは鮮度未取得" };
+  return { label: "未取得", note: "情報の鮮度: 未取得" };
 }
 
 function getCitationContext(status: SourceToClaimStatus) {
@@ -5681,8 +5708,31 @@ function getCitationContext(status: SourceToClaimStatus) {
   if (status === "partially_supported") return "一部の主張を支える参照として記録されています。顧客向け利用前に範囲を確認してください。";
   if (status === "contradicted") return "回答内の主張と矛盾しています。改善候補ではなく確認事項として扱います。";
   if (status === "unrelated") return "参照URLと回答内の主張が一致していません。";
-  if (status === "not_reviewed") return "URLは取得済みですが、主張を支持するかは未レビューです。";
+  if (status === "not_reviewed") return "URLは取得済みですが、主張を支えるかは確認対象です。";
   return "参照はありますが、主張との一致確認が必要です。";
+}
+
+function formatCustomerFacingSourceLabel(value: string | null | undefined, fallback = "要確認") {
+  const normalized = value?.trim();
+  if (!normalized) return fallback;
+
+  const labels: Record<string, string> = {
+    "OpenAI web_search observation": "検索で取得",
+    openai: "計測済み",
+    web_search: "検索で取得",
+    "demo setup": "公式ページ",
+    "source-to-claim": "根拠の確認",
+    freshness: "情報の鮮度",
+    not_reviewed: "要確認",
+    unknown: "要確認",
+    supported: "支持あり",
+    partially_supported: "部分支持",
+    contradicted: "矛盾の可能性",
+    unrelated: "主張と不一致",
+    not_checked: "未取得"
+  };
+
+  return labels[normalized] ?? fallback;
 }
 
 export function TrendsPage() {
@@ -5726,7 +5776,17 @@ export function BuyerCriteriaPage() {
   );
 }
 
-export function BrandPerceptionPage({ qualityState = "unavailable" }: { qualityState?: "limited" | "unavailable" } = {}) {
+export function BrandPerceptionPage({
+  qualityState = "unavailable",
+  brandPerceptionData
+}: {
+  qualityState?: "limited" | "unavailable";
+  brandPerceptionData?: RecoraBrandPerceptionDbData | null;
+} = {}) {
+  if (brandPerceptionData !== undefined) {
+    return <BrandPerceptionDbPage view={createBrandPerceptionDbView(brandPerceptionData)} />;
+  }
+
   const themes = [
     {
       label: "好意的",
@@ -5857,6 +5917,401 @@ function DataRichBrandPerceptionView({
       )}
     </div>
   );
+}
+
+type BrandPerceptionSentiment = RecoraBrandPerceptionDbData["brandMentions"][number]["sentiment"];
+
+type BrandPerceptionDbSentimentRow = {
+  sentiment: BrandPerceptionSentiment;
+  label: string;
+  count: number;
+  share: number;
+  className: string;
+  tone: "default" | "green" | "amber" | "red";
+};
+
+type BrandPerceptionDbEvidenceRow = {
+  id: string;
+  sentiment: BrandPerceptionSentiment;
+  sentimentLabel: string;
+  tone: "default" | "green" | "amber" | "red";
+  promptText: string;
+  modelName: string;
+  expression: string;
+  evidence: string;
+  confidenceLabel: string;
+  positionLabel: string;
+};
+
+type BrandPerceptionDbModelRow = {
+  name: string;
+  answerCount: number;
+  mentionedCount: number;
+  visibleRate: number;
+};
+
+type BrandPerceptionDbView = {
+  projectName: string;
+  primaryBrandName: string;
+  period: string;
+  periodLabel: string;
+  answerCount: number;
+  mentionRows: number;
+  mentionedRows: number;
+  unmentionedRows: number;
+  qualityLabel: string;
+  sentimentRows: BrandPerceptionDbSentimentRow[];
+  evidenceRows: BrandPerceptionDbEvidenceRow[];
+  modelRows: BrandPerceptionDbModelRow[];
+  hasProject: boolean;
+};
+
+function BrandPerceptionDbPage({ view }: { view: BrandPerceptionDbView }) {
+  return (
+    <>
+    <div className="min-w-0 space-y-5" data-recora-current-only>
+      <PageHeader
+        eyebrow="レポート詳細"
+        title="ブランド表現"
+        description="AI回答内で対象ブランドがどのような表現、文脈、感情で扱われたかを確認します。"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="rounded-sm border-amber-200 bg-amber-50 text-amber-800">
+              {view.qualityLabel}
+            </Badge>
+            <HeaderActions />
+          </div>
+        }
+      />
+      <DetailTabs items={reportDetailTabs.brandPerception} />
+
+      <div className="grid gap-4 lg:grid-cols-4">
+        <MetricTile label="AI回答数" value={formatNullableCount(view.answerCount)} helper={view.projectName} />
+        <MetricTile label="ブランド行" value={formatNullableCount(view.mentionRows)} helper={view.primaryBrandName} tone="slate" />
+        <MetricTile label="表示行" value={formatNullableCount(view.mentionedRows)} helper="対象ブランドが表示" tone="green" />
+        <MetricTile label="未表示・不明" value={formatNullableCount(view.unmentionedRows)} helper="表示なしまたは不明" tone="slate" />
+      </div>
+
+      <DataCard title="感情の構成" description="対象ブランドに紐づく保存済みのブランド表現行を集計しています。">
+        <BrandPerceptionSentimentTable rows={view.sentimentRows} />
+      </DataCard>
+
+      <DataCard title="表現と根拠" description="AI回答内で検出された表現、根拠スニペット、モデル名を確認します。">
+        <BrandPerceptionEvidenceDbTable rows={view.evidenceRows} />
+      </DataCard>
+    </div>
+    <div data-recora-data-rich-only>
+      <DataRichBrandPerceptionDbView view={view} />
+    </div>
+    </>
+  );
+}
+
+function DataRichBrandPerceptionDbView({ view }: { view: BrandPerceptionDbView }) {
+  return (
+    <div className="min-w-0 space-y-3">
+      <DataRichPageHeader
+        eyebrow="ブランド表現"
+        title="ブランド表現"
+        description="AI回答内の対象ブランド表現を、感情、モデル、根拠スニペット別に確認します。"
+        badge={view.qualityLabel}
+        badgeTone={view.qualityLabel === "サンプル不足です" ? "amber" : "default"}
+        action={<HeaderActions />}
+      />
+      <DataRichToolbar
+        items={[
+          { label: "対象ブランド", value: view.primaryBrandName },
+          { label: view.periodLabel, value: view.period },
+          { label: "対象条件", value: "ブランド表現" },
+          { label: "AI回答数", value: `${view.answerCount.toLocaleString("ja-JP")}件` },
+          { label: "表示行", value: `${view.mentionedRows.toLocaleString("ja-JP")}件` },
+          { label: "未表示・不明", value: `${view.unmentionedRows.toLocaleString("ja-JP")}件` }
+        ]}
+      />
+      <DataRichKpiStrip
+        items={[
+          { label: "ブランド行", value: `${view.mentionRows.toLocaleString("ja-JP")}件`, helper: "対象ブランドのmention行" },
+          { label: "表示行", value: `${view.mentionedRows.toLocaleString("ja-JP")}件`, helper: "mentioned=trueの行", tone: "green" },
+          { label: "未表示・不明", value: `${view.unmentionedRows.toLocaleString("ja-JP")}件`, helper: "mentioned=falseまたは不明", tone: "amber" },
+          { label: "AIモデル", value: `${view.modelRows.length.toLocaleString("ja-JP")}件`, helper: "回答ログから確認できるモデル" }
+        ]}
+        columns="xl:grid-cols-4"
+      />
+      <DataRichPanel title="感情の構成" description="保存済みのブランド表現行の内訳です。">
+        {view.sentimentRows.some((row) => row.count > 0) ? (
+          <DataRichStackedBar segments={view.sentimentRows.map((row) => ({
+            key: row.sentiment,
+            label: row.label,
+            value: row.share,
+            className: row.className
+          }))} />
+        ) : (
+          <DataRichEmpty message="ブランド表現の行がありません。" />
+        )}
+      </DataRichPanel>
+      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
+        <DataRichPanel title="AIモデル別" description="モデル別の回答数とブランド表示行を確認します。" bodyClassName="p-0">
+          <BrandPerceptionModelDbTable rows={view.modelRows} />
+        </DataRichPanel>
+        <DataRichPanel title="表現タイプ内訳" description="好意的・中立・リスク認識・判定外の保存行数です。" bodyClassName="p-0">
+          <BrandPerceptionSentimentTable rows={view.sentimentRows} />
+        </DataRichPanel>
+      </div>
+        <DataRichPanel title="表現と根拠" description="保存済みの表現、根拠、モデル名を確認します。" bodyClassName="p-0">
+        <BrandPerceptionEvidenceDbTable rows={view.evidenceRows} />
+      </DataRichPanel>
+    </div>
+  );
+}
+
+function BrandPerceptionSentimentTable({ rows }: { rows: BrandPerceptionDbSentimentRow[] }) {
+  return (
+    <DataRichTableWrap>
+      <Table className="w-full table-fixed text-sm">
+        <TableHeader>
+          <TableRow>
+            <TableHead>表現タイプ</TableHead>
+            <TableHead className="w-[110px]">行数</TableHead>
+            <TableHead className="w-[150px]">構成比</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.sentiment}>
+              <TableCell>
+                <DataRichBadge tone={row.tone}>{row.label}</DataRichBadge>
+              </TableCell>
+              <TableCell className="font-semibold tabular-nums">{row.count.toLocaleString("ja-JP")}件</TableCell>
+              <TableCell><DataRichInlineBar value={row.share} label={`${row.share}%`} /></TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </DataRichTableWrap>
+  );
+}
+
+function BrandPerceptionModelDbTable({ rows }: { rows: BrandPerceptionDbModelRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <div className="p-4">
+        <DataRichEmpty message="AIモデル別の観測データがありません。" />
+      </div>
+    );
+  }
+
+  return (
+    <DataRichTableWrap>
+      <Table className="w-full table-fixed text-sm">
+        <TableHeader>
+          <TableRow>
+            <TableHead>AIモデル</TableHead>
+            <TableHead className="w-[110px]">回答数</TableHead>
+            <TableHead className="w-[120px]">表示行</TableHead>
+            <TableHead className="w-[130px]">表示率</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.name}>
+              <TableCell className="truncate font-bold text-[#0F172A]" title={row.name}>{row.name}</TableCell>
+              <TableCell className="font-semibold tabular-nums">{row.answerCount.toLocaleString("ja-JP")}件</TableCell>
+              <TableCell className="font-semibold tabular-nums">{row.mentionedCount.toLocaleString("ja-JP")}件</TableCell>
+              <TableCell><DataRichInlineBar value={row.visibleRate} label={`${row.visibleRate}%`} /></TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </DataRichTableWrap>
+  );
+}
+
+function BrandPerceptionEvidenceDbTable({ rows }: { rows: BrandPerceptionDbEvidenceRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <div className="p-4">
+        <DataRichEmpty message="ブランド表現の観測データがありません。保存済みmention行が揃うとここに表示します。" />
+      </div>
+    );
+  }
+
+  return (
+    <DataRichTableWrap>
+      <Table className="w-full table-fixed text-sm">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[120px]">表現タイプ</TableHead>
+            <TableHead className="w-[220px]">質問</TableHead>
+            <TableHead className="w-[160px]">AIモデル</TableHead>
+            <TableHead>表現・根拠</TableHead>
+            <TableHead className="w-[120px]">位置</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.id}>
+              <TableCell><DataRichBadge tone={row.tone}>{row.sentimentLabel}</DataRichBadge></TableCell>
+              <TableCell>
+                <p className="line-clamp-2 font-semibold text-[#0F172A]" title={row.promptText}>{row.promptText}</p>
+              </TableCell>
+              <TableCell className="truncate" title={row.modelName}>{row.modelName}</TableCell>
+              <TableCell>
+                <p className="line-clamp-1 font-bold text-[#0F172A]" title={row.expression}>{row.expression}</p>
+                <p className="mt-1 line-clamp-3 text-[12px] leading-5 text-[#64748B]" title={row.evidence}>{row.evidence}</p>
+              </TableCell>
+              <TableCell className="font-semibold tabular-nums">{row.positionLabel}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </DataRichTableWrap>
+  );
+}
+
+function createBrandPerceptionDbView(data?: RecoraBrandPerceptionDbData | null): BrandPerceptionDbView {
+  const primaryBrand = data?.brands.find((item) => item.brand_type === "primary") ?? null;
+  const dateScope = getReportDateScope(data?.latestRun?.period_start, data?.latestRun?.period_end, data?.project?.default_period);
+  const emptyView: BrandPerceptionDbView = {
+    projectName: data?.project?.name ?? "-",
+    primaryBrandName: primaryBrand?.name ?? "対象ブランド",
+    period: dateScope.value,
+    periodLabel: dateScope.label,
+    answerCount: data?.conversations.length ?? 0,
+    mentionRows: 0,
+    mentionedRows: 0,
+    unmentionedRows: 0,
+    qualityLabel: "未計測",
+    sentimentRows: createBrandSentimentRows([]),
+    evidenceRows: [],
+    modelRows: [],
+    hasProject: Boolean(data?.project)
+  };
+
+  if (!data?.project || !primaryBrand) return emptyView;
+
+  const runItemById = new Map(data.runItems.map((item) => [item.id, item]));
+  const promptById = new Map(data.prompts.map((item) => [item.id, item]));
+  const conversationById = new Map(data.conversations.map((item) => [item.id, item]));
+  const primaryMentions = data.brandMentions.filter((mention) => mention.brand_id === primaryBrand.id);
+  const mentionedRows = primaryMentions.filter((mention) => mention.mentioned);
+  const unmentionedRows = primaryMentions.length - mentionedRows.length;
+  const modelStats = new Map<string, { answerCount: number; mentionedCount: number }>();
+  const countedModelAnswers = new Set<string>();
+
+  for (const conversation of data.conversations) {
+    const runItem = runItemById.get(conversation.run_item_id);
+    const modelName = conversation.model_returned ?? conversation.model_requested ?? conversation.model_snapshot ?? runItem?.model_id ?? "不明";
+    const current = modelStats.get(modelName) ?? { answerCount: 0, mentionedCount: 0 };
+    current.answerCount += 1;
+    countedModelAnswers.add(conversation.id);
+    modelStats.set(modelName, current);
+  }
+
+  for (const mention of mentionedRows) {
+    const conversation = conversationById.get(mention.conversation_id);
+    const runItem = conversation ? runItemById.get(conversation.run_item_id) : undefined;
+    const modelName = conversation?.model_returned ?? conversation?.model_requested ?? conversation?.model_snapshot ?? runItem?.model_id ?? "不明";
+    const current = modelStats.get(modelName) ?? { answerCount: 0, mentionedCount: 0 };
+    if (!countedModelAnswers.has(mention.conversation_id)) current.answerCount += 1;
+    current.mentionedCount += 1;
+    modelStats.set(modelName, current);
+  }
+
+  const evidenceRows = primaryMentions
+    .map((mention) => {
+      const conversation = conversationById.get(mention.conversation_id);
+      const runItem = conversation ? runItemById.get(conversation.run_item_id) : undefined;
+      const prompt = runItem ? promptById.get(runItem.prompt_id) : undefined;
+      const sentimentMeta = getBrandSentimentMeta(mention.sentiment);
+
+      return {
+        id: mention.id,
+        sentiment: mention.sentiment,
+        sentimentLabel: sentimentMeta.label,
+        tone: sentimentMeta.tone,
+        promptText: prompt?.text ?? conversation?.prompt_text_snapshot ?? "質問未確認",
+        modelName: conversation?.model_returned ?? conversation?.model_requested ?? conversation?.model_snapshot ?? runItem?.model_id ?? "不明",
+        expression: sanitizeBrandPerceptionText(mention.mention_text) ?? (mention.mentioned ? primaryBrand.name : "判定外"),
+        evidence: sanitizeBrandPerceptionText(mention.evidence_snippet ?? conversation?.answer_summary) ?? (mention.mentioned ? "根拠未確認" : "ブランド言及なし"),
+        confidenceLabel: mention.confidence,
+        positionLabel: typeof mention.position === "number" ? `${mention.position}位` : "-"
+      };
+    })
+    .sort((a, b) => Number(b.expression !== "判定外") - Number(a.expression !== "判定外") || a.sentimentLabel.localeCompare(b.sentimentLabel))
+    .slice(0, 10);
+  const modelRows = Array.from(modelStats.entries())
+    .map(([name, stat]) => ({
+      name,
+      answerCount: stat.answerCount,
+      mentionedCount: stat.mentionedCount,
+      visibleRate: stat.answerCount > 0 ? Math.round((stat.mentionedCount / stat.answerCount) * 100) : 0
+    }))
+    .sort((a, b) => b.answerCount - a.answerCount || a.name.localeCompare(b.name));
+
+  return {
+    ...emptyView,
+    mentionRows: primaryMentions.length,
+    mentionedRows: mentionedRows.length,
+    unmentionedRows,
+    qualityLabel: data.conversations.length < 30 ? "サンプル不足です" : "測定済み",
+    sentimentRows: createBrandSentimentRows(primaryMentions),
+    evidenceRows,
+    modelRows
+  };
+}
+
+function createBrandSentimentRows(
+  mentions: Array<Pick<RecoraBrandPerceptionDbData["brandMentions"][number], "sentiment">>
+): BrandPerceptionDbSentimentRow[] {
+  const total = Math.max(1, mentions.length);
+  const counts = new Map<BrandPerceptionSentiment, number>();
+  for (const mention of mentions) {
+    counts.set(mention.sentiment, (counts.get(mention.sentiment) ?? 0) + 1);
+  }
+
+  return (["positive", "neutral", "negative", "unclear"] as BrandPerceptionSentiment[]).map((sentiment) => {
+    const count = counts.get(sentiment) ?? 0;
+    const meta = getBrandSentimentMeta(sentiment);
+    return {
+      sentiment,
+      label: meta.label,
+      count,
+      share: Math.round((count / total) * 100),
+      className: meta.className,
+      tone: meta.tone
+    };
+  });
+}
+
+function getBrandSentimentMeta(sentiment: BrandPerceptionSentiment) {
+  const meta: Record<BrandPerceptionSentiment, {
+    label: string;
+    className: string;
+    tone: "default" | "green" | "amber" | "red";
+  }> = {
+    positive: { label: "好意的", className: "bg-[#006B57]", tone: "green" },
+    neutral: { label: "中立", className: "bg-slate-400", tone: "default" },
+    negative: { label: "リスク認識", className: "bg-rose-500", tone: "red" },
+    unclear: { label: "判定外", className: "bg-amber-400", tone: "amber" }
+  };
+
+  return meta[sentiment];
+}
+
+function sanitizeBrandPerceptionText(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  const withoutInternalConfidence = trimmed
+    .replace(/Target brand or competitor alias was not detected in this answer\./gi, "ブランド言及なし")
+    .replace(/\bconfidence:\s*(high|medium|low)\b/gi, "")
+    .replace(/\balias\b/gi, "ブランド名")
+    .replace(/\bSENTIMENT\b/g, "表現タイプ")
+    .replace(/\bsentiment\b/gi, "ブランド表現")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return withoutInternalConfidence || null;
 }
 
 function DataRichBrandThemeTable({
@@ -6878,7 +7333,16 @@ export function ReportExportPage() {
   );
 }
 
-export function PromptsAnalysisPage() {
+export function PromptsAnalysisPage({
+  promptsAnalysisData
+}: {
+  promptsAnalysisData?: RecoraLeaderboardDbData | null;
+} = {}) {
+  if (promptsAnalysisData !== undefined) {
+    const view = createDbPromptsAnalysisView(promptsAnalysisData);
+    return <PromptsAnalysisDbPage view={view} />;
+  }
+
   const visiblePromptCount = prompts.filter((prompt) => prompt.visibility > 0).length;
   const citedPromptCount = new Set(
     conversations
@@ -6937,12 +7401,12 @@ function DataRichPromptsAnalysisView({
 
   return (
     <div className="min-w-0 space-y-3">
-      <DataRichPageHeader
-        eyebrow="質問別分析"
-        title="質問別分析"
-        description="質問ごとのAI表示状況、引用状況、AIモデル別の差を表で確認します。"
-        action={<HeaderActions />}
-      />
+        <DataRichPageHeader
+          eyebrow="質問別分析"
+          title="質問別分析"
+          description="質問ごとのAI表示状況、引用状況、AIモデル別の差を表で確認します。"
+          action={<HeaderActions />}
+        />
       <DataRichToolbar
         items={[
           { label: "カテゴリ", value: "すべて" },
@@ -6970,6 +7434,422 @@ function DataRichPromptsAnalysisView({
       </DataRichPanel>
     </div>
   );
+}
+
+type PromptAnalysisDbRow = {
+  id: string;
+  personaId: string;
+  topicName: string;
+  personaName: string;
+  intentLabel: string;
+  buyerStageLabel: string;
+  promptText: string;
+  answerCount: number;
+  visibleAnswerCount: number;
+  visibilityRate: number;
+  citationOccurrenceCount: number;
+  averagePosition: number | null;
+  averagePositionLabel: string;
+  modelNames: string[];
+  qualityLabel: string;
+  statusLabel: string;
+};
+
+type PromptAnalysisModelRow = {
+  name: string;
+  answerCount: number;
+  visibleAnswerCount: number;
+  visibilityRate: number;
+};
+
+type PromptPersonaSummaryRow = {
+  id: string;
+  name: string;
+  targetPromptCount: number;
+  displayedPromptCount: number;
+  displayRate: number;
+  citedPromptCount: number;
+};
+
+type PromptsAnalysisDbView = {
+  projectName: string;
+  period: string;
+  periodLabel: string;
+  rows: PromptAnalysisDbRow[];
+  modelRows: PromptAnalysisModelRow[];
+  personaRows: PromptPersonaSummaryRow[];
+  totalPromptCount: number;
+  totalAnswerCount: number;
+  visiblePromptCount: number;
+  citedPromptCount: number;
+  hiddenPromptCount: number;
+  visibilityRate: number;
+  hasProject: boolean;
+};
+
+function PromptsAnalysisDbPage({ view }: { view: PromptsAnalysisDbView }) {
+  return (
+    <>
+    <div className="min-w-0 space-y-5" data-recora-current-only>
+      <PageHeader
+        eyebrow="レポート詳細"
+        title="質問別分析"
+        description="選択レポート内で観測された質問ごとのAI表示状況、引用状況、平均表示位置を確認します。"
+        actions={<HeaderActions />}
+      />
+      <DetailTabs items={reportDetailTabs.prompts} />
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <MetricTile label="対象質問数" value={formatNullableCount(view.totalPromptCount)} helper={view.projectName} />
+        <MetricTile label="表示された質問" value={formatNullableCount(view.visiblePromptCount)} helper="対象ブランドが表示" tone="green" />
+        <MetricTile label="引用あり質問" value={formatNullableCount(view.citedPromptCount)} helper="参照元が付いた回答" tone="slate" />
+      </div>
+
+      <DataCard title="質問一覧" description="DBに保存された観測結果だけを、質問単位で集計しています。">
+        <PromptAnalysisDbTable rows={view.rows} />
+      </DataCard>
+    </div>
+    <div data-recora-data-rich-only>
+      <DataRichPromptsDbView view={view} />
+    </div>
+    </>
+  );
+}
+
+function DataRichPromptsDbView({ view }: { view: PromptsAnalysisDbView }) {
+  return (
+    <div className="min-w-0 space-y-3">
+      <DataRichPageHeader
+        eyebrow="質問別分析"
+        title="質問別分析"
+        description="質問ごとのAI表示状況、引用状況、AIモデル別の差を表で確認します。"
+        badge={view.totalAnswerCount < 30 ? "サンプル不足です" : undefined}
+        badgeTone="amber"
+        action={<HeaderActions />}
+      />
+      <DataRichToolbar
+        items={[
+          { label: "対象プロジェクト", value: view.projectName },
+          { label: view.periodLabel, value: view.period },
+          { label: "AIモデル", value: `${view.modelRows.length.toLocaleString("ja-JP")}件` },
+          { label: "対象質問数", value: `${view.totalPromptCount.toLocaleString("ja-JP")}件` },
+          { label: "AI回答数", value: `${view.totalAnswerCount.toLocaleString("ja-JP")}件` }
+        ]}
+      />
+      <DataRichKpiStrip
+        items={[
+          { label: "対象質問数", value: `${view.totalPromptCount.toLocaleString("ja-JP")}件`, helper: "確認対象の質問" },
+          { label: "表示された質問数", value: `${view.visiblePromptCount.toLocaleString("ja-JP")}件`, helper: "対象ブランドが表示された質問", tone: "green", progress: view.visibilityRate },
+          { label: "未表示質問数", value: `${view.hiddenPromptCount.toLocaleString("ja-JP")}件`, helper: "対象ブランドが表示されなかった質問", tone: "amber" },
+          { label: "引用あり質問数", value: `${view.citedPromptCount.toLocaleString("ja-JP")}件`, helper: "引用元が付いた質問" }
+        ]}
+        columns="xl:grid-cols-4"
+      />
+      <div className="grid min-w-0 items-start gap-3 xl:grid-cols-[minmax(0,1.28fr)_minmax(340px,0.72fr)]">
+        <DataRichPanel title="ペルソナ別" description="実測runで観測された質問をペルソナごとに集計します。" bodyClassName="p-0">
+          <PromptPersonaSummaryTable rows={view.personaRows} />
+        </DataRichPanel>
+        <DataRichPanel title="AIモデル別" description="実測されたAIモデルごとの回答数と表示率です。" bodyClassName="p-0">
+          <PromptModelDbTable rows={view.modelRows} />
+        </DataRichPanel>
+      </div>
+      <DataRichPanel title="質問一覧" description="質問、分類、表示率、平均表示位置、引用出現、実測AIモデルを一覧で確認します。" bodyClassName="p-0">
+        <PromptAnalysisDbTable rows={view.rows} />
+      </DataRichPanel>
+    </div>
+  );
+}
+
+function PromptAnalysisDbTable({ rows }: { rows: PromptAnalysisDbRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <div className="p-4">
+        <DataRichEmpty message="質問別の観測データがありません。DBに保存された実測行が揃うと、ここに表示します。" />
+      </div>
+    );
+  }
+
+  return (
+    <DataRichTableWrap>
+      <Table className="w-full table-fixed text-sm">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[340px]">質問</TableHead>
+            <TableHead className="w-[200px]">分類</TableHead>
+            <TableHead className="w-[110px]">表示率</TableHead>
+            <TableHead className="w-[96px]">平均位置</TableHead>
+            <TableHead className="w-[96px]">引用</TableHead>
+            <TableHead className="w-[150px]">AIモデル</TableHead>
+            <TableHead className="w-[110px]">状態</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.id}>
+              <TableCell>
+                <p className="line-clamp-2 font-bold text-[#0F172A]" title={row.promptText}>{row.promptText}</p>
+                <p className="mt-1 line-clamp-1 text-[11px] font-semibold text-[#64748B]" title={row.personaName}>ペルソナ: {row.personaName}</p>
+              </TableCell>
+              <TableCell>
+                <p className="line-clamp-2 font-semibold leading-5 text-[#1F2937]" title={row.topicName}>{row.topicName}</p>
+                <p className="mt-1 line-clamp-1 text-[11px] font-semibold text-[#64748B]" title={`${row.intentLabel} / ${row.buyerStageLabel}`}>
+                  {row.intentLabel} / {row.buyerStageLabel}
+                </p>
+              </TableCell>
+              <TableCell><DataRichInlineBar value={row.visibilityRate} label={formatPromptPercent(row.visibilityRate)} /></TableCell>
+              <TableCell className="font-semibold tabular-nums">{row.averagePositionLabel}</TableCell>
+              <TableCell className="font-semibold tabular-nums">{row.citationOccurrenceCount.toLocaleString("ja-JP")}件</TableCell>
+              <TableCell className="truncate" title={row.modelNames.join(", ")}>{row.modelNames.join(", ") || "-"}</TableCell>
+              <TableCell>
+                <DataRichBadge tone={row.visibleAnswerCount > 0 ? "green" : "amber"}>{row.statusLabel}</DataRichBadge>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </DataRichTableWrap>
+  );
+}
+
+function PromptPersonaSummaryTable({ rows }: { rows: PromptPersonaSummaryRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <div className="p-4">
+        <DataRichEmpty message="ペルソナ別に集計できる実測データがありません。" />
+      </div>
+    );
+  }
+
+  return (
+    <DataRichTableWrap>
+      <Table className="w-full table-fixed text-sm">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[42%] min-w-[180px]">ペルソナ</TableHead>
+            <TableHead className="w-[13%] whitespace-nowrap">対象質問</TableHead>
+            <TableHead className="w-[13%] whitespace-nowrap">表示質問</TableHead>
+            <TableHead className="w-[18%] whitespace-nowrap">表示率</TableHead>
+            <TableHead className="w-[14%] whitespace-nowrap">引用あり</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.id}>
+              <TableCell className="align-top">
+                <p className="line-clamp-2 break-words font-bold leading-5 text-[#0F172A]" title={row.name}>{row.name}</p>
+              </TableCell>
+              <TableCell className="whitespace-nowrap font-semibold tabular-nums">{row.targetPromptCount.toLocaleString("ja-JP")}件</TableCell>
+              <TableCell className="whitespace-nowrap font-semibold tabular-nums">{row.displayedPromptCount.toLocaleString("ja-JP")}件</TableCell>
+              <TableCell><DataRichInlineBar value={row.displayRate} label={formatPromptPercent(row.displayRate)} /></TableCell>
+              <TableCell className="whitespace-nowrap font-semibold tabular-nums">{row.citedPromptCount.toLocaleString("ja-JP")}件</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </DataRichTableWrap>
+  );
+}
+
+function PromptModelDbTable({ rows }: { rows: PromptAnalysisModelRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <div className="p-4">
+        <DataRichEmpty message="AIモデル別の観測データがありません。" />
+      </div>
+    );
+  }
+
+  return (
+    <DataRichTableWrap>
+      <Table className="w-full table-fixed text-sm">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[42%]">AIモデル</TableHead>
+            <TableHead className="w-[17%] whitespace-nowrap">回答数</TableHead>
+            <TableHead className="w-[19%] whitespace-nowrap">表示回答</TableHead>
+            <TableHead className="w-[22%] whitespace-nowrap">表示率</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.name}>
+              <TableCell className="truncate font-bold text-[#0F172A]" title={row.name}>{row.name}</TableCell>
+              <TableCell className="font-semibold tabular-nums">{row.answerCount.toLocaleString("ja-JP")}件</TableCell>
+              <TableCell className="font-semibold tabular-nums">{row.visibleAnswerCount.toLocaleString("ja-JP")}件</TableCell>
+              <TableCell><DataRichInlineBar value={row.visibilityRate} label={formatPromptPercent(row.visibilityRate)} /></TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </DataRichTableWrap>
+  );
+}
+
+function createDbPromptsAnalysisView(data?: RecoraLeaderboardDbData | null): PromptsAnalysisDbView {
+  const dateScope = getReportDateScope(data?.latestRun?.period_start, data?.latestRun?.period_end, data?.project?.default_period);
+  const emptyView: PromptsAnalysisDbView = {
+    projectName: data?.project?.name ?? "-",
+    period: dateScope.value,
+    periodLabel: dateScope.label,
+    rows: [],
+    modelRows: [],
+    personaRows: [],
+    totalPromptCount: 0,
+    totalAnswerCount: 0,
+    visiblePromptCount: 0,
+    citedPromptCount: 0,
+    hiddenPromptCount: 0,
+    visibilityRate: 0,
+    hasProject: Boolean(data?.project)
+  };
+
+  if (!data?.project) return emptyView;
+
+  const primaryBrand = data.brands.find((item) => item.brand_type === "primary") ?? null;
+  const runItemsByPromptId = groupBy(data.runItems, (item) => item.prompt_id);
+  const runItemById = new Map(data.runItems.map((item) => [item.id, item]));
+  const conversationByRunItemId = new Map(data.conversations.map((item) => [item.run_item_id, item]));
+  const mentionsByConversationId = groupBy(data.brandMentions, (item) => item.conversation_id);
+  const citationsByConversationId = groupBy(data.citations, (item) => item.conversation_id);
+  const topicById = new Map(data.topics.map((item) => [item.id, item]));
+  const personaById = new Map(data.personas.map((item) => [item.id, item]));
+  const modelStats = new Map<string, { answerCount: number; visibleAnswerCount: number }>();
+
+  const rows = data.prompts.map((prompt) => {
+    const runItems = runItemsByPromptId.get(prompt.id) ?? [];
+    const promptConversations = runItems
+      .map((item) => conversationByRunItemId.get(item.id))
+      .filter((item): item is RecoraLeaderboardDbData["conversations"][number] => Boolean(item));
+    const promptConversationIds = new Set(promptConversations.map((conversation) => conversation.id));
+    const primaryMentions = promptConversations.flatMap((conversation) =>
+      (mentionsByConversationId.get(conversation.id) ?? []).filter((mention) => mention.brand_id === primaryBrand?.id)
+    );
+    const visibleConversationIds = new Set(
+      primaryMentions
+        .filter((mention) => mention.mentioned)
+        .map((mention) => mention.conversation_id)
+    );
+    const citationOccurrenceCount = promptConversations.reduce((sum, conversation) => {
+      return sum + (citationsByConversationId.get(conversation.id) ?? [])
+        .reduce((citationSum, citation) => citationSum + Number(citation.occurrence_count ?? 1), 0);
+    }, 0);
+    const positions = primaryMentions
+      .filter((mention) => mention.mentioned && typeof mention.position === "number")
+      .map((mention) => mention.position as number);
+    const modelNames = uniqueStrings(promptConversations.map((conversation) => {
+      const runItem = runItemById.get(conversation.run_item_id);
+      return conversation.model_returned ?? conversation.model_requested ?? conversation.model_snapshot ?? runItem?.model_id ?? "不明";
+    }));
+
+    for (const conversation of promptConversations) {
+      const runItem = runItemById.get(conversation.run_item_id);
+      const modelName = conversation.model_returned ?? conversation.model_requested ?? conversation.model_snapshot ?? runItem?.model_id ?? "不明";
+      const current = modelStats.get(modelName) ?? { answerCount: 0, visibleAnswerCount: 0 };
+      current.answerCount += 1;
+      if (visibleConversationIds.has(conversation.id)) current.visibleAnswerCount += 1;
+      modelStats.set(modelName, current);
+    }
+
+    const answerCount = promptConversationIds.size;
+    const visibleAnswerCount = visibleConversationIds.size;
+    const visibilityRate = answerCount > 0 ? Math.round((visibleAnswerCount / answerCount) * 100) : 0;
+    const averagePosition = positions.length > 0
+      ? positions.reduce((sum, value) => sum + value, 0) / positions.length
+      : null;
+    const topic = topicById.get(prompt.topic_id);
+    const runPersonaId = runItems.find((item) => item.persona_id)?.persona_id;
+    const personaId = runPersonaId ?? prompt.persona_id ?? "persona-unknown";
+    const persona = personaId !== "persona-unknown" ? personaById.get(personaId) : null;
+
+    return {
+      id: prompt.id,
+      personaId,
+      topicName: topic?.name ?? prompt.intent ?? "カテゴリ未設定",
+      personaName: persona?.name ?? "ペルソナ未設定",
+      intentLabel: prompt.intent ?? topic?.intent ?? "-",
+      buyerStageLabel: formatPromptBuyerStage(prompt.buyer_stage),
+      promptText: prompt.text,
+      answerCount,
+      visibleAnswerCount,
+      visibilityRate,
+      citationOccurrenceCount,
+      averagePosition,
+      averagePositionLabel: formatRecoraAveragePosition(averagePosition),
+      modelNames,
+      qualityLabel: answerCount < 5 ? "サンプル不足です" : "測定済み",
+      statusLabel: answerCount === 0 ? "要確認" : visibleAnswerCount > 0 ? "表示あり" : "未表示"
+    };
+  }).sort((a, b) => b.visibilityRate - a.visibilityRate || b.answerCount - a.answerCount || a.promptText.localeCompare(b.promptText));
+
+  const visiblePromptCount = rows.filter((row) => row.visibleAnswerCount > 0).length;
+  const citedPromptCount = rows.filter((row) => row.citationOccurrenceCount > 0).length;
+  const totalAnswerCount = rows.reduce((sum, row) => sum + row.answerCount, 0);
+  const personaRows = createPromptPersonaSummaryRows(rows);
+  const modelRows = Array.from(modelStats.entries())
+    .map(([name, stat]) => ({
+      name,
+      answerCount: stat.answerCount,
+      visibleAnswerCount: stat.visibleAnswerCount,
+      visibilityRate: stat.answerCount > 0 ? Math.round((stat.visibleAnswerCount / stat.answerCount) * 100) : 0
+    }))
+    .sort((a, b) => b.answerCount - a.answerCount || a.name.localeCompare(b.name));
+
+  return {
+    ...emptyView,
+    rows,
+    modelRows,
+    personaRows,
+    totalPromptCount: rows.length,
+    totalAnswerCount,
+    visiblePromptCount,
+    citedPromptCount,
+    hiddenPromptCount: Math.max(0, rows.length - visiblePromptCount),
+    visibilityRate: rows.length > 0 ? Math.round((visiblePromptCount / rows.length) * 100) : 0
+  };
+}
+
+function createPromptPersonaSummaryRows(rows: PromptAnalysisDbRow[]): PromptPersonaSummaryRow[] {
+  const grouped = new Map<string, PromptPersonaSummaryRow>();
+
+  for (const row of rows.filter((item) => item.answerCount > 0)) {
+    const current = grouped.get(row.personaId) ?? {
+      id: row.personaId,
+      name: row.personaName,
+      targetPromptCount: 0,
+      displayedPromptCount: 0,
+      displayRate: 0,
+      citedPromptCount: 0
+    };
+
+    current.targetPromptCount += 1;
+    if (row.visibleAnswerCount > 0) current.displayedPromptCount += 1;
+    if (row.citationOccurrenceCount > 0) current.citedPromptCount += 1;
+    grouped.set(row.personaId, current);
+  }
+
+  return Array.from(grouped.values())
+    .map((row) => ({
+      ...row,
+      displayRate: row.targetPromptCount > 0 ? Math.round((row.displayedPromptCount / row.targetPromptCount) * 100) : 0
+    }))
+    .sort((a, b) => b.targetPromptCount - a.targetPromptCount || b.displayRate - a.displayRate || a.name.localeCompare(b.name));
+}
+
+function formatPromptBuyerStage(value: string | null | undefined) {
+  if (!value) return "-";
+
+  const labels: Record<string, string> = {
+    awareness: "認知",
+    consideration: "比較検討",
+    decision: "導入判断",
+    retention: "継続利用"
+  };
+
+  return labels[value] ?? value;
+}
+
+function formatPromptPercent(value: number | null | undefined) {
+  return typeof value === "number" ? `${Math.round(value)}%` : "-";
 }
 
 export function RecommendationsPage({ recommendationsData = null }: { recommendationsData?: RecoraRecommendationsDbData | null }) {

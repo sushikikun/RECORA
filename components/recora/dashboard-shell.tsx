@@ -12,6 +12,12 @@ import {
   withRecoraVisualVariantSearchParam,
   type RecoraVisualVariant
 } from "@/lib/recora/dev-preview/design-visual-variant-core";
+import {
+  RECORA_REAL_DB_PREVIEW_SEARCH_PARAM,
+  RECORA_REAL_DB_PREVIEW_SEARCH_VALUE,
+  getRecoraRealDbPreviewProjectDisplayName,
+  withRecoraRealDbPreviewSearchParam
+} from "@/lib/recora/dev-preview/real-db-preview-url";
 
 const alwaysVisibleSections: RecoraNavSection[] = ["ホーム", "レポート"];
 const reportContextSettingPaths = [
@@ -79,11 +85,17 @@ export function DashboardShell({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const visualVariant = resolveRecoraVisualVariant(searchParams.get("visual"), designPreviewEnabled);
+  const realDbPreviewActive =
+    searchParams.get(RECORA_REAL_DB_PREVIEW_SEARCH_PARAM) === RECORA_REAL_DB_PREVIEW_SEARCH_VALUE;
   const isDataRichFinal = visualVariant === "data-rich-final";
   const reportId = getSelectedReportId(pathname);
+  const projectCardLabel = realDbPreviewActive
+    ? getRecoraRealDbPreviewProjectDisplayName(reportId)
+    : "Recora";
   const showReportContextItems = Boolean(reportId) || isReportContextSettingPath(pathname);
-  const withVisualHref = (href: string) => withRecoraVisualVariantSearchParam(href, visualVariant);
-  const currentReportHref = withVisualHref(reportId ? `/dashboard/reports/${reportId}` : "/dashboard/reports");
+  const withPreviewHref = (href: string) =>
+    withRecoraRealDbPreviewSearchParam(withRecoraVisualVariantSearchParam(href, visualVariant), realDbPreviewActive);
+  const currentReportHref = withPreviewHref(reportId ? `/dashboard/reports/${reportId}` : "/dashboard/reports");
   const navGroups = useMemo(
     () => buildRecoraNavGroups(reportId, { showReportContextItems }),
     [reportId, showReportContextItems]
@@ -111,7 +123,7 @@ export function DashboardShell({
           <aside className="border-b border-[#DFE6E2] bg-white text-[#0F172A] lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
             <div className="flex h-full flex-col bg-white">
               <div className="px-3 py-3">
-                <Link href={withVisualHref("/dashboard")} className="flex items-center gap-2 rounded-md px-1 py-1 transition hover:bg-[#F6F8F7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/80">
+                <Link href={withPreviewHref("/dashboard")} className="flex items-center gap-2 rounded-md px-1 py-1 transition hover:bg-[#F6F8F7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/80">
                   <LogoMark />
                   <span className="min-w-0">
                     <span className="block truncate text-[15px] font-bold tracking-normal text-[#0F172A]">Recora</span>
@@ -126,9 +138,10 @@ export function DashboardShell({
                   </div>
                   <Link
                     href={currentReportHref}
-                    className="mt-1.5 block truncate rounded-sm text-[13px] font-bold leading-5 text-[#0F172A] transition hover:text-[#006B57] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/80"
+                    title={projectCardLabel}
+                    className="mt-1.5 block rounded-sm text-[13px] font-bold leading-5 text-[#0F172A] transition hover:text-[#006B57] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/80"
                   >
-                    Recora
+                    <span className="line-clamp-2 break-words">{projectCardLabel}</span>
                   </Link>
                   <div className="mt-1 truncate text-[11px] font-semibold text-[#64748B]">
                     {reportId ? "選択中のレポート" : "レポート一覧から選択"}
@@ -145,7 +158,7 @@ export function DashboardShell({
                     activeSection={activeSection}
                     expanded={expandedSections[group.label] ?? false}
                     onToggle={toggleSection}
-                    withVisualHref={withVisualHref}
+                    withVisualHref={withPreviewHref}
                     variant="data-rich-final"
                   />
                 ))}
@@ -183,7 +196,7 @@ export function DashboardShell({
         <aside className="border-b border-[#0B4E44]/20 bg-[#003A32] text-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:border-white/10">
           <div className="flex h-full flex-col bg-[linear-gradient(180deg,#003F36_0%,#00372F_48%,#002C26_100%)]">
             <div className="px-2.5 py-2.5">
-              <Link href={withVisualHref("/dashboard")} className="flex items-center gap-2 rounded-lg px-1 py-0.5 transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6FE1C3]/80">
+              <Link href={withPreviewHref("/dashboard")} className="flex items-center gap-2 rounded-lg px-1 py-0.5 transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6FE1C3]/80">
                 <LogoMark />
                 <span>
                   <span className="block text-base font-bold tracking-normal text-white">Recora</span>
@@ -217,7 +230,7 @@ export function DashboardShell({
                   activeSection={activeSection}
                   expanded={expandedSections[group.label] ?? false}
                   onToggle={toggleSection}
-                  withVisualHref={withVisualHref}
+                  withVisualHref={withPreviewHref}
                 />
               ))}
               <div className="pointer-events-none sticky bottom-0 h-6 bg-gradient-to-t from-[#002C26] to-transparent" />

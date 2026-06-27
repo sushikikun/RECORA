@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { ExternalLink, Share2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +26,6 @@ type RecommendationDisplayItem = {
   priorityCode: string;
   typeLabel: string;
   displayCategory: string;
-  statusLabel: string;
   reason: string;
   expectedImpact: string;
   effortLabel: string;
@@ -57,10 +55,6 @@ type RecommendationsViewModel = {
   evidenceBackedCount: number;
   observationCount: number;
   citationUrlCount: number;
-  preQualityGateCandidateCount: number | null;
-  openCount: number;
-  plannedCount: number;
-  doneCount: number;
 };
 
 type EvidenceMetrics = {
@@ -105,18 +99,18 @@ export function RecommendationsDbPage({ recommendationsData = null }: { recommen
             </div>
           </DataCard>
 
-          <DataCard title="確認状況" description="改善候補の確認状態を要約しています。">
+          <DataCard title="観測根拠" description="改善候補の判断に使う観測材料を要約しています。">
             <div className="space-y-4">
-              <RecommendationStatusRow label="未着手" value={view.openCount} tone="rose" />
-              <RecommendationStatusRow label="計画中" value={view.plannedCount} tone="amber" />
-              <RecommendationStatusRow label="完了" value={view.doneCount} tone="green" />
+              <EvidenceSummaryRow label="対象回答" value={view.observationCount} tone="green" />
+              <EvidenceSummaryRow label="参照URL" value={view.citationUrlCount} tone="slate" />
+              <EvidenceSummaryRow label="根拠あり候補" value={view.evidenceBackedCount} tone="amber" />
               <div className="rounded-lg border border-teal-100 bg-teal-50/70 p-3">
-                <p className="text-xs font-bold text-teal-900">表示前の確認</p>
+                <p className="text-xs font-bold text-teal-900">表示対象の候補</p>
                 <p className="mt-1 text-2xl font-bold tracking-normal text-teal-950">
-                  {view.preQualityGateCandidateCount === null ? "-" : view.preQualityGateCandidateCount}
+                  {view.items.length}
                 </p>
                 <p className="mt-1 text-xs leading-5 text-teal-800">
-                  確認待ち候補です。公開前の品質確認を通過したものだけを表示します。
+                  観測根拠を持つ表示対象だけをこの画面に出しています。
                 </p>
               </div>
             </div>
@@ -157,11 +151,11 @@ function DataRichRecommendationsView({ view }: { view: RecommendationsViewModel 
           <RecommendationsTable rows={view.items} />
         </div>
         <aside className="min-w-0 bg-[#FAFCFB] p-4">
-          <h3 className="text-sm font-bold text-[#0F172A]">確認状況</h3>
+          <h3 className="text-sm font-bold text-[#0F172A]">観測根拠</h3>
           <div className="mt-3 divide-y divide-[#E1E8E5] rounded-md border border-[#E1E8E5] bg-white">
-            <DataRichStatusLine label="未着手" value={view.openCount} tone="rose" />
-            <DataRichStatusLine label="計画中" value={view.plannedCount} tone="amber" />
-            <DataRichStatusLine label="完了" value={view.doneCount} tone="green" />
+            <DataRichEvidenceLine label="対象回答" value={view.observationCount} tone="green" />
+            <DataRichEvidenceLine label="参照URL" value={view.citationUrlCount} tone="slate" />
+            <DataRichEvidenceLine label="根拠あり候補" value={view.evidenceBackedCount} tone="amber" />
           </div>
           <div className="mt-4 rounded-md border border-[#E1E8E5] bg-white px-3 py-3">
             <p className="text-xs font-bold text-[#64748B]">凡例</p>
@@ -199,8 +193,8 @@ function DataRichRecommendationKpi({
   );
 }
 
-function DataRichStatusLine({ label, value, tone }: { label: string; value: number; tone: "rose" | "amber" | "green" }) {
-  const toneClass = tone === "rose" ? "bg-rose-400" : tone === "amber" ? "bg-amber-400" : "bg-emerald-500";
+function DataRichEvidenceLine({ label, value, tone }: { label: string; value: number; tone: "slate" | "amber" | "green" }) {
+  const toneClass = tone === "slate" ? "bg-slate-400" : tone === "amber" ? "bg-amber-400" : "bg-emerald-500";
   return (
     <div className="flex items-center justify-between gap-3 px-3 py-2.5">
       <span className="flex min-w-0 items-center gap-2 text-sm font-bold text-[#0F172A]">
@@ -229,11 +223,7 @@ function createRecommendationsViewModel(data?: RecoraRecommendationsDbData | nul
     highPriorityCount,
     evidenceBackedCount,
     observationCount,
-    citationUrlCount,
-    preQualityGateCandidateCount: data?.preQualityGateCandidateCount ?? null,
-    openCount: items.filter((item) => item.statusLabel === "未着手").length,
-    plannedCount: items.filter((item) => item.statusLabel === "計画中").length,
-    doneCount: items.filter((item) => item.statusLabel === "完了").length
+    citationUrlCount
   };
 }
 
@@ -276,7 +266,6 @@ function createDbRecommendationItems(data: RecoraRecommendationsDbData): Recomme
         priorityCode: recommendationPriorityCode(item.priority),
         typeLabel: recommendationTypeLabel(item.type),
         displayCategory,
-        statusLabel: recommendationStateLabel(item.status),
         reason: item.reason ?? "理由は未設定です。",
         expectedImpact,
         effortLabel: item.effort_score === null ? "未設定" : effortScore + " / 100",
@@ -328,7 +317,6 @@ function RecommendationActionCard({ item }: { item: RecommendationDisplayItem })
             <DisplayCategoryBadge item={item} />
             <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-white text-slate-600">{item.confidenceLabel}</Badge>
             <Badge variant="outline" className="whitespace-nowrap rounded-sm border-teal-200 bg-teal-50 text-teal-700">{item.qualityGateLabel}</Badge>
-            <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-white text-slate-600">{item.statusLabel}</Badge>
           </div>
           <h2 className="mt-3 text-base font-bold text-slate-950">{item.title}</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">{item.reason}</p>
@@ -418,8 +406,8 @@ function EmptyStateBlock({ title, description }: { title: string; description: s
   );
 }
 
-function RecommendationStatusRow({ label, value, tone }: { label: string; value: number; tone: "rose" | "amber" | "green" }) {
-  const toneClass = tone === "rose" ? "bg-rose-500" : tone === "amber" ? "bg-orange-500" : "bg-emerald-500";
+function EvidenceSummaryRow({ label, value, tone }: { label: string; value: number; tone: "slate" | "amber" | "green" }) {
+  const toneClass = tone === "slate" ? "bg-slate-400" : tone === "amber" ? "bg-orange-500" : "bg-emerald-500";
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
       <div className="flex items-center gap-2">
@@ -455,8 +443,8 @@ function RecommendationListCards({ rows }: { rows: RecommendationDisplayItem[] }
               <p className="mt-2 text-sm leading-6 text-slate-600">{item.reason}</p>
             </div>
             <div className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-              <p className="text-xs font-bold text-slate-500">状態</p>
-              <p className="mt-1 whitespace-nowrap text-sm font-bold text-slate-900">{item.statusLabel}</p>
+              <p className="text-xs font-bold text-slate-500">観測根拠</p>
+              <p className="mt-1 whitespace-nowrap text-sm font-bold text-slate-900">{item.evidenceMetrics.focusedObservationCount}件</p>
             </div>
           </div>
 
@@ -469,12 +457,7 @@ function RecommendationListCards({ rows }: { rows: RecommendationDisplayItem[] }
           <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
             <p className="text-xs font-bold text-slate-500">次の判断</p>
             <p className="mt-1 text-sm leading-6 text-slate-700">{item.action}</p>
-            {item.targetUrl ? (
-              <Link href={item.targetUrl} className="mt-2 inline-flex min-w-0 items-center gap-1 text-xs font-bold text-[#00796B] hover:text-[#005C50]">
-                <ExternalLink className="h-3 w-3 shrink-0" />
-                <span className="min-w-0 break-all">{item.targetUrl}</span>
-              </Link>
-            ) : null}
+            {item.targetUrl ? <RecommendationTargetLink url={item.targetUrl} label={item.targetUrl} /> : null}
           </div>
 
           <p className="mt-3 text-xs leading-5 text-slate-500">{item.customerFacingCaution}</p>
@@ -493,6 +476,27 @@ function SmallEvidenceMetric({ label, value }: { label: string; value: string })
   );
 }
 
+function RecommendationTargetLink({ url, label }: { url: string; label: string }) {
+  const safeHref = getSafeExternalHref(url);
+
+  if (!safeHref) {
+    return <span className="break-words">{label}</span>;
+  }
+
+  return (
+    <a
+      href={safeHref}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={safeHref}
+      className="mt-1 inline-flex max-w-full min-w-0 items-center gap-1 text-xs font-bold text-[#00796B] hover:text-[#005C50] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/70"
+    >
+      <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span className="truncate">{label}</span>
+    </a>
+  );
+}
+
 function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
   return (
     <Table className="w-full table-fixed">
@@ -504,7 +508,6 @@ function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
           <TableHead className="w-[118px]">影響する質問</TableHead>
           <TableHead className="w-[110px]">影響AIモデル</TableHead>
           <TableHead>次に確認すること</TableHead>
-          <TableHead className="w-[92px]">状態</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -533,18 +536,12 @@ function RecommendationsTable({ rows }: { rows: RecommendationDisplayItem[] }) {
             <TableCell className="text-sm leading-6 text-slate-600">
               <div className="font-semibold text-slate-800">{row.relatedTopic}</div>
               <div className="text-xs text-slate-500">{row.relatedBrand}</div>
-              {row.targetUrl ? (
-                <Link href={row.targetUrl} className="mt-1 inline-flex max-w-full items-center gap-1 truncate font-semibold text-[#00796B] hover:text-[#005C50]">
-                  <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{row.action}</span>
-                </Link>
-              ) : row.action}
+              {row.targetUrl ? <RecommendationTargetLink url={row.targetUrl} label={row.action} /> : row.action}
             </TableCell>
-            <TableCell className="whitespace-nowrap font-semibold text-slate-700">{row.statusLabel}</TableCell>
           </TableRow>
         )) : (
           <TableRow>
-            <TableCell colSpan={7} className="text-sm text-slate-500">
+            <TableCell colSpan={6} className="text-sm text-slate-500">
               表示できる改善候補がありません。表示対象が保存されるとここに表示されます。
             </TableCell>
           </TableRow>
@@ -623,16 +620,6 @@ function normalizeRecommendationDisplayCategory(value: string) {
   return value;
 }
 
-function recommendationStateLabel(status: RecoraRecommendationRow["status"]) {
-  const labels: Record<RecoraRecommendationRow["status"], string> = {
-    open: "未着手",
-    planned: "計画中",
-    done: "完了",
-    dismissed: "保留"
-  };
-  return labels[status];
-}
-
 function getMetadataRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -645,6 +632,17 @@ function getMetadataString(metadata: Record<string, unknown>, key: string) {
 function getMetadataNumber(metadata: Record<string, unknown>, key: string) {
   const value = metadata[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getSafeExternalHref(value: string | null | undefined) {
+  if (!value) return null;
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
 function getMetadataArrayLength(metadata: Record<string, unknown>, key: string) {

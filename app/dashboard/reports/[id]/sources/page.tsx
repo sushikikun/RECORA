@@ -8,7 +8,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportSourcesPage({ params }: ReportSlugPageProps) {
+export default async function ReportSourcesPage({ params, searchParams }: ReportSlugPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
 
   return renderCustomerReadyReportRoute(projectSlug, async () => {
@@ -20,7 +20,7 @@ export default async function ReportSourcesPage({ params }: ReportSlugPageProps)
     const sourcesData = await getSourcesDataOrNull(projectSlug);
 
     return <SourcesPage sourcesData={sourcesData} />;
-  });
+  }, { searchParams });
 }
 
 async function getSourcesDataOrNull(projectSlug: string) {

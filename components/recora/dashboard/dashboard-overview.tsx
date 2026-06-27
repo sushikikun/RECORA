@@ -27,6 +27,7 @@ import {
   type RecoraVisualVariant,
   withRecoraVisualVariantSearchParam
 } from "@/lib/recora/dev-preview/design-visual-variant";
+import { withRecoraRealDbPreviewSearchParam } from "@/lib/recora/dev-preview/real-db-preview-url";
 import type {
   RecoraCumulativeSourceDomainRank,
   RecoraDashboardDbData,
@@ -106,6 +107,7 @@ type IssueRow = {
 type DashboardOverviewView = {
   projectName: string;
   reportBase: string;
+  realDbPreviewEnabled: boolean;
   periodLabel: string;
   periodValue: string;
   lastUpdated: string;
@@ -133,19 +135,28 @@ export function DashboardOverview({
   dashboardData = null,
   homeReadModelData = null,
   previewModeLabel = null,
-  visualVariant = "data-rich-final"
+  previewModeDescription = "本物の顧客データではありません",
+  visualVariant = "data-rich-final",
+  readOnlyRealDbPreviewEnabled = false
 }: {
   dashboardData?: RecoraDashboardDbData | null;
   homeReadModelData?: RecoraHomeReadModelDbData | null;
   previewModeLabel?: string | null;
+  previewModeDescription?: string;
   visualVariant?: RecoraVisualVariant;
+  readOnlyRealDbPreviewEnabled?: boolean;
 }) {
-  const view = createDashboardOverviewView(dashboardData, homeReadModelData);
+  const view = createDashboardOverviewView(dashboardData, homeReadModelData, { readOnlyRealDbPreviewEnabled });
 
   if (!view.isReportReady) {
     return (
       <div className="min-w-0 space-y-4">
-        <DashboardHeader view={view} previewModeLabel={previewModeLabel} visualVariant={visualVariant} />
+        <DashboardHeader
+          view={view}
+          previewModeLabel={previewModeLabel}
+          previewModeDescription={previewModeDescription}
+          visualVariant={visualVariant}
+        />
         <DashboardPreparationPanel view={view} />
         <TrendUnavailablePanel />
       </div>
@@ -157,13 +168,20 @@ export function DashboardOverview({
       <DataRichDashboardOverview
         view={view}
         previewModeLabel={previewModeLabel}
+        previewModeDescription={previewModeDescription}
+        visualVariant={visualVariant}
       />
     );
   }
 
   return (
     <div className="min-w-0 space-y-4">
-      <DashboardHeader view={view} previewModeLabel={previewModeLabel} visualVariant={visualVariant} />
+      <DashboardHeader
+        view={view}
+        previewModeLabel={previewModeLabel}
+        previewModeDescription={previewModeDescription}
+        visualVariant={visualVariant}
+      />
 
       <VisibilitySummary view={view} visualVariant={visualVariant} />
 
@@ -195,14 +213,23 @@ export function DashboardOverview({
 
 function DataRichDashboardOverview({
   view,
-  previewModeLabel
+  previewModeLabel,
+  previewModeDescription,
+  visualVariant
 }: {
   view: DashboardOverviewView;
   previewModeLabel?: string | null;
+  previewModeDescription: string;
+  visualVariant: RecoraVisualVariant;
 }) {
   return (
     <div className="min-w-0 space-y-3">
-      <DashboardHeader view={view} previewModeLabel={previewModeLabel} visualVariant="data-rich-final" />
+      <DashboardHeader
+        view={view}
+        previewModeLabel={previewModeLabel}
+        previewModeDescription={previewModeDescription}
+        visualVariant={visualVariant}
+      />
       <DataRichDashboardKpiStrip view={view} />
       <DataRichDashboardAnalysisPanel view={view} />
       <DataRichDashboardEvidencePanel view={view} />
@@ -214,10 +241,12 @@ function DataRichDashboardOverview({
 function DashboardHeader({
   view,
   previewModeLabel,
+  previewModeDescription,
   visualVariant
 }: {
   view: DashboardOverviewView;
   previewModeLabel?: string | null;
+  previewModeDescription: string;
   visualVariant: RecoraVisualVariant;
 }) {
   return (
@@ -229,7 +258,7 @@ function DashboardHeader({
               <span className="inline-flex w-fit items-center rounded-md border border-[#BFDAD4] bg-[#E6F4F1] px-2.5 py-1 text-xs font-bold text-[#005C50]">
                 {previewModeLabel}
               </span>
-              <span className="text-xs font-semibold text-[#64748B]">本物の顧客データではありません</span>
+              <span className="text-xs font-semibold text-[#64748B]">{previewModeDescription}</span>
             </div>
           ) : null}
           <h1 className="text-2xl font-bold tracking-normal text-[#0F172A] sm:text-3xl">
@@ -244,7 +273,10 @@ function DashboardHeader({
 
         <div className="flex flex-wrap gap-2">
           <Link
-            href={withRecoraVisualVariantSearchParam(view.reportBase, visualVariant)}
+            href={withRecoraRealDbPreviewSearchParam(
+              withRecoraVisualVariantSearchParam(view.reportBase, visualVariant),
+              view.realDbPreviewEnabled
+            )}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#D8E0E3] bg-white px-3 text-sm font-bold text-[#005C50] transition hover:border-[#00796B]/35 hover:bg-[#F7FAF9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00796B] focus-visible:ring-offset-2"
           >
             最新レポートへ
@@ -858,7 +890,7 @@ function CompetitorAuditPanel({ rows }: { rows: CompetitorRow[] }) {
     >
       {rows.length > 0 ? (
         <div className="grid gap-3">
-          {rows.slice(0, 4).map((row) => (
+          {rows.slice(0, 5).map((row) => (
             <div
               key={row.id}
               className={cn(
@@ -869,7 +901,7 @@ function CompetitorAuditPanel({ rows }: { rows: CompetitorRow[] }) {
               <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(160px,1fr)_minmax(180px,1.1fr)] 2xl:grid-cols-[minmax(180px,1fr)_minmax(200px,1.2fr)_96px_110px] 2xl:items-center">
                 <div className="min-w-0">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-bold text-[#0F172A]" title={row.name}>
+                    <p className="line-clamp-2 text-sm font-bold leading-5 text-[#0F172A]" title={row.name}>
                       {row.name}
                     </p>
                     <span className="rounded-md border border-[#D8E0E3] bg-white px-2 py-0.5 text-xs font-bold text-[#005C50]">
@@ -1158,7 +1190,8 @@ function PriorityBadge({ priority }: { priority: RecoraPriority }) {
 
 function createDashboardOverviewView(
   data?: RecoraDashboardDbData | null,
-  homeData?: RecoraHomeReadModelDbData | null
+  homeData?: RecoraHomeReadModelDbData | null,
+  options: { readOnlyRealDbPreviewEnabled?: boolean } = {}
 ): DashboardOverviewView {
   const primaryBrand = data?.brands.find((brand) => brand.brand_type === "primary") ?? null;
   const brandById = new Map((data?.brands ?? []).map((brand) => [brand.id, brand]));
@@ -1174,7 +1207,8 @@ function createDashboardOverviewView(
     projectSnapshot;
   const latestVisibility = getRoundedNumber(primarySnapshot?.ai_visibility ?? projectSnapshot?.ai_visibility);
   const hasLatestMetrics = latestVisibility !== null;
-  const isReportReady = data?.reportReadyGate.status === "customer_ready";
+  const realDbPreviewEnabled = options.readOnlyRealDbPreviewEnabled === true;
+  const isReportReady = data?.reportReadyGate.status === "customer_ready" || (realDbPreviewEnabled && Boolean(data?.project));
   const dateScope = getDateScope(data?.latestRun?.period_start, data?.latestRun?.period_end, data?.project?.default_period);
   const reportBase = data?.project?.slug ? `/dashboard/reports/${data.project.slug}` : "/dashboard/reports";
   const homeSummary = homeData?.cumulativeHomeSummary ?? null;
@@ -1187,6 +1221,7 @@ function createDashboardOverviewView(
   return {
     projectName: data?.project?.name ?? "Recora",
     reportBase,
+    realDbPreviewEnabled,
     periodLabel: dateScope.label,
     periodValue: dateScope.value,
     lastUpdated: formatDateTime(data?.latestRun?.completed_at ?? data?.project?.updated_at),
@@ -1273,8 +1308,8 @@ function createCompetitorRows(
     return {
       id: snapshot.id,
       name: brand?.name ?? "Unknown",
-      visibility: Math.round(snapshot.ai_visibility),
-      visibilityLabel: formatPercent(Math.round(snapshot.ai_visibility)),
+      visibility: round1(snapshot.ai_visibility),
+      visibilityLabel: formatPercent(snapshot.ai_visibility),
       averagePositionLabel: formatAveragePosition(snapshot.average_position),
       shareOfVoiceLabel: formatPercentOrDash(snapshot.share_of_voice),
       gapLabel: typeof snapshot.competitive_gap === "number" ? formatSignedPt(snapshot.competitive_gap) : "比較データなし",
@@ -1451,7 +1486,7 @@ function getDateScope(start?: string | null, end?: string | null, fallback?: str
 
   return {
     label: "測定日",
-    value: fallback ?? "-",
+    value: normalizePeriodFallback(fallback),
     helper: "測定日が取得できない場合は既定値を表示"
   };
 }
@@ -1476,11 +1511,12 @@ function formatCount(value: number | null | undefined) {
 }
 
 function formatPercent(value: number) {
-  return `${value}%`;
+  const rounded = round1(value);
+  return `${rounded.toLocaleString("ja-JP", { maximumFractionDigits: 1 })}%`;
 }
 
 function formatPercentOrDash(value: number | null | undefined) {
-  return typeof value === "number" ? formatPercent(Math.round(value)) : "-";
+  return typeof value === "number" ? formatPercent(value) : "-";
 }
 
 function formatAveragePosition(value: number | null | undefined) {
@@ -1495,7 +1531,16 @@ function formatSignedPt(value: number | null | undefined) {
 
 function formatPeriod(start: string | null, end: string | null) {
   if (!start && !end) return "-";
+  if (start && end) return start === end ? start : `${start} - ${end}`;
   return `${start ?? "-"} - ${end ?? "-"}`;
+}
+
+function normalizePeriodFallback(value?: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed) return "-";
+
+  const singleDayRange = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s*-\s*\1$/);
+  return singleDayRange?.[1] ?? trimmed;
 }
 
 function getRoundedNumber(value: number | null | undefined) {

@@ -1,9 +1,9 @@
 import { ReportLandingPage } from "@/components/recora/report-pages";
 import {
-  assertPublicReportRouteAllowed,
+  canUseReadOnlyRealDbPreview,
   canUseDesignCheckReport,
-  DesignCheckPreviewNotice,
   normalizeReportSlug,
+  renderCustomerReadyReportRoute,
   type ReportSlugPageProps
 } from "../report-route-guard";
 import { getRecoraVisualVariant } from "@/lib/recora/dev-preview/design-visual-variant";
@@ -13,18 +13,20 @@ export const dynamic = "force-dynamic";
 export default async function ReportPage({ params, searchParams }: ReportSlugPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
   const visualVariant = getRecoraVisualVariant(searchParams);
+  const realDbPreviewEnabled = canUseReadOnlyRealDbPreview(projectSlug, searchParams);
 
-  assertPublicReportRouteAllowed(projectSlug);
+  return renderCustomerReadyReportRoute(projectSlug, async () => {
+    if (canUseDesignCheckReport(projectSlug)) {
+      const { getDesignCheckReportOverviewData } = await import("@/lib/recora/dev-preview/design-check-report-fixture");
+      return <ReportLandingPage projectSlug={projectSlug} data={getDesignCheckReportOverviewData()} visualVariant={visualVariant} />;
+    }
 
-  if (canUseDesignCheckReport(projectSlug)) {
-    const { getDesignCheckReportOverviewData } = await import("@/lib/recora/dev-preview/design-check-report-fixture");
     return (
-      <>
-        <DesignCheckPreviewNotice />
-        <ReportLandingPage projectSlug={projectSlug} data={getDesignCheckReportOverviewData()} visualVariant={visualVariant} />
-      </>
+      <ReportLandingPage
+        projectSlug={projectSlug}
+        visualVariant={visualVariant}
+        readOnlyRealDbPreviewEnabled={realDbPreviewEnabled}
+      />
     );
-  }
-
-  return <ReportLandingPage projectSlug={projectSlug} />;
+  }, { searchParams });
 }
