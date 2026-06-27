@@ -104,7 +104,7 @@ export function DataRichToolbar({ items }: { items: ToolbarItem[] }) {
             <p className="truncate text-[11px] font-bold text-[#64748B]" title={item.label}>{item.label}</p>
             {item.helper ? <ReportHelpTooltip text={item.helper} label={`${item.label}の補足`} /> : null}
           </div>
-          <p className="mt-1 truncate text-[13px] font-bold tabular-nums text-[#0F172A]" title={item.value}>{item.value}</p>
+          <p className="mt-1 line-clamp-2 break-words text-[13px] font-bold leading-5 tabular-nums text-[#0F172A] [word-break:keep-all]" title={item.value}>{item.value}</p>
         </div>
       ))}
     </section>
@@ -245,7 +245,7 @@ export function DataRichBadge({ children, tone = "default" }: { children: ReactN
   return (
     <span
       className={cn(
-        "inline-flex w-fit items-center rounded-sm border px-1.5 py-0.5 text-[11px] font-bold",
+        "inline-flex w-fit items-center whitespace-nowrap rounded-sm border px-1.5 py-0.5 text-[11px] font-bold",
         tone === "default" && "border-[#DFE6E2] bg-[#FAFCFB] text-[#64748B]",
         tone === "green" && "border-[#006B57]/20 bg-[#EAF6F0] text-[#006B57]",
         tone === "amber" && "border-[#B7791F]/25 bg-[#FFF7E8] text-[#B7791F]",

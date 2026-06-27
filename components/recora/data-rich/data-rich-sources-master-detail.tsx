@@ -60,13 +60,13 @@ export function DataRichSourcesMasterDetail({
                     aria-pressed={isSelected}
                     onClick={() => setSelectedDomain(row.domain)}
                     className={cn(
-                      "grid w-full min-w-0 gap-3 px-4 py-3 text-left text-sm transition hover:bg-[#F4FAF7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/70 focus-visible:ring-inset xl:grid-cols-[minmax(0,1.25fr)_126px_190px_88px_104px_104px] xl:items-center",
+                      "grid w-full min-w-0 gap-3 px-4 py-3 text-left text-sm transition hover:bg-[#F4FAF7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/70 focus-visible:ring-inset xl:grid-cols-[minmax(180px,1.4fr)_112px_160px_72px_86px_72px] xl:items-center",
                       isSelected && "bg-[#EAF6F0]/70"
                     )}
                   >
                     <div className="min-w-0">
-                      <p className="line-clamp-1 font-bold text-[#0F172A]" title={row.domain}>{row.domain}</p>
-                      <p className="mt-0.5 line-clamp-1 text-[11px] font-semibold text-[#64748B]" title={safeUrl ?? row.urls[0] ?? ""}>
+                      <p className="line-clamp-2 break-all font-bold leading-5 text-[#0F172A]" title={row.domain}>{row.domain}</p>
+                      <p className="mt-0.5 line-clamp-2 break-all text-[11px] font-semibold leading-4 text-[#64748B]" title={safeUrl ?? row.urls[0] ?? ""}>
                         {safeUrl ?? row.urls[0] ?? "-"}
                       </p>
                     </div>
@@ -160,10 +160,10 @@ function SafeExternalLink({ href }: { href: string }) {
       target="_blank"
       rel="noopener noreferrer"
       title={href}
-      className="inline-flex max-w-full min-w-0 items-center gap-1.5 text-[#006B57] hover:text-[#005548] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/70"
+      className="inline-flex max-w-full min-w-0 items-start gap-1.5 text-[#006B57] hover:text-[#005548] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/70"
     >
       <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      <span className="truncate">{href}</span>
+      <span className="line-clamp-3 min-w-0 break-all leading-5">{href}</span>
     </a>
   );
 }

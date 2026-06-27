@@ -2974,10 +2974,10 @@ function DataRichReportsIndexView({
                 <TableRow>
                   <TableHead className="w-[230px]">レポート</TableHead>
                   <TableHead className="w-[145px]">プロジェクト</TableHead>
-                  <TableHead className="w-[114px]">{periodColumnLabel}</TableHead>
+                  <TableHead className="w-[158px]">{periodColumnLabel}</TableHead>
                   <TableHead className="w-[90px]">AI表示率</TableHead>
                   <TableHead className="w-[90px]">有効観測</TableHead>
-                  <TableHead className="w-[78px]">状態</TableHead>
+                  <TableHead className="w-[96px]">状態</TableHead>
                   <TableHead className="w-[160px] text-right">レポートを開く</TableHead>
                 </TableRow>
               </TableHeader>
@@ -2991,7 +2991,7 @@ function DataRichReportsIndexView({
                     <TableCell className="font-semibold text-[#1F2937]">
                       <span className="line-clamp-2 break-words" title={row.projectName}>{row.projectName}</span>
                     </TableCell>
-                    <TableCell className="truncate tabular-nums">{row.period}</TableCell>
+                    <TableCell className="whitespace-normal break-words leading-5 tabular-nums">{row.period}</TableCell>
                     <TableCell className="font-bold tabular-nums text-[#006B57]">{row.aiVisibility}</TableCell>
                     <TableCell className="tabular-nums">{row.validObservations}</TableCell>
                     <TableCell>
@@ -3647,16 +3647,16 @@ function DataRichOverviewAudienceRows({
       <Table className="w-full table-fixed text-sm">
         <TableHeader>
           <TableRow>
-            <TableHead>カテゴリ</TableHead>
-            <TableHead className="w-[190px]">AI表示率</TableHead>
-            <TableHead className="w-[120px]">表示回答</TableHead>
-            <TableHead className="w-[120px]">観測数</TableHead>
+            <TableHead className="w-[150px]">カテゴリ</TableHead>
+            <TableHead className="w-[170px]">AI表示率</TableHead>
+            <TableHead className="w-[92px]">表示回答</TableHead>
+            <TableHead className="w-[92px]">観測数</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.map((row) => (
             <TableRow key={row.id}>
-              <TableCell className="truncate font-bold text-[#0F172A]" title={row.name}>{row.name}</TableCell>
+              <TableCell className="line-clamp-2 break-words font-bold leading-5 text-[#0F172A] [word-break:keep-all]" title={row.name}>{row.name}</TableCell>
               <TableCell><DataRichInlineBar value={row.displayRate} label={`${row.displayRate}%`} /></TableCell>
               <TableCell className="font-semibold tabular-nums">{row.displayAnswerValue}</TableCell>
               <TableCell className="font-semibold tabular-nums">{row.totalAnswerValue}</TableCell>
@@ -4627,7 +4627,7 @@ function DataRichLeaderboardView({ view }: { view: LeaderboardViewModel }) {
         columns="xl:grid-cols-5"
       />
 
-      <div className={cn("grid min-w-0 gap-3", hasModelRows ? "xl:grid-cols-[minmax(0,1.16fr)_minmax(320px,0.84fr)]" : "xl:grid-cols-1")}>
+      <div className={cn("grid min-w-0 gap-3", hasModelRows ? "xl:grid-cols-[minmax(0,1fr)_minmax(460px,0.92fr)]" : "xl:grid-cols-1")}>
         <DataRichPanel title="ブランド比較" description="AI表示率、平均表示位置、言及シェアを同じ行で確認します。" bodyClassName="p-0">
           <DataRichOverviewRankingRows rows={view.rankingRows} />
         </DataRichPanel>
@@ -4660,16 +4660,16 @@ function DataRichLeaderboardModelRows({ rows }: { rows: LeaderboardModelRow[] })
       <Table className="w-full table-fixed text-sm">
         <TableHeader>
           <TableRow>
-            <TableHead>AIモデル</TableHead>
-            <TableHead className="w-[170px]">AI表示率</TableHead>
-            <TableHead className="w-[110px]">言及シェア</TableHead>
-            <TableHead className="w-[110px]">平均位置</TableHead>
+            <TableHead className="w-[130px]">AIモデル</TableHead>
+            <TableHead className="w-[145px]">AI表示率</TableHead>
+            <TableHead className="w-[88px]">言及シェア</TableHead>
+            <TableHead className="w-[88px]">平均位置</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.slice(0, 6).map((row) => (
             <TableRow key={row.id}>
-              <TableCell className="truncate font-bold text-[#0F172A]" title={row.name}>{row.name}</TableCell>
+              <TableCell className="whitespace-normal break-words font-bold leading-5 text-[#0F172A]" title={row.name}>{row.name}</TableCell>
               <TableCell><DataRichInlineBar value={row.visibility} label={`${row.visibility}%`} /></TableCell>
               <TableCell className="font-semibold tabular-nums">{row.citationRate}%</TableCell>
               <TableCell className="font-semibold tabular-nums">{formatRecoraAveragePosition(row.averagePosition)}</TableCell>
@@ -5152,20 +5152,20 @@ function DataRichCitationsTable({ rows }: { rows: CitationDisplayRow[] }) {
                       title={safeHref}
                       className="group block min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/70"
                     >
-                      <span className="flex min-w-0 items-center gap-1.5 font-bold text-[#0F172A] group-hover:text-[#006B57]">
-                        <span className="truncate" title={row.title}>{row.title}</span>
+                      <span className="flex min-w-0 items-start gap-1.5 font-bold text-[#0F172A] group-hover:text-[#006B57]">
+                        <span className="line-clamp-2 break-words leading-5" title={row.title}>{row.title}</span>
                         <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[#006B57]" aria-hidden="true" />
                       </span>
-                      <span className="mt-0.5 block truncate text-[11px] font-semibold text-[#64748B]">{safeHref}</span>
+                      <span className="mt-0.5 block line-clamp-2 break-all text-[11px] font-semibold leading-4 text-[#64748B]">{safeHref}</span>
                     </a>
                   ) : (
                     <>
-                      <div className="truncate font-bold text-[#0F172A]" title={row.title}>{row.title}</div>
-                      <div className="mt-0.5 truncate text-[11px] font-semibold text-[#64748B]" title={row.url}>{row.url}</div>
+                      <div className="line-clamp-2 break-words font-bold leading-5 text-[#0F172A]" title={row.title}>{row.title}</div>
+                      <div className="mt-0.5 line-clamp-2 break-all text-[11px] font-semibold leading-4 text-[#64748B]" title={row.url}>{row.url}</div>
                     </>
                   )}
                 </TableCell>
-                <TableCell className="truncate font-semibold">{row.domain}</TableCell>
+                <TableCell className="break-all font-semibold">{row.domain}</TableCell>
                 <TableCell className="font-semibold tabular-nums">{row.occurrences}</TableCell>
                 <TableCell><DataRichBadge>{row.sourceFreshnessLabel}</DataRichBadge></TableCell>
                 <TableCell><DataRichBadge tone={row.sourceToClaimTone === "green" ? "green" : row.sourceToClaimTone === "amber" ? "amber" : row.sourceToClaimTone === "rose" ? "red" : "default"}>{row.supportsClaimLabel}</DataRichBadge></TableCell>
@@ -6324,7 +6324,7 @@ function DataRichBrandThemeTable({
       <Table className="w-full table-fixed text-sm">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[100px]">分類</TableHead>
+            <TableHead className="w-[118px]">分類</TableHead>
             <TableHead className="w-[80px]">構成比</TableHead>
             <TableHead>代表表現</TableHead>
           </TableRow>
@@ -6335,7 +6335,7 @@ function DataRichBrandThemeTable({
               <TableCell>
                 <div className="flex min-w-0 items-center gap-2">
                   <span className={cn("h-2.5 w-2.5 shrink-0 rounded-sm", row.className)} />
-                  <span className="truncate font-bold text-[#0F172A]" title={row.label}>{row.label}</span>
+                  <span className="line-clamp-2 break-words font-bold leading-5 text-[#0F172A]" title={row.label}>{row.label}</span>
                 </div>
               </TableCell>
               <TableCell className="font-bold tabular-nums">{row.share}%</TableCell>
@@ -8907,7 +8907,7 @@ function DataRichScopeMetric({ label, value, helper }: { label: string; value: s
         <p className="truncate text-[11px] font-bold text-slate-500" title={label}>{label}</p>
         <ReportHelpTooltip text={helper} label={`${label}の補足`} />
       </div>
-      <p className="mt-1 truncate text-xl font-bold tabular-nums text-slate-950" title={value}>{value}</p>
+      <p className="mt-1 line-clamp-2 break-words text-xl font-bold leading-6 tabular-nums text-slate-950" title={value}>{value}</p>
     </div>
   );
 }
@@ -9446,11 +9446,11 @@ function SourcesTable({ rows = [] }: { rows?: SourceDisplayRow[] }) {
 
 function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
   return (
-    <Table className="min-w-[980px] table-fixed text-sm">
+    <Table className="min-w-[1070px] table-fixed text-sm">
       <TableHeader>
         <TableRow>
           <TableHead className="w-[280px]">{"タイトル・URL"}</TableHead>
-          <TableHead className="w-[160px]">{"ドメイン"}</TableHead>
+          <TableHead className="w-[250px]">{"ドメイン"}</TableHead>
           <TableHead className="w-[90px]">{"カテゴリ"}</TableHead>
           <TableHead className="w-[90px]">{"参照出現数"}</TableHead>
           <TableHead className="w-[130px]">{"鮮度確認"}</TableHead>
@@ -9473,8 +9473,8 @@ function CitationsTable({ rows = [] }: { rows?: CitationDisplayRow[] }) {
                 </Badge>
               </div>
             </TableCell>
-            <TableCell className="font-semibold text-slate-700">{citation.domain}</TableCell>
-            <TableCell>{citation.sourceType}</TableCell>
+            <TableCell className="break-words font-semibold leading-5 text-slate-700" title={citation.domain}>{citation.domain}</TableCell>
+            <TableCell className="whitespace-nowrap">{citation.sourceType}</TableCell>
             <TableCell className="font-semibold">{citation.occurrences}</TableCell>
             <TableCell>
               <Badge variant="outline" className="whitespace-nowrap rounded-sm border-slate-200 bg-slate-50 text-slate-600">
