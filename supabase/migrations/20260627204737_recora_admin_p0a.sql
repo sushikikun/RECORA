@@ -41,6 +41,7 @@ create table recora_admin.plan_configs (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint plan_configs_plan_code_unique unique (plan_code),
+  constraint plan_configs_id_plan_code_unique unique (id, plan_code),
   constraint plan_configs_plan_code_format check (plan_code ~ '^[a-z0-9]([a-z0-9_]*[a-z0-9])?$'),
   constraint plan_configs_display_name_not_blank check (btrim(display_name) <> ''),
   constraint plan_configs_status_check check (status in ('draft', 'active', 'archived')),
@@ -79,7 +80,10 @@ create table recora_admin.customer_profiles (
 );
 
 comment on table recora_admin.customer_profiles is
-  'Internal customer lifecycle metadata that supplements public.organizations and public.projects. Does not store diagnosis result bodies.';
+  'Organization-scoped internal customer lifecycle metadata. Each organization has at most one customer profile; project_id is only a representative project pointer. Does not store diagnosis result bodies.';
+
+comment on column recora_admin.customer_profiles.project_id is
+  'Nullable representative or primary project for this organization-scoped customer profile. Project-scoped profiles require a future table or migration.';
 
 comment on column recora_admin.customer_profiles.metadata is
   'Internal operational metadata only. Must not store secrets, raw AI answers, aggregate copies, recommendation bodies, or unnecessary PII.';
@@ -103,8 +107,8 @@ create table recora_admin.customer_subscriptions (
     foreign key (organization_id) references public.organizations(id) on delete restrict,
   constraint customer_subscriptions_organization_project_fkey
     foreign key (project_id, organization_id) references public.projects(id, organization_id) on delete restrict,
-  constraint customer_subscriptions_plan_config_id_fkey
-    foreign key (plan_config_id) references recora_admin.plan_configs(id) on delete restrict,
+  constraint customer_subscriptions_plan_config_code_fkey
+    foreign key (plan_config_id, plan_code) references recora_admin.plan_configs(id, plan_code) on delete restrict,
   constraint customer_subscriptions_plan_code_format check (plan_code ~ '^[a-z0-9]([a-z0-9_]*[a-z0-9])?$'),
   constraint customer_subscriptions_status_check check (
     status in ('free_diagnostic', 'trialing', 'active', 'past_due', 'paused', 'canceled', 'suspended', 'ended')
@@ -120,7 +124,10 @@ create table recora_admin.customer_subscriptions (
 );
 
 comment on table recora_admin.customer_subscriptions is
-  'Internal customer plan assignment and subscription state. Stripe integration and billing implementation are out of scope for P0-A.';
+  'Internal customer plan assignment and subscription state. plan_code is a denormalized admin lookup value that must match plan_configs.plan_code through the composite FK; it is not a historical snapshot. Stripe integration and billing implementation are out of scope for P0-A.';
+
+comment on column recora_admin.customer_subscriptions.plan_code is
+  'Denormalized admin lookup and filtering value. Must match the referenced recora_admin.plan_configs.plan_code; not a historical snapshot.';
 
 comment on column recora_admin.customer_subscriptions.entitlement_config is
   'JSON object for mutable customer-specific entitlement settings. Must not store secrets, API keys, tokens, DB URLs, raw AI answers, aggregate copies, or recommendation bodies.';
