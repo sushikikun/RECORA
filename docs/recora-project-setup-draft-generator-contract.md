@@ -10,6 +10,19 @@
 
 生成結果は計測対象ではなく、未承認の下書きとして扱う。DB保存、Supabase migration、UI、OpenAI/API呼び出し、Webクロール、計測実行、自動承認、自動公開は行わない。
 
+## 無料診断後の初期設定ウィザード
+
+`app/onboarding/project-setup/page.tsx` は、無料診断 / 新規登録後に続く初期設定導線として `generateProjectSetupDraft` を画面内で利用する。会社情報からカテゴリ判定、persona / topic / prompt 下書き確認までを行う。
+
+- 各ステップの下書きは画面内で編集できるが、保存・承認・materialize は未実装。
+- DB write、Supabase write、外部API呼び出し、Webクロール、計測実行は行わない。
+- 入力値と編集内容は React state のみで保持し、ページ reload で消えてよい。
+- prompt 詳細は初期状態で畳み、「プロンプトを確認・変更する」で表示する。
+- 「入れてほしいプロンプト」は優先採用候補として上部に表示するが、metric eligibility は Recora の既存方針に従う。
+- brand / alias / domain を含む prompt は branded / brand perception 用として扱い、visibility / ranking / SOV 対象外候補として表示する。
+- knownCompetitors / avoidCompetitors を含む prompt は実名競合入り prompt として扱い、visibility / ranking / SOV 対象外候補として表示する。
+- 公開用サンプルJSONは追加しない。
+
 ## 主な関数
 
 - `generateProjectSetupDraft(seed, options)`: 下書き、blocker、warning、生成summaryを返す。

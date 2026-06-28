@@ -128,6 +128,8 @@ export default function SignupPage({ searchParams = {} }: SignupPageProps) {
 type AuthMessageData = {
   tone: "error" | "success";
   text: string;
+  actionHref?: string;
+  actionLabel?: string;
 };
 
 function AuthMessage({ message }: { message: AuthMessageData }) {
@@ -146,6 +148,15 @@ function AuthMessage({ message }: { message: AuthMessageData }) {
         <Icon className="mt-0.5 h-4 w-4 shrink-0" />
         <span>{message.text}</span>
       </div>
+      {message.actionHref && message.actionLabel ? (
+        <Link
+          className="mt-3 inline-flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-bold text-[#00796B] shadow-sm transition hover:bg-[#E6F4F1]"
+          href={message.actionHref}
+        >
+          {message.actionLabel}
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -154,7 +165,9 @@ function getSignupMessage(searchParams: SignupPageProps["searchParams"]): AuthMe
   if (searchParams?.sent) {
     return {
       tone: "success",
-      text: "確認メールを送信しました。メール内のリンクから登録を完了してください。"
+      text: "確認メールを送信しました。メール内のリンクから登録を完了してください。会社情報の入力画面も確認できます。",
+      actionHref: "/onboarding/project-setup",
+      actionLabel: "初期設定画面を開く"
     };
   }
 
