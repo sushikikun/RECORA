@@ -5,17 +5,20 @@ import {
   BarChart3,
   BookOpen,
   CheckCircle2,
+  ChevronRight,
   CircleDot,
+  CircleHelp,
   FileText,
   Gauge,
+  Info,
   Layers3,
   LineChart,
+  Link2,
   ListChecks,
   MessageSquareText,
   Search,
-  ShieldCheck,
   Sparkles,
-  TrendingUp
+  Tag
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -50,7 +53,6 @@ import {
   quickAccessItems,
   rankSummary,
   recentChanges,
-  recentReports,
   recommendationRows,
   reportDetailSummary,
   reportKpis,
@@ -88,11 +90,12 @@ const pageIconMap: Record<CustomerReportDesignLabPageId, typeof Gauge> = {
 
 export function CustomerReportDesignLab({ activePage }: { activePage: CustomerReportDesignLabPageId }) {
   const page = customerReportDesignLabPages.find((item) => item.id === activePage) ?? customerReportDesignLabPages[0];
+  const isHome = activePage === "home";
 
   return (
     <div className="min-w-0 overflow-x-hidden text-[#0F172A]" data-recora-customer-report-design-lab>
-      <PageHeading eyebrow={page.eyebrow} title={page.title} />
-      <div className="mt-4">
+      {isHome ? null : <PageHeading eyebrow={page.eyebrow} title={page.title} />}
+      <div className={isHome ? undefined : "mt-4"}>
         <ScopeStrip />
       </div>
       <div className="mt-4">
@@ -152,14 +155,14 @@ function PageHeading({ eyebrow, title }: { eyebrow: string; title: string }) {
 
 function ScopeStrip() {
   return (
-    <section className="overflow-hidden rounded-lg border border-[#DDE8E5] bg-white">
-      <div className="grid min-w-0 md:grid-cols-2 xl:grid-cols-7">
+    <section className="overflow-hidden rounded-lg border border-[#DCE4E1] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="grid min-w-0 md:grid-cols-2 xl:grid-cols-[1.45fr_1.25fr_1.7fr_0.7fr_0.65fr_1.2fr_0.55fr]">
         {scopeItems.map((item) => (
-          <div key={item.label} className="min-w-0 border-b border-[#E5EAE8] px-3 py-2.5 md:border-r xl:border-b-0 xl:last:border-r-0">
-            <p className="truncate text-[12px] font-bold leading-5 text-[#64748B]" title={item.label}>
+          <div key={item.label} className="min-w-0 border-b border-[#E5EAE8] px-4 py-3 md:border-r xl:border-b-0 xl:last:border-r-0">
+            <p className="whitespace-nowrap text-[12px] font-bold leading-5 text-[#667085]" title={item.label}>
               {item.label}
             </p>
-            <p className="mt-0.5 truncate text-[13px] font-bold leading-5 text-[#0F172A]" title={item.value}>
+            <p className="mt-1 whitespace-nowrap text-[13px] font-bold leading-5 text-[#101828]" title={item.value}>
               {item.value}
             </p>
           </div>
@@ -171,24 +174,23 @@ function ScopeStrip() {
 
 function ReportNav({ activePage }: { activePage: CustomerReportDesignLabPageId }) {
   return (
-    <nav className="rounded-lg border border-[#DDE8E5] bg-white p-2" aria-label="顧客レポートナビゲーション">
-      <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+    <nav className="border-b border-[#E1E7E4] bg-white" aria-label="顧客レポートナビゲーション">
+      <div className="grid min-w-0 grid-cols-2 gap-0 sm:grid-cols-5 lg:grid-cols-10">
         {customerReportDesignLabPages.map((page) => {
-          const Icon = pageIconMap[page.id];
           const active = page.id === activePage;
 
           return (
             <Link
               key={page.id}
               href={getCustomerReportDesignLabHref(page.id)}
+              aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-10 min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-[13px] font-bold leading-5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#006B57]",
+                "flex min-h-12 min-w-0 items-center justify-center border-b-2 px-2 text-center text-[13px] font-bold leading-5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#006B57]",
                 active
-                  ? "border-[#B8DCD2] bg-[#E6F4F1] text-[#005C50]"
-                  : "border-transparent text-[#475569] hover:border-[#DDE8E5] hover:bg-[#F8FAF9] hover:text-[#005C50]"
+                  ? "border-[#007A5A] text-[#006B57]"
+                  : "border-transparent text-[#1F2937] hover:border-[#B8DCD2] hover:text-[#006B57]"
               )}
             >
-              <Icon className="h-4 w-4 shrink-0" aria-hidden="true" strokeWidth={1.9} />
               <span className="min-w-0 truncate">{page.label}</span>
             </Link>
           );
@@ -201,78 +203,181 @@ function ReportNav({ activePage }: { activePage: CustomerReportDesignLabPageId }
 function HomePage() {
   return (
     <div className="space-y-4">
-      <MetricStrip items={homeKpis} columns="xl:grid-cols-5" />
+      <HomeKpiGrid />
 
-      <Section title="今見るべき3つ">
-        <div className="grid min-w-0 gap-0 lg:grid-cols-3">
+      <HomeSection title="今見るべき3つ">
+        <div className="grid min-w-0 gap-4 p-4 lg:grid-cols-3">
           {homeFocusItems.map((item, index) => (
-            <div key={item.title} className={cn("min-w-0 px-4 py-4", index > 0 && "border-t border-[#E5EAE8] lg:border-l lg:border-t-0")}>
-              <div className="flex min-w-0 items-start gap-3">
-                <span className={cn("mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md", toneSoftBg(item.tone))}>
-                  {item.tone === "red" ? <ShieldCheck className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />}
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[12px] font-bold leading-5 text-[#64748B]">{item.label}</p>
-                  <p className="mt-1 text-[15px] font-bold leading-6 text-[#0F172A]">{item.title}</p>
-                  <p className="mt-1 text-[13px] font-semibold leading-6 text-[#64748B]">{item.metric}</p>
-                  <p className="mt-3 text-[13px] font-bold leading-6 text-[#006B57]">{item.action}</p>
-                </div>
-              </div>
-            </div>
+            <PriorityInsightCard key={item.title} item={item} index={index} />
           ))}
         </div>
-      </Section>
+      </HomeSection>
 
-      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Section title="クイックアクセス">
-          <div className="grid min-w-0 gap-0 sm:grid-cols-2 xl:grid-cols-5">
-            {quickAccessItems.map((item, index) => (
-              <Link
-                key={item.label}
-                href={getCustomerReportDesignLabHref(item.page)}
-                className={cn("group min-w-0 px-4 py-4 transition-colors hover:bg-[#F8FAF9]", index > 0 && "border-t border-[#E5EAE8] sm:border-l sm:border-t-0")}
-              >
-                <span className="flex min-w-0 items-center justify-between gap-3">
-                  <span className="min-w-0">
-                    <span className="block truncate text-[14px] font-bold text-[#0F172A]">{item.label}</span>
-                    <span className="mt-1 block text-[13px] font-semibold leading-5 text-[#64748B]">{item.description}</span>
-                  </span>
-                  <ArrowUpRight className="h-4 w-4 shrink-0 text-[#006B57]" aria-hidden="true" />
-                </span>
-              </Link>
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.78fr)]">
+        <HomeSection title="クイックアクセス">
+          <div className="grid min-w-0 gap-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
+            {quickAccessItems.map((item) => (
+              <QuickAccessCard key={item.label} item={item} />
             ))}
           </div>
-        </Section>
+        </HomeSection>
 
-        <Section title="最近の変化">
+        <HomeSection title="最近の変化">
           <Timeline items={recentChanges.map((item) => [item.label, item.value, item.time, item.tone] as const)} />
-        </Section>
+        </HomeSection>
       </div>
-
-      <Section title="最近のレポート">
-        <SimpleTable
-          columns={[
-            { label: "レポート名", width: "w-[48%]" },
-            { label: "種類", width: "w-[24%]" },
-            { label: "日付", width: "w-[18%]" },
-            { label: "", width: "w-[10%]" }
-          ]}
-        >
-          {recentReports.map((row) => (
-            <tr key={row.name}>
-              <Td strong>{row.name}</Td>
-              <Td>{row.type}</Td>
-              <Td>{row.date}</Td>
-              <Td>
-                <Link href={getCustomerReportDesignLabHref("overview")} className="font-bold text-[#006B57]">
-                  開く
-                </Link>
-              </Td>
-            </tr>
-          ))}
-        </SimpleTable>
-      </Section>
     </div>
+  );
+}
+
+function HomeKpiGrid() {
+  return (
+    <section className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-5" aria-label="Home KPI">
+      {homeKpis.map((item) => (
+        <HomeKpiCard key={item.label} item={item} />
+      ))}
+    </section>
+  );
+}
+
+function HomeKpiCard({ item }: { item: { label: string; value: string; delta?: string; tone?: Tone; series?: number[] } }) {
+  const positive = !item.delta?.startsWith("-");
+  const showBars = item.label === "高優先度改善候補";
+
+  return (
+    <article className="min-h-[148px] min-w-0 rounded-lg border border-[#DCE4E1] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <p className="truncate text-[14px] font-bold leading-5 text-[#101828]" title={item.label}>
+          {item.label}
+        </p>
+        <Info className="h-4 w-4 shrink-0 text-[#667085]" aria-hidden="true" strokeWidth={1.8} />
+      </div>
+      <div className="mt-4 flex min-w-0 items-end justify-between gap-2">
+        <div className="shrink-0">
+          <p className="whitespace-nowrap text-[32px] font-bold leading-none tracking-normal tabular-nums text-[#101828]" title={item.value}>
+            {item.value}
+          </p>
+          {item.delta ? <MetricDelta delta={item.delta} positive={positive} /> : null}
+        </div>
+        {item.series ? <MiniTrend values={item.series} tone={positive ? "green" : "red"} bars={showBars} /> : null}
+      </div>
+    </article>
+  );
+}
+
+function MetricDelta({ delta, positive }: { delta: string; positive: boolean }) {
+  return (
+    <span className={cn("mt-4 inline-flex items-center gap-1 text-[14px] font-bold tabular-nums", positive ? "text-[#1D8B5A]" : "text-[#C1121F]")}>
+      <span aria-hidden="true">{positive ? "▲" : "▼"}</span>
+      {delta}
+    </span>
+  );
+}
+
+function MiniTrend({ values, tone, bars = false }: { values: number[]; tone: "green" | "red"; bars?: boolean }) {
+  const stroke = tone === "green" ? "#007A5A" : "#C1121F";
+  const fill = tone === "green" ? "#8BC9A4" : "#E77979";
+
+  if (bars) {
+    const max = Math.max(...values, 1);
+
+    return (
+      <div className="flex h-11 w-16 shrink-0 items-end justify-end gap-1" aria-hidden="true">
+        {values.slice(-7).map((value, index) => (
+          <span
+            key={`${value}-${index}`}
+            className="w-2 rounded-sm bg-[#74B98B]"
+            style={{ height: `${Math.max(10, (value / max) * 40)}px` }}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 96 44" className="h-11 w-16 shrink-0" aria-hidden="true">
+      <defs>
+        <linearGradient id={`mini-trend-${tone}`} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor={fill} stopOpacity="0.22" />
+          <stop offset="100%" stopColor={fill} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polyline fill="none" points={buildMiniTrendPoints(values)} stroke={stroke} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" />
+    </svg>
+  );
+}
+
+function buildMiniTrendPoints(values: number[]) {
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const range = Math.max(0.1, max - min);
+
+  return values
+    .map((value, index) => {
+      const x = 6 + index * (84 / Math.max(1, values.length - 1));
+      const y = 36 - ((value - min) / range) * 26;
+      return `${x},${y}`;
+    })
+    .join(" ");
+}
+
+function PriorityInsightCard({ item, index }: { item: (typeof homeFocusItems)[number]; index: number }) {
+  const Icon = index === 0 ? Tag : index === 1 ? CircleHelp : Link2;
+
+  return (
+    <article className="relative flex min-h-[236px] min-w-0 flex-col rounded-lg border border-[#DCE4E1] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <span className="absolute left-3 top-3 flex h-8 w-8 items-center justify-center rounded-sm bg-[#006B3F] text-[18px] font-bold leading-none text-white shadow-sm">
+        {index + 1}
+      </span>
+      <div className="flex min-w-0 flex-1 items-start gap-4 pt-3">
+        <span className="mt-11 flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#E8F5EC] text-[#006B57]">
+          <Icon className="h-7 w-7" aria-hidden="true" strokeWidth={1.9} />
+        </span>
+        <div className="min-w-0 pl-2">
+          <p className="text-[14px] font-bold leading-5 text-[#344054]">{item.label}</p>
+          <p className="mt-5 text-[18px] font-bold leading-7 text-[#101828]">{item.title}</p>
+          <p className="mt-3 text-[14px] font-semibold leading-7 text-[#344054]">{item.metric}</p>
+        </div>
+      </div>
+      <Link
+        href={getCustomerReportDesignLabHref(item.label === "弱いカテゴリ" ? "recommendations" : item.label === "競合に負けている質問" ? "prompts" : "sources")}
+        className="mt-5 flex min-h-12 items-center justify-between gap-3 rounded-md border border-[#AFCDBF] px-4 py-3 text-[14px] font-bold leading-5 text-[#005C45] transition hover:border-[#007A5A] hover:bg-[#F2FAF5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#006B57]"
+      >
+        <span className="min-w-0 break-words">{item.action}</span>
+        <ChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
+      </Link>
+    </article>
+  );
+}
+
+function QuickAccessCard({ item }: { item: (typeof quickAccessItems)[number] }) {
+  const Icon = pageIconMap[item.page];
+
+  return (
+    <Link
+      href={getCustomerReportDesignLabHref(item.page)}
+      className="group flex min-h-[190px] min-w-0 flex-col items-center justify-between rounded-lg border border-[#DCE4E1] bg-white px-4 py-6 text-center shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition hover:border-[#AFCDBF] hover:bg-[#FAFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#006B57]"
+    >
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F5EC] text-[#006B57]">
+        <Icon className="h-7 w-7" aria-hidden="true" strokeWidth={1.8} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[16px] font-bold leading-6 text-[#101828]">{item.label}</span>
+        <span className="mt-2 block text-[13px] font-semibold leading-6 text-[#475467]">{item.description}</span>
+      </span>
+      <ArrowUpRight className="h-5 w-5 text-[#101828] transition group-hover:text-[#006B57]" aria-hidden="true" />
+    </Link>
+  );
+}
+
+function HomeSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="min-w-0 overflow-hidden rounded-lg border border-[#DCE4E1] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="px-5 py-4">
+        <h2 className="text-[22px] font-bold leading-7 tracking-normal text-[#101828]">{title}</h2>
+      </div>
+      <div className="min-w-0">{children}</div>
+    </section>
   );
 }
 

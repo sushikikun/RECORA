@@ -48,11 +48,11 @@ export const scopeItems = [
 ];
 
 export const homeKpis = [
-  { label: "AI表示率", value: "28.4%", delta: "+3.6pt", tone: "green" as const },
-  { label: "Share of Voice", value: "19.7%", delta: "+2.1pt", tone: "green" as const },
-  { label: "自社サイト引用率", value: "24.5%", delta: "+2.8pt", tone: "green" as const },
-  { label: "Sentiment", value: "0.42", delta: "+0.08", tone: "green" as const },
-  { label: "高優先度改善候補", value: "18", delta: "-3", tone: "green" as const }
+  { label: "AI表示率", value: "42.7%", delta: "+4.3pt", tone: "green" as const, series: [31, 34, 33, 37, 36, 40, 41, 43] },
+  { label: "Share of Voice", value: "27.6%", delta: "+3.1pt", tone: "green" as const, series: [20, 23, 22, 24, 23, 25, 26, 28] },
+  { label: "自社サイト引用率", value: "18.9%", delta: "+2.7pt", tone: "green" as const, series: [13, 15, 14, 15, 16, 18, 17, 19] },
+  { label: "Sentiment", value: "0.28", delta: "+0.05", tone: "green" as const, series: [0.12, 0.16, 0.15, 0.2, 0.24, 0.22, 0.26, 0.28] },
+  { label: "高優先度改善候補", value: "12", delta: "-3", tone: "red" as const, series: [10, 12, 14, 13, 16, 12, 11, 15] }
 ];
 
 export const reportKpis = [
@@ -67,22 +67,22 @@ export const reportKpis = [
 export const homeFocusItems = [
   {
     label: "弱いカテゴリ",
-    title: "料金・費用に課題があります",
-    metric: "AI表示率 12.1% / サイト平均との差 -16.3pt",
+    title: "料金・導入条件",
+    metric: "競合表示が先行、価格比較と導入条件の説明不足",
     action: "料金比較ページとFAQを補強",
     tone: "red" as const
   },
   {
     label: "競合に負けている質問",
-    title: "「ミエルカSEOの料金はいくらですか？」",
-    metric: "競合表示率 68% > 自社表示率 18%",
+    title: "ミエルカSEOの料金はいくらですか？",
+    metric: "競合表示 68%・自社 18%",
     action: "回答に価格レンジと導入条件を追加",
     tone: "amber" as const
   },
   {
     label: "取りに行くべき参照元",
-    title: "ミエルカ公式ブログ",
-    metric: "引用されやすく、関連性の高い参照元です",
+    title: "note.com",
+    metric: "引用されやすく関連性の高い参照元です",
     action: "比較・導入事例から内部リンク",
     tone: "green" as const
   }
@@ -100,13 +100,11 @@ export const recentChanges = [
   { label: "AI表示率が上昇", value: "28.4%（+3.6pt）", time: "2時間前", tone: "green" as const },
   { label: "「AI検索とは」のAI表示率が上昇", value: "45.2%（+8.7pt）", time: "5時間前", tone: "green" as const },
   { label: "競合サイトのShare of Voiceが上昇", value: "A社 21.3%（+2.4pt）", time: "1日前", tone: "red" as const },
-  { label: "新しい参照元を検出", value: "note.com（ミエルカSEO活用事例）", time: "2日前", tone: "green" as const },
-  { label: "アルゴリズム変動を検出", value: "AI概要の出現率に大きな変動", time: "3日前", tone: "slate" as const }
+  { label: "新しい参照元を検出", value: "note.com（ミエルカSEO活用事例）", time: "2日前", tone: "green" as const }
 ];
 
 export const quickAccessItems = [
   { label: "概要", description: "結論と優先論点", page: "overview" as const },
-  { label: "推移", description: "主要指標の時系列", page: "trends" as const },
   { label: "質問別分析", description: "弱い質問と優先度", page: "prompts" as const },
   { label: "参照元", description: "引用元と不足ソース", page: "sources" as const },
   { label: "改善候補", description: "根拠つき施策候補", page: "recommendations" as const }

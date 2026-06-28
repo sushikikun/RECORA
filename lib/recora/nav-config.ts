@@ -165,7 +165,7 @@ export function buildRecoraNavItems(reportId?: string, options: RecoraNavBuildOp
       description: "レポート横断の数字、推移、全体傾向を確認します。"
     },
     {
-      label: "レポート",
+      label: "レポート一覧",
       href: "/dashboard/reports",
       section: "レポート",
       status: "ready",

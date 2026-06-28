@@ -20,12 +20,13 @@ import {
 } from "@/lib/recora/dev-preview/real-db-preview-url";
 import {
   CUSTOMER_REPORT_DESIGN_LAB_PROJECT_NAME,
+  CUSTOMER_REPORT_DESIGN_LAB_REPORT_SLUG,
   CUSTOMER_REPORT_DESIGN_LAB_SEARCH_PARAM,
   CUSTOMER_REPORT_DESIGN_LAB_SEARCH_VALUE,
   withCustomerReportDesignLabSearchParam
 } from "@/lib/recora/customer-report-design-lab/url";
 
-const alwaysVisibleSections: RecoraNavSection[] = ["ホーム", "レポート"];
+const alwaysVisibleSections: RecoraNavSection[] = ["ホーム", "レポート", "プロジェクト管理", "ワークスペース"];
 const reportContextSettingPaths = [
   "/dashboard/config/personas",
   "/dashboard/config/topics-prompts",
@@ -98,14 +99,15 @@ export function DashboardShell({
     searchParams.get(RECORA_REAL_DB_PREVIEW_SEARCH_PARAM) === RECORA_REAL_DB_PREVIEW_SEARCH_VALUE;
   const customerReportDesignLabActive =
     searchParams.get(CUSTOMER_REPORT_DESIGN_LAB_SEARCH_PARAM) === CUSTOMER_REPORT_DESIGN_LAB_SEARCH_VALUE;
-  const isDataRichFinal = visualVariant === "data-rich-final";
-  const reportId = getSelectedReportId(pathname);
+  const routeReportId = getSelectedReportId(pathname);
+  const reportId = customerReportDesignLabActive ? CUSTOMER_REPORT_DESIGN_LAB_REPORT_SLUG : routeReportId;
+  const isDataRichFinal = visualVariant === "data-rich-final" && !customerReportDesignLabActive;
   const projectCardLabel = customerReportDesignLabActive
     ? CUSTOMER_REPORT_DESIGN_LAB_PROJECT_NAME
     : realDbPreviewActive
-      ? getRecoraRealDbPreviewProjectDisplayName(reportId)
+      ? getRecoraRealDbPreviewProjectDisplayName(routeReportId)
       : "Recora";
-  const showReportContextItems = Boolean(reportId) || isReportContextSettingPath(pathname);
+  const showReportContextItems = customerReportDesignLabActive || Boolean(routeReportId) || isReportContextSettingPath(pathname);
   const withPreviewHref = (href: string) => {
     const previewHref = withRecoraRealDbPreviewSearchParam(
       withRecoraVisualVariantSearchParam(href, visualVariant),
@@ -209,37 +211,43 @@ export function DashboardShell({
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F9FA] text-[#0F172A]" data-recora-visual={visualVariant}>
-      <div className="grid min-h-screen lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="border-b border-[#0B4E44]/20 bg-[#003A32] text-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:border-white/10">
-          <div className="flex h-full flex-col bg-[linear-gradient(180deg,#003F36_0%,#00372F_48%,#002C26_100%)]">
-            <div className="px-2.5 py-2.5">
+    <div className={cn("min-h-screen text-[#0F172A]", customerReportDesignLabActive ? "bg-white" : "bg-[#F7F9FA]")} data-recora-visual={visualVariant}>
+      <div className={cn("grid min-h-screen", customerReportDesignLabActive ? "lg:grid-cols-[240px_minmax(0,1fr)]" : "lg:grid-cols-[220px_minmax(0,1fr)]")}>
+        <aside className="border-b border-[#0B4E44]/20 bg-[#081720] text-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:border-white/10">
+          <div className={cn("flex h-full flex-col", customerReportDesignLabActive ? "bg-[linear-gradient(180deg,#0B1B28_0%,#081923_42%,#06131B_100%)]" : "bg-[linear-gradient(180deg,#003F36_0%,#00372F_48%,#002C26_100%)]")}>
+            <div className={cn(customerReportDesignLabActive ? "px-3 py-5" : "px-2.5 py-2.5")}>
               <Link href={withPreviewHref("/dashboard")} className="flex items-center gap-2 rounded-lg px-1 py-0.5 transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6FE1C3]/80">
                 <LogoMark />
                 <span>
-                  <span className="block text-base font-bold tracking-normal text-white">Recora</span>
-                  <span className="block text-xs font-medium text-[#A8DAD2]">レコラ</span>
+                  <span className={cn("block font-bold tracking-normal text-white", customerReportDesignLabActive ? "text-[22px] leading-7" : "text-base")}>Recora</span>
+                  {customerReportDesignLabActive ? null : <span className="block text-xs font-medium text-[#A8DAD2]">レコラ</span>}
                 </span>
               </Link>
 
-              <div className="mt-2 rounded-md border border-white/10 bg-white/[0.04] p-2">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#9ECFC7]">
-                  <PanelTop className="h-3.5 w-3.5 text-[#6FE1C3]" strokeWidth={1.8} />
-                  現在のプロジェクト
+              <div className={cn("rounded-md border border-white/10 bg-white/[0.04]", customerReportDesignLabActive ? "mt-5 p-3" : "mt-2 p-2")}>
+                <div className="flex items-center justify-between gap-2 text-[12px] font-semibold text-[#D7E7E4]">
+                  <span className="flex items-center gap-1.5">
+                    <PanelTop className="h-3.5 w-3.5 text-[#6FE1C3]" strokeWidth={1.8} />
+                    {customerReportDesignLabActive ? "プロジェクト" : "現在のプロジェクト"}
+                  </span>
+                  {customerReportDesignLabActive ? <ChevronDown className="h-4 w-4 text-[#D7E7E4]" aria-hidden="true" strokeWidth={1.8} /> : null}
                 </div>
                 <Link
                   href={currentReportHref}
-                  className="mt-1.5 block rounded-md text-[13px] font-bold leading-5 text-white transition hover:text-[#6FE1C3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6FE1C3]/80"
+                  title={projectCardLabel}
+                  className="mt-2 block rounded-md text-[13px] font-bold leading-6 text-white transition hover:text-[#6FE1C3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6FE1C3]/80"
                 >
-                  Recora
+                  <span className="line-clamp-2 break-words">{projectCardLabel}</span>
                 </Link>
-                <div className="mt-1.5 text-[11px] font-semibold text-[#9ECFC7]">
-                  {reportId ? "現在のレポート" : "レポート一覧から選択"}
-                </div>
+                {customerReportDesignLabActive ? null : (
+                  <div className="mt-1.5 text-[11px] font-semibold text-[#9ECFC7]">
+                    {routeReportId ? "現在のレポート" : "レポート一覧から選択"}
+                  </div>
+                )}
               </div>
             </div>
 
-            <nav className="relative flex-1 space-y-1 overflow-y-auto px-2.5 pb-3">
+            <nav className="relative flex-1 space-y-1 overflow-y-auto px-3 pb-3">
               {navGroups.map((group) => (
                 <NavGroup
                   key={group.label}
@@ -251,27 +259,29 @@ export function DashboardShell({
                   withVisualHref={withPreviewHref}
                 />
               ))}
-              <div className="pointer-events-none sticky bottom-0 h-6 bg-gradient-to-t from-[#002C26] to-transparent" />
+              <div className="pointer-events-none sticky bottom-0 h-6 bg-gradient-to-t from-[#06131B] to-transparent" />
             </nav>
 
-            <div className="border-t border-white/10 p-2">
-              <div className="rounded-md border border-white/10 bg-white/[0.04] p-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#6FE1C3]/12 text-[#6FE1C3]">
-                    <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-bold text-white">Recora ワークスペース</p>
-                    <p className="truncate text-[11px] text-[#9ECFC7]">プロダクト管理</p>
+            {customerReportDesignLabActive ? null : (
+              <div className="border-t border-white/10 p-2">
+                <div className="rounded-md border border-white/10 bg-white/[0.04] p-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#6FE1C3]/12 text-[#6FE1C3]">
+                      <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-bold text-white">Recora ワークスペース</p>
+                      <p className="truncate text-[11px] text-[#9ECFC7]">プロダクト管理</p>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </aside>
 
-        <main className="min-w-0 bg-transparent">
-          <div className="mx-auto w-full max-w-[1504px] px-4 py-5 sm:px-5 lg:px-6 xl:px-7">
+        <main className={cn("min-w-0", customerReportDesignLabActive ? "bg-white" : "bg-transparent")}>
+          <div className={cn("mx-auto w-full", customerReportDesignLabActive ? "max-w-none px-4 py-4 sm:px-5 lg:px-5 xl:px-5" : "max-w-[1504px] px-4 py-5 sm:px-5 lg:px-6 xl:px-7")}>
             {children}
           </div>
         </main>
@@ -279,7 +289,6 @@ export function DashboardShell({
     </div>
   );
 }
-
 function LogoMark() {
   return (
     <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#E6F4F1] text-[13px] font-black text-[#003F36] ring-1 ring-white/20">
@@ -320,7 +329,7 @@ function NavGroup({
 
   if (isAlwaysVisible) {
     return (
-      <div>
+      <div className={cn(group.label === "プロジェクト管理" && "mt-5 border-t border-white/15 pt-5")}>
         <div className="mt-1 space-y-1">
           {group.items.map((item, index) => (
             <NavLink
@@ -391,12 +400,12 @@ function NavLink({
       title={item.description ?? item.label}
       aria-current={isActive ? "page" : undefined}
       className={cn(
-        "group flex min-h-8 items-center gap-2.5 rounded-md border-l-[3px] border-transparent px-2.5 py-1.5 text-[13px] font-bold transition-colors",
+        "group flex min-h-10 items-center gap-2.5 rounded-md border-l-[3px] border-transparent px-3 py-2 text-[14px] font-bold transition-colors",
         isDataRichFinal
           ? "text-[#475569] hover:bg-[#F6F9F8] hover:text-[#1E293B]"
           : "text-[#B8DAD4] hover:bg-white/8 hover:text-white",
         nested && "ml-1.5 pl-2",
-        isActive && (isDataRichFinal ? "border-[#006B57] bg-[#EAF6F0] text-[#005548]" : "border-[#6FE1C3] bg-[#E6F4F1] text-[#003F36]")
+        isActive && (isDataRichFinal ? "border-[#006B57] bg-[#EAF6F0] text-[#005548]" : "border-transparent bg-[#064C3F] text-white")
       )}
     >
       <Icon className="h-4 w-4 shrink-0 text-current" strokeWidth={1.85} />
