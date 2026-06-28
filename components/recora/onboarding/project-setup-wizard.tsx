@@ -5,14 +5,18 @@ import type { ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  AlertCircle,
   Building2,
   Check,
   CheckCircle2,
   ClipboardCheck,
+  ExternalLink,
   GripVertical,
   Info,
+  Loader2,
   MessageSquareText,
   Plus,
+  SearchCheck,
   Sparkles,
   Target,
   Trash2,
@@ -31,6 +35,11 @@ import type {
   PromptMetricEligibility
 } from "@/lib/recora/project-setup-draft";
 import { generateProjectSetupDraft } from "@/lib/recora/project-setup-draft-generator";
+import type {
+  SiteInspectionApiResponse,
+  SiteInspectionResult,
+  SiteInspectionWarning
+} from "@/lib/recora/site-inspection-types";
 import { cn } from "@/lib/utils";
 
 const steps = [
@@ -73,6 +82,12 @@ type EditablePrompt = {
   text: string;
   group: PromptGroup;
 };
+
+type SiteInspectionState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "success"; result: SiteInspectionResult }
+  | { status: "failed"; message: string; code?: string; warnings?: SiteInspectionWarning[] };
 
 type ConfirmationRow = {
   label: string;
@@ -166,29 +181,38 @@ export function ProjectSetupWizard() {
   const [promptSeedKey, setPromptSeedKey] = useState<string | null>(null);
   const [newPromptText, setNewPromptText] = useState("");
   const [confirmationDone, setConfirmationDone] = useState(false);
+  const [siteInspection, setSiteInspection] = useState<SiteInspectionState>({ status: "idle" });
 
   const seedInput = useMemo(() => buildSeedInput(formState), [formState]);
   const seedKey = useMemo(() => stableSeedKey(seedInput), [seedInput]);
   const currentStepBlockers = getStepBlockers(stepIndex, formState);
   const showCurrentBlockers = attemptedSteps[stepIndex] && currentStepBlockers.length > 0;
   const seedBlockers = useMemo(() => validateProjectSetupSeedInput(seedInput), [seedInput]);
+  const isInspectingSite = siteInspection.status === "loading";
 
   const updateForm: UpdateForm = (field, value) => {
     setConfirmationDone(false);
     setFormState((current) => ({ ...current, [field]: value }));
+    if (field === "brandName" || field === "brandAliases" || field === "officialUrl") {
+      setSiteInspection({ status: "idle" });
+    }
     if (promptSeedFields.has(field)) {
       setPromptExamples(null);
       setPromptSeedKey(null);
     }
   };
 
-  function goNext() {
+  async function goNext() {
+    if (isInspectingSite) return;
     const blockers = getStepBlockers(stepIndex, formState);
     setAttemptedSteps((current) => ({ ...current, [stepIndex]: true }));
     if (blockers.length > 0) return;
 
     if (stepIndex === 0) {
-      setFormState((current) => applyServiceSuggestions(current));
+      setSiteInspection({ status: "loading" });
+      const inspection = await inspectOfficialUrlForStep(formState);
+      setSiteInspection(inspection);
+      setFormState((current) => applyServiceSuggestions(current, inspection.status === "success" ? inspection.result : null));
       setStepIndex(1);
       return;
     }
@@ -229,46 +253,31 @@ export function ProjectSetupWizard() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF8] text-[#0B1F17]">
-      <section className="border-b border-[#E2E8E5] bg-white">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-7 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+      <section className="sticky top-0 z-20 border-b border-[#E2E8E5] bg-white/95 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#075E44] text-lg font-bold text-white">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#075E44] text-base font-bold text-white">
                 R
               </div>
               <div>
-                <p className="text-sm font-semibold text-[#64736C]">無料診断後の測定条件確認フロー</p>
-                <h1 className="mt-1 text-3xl font-bold leading-tight tracking-normal text-[#0B1F17] sm:text-4xl">
+                <p className="text-xs font-semibold text-[#64736C]">無料診断後の測定条件確認フロー</p>
+                <h1 className="mt-0.5 text-xl font-bold leading-tight tracking-normal text-[#0B1F17] sm:text-2xl">
                   Recora 初期設定ウィザード
                 </h1>
               </div>
             </div>
-            <div className="hidden min-w-[260px] rounded-2xl border border-[#DDE8E5] bg-[#F8FBFA] p-4 shadow-[0_14px_40px_rgba(15,23,42,0.06)] lg:block">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#E2F4EA] text-[#075E44]">
-                  <Sparkles className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-[#0B1F17]">確認に集中する設計</p>
-                  <p className="text-xs leading-5 text-[#64736C]">保存・承認・計測反映はここでは行いません。</p>
-                </div>
-              </div>
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                {[64, 78, 92].map((height) => (
-                  <span key={height} className="flex h-12 items-end rounded-lg bg-white px-2 pb-2">
-                    <span className="w-full rounded-sm bg-[#1B8B65]" style={{ height: `${height}%` }} />
-                  </span>
-                ))}
-              </div>
-            </div>
+            <p className="hidden text-xs font-semibold leading-5 text-[#64736C] lg:block">
+              保存・承認・計測反映はここでは行いません。
+            </p>
           </div>
           <StepProgress stepIndex={stepIndex} />
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {stepIndex === 0 ? <BrandStep formState={formState} updateForm={updateForm} /> : null}
-        {stepIndex === 1 ? <ServiceStep formState={formState} updateForm={updateForm} /> : null}
+      <section className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
+        {stepIndex === 0 ? <BrandStep formState={formState} updateForm={updateForm} siteInspection={siteInspection} /> : null}
+        {stepIndex === 1 ? <ServiceStep formState={formState} updateForm={updateForm} siteInspection={siteInspection} /> : null}
         {stepIndex === 2 ? <FocusStep formState={formState} updateForm={updateForm} /> : null}
         {stepIndex === 3 ? (
           <PromptStep
@@ -302,15 +311,24 @@ export function ProjectSetupWizard() {
           </MessageBox>
         ) : null}
 
-        <div className="mx-auto mt-6 flex w-full max-w-xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0}>
+        <div className="mx-auto mt-4 flex w-full max-w-xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0 || isInspectingSite}>
             <ArrowLeft className="h-4 w-4" />
             戻る
           </Button>
           {stepIndex < steps.length - 1 ? (
-            <Button type="button" onClick={goNext} className="bg-[#075E44] hover:bg-[#064D39]">
-              {stepIndex === 2 ? "プロンプト例へ進む" : "次へ"}
-              <ArrowRight className="h-4 w-4" />
+            <Button type="button" onClick={goNext} disabled={isInspectingSite} className="bg-[#075E44] hover:bg-[#064D39]">
+              {isInspectingSite ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  公式URLを確認中
+                </>
+              ) : (
+                <>
+                  {stepIndex === 2 ? "プロンプト例へ進む" : "次へ"}
+                  <ArrowRight className="h-4 w-4" />
+                </>
+              )}
             </Button>
           ) : null}
         </div>
@@ -321,39 +339,27 @@ export function ProjectSetupWizard() {
 
 function StepProgress({ stepIndex }: { stepIndex: number }) {
   return (
-    <nav aria-label="初期設定ステップ" className="overflow-x-auto pb-2">
-      <ol className="grid min-w-[760px] grid-cols-5 items-start gap-3">
+    <nav aria-label="初期設定ステップ" className="-mx-1 overflow-x-auto px-1">
+      <ol className="flex min-w-max items-center gap-2">
         {steps.map((step, index) => {
           const Icon = step.icon;
           const active = index === stepIndex;
           const done = index < stepIndex;
           return (
-            <li key={step.title} className="relative">
+            <li key={step.title} className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-bold transition",
+                  active || done ? "border-[#075E44] bg-[#075E44] text-white" : "border-[#D8E2DE] bg-white text-[#64736C]"
+                )}
+              >
+                {done ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
+                <span>Step {index + 1}</span>
+                <span className="hidden sm:inline">{step.short}</span>
+              </span>
               {index < steps.length - 1 ? (
-                <span className="absolute left-[calc(50%+32px)] top-5 hidden h-px w-[calc(100%-64px)] bg-[#D8E2DE] lg:block" />
+                <span className="h-px w-6 bg-[#D8E2DE]" aria-hidden="true" />
               ) : null}
-              <div className="flex flex-col items-center text-center">
-                <span
-                  className={cn(
-                    "inline-flex h-10 min-w-16 items-center justify-center rounded-full px-4 text-sm font-bold shadow-sm",
-                    active || done ? "bg-[#075E44] text-white" : "border border-[#D8E2DE] bg-white text-[#7A8982]"
-                  )}
-                >
-                  {done ? <Check className="mr-1 h-4 w-4" /> : null}
-                  Step {index + 1}
-                </span>
-                <span
-                  className={cn(
-                    "mt-2 flex h-11 w-11 items-center justify-center rounded-full",
-                    active || done ? "bg-[#E2F4EA] text-[#075E44]" : "bg-[#F1F5F3] text-[#8B9A93]"
-                  )}
-                >
-                  <Icon className="h-5 w-5" />
-                </span>
-                <span className="mt-2 min-h-10 max-w-36 text-xs font-bold leading-5 text-[#0B1F17] sm:text-sm">
-                  {step.title}
-                </span>
-              </div>
             </li>
           );
         })}
@@ -362,15 +368,22 @@ function StepProgress({ stepIndex }: { stepIndex: number }) {
   );
 }
 
-function BrandStep({ formState, updateForm }: { formState: WizardState; updateForm: UpdateForm }) {
+function BrandStep({
+  formState,
+  updateForm,
+  siteInspection
+}: {
+  formState: WizardState;
+  updateForm: UpdateForm;
+  siteInspection: SiteInspectionState;
+}) {
   return (
     <WizardCard
-      icon={<Building2 className="h-9 w-9" />}
+      icon={<Building2 />}
       title="ブランド確認"
-      description="まずは貴社・サービスの基本情報を入力してください。"
-      footer="公式URLは入力値として扱い、この画面ではサイト取得やクロールを行いません。"
+      description="公式サイトまたはサービスサイトのURLを入力してください。"
     >
-      <div className="space-y-5">
+      <div className="space-y-4">
         <TextInput
           label="正式なブランド名 / サービス名"
           value={formState.brandName}
@@ -396,28 +409,52 @@ function BrandStep({ formState, updateForm }: { formState: WizardState; updateFo
           required
           placeholder="例 https://recora.jp"
         />
+        <p className="text-xs leading-5 text-[#64736C]">
+          次へ進むと、このURLの1ページだけを確認し、ページタイトルなどを次の入力候補に使います。
+        </p>
+        {siteInspection.status === "loading" ? (
+          <div className="rounded-xl border border-[#CFE2DA] bg-[#F2FAF6] p-4 text-sm leading-6 text-[#506158]">
+            <div className="flex items-start gap-3">
+              <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-[#1B8B65]" />
+              <div>
+                <p className="font-bold text-[#075E44]">公式URLを確認しています</p>
+                <p className="mt-1">ページタイトル、説明文、見出しを確認してサービス情報の候補を作っています。</p>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </WizardCard>
   );
 }
 
-function ServiceStep({ formState, updateForm }: { formState: WizardState; updateForm: UpdateForm }) {
+function ServiceStep({
+  formState,
+  updateForm,
+  siteInspection
+}: {
+  formState: WizardState;
+  updateForm: UpdateForm;
+  siteInspection: SiteInspectionState;
+}) {
   const audienceSuggestions = audienceSuggestionsByType[formState.audienceType];
 
   return (
     <WizardCard
       size="wide"
-      icon={<Wand2 className="h-9 w-9" />}
+      icon={<Wand2 />}
       title="サービス理解・市場・顧客層・競合"
       description="サービスの内容や市場・競合について教えてください。"
     >
-      <div className="rounded-xl border border-[#CFE2DA] bg-[#F2FAF6] p-4">
+      <SiteInspectionPanel formState={formState} siteInspection={siteInspection} />
+
+      <div className="mt-4 rounded-xl border border-[#CFE2DA] bg-[#F2FAF6] p-4">
         <div className="flex gap-3">
           <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#1B8B65]" />
           <div>
             <h3 className="text-sm font-bold text-[#075E44]">Recoraからの提案</h3>
             <p className="mt-1 text-sm leading-6 text-[#506158]">
-              公開情報やヒントをもとに、以下の内容を自動でご提案します。必要なら編集してください。
+              公式URLのページ情報と入力内容をもとに、以下の候補を入れています。必要なら編集してください。
             </p>
           </div>
         </div>
@@ -437,8 +474,8 @@ function ServiceStep({ formState, updateForm }: { formState: WizardState; update
           value={formState.serviceCategory}
           onChange={(value) => updateForm("serviceCategory", value)}
           required
-          placeholder="例 SaaS・プラットフォーム"
-          suggestions={["SaaS・プラットフォーム", "コンサルティング", "EC・商品販売", "教育・スクール", "医療・クリニック"]}
+          placeholder="例 SEO / AI検索対策"
+          suggestions={["SEO / AI検索対策", "マーケティング / SEO", "SaaS / 分析ツール", "地域サービス", "クリニック / スクール", "その他"]}
         />
         <div>
           <p className="text-sm font-bold text-[#334155]">提供形態</p>
@@ -522,6 +559,106 @@ function ServiceStep({ formState, updateForm }: { formState: WizardState; update
         </section>
       </div>
     </WizardCard>
+  );
+}
+
+function SiteInspectionPanel({
+  formState,
+  siteInspection
+}: {
+  formState: WizardState;
+  siteInspection: SiteInspectionState;
+}) {
+  if (siteInspection.status === "idle") return null;
+
+  if (siteInspection.status === "loading") {
+    return (
+      <div className="rounded-xl border border-[#CFE2DA] bg-[#F2FAF6] p-4 text-sm leading-6 text-[#506158]">
+        <div className="flex items-start gap-3">
+          <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-[#1B8B65]" />
+          <div>
+            <h3 className="font-bold text-[#075E44]">公式URLを確認しています</h3>
+            <p className="mt-1">ページタイトル、説明文、見出しを確認しています。</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (siteInspection.status === "failed") {
+    const targetUrl = normalizeTargetUrlForSeed(formState.officialUrl);
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold">ページ情報は確認できませんでした</h3>
+            <p className="mt-1">{siteInspection.message} 手入力でこのまま進められます。</p>
+            {isLikelyHttpUrl(targetUrl) ? (
+              <InspectionLink href={targetUrl} className="mt-3 text-amber-900" />
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const result = siteInspection.result;
+  return (
+    <div className="rounded-xl border border-[#CFE2DA] bg-white p-4 text-sm leading-6 text-[#20352C]">
+      <div className="flex items-start gap-3">
+        <SearchCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#1B8B65]" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="font-bold text-[#075E44]">公式URLのページ情報</h3>
+              <p className="mt-1 text-[#64736C]">1ページだけ確認し、サービス情報の候補に使いました。</p>
+            </div>
+            <InspectionLink href={result.normalizedUrl} />
+          </div>
+
+          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+            <InspectionDatum label="ページタイトル" value={result.title} />
+            <InspectionDatum label="説明文" value={result.description} />
+            <InspectionDatum label="ブランド確認" value={result.brandNameFound ? "確認できました" : "確認できませんでした"} />
+            <InspectionDatum label="ホスト名" value={result.hostname} />
+          </dl>
+
+          {!result.brandNameFound ? (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+              入力したブランド名がページ情報からは確認できませんでした。公式URLまたはブランド名が合っているか確認してください。
+            </div>
+          ) : null}
+
+          {result.warnings.includes("response_truncated") ? (
+            <p className="mt-3 text-xs leading-5 text-[#64736C]">ページが大きいため、先頭部分だけを確認しました。</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InspectionDatum({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-[#EAF0ED] bg-[#F8FBFA] px-3 py-2">
+      <dt className="text-xs font-bold text-[#64736C]">{label}</dt>
+      <dd className="mt-1 break-words text-sm font-semibold text-[#0B1F17]">{value || "未取得"}</dd>
+    </div>
+  );
+}
+
+function InspectionLink({ href, className }: { href: string; className?: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={cn("inline-flex items-center gap-1 text-xs font-bold text-[#075E44] underline-offset-4 hover:underline", className)}
+    >
+      公式URLを開いて確認
+      <ExternalLink className="h-3.5 w-3.5" />
+    </a>
   );
 }
 
@@ -738,20 +875,20 @@ function WizardCard({
   return (
     <section
       className={cn(
-        "mx-auto rounded-2xl border border-[#E1E8E5] bg-white p-5 shadow-[0_24px_70px_rgba(15,23,42,0.08)] sm:p-6",
+        "mx-auto rounded-xl border border-[#E1E8E5] bg-white p-4 shadow-[0_16px_42px_rgba(15,23,42,0.07)] sm:p-5",
         size === "wide" ? "max-w-3xl" : "max-w-xl"
       )}
     >
       <div className="text-center">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[#F0F6F3] text-[#075E44]">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#F0F6F3] text-[#075E44] [&_svg]:h-6 [&_svg]:w-6">
           {icon}
         </div>
-        <h2 className="mt-4 text-2xl font-bold tracking-normal text-[#0B1F17]">{title}</h2>
-        <p className="mx-auto mt-2 max-w-lg text-sm leading-7 text-[#64736C]">{description}</p>
+        <h2 className="mt-3 text-xl font-bold tracking-normal text-[#0B1F17]">{title}</h2>
+        <p className="mx-auto mt-1.5 max-w-lg text-sm leading-6 text-[#64736C]">{description}</p>
       </div>
-      <div className="mt-6">{children}</div>
+      <div className="mt-4">{children}</div>
       {footer ? (
-        <div className="mt-6 rounded-xl border border-[#DDE8E5] bg-[#F8FBFA] px-4 py-3 text-sm leading-6 text-[#506158]">
+        <div className="mt-4 rounded-xl border border-[#DDE8E5] bg-[#F8FBFA] px-4 py-3 text-sm leading-6 text-[#506158]">
           <div className="flex gap-2">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#1B8B65]" />
             <p>{footer}</p>
@@ -1174,12 +1311,47 @@ function RequiredBadge() {
   return <span className="ml-2 rounded-full bg-[#F1F5F3] px-2 py-0.5 text-xs font-semibold text-[#64736C]">必須</span>;
 }
 
-function applyServiceSuggestions(state: WizardState): WizardState {
+async function inspectOfficialUrlForStep(state: WizardState): Promise<SiteInspectionState> {
+  try {
+    const response = await fetch("/api/recora/site-inspect", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        url: state.officialUrl,
+        brandName: state.brandName,
+        aliases: state.brandAliases
+      })
+    });
+    const data = (await response.json()) as SiteInspectionApiResponse;
+    if (data.ok) {
+      return { status: "success", result: data.result };
+    }
+    return {
+      status: "failed",
+      message: data.error,
+      code: data.code,
+      warnings: data.warnings
+    };
+  } catch {
+    return {
+      status: "failed",
+      message: "公式URLのページ情報を確認できませんでした。",
+      warnings: ["site_inspection_failed"]
+    };
+  }
+}
+
+function applyServiceSuggestions(state: WizardState, inspection: SiteInspectionResult | null = null): WizardState {
   const brandName = state.brandName.trim() || "対象サービス";
+  const inspectedDescription = inspection?.suggestedServiceDescription?.trim() ?? "";
+  const inspectedCategory = inspection?.suggestedCategory?.trim() ?? "";
   const serviceDescription =
     state.serviceDescription.trim() ||
+    inspectedDescription ||
     `AI検索で、${brandName}がどのように候補として表示されるかを確認するためのサービス。`;
-  const serviceCategory = state.serviceCategory.trim() || inferInterimCategory(state);
+  const serviceCategory = state.serviceCategory.trim() || inspectedCategory || inferInterimCategory(state);
   const audienceTargets =
     state.audienceTargets.length > 0 ? state.audienceTargets : audienceSuggestionsByType[state.audienceType].slice(0, 3);
 
@@ -1375,12 +1547,12 @@ function getStepBlockers(stepIndex: number, formState: WizardState) {
 function inferInterimCategory(formState: WizardState) {
   const text = `${formState.brandName} ${formState.officialUrl}`.toLowerCase();
   if (text.includes("recora") || text.includes("seo") || text.includes("geo") || text.includes("ai")) {
-    return "AI検索・GEO診断サービス";
+    return "SEO / AI検索対策";
   }
-  if (text.includes("clinic") || text.includes("medical")) return "医療・クリニック関連サービス";
-  if (text.includes("school") || text.includes("edu")) return "教育・スクール関連サービス";
-  if (text.includes("ecommerce") || text.includes("shop") || text.includes("store")) return "EC・商品販売サービス";
-  return "SaaS・プラットフォーム";
+  if (text.includes("clinic") || text.includes("medical")) return "クリニック / スクール";
+  if (text.includes("school") || text.includes("edu")) return "クリニック / スクール";
+  if (text.includes("ecommerce") || text.includes("shop") || text.includes("store")) return "その他";
+  return "SaaS / 分析ツール";
 }
 
 function normalizeTargetUrlForSeed(value: string) {

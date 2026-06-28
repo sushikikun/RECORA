@@ -8,7 +8,7 @@
 
 会社名、ブランド名、公式URL、サービス説明、業種、対象顧客、地域、言語などの `ProjectSetupSeedInput` から、内部レビュー用の `PersonaDraft`、`TopicDraft`、`PromptDraft` を作る。
 
-生成結果は計測対象ではなく、未承認の下書きとして扱う。DB保存、Supabase migration、UI、OpenAI/API呼び出し、Webクロール、計測実行、自動承認、自動公開は行わない。
+生成結果は計測対象ではなく、未承認の下書きとして扱う。DB保存、Supabase migration、OpenAI/API呼び出し、Webクロール、計測実行、自動承認、自動公開は行わない。
 
 ## 無料診断後の初期設定ウィザード
 
@@ -34,6 +34,9 @@
 画面の役割:
 
 - 入力値は React state のみで保持し、ページ reload で消えてよい。
+- Step1の次へ進行時に、ユーザーが入力した公式URLだけを対象に単一ページ確認を行ってよい。確認対象は title、meta description、og:site_name、h1、canonical、hostname に限定する。
+- 公式URL確認はサービス説明・カテゴリの候補作成とブランド名 / 別名がページ情報に含まれるかの確認にだけ使う。確認できない場合も、Step2の手入力をブロックしない。
+- Step2では公式URL確認結果としてページタイトル、説明文、ブランド確認結果を表示し、「公式URLを開いて確認」リンクを置いてよい。
 - Step2に競合入力を統合し、除外系 / NG系の顧客入力は置かない。
 - Step3は「見たいこと」だけに絞り、除外・NG系の入力を置かない。
 - Step4で、画面内の同期処理として `generateProjectSetupDraft` を呼び、Recoraが生成したプロンプト例を表示する。
@@ -49,8 +52,17 @@
 
 画面が行わないこと:
 
-- DB write、Supabase write、外部API呼び出し、OpenAI API呼び出し、Webクロール、Fetch、検索、AI計測、計測実行
+- DB write、Supabase write、OpenAI API呼び出し、検索、AI計測、計測実行
+- ユーザー入力URL以外への確認、複数ページ取得、サイトマップ取得、リンク探索、ページ内URLのクロール、大量HTML解析
 - 保存、承認、materialize、レポート確定、認証本実装、middleware変更、`package-lock.json` 変更
+
+公式URL単一ページ確認の安全境界:
+
+- 入力URLは http / https のみ許可し、認証情報と fragment は使用しない。
+- localhost、`.localhost`、127.0.0.0/8、10.0.0.0/8、172.16.0.0/12、192.168.0.0/16、link-local、loopback、private、documentation、multicast などのローカル / 非公開IPは拒否する。
+- ホスト名はDNS解決後の全IPを検査し、非公開IPが含まれる場合は拒否する。
+- リダイレクトは少数回だけ追跡し、各転送先URLも同じ条件で再検証する。
+- レスポンスはHTML本文の先頭だけを上限付きで読み、title、meta description、og:site_name、h1、canonical 以外のページ解析に広げない。
 
 ## 主な関数
 
