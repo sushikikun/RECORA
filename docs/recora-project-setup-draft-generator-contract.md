@@ -12,27 +12,37 @@
 
 ## 無料診断後の初期設定ウィザード
 
-`app/onboarding/project-setup/page.tsx` は、無料診断 / 新規登録後に続くAPI前の測定条件確認画面として `generateProjectSetupDraft` を画面内で利用する。顧客が詳細な persona / topic / prompt / category を作成する画面ではない。
+`app/onboarding/project-setup/page.tsx` は、無料診断 / 新規登録後に続くAPI前の測定条件確認画面として `generateProjectSetupDraft` を画面内で利用する。顧客が詳細な persona / topic / prompt / category を作成する画面ではなく、Recoraが測定設計に入る前提を確認する画面である。
+
+画面は5ステップ構成とする:
+
+1. ブランド確認
+2. サービス理解・市場・顧客層
+3. 競合・除外
+4. 見たいこと・避けたいこと
+5. Recoraの測定設計
 
 画面で顧客に確認する項目:
 
-- 正式な対象ブランド名、別名・表記ゆれ、公式ドメイン / 対象URL、今回測りたい商品・サービス範囲
-- 対象市場・地域、言語、BtoB / BtoC、主な顧客層、検討者・利用者・決裁者
-- 比較したい競合、競合未定 / Recoraで候補抽出、除外したい会社・媒体・カテゴリ、競合ではないがAI/検索に出そうな媒体・カテゴリ
-- 重点的に見たい論点、測定してほしくないNG領域、レポート目的、確認用メモ
-- 計測頻度、AIモデル数、最大プロンプト数目安、コスト感
+- 正式なブランド名 / サービス名、表記ゆれ・別名、公式URL
+- サービス説明、サービスカテゴリ、対象市場・地域、測定する言語、BtoB / BtoC、主に見る顧客層
+- 比較したい競合、競合未定 / Recoraで候補抽出、除外したい会社・媒体・カテゴリ
+- 特に見たいこと、測ってほしくない話題、今回知りたいこと
+- Recoraが測定前に確認する測定対象、見る相手、質問領域、質問例、注意点
 
 画面の役割:
 
 - 入力値は React state のみで保持し、ページ reload で消えてよい。
-- Step 6で、画面内の同期処理として `generateProjectSetupDraft` を呼び、Recoraが category / persona / topic / prompt の下書き要約を生成する。
-- 顧客には詳細persona、細かいtopic、prompt本文の作成を要求しない。Recora生成下書きは要約確認とメモ入力に留める。
-- prompt詳細は初期状態で畳み、「プロンプトを確認する」で表示する。
-- 「必ず測りたい質問」は優先候補として表示するが、brand / alias / domain / 実名競合を含む場合は visibility / ranking / SOV 候補から外す前提で扱う。
+- 旧Step5の診断プランは顧客向けUIから削除する。診断プラン、計測量、モデル数、頻度、コスト感は顧客が決める項目として扱わない。
+- 旧Step6のRecora生成下書きは新Step5「Recoraの測定設計」に統合する。最終確認もStep5下部に統合し、別ステップにはしない。
+- Step5で、画面内の同期処理として `generateProjectSetupDraft` を呼び、Recoraが測定前に確認する設計案に変換する。
+- 顧客には詳細persona、細かいtopic、prompt本文の作成を要求しない。内部の persona / topic / prompt は、顧客向けには「見る相手」「質問領域」「質問例」として表示する。
+- UIには `businessModel`、`industryAdapter`、`topicType`、`roleType`、blocker ID、warning ID などの内部IDや生の内部分類を出さない。
+- promptという語は顧客向けUIでは使わず、質問例として扱う。詳細表示ボタンも「質問例をもっと見る」のように表現する。
+- 「必ず入れたい質問」「測ってほしくない質問」は確認情報として保持する。brand / alias / domain / 実名競合を含む場合は visibility / ranking / SOV 候補から外す前提で扱う。
 - 競合が未定でも進行できる。`knownCompetitors` は空配列、画面状態は `competitor_discovery_needed` とする。
-- 競合未定時、AI表示率、自社サイト引用率、AI回答、参照元、ブランド認知は出せる。Share of Voice は制限付き、ブランド比較、競合に取られている質問、競合に取られている参照元は自動検出候補扱いとする。正式な比較には後続の承認が必要。
-- 計測頻度、AIモデル数、最大プロンプト数目安、コスト感、NG領域、確認用メモはUI確認情報として扱い、新しい永続fieldやDB schemaは追加しない。
-- 診断したい目的の自由入力メモは確認用メモであり、`ProjectSetupSeedInput` や generator 入力には反映しない。
+- 競合未定時、AI表示率、自社サイト引用率、AI回答、参照元、ブランド認知は確認対象にできる。Share of Voice は制限付き、ブランド比較、競合に取られている質問、競合に取られている参照元は自動検出候補扱いとする。正式な比較には後続の承認が必要。
+- 新しい永続fieldやDB schemaは追加しない。
 - 公開用サンプルJSONは追加しない。
 
 画面が行わないこと:
