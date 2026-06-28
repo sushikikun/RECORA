@@ -118,9 +118,9 @@ export function ProjectSetupWizard() {
   const [formState, setFormState] = useState<SeedFormState>(initialFormState);
   const [audienceOverride, setAudienceOverride] = useState<AudienceOverride>("auto");
   const [showSeedErrors, setShowSeedErrors] = useState(false);
-  const [personas, setPersonas] = useState<PersonaDraft[]>([]);
-  const [topics, setTopics] = useState<TopicDraft[]>([]);
-  const [prompts, setPrompts] = useState<PromptDraft[]>([]);
+  const [personas, setPersonas] = useState<PersonaDraft[] | null>(null);
+  const [topics, setTopics] = useState<TopicDraft[] | null>(null);
+  const [prompts, setPrompts] = useState<PromptDraft[] | null>(null);
   const [extraPriorityPromptsText, setExtraPriorityPromptsText] = useState("");
   const [showPromptDetails, setShowPromptDetails] = useState(false);
   const [promptFilter, setPromptFilter] = useState<PromptFilter>("all");
@@ -136,15 +136,15 @@ export function ProjectSetupWizard() {
   const brandIdentity = useMemo(() => buildBrandIdentity(seedInput), [seedInput]);
 
   const visiblePersonas = useMemo<PersonaDraft[]>(
-    () => personas.length > 0 ? personas : [...(generatedDraft?.personas ?? [])],
+    () => personas ?? [...(generatedDraft?.personas ?? [])],
     [generatedDraft, personas]
   );
   const visibleTopics = useMemo<TopicDraft[]>(
-    () => topics.length > 0 ? topics : [...(generatedDraft?.topics ?? [])],
+    () => topics ?? [...(generatedDraft?.topics ?? [])],
     [generatedDraft, topics]
   );
   const visiblePrompts = useMemo<PromptDraft[]>(
-    () => prompts.length > 0 ? prompts : [...(generatedDraft?.prompts ?? [])],
+    () => prompts ?? [...(generatedDraft?.prompts ?? [])],
     [generatedDraft, prompts]
   );
 
@@ -189,11 +189,12 @@ export function ProjectSetupWizard() {
     });
   }
 
-  function refreshDraftState() {
+  function ensureDraftStateInitialized() {
     if (!generationState.result) return false;
-    setPersonas(generationState.result.draft.personas.map((item) => ({ ...item })));
-    setTopics(generationState.result.draft.topics.map((item) => ({ ...item })));
-    setPrompts(generationState.result.draft.prompts.map((item) => ({ ...item })));
+    const { draft } = generationState.result;
+    setPersonas((current) => current ?? draft.personas.map((item) => ({ ...item })));
+    setTopics((current) => current ?? draft.topics.map((item) => ({ ...item })));
+    setPrompts((current) => current ?? draft.prompts.map((item) => ({ ...item })));
     return true;
   }
 
@@ -202,9 +203,8 @@ export function ProjectSetupWizard() {
     if (stepIndex === 0) {
       setShowSeedErrors(true);
       if (!canAdvanceFromInput) return;
-      refreshDraftState();
     }
-    if (stepIndex === 1 && (!generationState.result || !refreshDraftState())) return;
+    if (stepIndex === 1 && (!generationState.result || !ensureDraftStateInitialized())) return;
     setStepIndex((current) => Math.min(current + 1, steps.length - 1));
   }
 
@@ -217,9 +217,9 @@ export function ProjectSetupWizard() {
     setFormState(initialFormState);
     setAudienceOverride("auto");
     setShowSeedErrors(false);
-    setPersonas([]);
-    setTopics([]);
-    setPrompts([]);
+    setPersonas(null);
+    setTopics(null);
+    setPrompts(null);
     setExtraPriorityPromptsText("");
     setShowPromptDetails(false);
     setPromptFilter("all");
@@ -237,6 +237,7 @@ export function ProjectSetupWizard() {
       topics: visibleTopics,
       prompts: visiblePrompts,
       priorityPrompts,
+      diagnosisGoalMemo: formState.diagnosisGoalText,
       blockers: generationState.result?.blockers ?? seedBlockers,
       warnings: generationState.result?.warnings ?? []
     });
@@ -331,6 +332,7 @@ export function ProjectSetupWizard() {
               topics={visibleTopics}
               prompts={visiblePrompts}
               priorityPrompts={priorityPrompts}
+              diagnosisGoalMemo={formState.diagnosisGoalText}
               promptBreakdown={promptBreakdown}
               blockers={generationState.result?.blockers ?? seedBlockers}
               warnings={generationState.result?.warnings ?? []}
@@ -448,7 +450,10 @@ function InputStep({
         />
         <TextareaInput label="強み" value={formState.strengthsText} onChange={(value) => updateField("strengthsText", value)} placeholder="例: 導入支援が手厚い、比較資料が豊富" />
         <TextareaInput label="既知のリスク / 注意点" value={formState.knownRisksText} onChange={(value) => updateField("knownRisksText", value)} placeholder="例: 料金体系が分かりにくい、導入まで時間がかかる" />
-        <TextareaInput label="診断したい目的" value={formState.diagnosisGoalText} onChange={(value) => updateField("diagnosisGoalText", value)} placeholder="例: 競合だけが候補になる質問を見つけたい" />
+        <TextareaInput label="診断したい目的（確認用メモ）" value={formState.diagnosisGoalText} onChange={(value) => updateField("diagnosisGoalText", value)} placeholder="例: 競合だけが候補になる質問を見つけたい" />
+        <p className="text-xs font-semibold leading-5 text-[#64748B]">
+          このメモは画面と最終確認用です。ProjectSetupSeedInput には含めず、generator の下書き生成条件には使いません。
+        </p>
       </div>
 
       <div className="mt-6 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] p-4">
@@ -552,8 +557,9 @@ function ClassificationStep({
         <TextInput label="業種カテゴリを変更" value={formState.industryCategory} onChange={(value) => updateField("industryCategory", value)} />
         <TextInput label="主な顧客層を変更" value={formState.targetCustomers} onChange={(value) => updateField("targetCustomers", value)} />
         <TextInput label="対象地域を変更" value={formState.regionsText} onChange={(value) => updateField("regionsText", value)} />
-        <TextInput label="診断目的を変更" value={formState.diagnosisGoalText} onChange={(value) => updateField("diagnosisGoalText", value)} />
+        <TextInput label="確認用メモを変更" value={formState.diagnosisGoalText} onChange={(value) => updateField("diagnosisGoalText", value)} />
       </div>
+      <DraftNotice label="確認用メモは generator の入力ではありません。下書き生成条件には使わず、最終確認で見返すためだけに表示します。" />
 
       <div className="mt-6">
         <label className="text-sm font-bold text-[#0F172A]">BtoB / BtoC 判定を変更</label>
@@ -641,6 +647,7 @@ function PersonaStep({
             onRemove={() => setPersonas(personas.filter((_, itemIndex) => itemIndex !== index))}
           />
         ))}
+        {personas.length === 0 ? <EmptyDraftState label="ペルソナは0件です。削除した状態を保持しています。" /> : null}
       </div>
       <DraftNotice label="このペルソナは下書きです。保存・承認・計測反映はまだ行いません。" />
     </WizardPanel>
@@ -681,6 +688,7 @@ function TopicStep({
             onRemove={() => setTopics(topics.filter((_, itemIndex) => itemIndex !== index))}
           />
         ))}
+        {topics.length === 0 ? <EmptyDraftState label="トピックは0件です。削除した状態を保持しています。" /> : null}
       </div>
       <DraftNotice label="このトピックは下書きです。保存・承認・計測反映はまだ行いません。" />
     </WizardPanel>
@@ -809,6 +817,7 @@ function PromptStep({
             onMove={(direction) => setPrompts(moveById(prompts, prompt.promptId, direction))}
           />
         ))}
+        {prompts.length === 0 ? <EmptyDraftState label="プロンプトは0件です。削除した状態を保持しています。" /> : null}
       </div>
       <DraftNotice label="未承認promptは measurement ready ではありません。branded / citation_check / 実名競合入りpromptは visibility / ranking / SOV から分離します。" />
     </WizardPanel>
@@ -823,6 +832,7 @@ function ConfirmStep({
   topics,
   prompts,
   priorityPrompts,
+  diagnosisGoalMemo,
   promptBreakdown,
   blockers,
   warnings,
@@ -837,6 +847,7 @@ function ConfirmStep({
   topics: TopicDraft[];
   prompts: PromptDraft[];
   priorityPrompts: PriorityPromptCandidate[];
+  diagnosisGoalMemo: string;
   promptBreakdown: Record<PromptGroup, number>;
   blockers: string[];
   warnings: string[];
@@ -882,6 +893,12 @@ function ConfirmStep({
       <ReviewList title="ペルソナ一覧" items={personas.map((persona) => `${persona.displayName} / ${persona.roleType} / ${persona.reviewStatus}`)} />
       <ReviewList title="トピック一覧" items={topics.map((topic) => `${topic.topicName} / ${topic.topicType} / ${topic.reviewStatus}`)} />
       <ReviewList title="優先採用候補prompt" items={priorityPrompts.map((candidate) => `${candidate.text} / ${candidate.label}`)} emptyText="優先採用候補はありません。" />
+      <ReviewList
+        title="診断したい目的（確認用メモ）"
+        items={diagnosisGoalMemo.trim() ? [diagnosisGoalMemo.trim()] : []}
+        emptyText="確認用メモはありません。"
+      />
+      <DraftNotice label="確認用メモは下書き生成条件には使っていません。保存・承認・計測反映もまだ行いません。" />
 
       {blockers.length ? (
         <MessageBox tone="error" title="validation blocker">
@@ -1165,6 +1182,14 @@ function MessageBox({
 function DraftNotice({ label }: { label: string }) {
   return (
     <div className="mt-5 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] px-4 py-3 text-sm font-semibold leading-6 text-[#475569]">
+      {label}
+    </div>
+  );
+}
+
+function EmptyDraftState({ label }: { label: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-[#B8D9D3] bg-[#F8FBFA] px-4 py-5 text-sm font-semibold leading-6 text-[#64748B]">
       {label}
     </div>
   );
@@ -1563,6 +1588,7 @@ function buildConfirmationText(input: {
   topics: TopicDraft[];
   prompts: PromptDraft[];
   priorityPrompts: PriorityPromptCandidate[];
+  diagnosisGoalMemo: string;
   blockers: string[];
   warnings: string[];
 }) {
@@ -1575,6 +1601,8 @@ function buildConfirmationText(input: {
     `カテゴリ: ${input.seedInput.industryCategory}`,
     `BtoB/BtoC: ${formatAudience(input.audience)}`,
     `business model: ${input.businessModel || "未判定"}`,
+    `診断したい目的（確認用メモ）: ${input.diagnosisGoalMemo.trim() || "なし"}`,
+    "確認用メモは ProjectSetupSeedInput には含めず、generator の下書き生成条件には使っていません。",
     "",
     `ペルソナ下書き: ${input.personas.length}件`,
     ...input.personas.map((persona) => `- ${persona.displayName} / ${persona.roleType}`),
