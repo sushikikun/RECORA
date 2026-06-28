@@ -35,7 +35,7 @@ export default function SignupPage({ searchParams = {} }: SignupPageProps) {
                 無料AI検索診断の準備をはじめる
               </h1>
               <p className="mt-4 text-base leading-7 text-white/78">
-                診断準備と結果保存のため、アカウントを作成してください。メール確認後、診断に必要な会社情報の入力へ進めます。
+                診断準備と結果保存のため、アカウントを作成してください。メール確認後、診断に必要な測定条件の確認へ進めます。
               </p>
             </div>
             <ul className="mt-10 space-y-3 text-sm leading-6 text-white/72">
@@ -45,7 +45,7 @@ export default function SignupPage({ searchParams = {} }: SignupPageProps) {
               </li>
               <li className="flex gap-2">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#D8F36A]" />
-                メール確認後に会社情報を入力できます
+                メール確認後に測定条件を確認できます
               </li>
               <li className="flex gap-2">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#D8F36A]" />
@@ -165,9 +165,9 @@ function getSignupMessage(searchParams: SignupPageProps["searchParams"]): AuthMe
   if (searchParams?.sent) {
     return {
       tone: "success",
-      text: "確認メールを送信しました。メール内のリンクから登録を完了してください。会社情報の入力画面も確認できます。",
+      text: "確認メールを送信しました。メール内のリンクから登録を完了してください。測定条件の確認画面も確認できます。",
       actionHref: "/onboarding/project-setup",
-      actionLabel: "初期設定画面を開く"
+      actionLabel: "API前確認画面を開く"
     };
   }
 

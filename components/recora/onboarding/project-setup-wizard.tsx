@@ -1,15 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
   Clipboard,
   Info,
-  Plus,
+  Loader2,
+  RefreshCw,
   RotateCcw,
-  Trash2
+  ShieldCheck
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -32,179 +36,280 @@ import type { ProjectSetupDraftGenerationResult } from "@/lib/recora/project-set
 import { cn } from "@/lib/utils";
 
 const steps = [
-  { title: "会社情報を入力", short: "入力" },
-  { title: "カテゴリ判定", short: "判定" },
-  { title: "ペルソナ下書き", short: "ペルソナ" },
-  { title: "トピック下書き", short: "トピック" },
-  { title: "プロンプト下書き", short: "プロンプト" },
+  { title: "対象ブランド・URL", short: "ブランド" },
+  { title: "測定範囲・市場", short: "市場" },
+  { title: "競合・除外条件", short: "競合" },
+  { title: "重点論点・目的", short: "目的" },
+  { title: "頻度・コスト許可", short: "条件" },
+  { title: "Recora生成下書き", short: "下書き" },
   { title: "最終確認", short: "確認" }
 ] as const;
 
-const promptIntentOptions: { value: PromptIntent; label: string; description: string }[] = [
-  { value: "non_branded", label: "AI表示率 / ranking / SOV", description: "ブランド名を含めない発見・比較用" },
-  { value: "buyer_intent", label: "購買検討", description: "候補選定や導入前確認" },
-  { value: "citation_check", label: "引用確認", description: "参照元や根拠の確認用" },
-  { value: "brand_perception", label: "ブランド認知", description: "sentiment / brand perception 用" }
-];
-
-const promptFilters = [
-  { id: "all", label: "すべて" },
-  { id: "non_branded", label: "指標候補" },
-  { id: "branded", label: "ブランド認知" },
-  { id: "citation_check", label: "引用確認" },
-  { id: "excluded", label: "対象外 / 要確認" }
-] as const;
-
-type PromptFilter = (typeof promptFilters)[number]["id"];
-type AudienceOverride = "auto" | "b2b" | "b2c";
+type AudienceType = "b2b" | "b2c" | "both_or_confirm";
+type CompetitorMode = "known_competitors_confirmed" | "competitor_discovery_needed";
+type ReportPurpose = "visibility" | "competitor" | "citation" | "brand" | "improvement" | "other";
+type MeasurementFrequency = "once" | "weekly" | "daily" | "unknown";
+type ModelCountPreference = "one" | "two_three" | "four_plus" | "unknown";
+type CostPreference = "low" | "standard" | "quality" | "unknown";
 type CopyState = "idle" | "copied" | "failed";
-
-type SeedFormState = {
-  companyName: string;
-  brandName: string;
-  serviceName: string;
-  officialSiteUrl: string;
-  productOrServiceDescription: string;
-  industryCategory: string;
-  targetCustomers: string;
-  regionsText: string;
-  language: string;
-  strengthsText: string;
-  knownRisksText: string;
-  diagnosisGoalText: string;
-  brandAliasesText: string;
-  knownCompetitorsText: string;
-  avoidCompetitorsText: string;
-  priorityPromptsText: string;
-  diagnosisGoals: PromptIntent[];
-};
-
-type GenerationState =
-  | { result: ProjectSetupDraftGenerationResult; error: null }
-  | { result: null; error: string };
-
+type ChecklistStatus = "ready" | "needs_confirmation" | "blocked";
 type PromptGroup = "non_branded" | "branded" | "citation_check" | "excluded";
 
-type PriorityPromptCandidate = {
+type MeasurementWizardState = {
+  brandName: string;
+  brandAliasesText: string;
+  targetUrlsText: string;
+  measurementScope: string;
+  regionsText: string;
+  language: string;
+  audienceType: AudienceType;
+  primaryAudience: string;
+  decisionRolesText: string;
+  competitorMode: CompetitorMode;
+  knownCompetitorsText: string;
+  avoidCompetitorsText: string;
+  adjacentSourcesText: string;
+  focusAnglesText: string;
+  ngAreasText: string;
+  reportPurposes: ReportPurpose[];
+  reportPurposeOther: string;
+  diagnosisGoalText: string;
+  measurementFrequency: MeasurementFrequency;
+  modelCountPreference: ModelCountPreference;
+  maxPromptCount: string;
+  costPreference: CostPreference;
+  priorityQuestionsText: string;
+  categoryNote: string;
+  personaNote: string;
+  topicNote: string;
+  promptNote: string;
+  competitorNote: string;
+};
+
+type DraftGenerationState = {
+  status: "idle" | "generating" | "ready" | "error";
+  result: ProjectSetupDraftGenerationResult | null;
+  error: string | null;
+};
+
+type MeasurementChecklistItem = {
+  label: string;
+  status: ChecklistStatus;
+  detail: string;
+};
+
+type PromptSummary = {
+  prompt: PromptDraft;
+  eligibility: PromptMetricEligibility;
+  group: PromptGroup;
+};
+
+type PriorityQuestionCandidate = {
   id: string;
   text: string;
   group: PromptGroup;
   label: string;
-  reasons: string[];
+  reason: string;
 };
 
-const initialFormState: SeedFormState = {
-  companyName: "",
+type UpdateForm = <K extends keyof MeasurementWizardState>(
+  field: K,
+  value: MeasurementWizardState[K]
+) => void;
+
+const initialFormState: MeasurementWizardState = {
   brandName: "",
-  serviceName: "",
-  officialSiteUrl: "",
-  productOrServiceDescription: "",
-  industryCategory: "",
-  targetCustomers: "",
+  brandAliasesText: "",
+  targetUrlsText: "",
+  measurementScope: "",
   regionsText: "日本",
   language: "ja",
-  strengthsText: "",
-  knownRisksText: "",
-  diagnosisGoalText: "",
-  brandAliasesText: "",
+  audienceType: "b2b",
+  primaryAudience: "",
+  decisionRolesText: "",
+  competitorMode: "competitor_discovery_needed",
   knownCompetitorsText: "",
   avoidCompetitorsText: "",
-  priorityPromptsText: "",
-  diagnosisGoals: ["non_branded", "buyer_intent", "citation_check", "brand_perception"]
+  adjacentSourcesText: "",
+  focusAnglesText: "",
+  ngAreasText: "",
+  reportPurposes: ["visibility"],
+  reportPurposeOther: "",
+  diagnosisGoalText: "",
+  measurementFrequency: "once",
+  modelCountPreference: "two_three",
+  maxPromptCount: "20",
+  costPreference: "standard",
+  priorityQuestionsText: "",
+  categoryNote: "",
+  personaNote: "",
+  topicNote: "",
+  promptNote: "",
+  competitorNote: ""
 };
+
+const audienceOptions = [
+  { value: "b2b", label: "BtoB", description: "法人の検討・導入判断を中心に扱います。" },
+  { value: "b2c", label: "BtoC", description: "個人の比較・購入・利用判断を中心に扱います。" },
+  { value: "both_or_confirm", label: "両方 / 要確認", description: "BtoB/BtoCの切り分けを下書きで確認します。" }
+] as const;
+
+const competitorModeOptions = [
+  {
+    value: "competitor_discovery_needed",
+    label: "未定 / Recoraで候補抽出",
+    description: "正式な比較対象は未承認の候補として扱います。"
+  },
+  {
+    value: "known_competitors_confirmed",
+    label: "比較したい競合がある",
+    description: "入力した3から5社を確認対象として扱います。"
+  }
+] as const;
+
+const reportPurposeOptions = [
+  { value: "visibility", label: "AI検索で自社が出ているか" },
+  { value: "competitor", label: "競合と比べたい" },
+  { value: "citation", label: "参照元を増やしたい" },
+  { value: "brand", label: "ブランド認知を見たい" },
+  { value: "improvement", label: "改善候補を出したい" },
+  { value: "other", label: "その他" }
+] as const;
+
+const frequencyOptions = [
+  { value: "once", label: "単発", description: "まず一度だけ測定する前提で確認します。" },
+  { value: "weekly", label: "週次", description: "変化を定期的に見たい場合の想定です。" },
+  { value: "daily", label: "日次", description: "高頻度監視の必要性を確認します。" },
+  { value: "unknown", label: "未定", description: "最終確認では要確認として表示します。" }
+] as const;
+
+const modelCountOptions = [
+  { value: "one", label: "1", description: "低コストで始める想定です。" },
+  { value: "two_three", label: "2-3", description: "標準的な比較幅として扱います。" },
+  { value: "four_plus", label: "4+", description: "広めに確認したい場合の想定です。" },
+  { value: "unknown", label: "未定", description: "最終確認では要確認として表示します。" }
+] as const;
+
+const maxPromptCountOptions = [
+  { value: "10", label: "10", description: "小さく確認します。" },
+  { value: "20", label: "20", description: "標準的な初期診断の目安です。" },
+  { value: "30", label: "30", description: "広めの初期診断です。" },
+  { value: "50", label: "50", description: "詳細確認が必要な場合の上限候補です。" }
+] as const;
+
+const costPreferenceOptions = [
+  { value: "low", label: "低コスト優先", description: "測定量を抑える方向で確認します。" },
+  { value: "standard", label: "標準", description: "精度とコストのバランスを取ります。" },
+  { value: "quality", label: "多めでも精度優先", description: "必要なら測定幅を広げる前提です。" },
+  { value: "unknown", label: "未定", description: "最終確認では要確認として表示します。" }
+] as const;
+
+const generationResetFields = new Set<keyof MeasurementWizardState>([
+  "brandName",
+  "brandAliasesText",
+  "targetUrlsText",
+  "measurementScope",
+  "regionsText",
+  "language",
+  "audienceType",
+  "primaryAudience",
+  "decisionRolesText",
+  "competitorMode",
+  "knownCompetitorsText",
+  "avoidCompetitorsText",
+  "adjacentSourcesText",
+  "focusAnglesText",
+  "reportPurposes",
+  "reportPurposeOther"
+]);
 
 export function ProjectSetupWizard() {
   const [stepIndex, setStepIndex] = useState(0);
-  const [formState, setFormState] = useState<SeedFormState>(initialFormState);
-  const [audienceOverride, setAudienceOverride] = useState<AudienceOverride>("auto");
-  const [showSeedErrors, setShowSeedErrors] = useState(false);
-  const [personas, setPersonas] = useState<PersonaDraft[] | null>(null);
-  const [topics, setTopics] = useState<TopicDraft[] | null>(null);
-  const [prompts, setPrompts] = useState<PromptDraft[] | null>(null);
-  const [extraPriorityPromptsText, setExtraPriorityPromptsText] = useState("");
+  const [formState, setFormState] = useState<MeasurementWizardState>(initialFormState);
+  const [attemptedSteps, setAttemptedSteps] = useState<Record<number, boolean>>({});
+  const [generationState, setGenerationState] = useState<DraftGenerationState>({
+    status: "idle",
+    result: null,
+    error: null
+  });
   const [showPromptDetails, setShowPromptDetails] = useState(false);
-  const [promptFilter, setPromptFilter] = useState<PromptFilter>("all");
   const [copyState, setCopyState] = useState<CopyState>("idle");
 
-  const seedInput = useMemo(
-    () => buildSeedInput(formState, audienceOverride),
-    [formState, audienceOverride]
-  );
+  const seedInput = useMemo(() => buildSeedInput(formState), [formState]);
   const seedBlockers = useMemo(() => validateProjectSetupSeedInput(seedInput), [seedInput]);
-  const generationState = useMemo(() => safelyGenerateDraft(seedInput), [seedInput]);
-  const generatedDraft = generationState.result?.draft ?? null;
+  const draft = generationState.result?.draft ?? null;
   const brandIdentity = useMemo(() => buildBrandIdentity(seedInput), [seedInput]);
-
-  const visiblePersonas = useMemo<PersonaDraft[]>(
-    () => personas ?? [...(generatedDraft?.personas ?? [])],
-    [generatedDraft, personas]
-  );
-  const visibleTopics = useMemo<TopicDraft[]>(
-    () => topics ?? [...(generatedDraft?.topics ?? [])],
-    [generatedDraft, topics]
-  );
-  const visiblePrompts = useMemo<PromptDraft[]>(
-    () => prompts ?? [...(generatedDraft?.prompts ?? [])],
-    [generatedDraft, prompts]
-  );
-
-  const priorityPrompts = useMemo(
-    () => buildPriorityPromptCandidates(formState, extraPriorityPromptsText, brandIdentity, seedInput),
-    [formState, extraPriorityPromptsText, brandIdentity, seedInput]
+  const priorityQuestionCandidates = useMemo(
+    () => buildPriorityQuestionCandidates(formState, brandIdentity, seedInput),
+    [brandIdentity, formState, seedInput]
   );
   const promptSummaries = useMemo(
-    () => visiblePrompts.map((prompt) => {
-      const eligibility = derivePromptMetricEligibility(prompt, brandIdentity);
-      return {
-        prompt,
-        eligibility,
-        group: getPromptGroup(prompt, eligibility)
-      };
-    }),
-    [visiblePrompts, brandIdentity]
+    () => (draft?.prompts ?? []).map((prompt) => summarizePrompt(prompt, brandIdentity)),
+    [brandIdentity, draft]
   );
-  const filteredPromptSummaries = promptSummaries.filter((summary) =>
-    promptFilter === "all" ? true : summary.group === promptFilter
+  const promptBreakdown = useMemo(
+    () => getPromptBreakdown(promptSummaries, priorityQuestionCandidates),
+    [priorityQuestionCandidates, promptSummaries]
   );
-  const promptBreakdown = getPromptBreakdown(promptSummaries, priorityPrompts);
-  const businessModel = getInputCompletionValue(generatedDraft, "businessModel");
-  const industryAdapter = getInputCompletionValue(generatedDraft, "industryAdapter");
-  const inferredAudience = audienceOverride === "auto"
-    ? inferAudienceFromBusinessModel(businessModel)
-    : audienceOverride;
+  const checklist = useMemo(() => buildMeasurementChecklist(formState), [formState]);
+  const currentStepBlockers = getStepBlockers(stepIndex, formState);
+  const showCurrentBlockers = attemptedSteps[stepIndex] && currentStepBlockers.length > 0;
 
-  const canAdvanceFromInput = seedBlockers.length === 0 && generationState.result !== null;
-
-  function updateField(field: keyof SeedFormState, value: string) {
-    setFormState((current) => ({ ...current, [field]: value }));
-  }
-
-  function toggleDiagnosisGoal(goal: PromptIntent) {
+  const updateForm: UpdateForm = (field, value) => {
+    setCopyState("idle");
     setFormState((current) => {
-      const exists = current.diagnosisGoals.includes(goal);
-      const diagnosisGoals = exists
-        ? current.diagnosisGoals.filter((item) => item !== goal)
-        : [...current.diagnosisGoals, goal];
-      return { ...current, diagnosisGoals };
+      const next = { ...current, [field]: value };
+      if (field === "knownCompetitorsText" && typeof value === "string" && value.trim()) {
+        next.competitorMode = "known_competitors_confirmed";
+      }
+      return next;
     });
+    if (generationResetFields.has(field)) {
+      setGenerationState({ status: "idle", result: null, error: null });
+    }
+  };
+
+  function toggleReportPurpose(purpose: ReportPurpose) {
+    const exists = formState.reportPurposes.includes(purpose);
+    const nextPurposes = exists
+      ? formState.reportPurposes.filter((item) => item !== purpose)
+      : [...formState.reportPurposes, purpose];
+    updateForm("reportPurposes", nextPurposes);
   }
 
-  function ensureDraftStateInitialized() {
-    if (!generationState.result) return false;
-    const { draft } = generationState.result;
-    setPersonas((current) => current ?? draft.personas.map((item) => ({ ...item })));
-    setTopics((current) => current ?? draft.topics.map((item) => ({ ...item })));
-    setPrompts((current) => current ?? draft.prompts.map((item) => ({ ...item })));
-    return true;
+  function runGenerator() {
+    setGenerationState({ status: "generating", result: null, error: null });
+    window.setTimeout(() => {
+      try {
+        const result = generateProjectSetupDraft(seedInput);
+        setGenerationState({ status: "ready", result, error: null });
+      } catch {
+        setGenerationState({
+          status: "error",
+          result: null,
+          error: "下書き生成中に予期しないエラーが発生しました。入力内容を確認してください。"
+        });
+      }
+    }, 0);
   }
 
   function goNext() {
     setCopyState("idle");
-    if (stepIndex === 0) {
-      setShowSeedErrors(true);
-      if (!canAdvanceFromInput) return;
+    const blockers = getStepBlockers(stepIndex, formState);
+    setAttemptedSteps((current) => ({ ...current, [stepIndex]: true }));
+    if (blockers.length > 0) return;
+
+    if (stepIndex === 4) {
+      setStepIndex(5);
+      runGenerator();
+      return;
     }
-    if (stepIndex === 1 && (!generationState.result || !ensureDraftStateInitialized())) return;
+
+    if (stepIndex === 5 && generationState.status !== "ready") {
+      runGenerator();
+      return;
+    }
+
     setStepIndex((current) => Math.min(current + 1, steps.length - 1));
   }
 
@@ -215,14 +320,9 @@ export function ProjectSetupWizard() {
 
   function restartWizard() {
     setFormState(initialFormState);
-    setAudienceOverride("auto");
-    setShowSeedErrors(false);
-    setPersonas(null);
-    setTopics(null);
-    setPrompts(null);
-    setExtraPriorityPromptsText("");
+    setAttemptedSteps({});
+    setGenerationState({ status: "idle", result: null, error: null });
     setShowPromptDetails(false);
-    setPromptFilter("all");
     setCopyState("idle");
     setStepIndex(0);
   }
@@ -230,14 +330,12 @@ export function ProjectSetupWizard() {
   async function copyConfirmationText() {
     setCopyState("idle");
     const text = buildConfirmationText({
+      formState,
       seedInput,
-      businessModel,
-      audience: inferredAudience,
-      personas: visiblePersonas,
-      topics: visibleTopics,
-      prompts: visiblePrompts,
-      priorityPrompts,
-      diagnosisGoalMemo: formState.diagnosisGoalText,
+      draft,
+      promptBreakdown,
+      priorityQuestionCandidates,
+      checklist,
       blockers: generationState.result?.blockers ?? seedBlockers,
       warnings: generationState.result?.warnings ?? []
     });
@@ -253,19 +351,19 @@ export function ProjectSetupWizard() {
   return (
     <main className="min-h-screen bg-[#F6FAF9] text-slate-950">
       <section className="border-b border-[#DDE8E5] bg-white">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-7 sm:px-8 lg:flex-row lg:items-end lg:justify-between">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-5 py-7 sm:px-8 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
-            <p className="text-sm font-bold text-[#00796B]">無料診断の初期設定</p>
+            <p className="text-sm font-bold text-[#00796B]">無料診断後のAPI前確認</p>
             <h1 className="mt-2 text-3xl font-bold leading-tight tracking-normal text-[#0F172A] sm:text-4xl">
-              会社情報から、persona / topic / prompt の下書きまで確認する
+              測定条件を確認し、Recoraの下書きを見る
             </h1>
             <p className="mt-3 text-sm leading-7 text-[#64748B]">
-              このウィザードは新規登録後の下書き確認 UI です。保存・承認・計測反映はまだ行いません。
+              顧客には詳細なpersona / topic / promptを作ってもらわず、測定に必要な前提だけを確認します。
             </p>
           </div>
           <div className="rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] px-4 py-3 text-sm leading-6 text-[#475569]">
-            <strong className="block text-[#0F172A]">今回の範囲</strong>
-            DB writeなし / 外部APIなし / 計測実行なし
+            <strong className="block text-[#0F172A]">この画面で行わないこと</strong>
+            DB write / 外部API / Fetch / 検索 / AI計測 / 保存・承認・materialize
           </div>
         </div>
       </section>
@@ -276,70 +374,54 @@ export function ProjectSetupWizard() {
         </aside>
 
         <section className="min-w-0">
-          {stepIndex === 0 ? (
-            <InputStep
-              formState={formState}
-              updateField={updateField}
-              toggleDiagnosisGoal={toggleDiagnosisGoal}
-              showSeedErrors={showSeedErrors}
-              seedBlockers={seedBlockers}
-              generationState={generationState}
-            />
-          ) : null}
-          {stepIndex === 1 ? (
-            <ClassificationStep
-              formState={formState}
-              updateField={updateField}
-              audienceOverride={audienceOverride}
-              setAudienceOverride={setAudienceOverride}
-              generatedDraft={generatedDraft}
-              businessModel={businessModel}
-              industryAdapter={industryAdapter}
-              inferredAudience={inferredAudience}
-              generationState={generationState}
-            />
-          ) : null}
-          {stepIndex === 2 ? (
-            <PersonaStep personas={visiblePersonas} setPersonas={setPersonas} seedInput={seedInput} />
-          ) : null}
+          {stepIndex === 0 ? <BrandStep formState={formState} updateForm={updateForm} /> : null}
+          {stepIndex === 1 ? <MarketStep formState={formState} updateForm={updateForm} /> : null}
+          {stepIndex === 2 ? <CompetitorStep formState={formState} updateForm={updateForm} /> : null}
           {stepIndex === 3 ? (
-            <TopicStep topics={visibleTopics} setTopics={setTopics} personas={visiblePersonas} seedInput={seedInput} />
+            <PurposeStep
+              formState={formState}
+              updateForm={updateForm}
+              toggleReportPurpose={toggleReportPurpose}
+            />
           ) : null}
-          {stepIndex === 4 ? (
-            <PromptStep
-              prompts={visiblePrompts}
-              setPrompts={setPrompts}
-              topics={visibleTopics}
-              personas={visiblePersonas}
+          {stepIndex === 4 ? <CostStep formState={formState} updateForm={updateForm} /> : null}
+          {stepIndex === 5 ? (
+            <GeneratedDraftStep
+              formState={formState}
+              updateForm={updateForm}
               seedInput={seedInput}
-              priorityPrompts={priorityPrompts}
-              extraPriorityPromptsText={extraPriorityPromptsText}
-              setExtraPriorityPromptsText={setExtraPriorityPromptsText}
-              promptFilter={promptFilter}
-              setPromptFilter={setPromptFilter}
-              promptSummaries={filteredPromptSummaries}
+              generationState={generationState}
+              promptSummaries={promptSummaries}
               promptBreakdown={promptBreakdown}
+              priorityQuestionCandidates={priorityQuestionCandidates}
+              checklist={checklist}
               showPromptDetails={showPromptDetails}
               setShowPromptDetails={setShowPromptDetails}
+              onRegenerate={runGenerator}
             />
           ) : null}
-          {stepIndex === 5 ? (
-            <ConfirmStep
+          {stepIndex === 6 ? (
+            <FinalConfirmationStep
+              formState={formState}
               seedInput={seedInput}
-              businessModel={businessModel}
-              inferredAudience={inferredAudience}
-              personas={visiblePersonas}
-              topics={visibleTopics}
-              prompts={visiblePrompts}
-              priorityPrompts={priorityPrompts}
-              diagnosisGoalMemo={formState.diagnosisGoalText}
+              generationState={generationState}
               promptBreakdown={promptBreakdown}
-              blockers={generationState.result?.blockers ?? seedBlockers}
-              warnings={generationState.result?.warnings ?? []}
+              priorityQuestionCandidates={priorityQuestionCandidates}
+              checklist={checklist}
               copyState={copyState}
               onCopy={copyConfirmationText}
-              onRestart={restartWizard}
+              onRegenerate={runGenerator}
             />
+          ) : null}
+
+          {showCurrentBlockers ? (
+            <MessageBox tone="error" title="次に進む前に確認してください">
+              <ul className="space-y-1">
+                {currentStepBlockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </MessageBox>
           ) : null}
 
           <div className="mt-6 flex flex-col gap-3 border-t border-[#DDE8E5] pt-5 sm:flex-row sm:items-center sm:justify-between">
@@ -349,11 +431,11 @@ export function ProjectSetupWizard() {
             </Button>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <p className="text-xs font-semibold leading-5 text-[#64748B]">
-                この画面内の編集は保存されません。ページを再読み込みすると消えます。
+                入力値はReact stateのみで保持します。ページを再読み込みすると消えます。
               </p>
               {stepIndex < steps.length - 1 ? (
-                <Button type="button" onClick={goNext}>
-                  次へ進む
+                <Button type="button" onClick={goNext} disabled={generationState.status === "generating"}>
+                  {stepIndex === 4 ? "下書きを生成する" : "次へ進む"}
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               ) : (
@@ -367,6 +449,485 @@ export function ProjectSetupWizard() {
         </section>
       </div>
     </main>
+  );
+}
+
+function BrandStep({ formState, updateForm }: { formState: MeasurementWizardState; updateForm: UpdateForm }) {
+  return (
+    <WizardPanel
+      eyebrow="Step 1"
+      title="対象ブランド・URL"
+      description="対象ブランドと、測定対象に含める公式ドメイン / URLを確認します。URLは入力値として扱うだけで、サイト取得やcrawlは行いません。"
+    >
+      <div className="grid gap-5 lg:grid-cols-2">
+        <TextInput
+          label="正式な対象ブランド名"
+          value={formState.brandName}
+          onChange={(value) => updateForm("brandName", value)}
+          required
+          placeholder="例: Recora"
+        />
+        <TextareaInput
+          label="別名・表記ゆれ"
+          value={formState.brandAliasesText}
+          onChange={(value) => updateForm("brandAliasesText", value)}
+          placeholder="1行1件で入力。例: RECORA"
+          rows={4}
+        />
+      </div>
+      <div className="mt-5 grid gap-5">
+        <TextareaInput
+          label="公式ドメイン / 対象URL"
+          value={formState.targetUrlsText}
+          onChange={(value) => updateForm("targetUrlsText", value)}
+          required
+          rows={4}
+          placeholder={"https://example.com\nexample.jp/service"}
+        />
+        <TextareaInput
+          label="今回測りたい商品・サービス範囲"
+          value={formState.measurementScope}
+          onChange={(value) => updateForm("measurementScope", value)}
+          required
+          rows={4}
+          placeholder="例: AI検索でのBtoB SaaS比較・引用状況を測りたい"
+        />
+      </div>
+      <InfoCallout>
+        別名・表記ゆれはAI回答の表現確認に使う想定です。http/httpsがないURLは下書き生成用にhttps://を補いますが、Fetch / サイト調査 / 検索は実行しません。
+      </InfoCallout>
+    </WizardPanel>
+  );
+}
+
+function MarketStep({ formState, updateForm }: { formState: MeasurementWizardState; updateForm: UpdateForm }) {
+  return (
+    <WizardPanel
+      eyebrow="Step 2"
+      title="測定範囲・市場・顧客層"
+      description="Recoraが詳細ペルソナを下書きするため、顧客には意思決定の文脈だけを確認します。年齢・趣味・架空プロフィールは求めません。"
+    >
+      <div className="grid gap-5 lg:grid-cols-2">
+        <TextInput
+          label="対象市場・地域"
+          value={formState.regionsText}
+          onChange={(value) => updateForm("regionsText", value)}
+          required
+          placeholder="例: 日本、関東、東京都"
+        />
+        <TextInput
+          label="言語"
+          value={formState.language}
+          onChange={(value) => updateForm("language", value)}
+          required
+          placeholder="ja"
+        />
+      </div>
+      <div className="mt-5">
+        <ChoiceGroup
+          label="BtoB / BtoC"
+          value={formState.audienceType}
+          onChange={(value) => updateForm("audienceType", value)}
+          options={audienceOptions}
+          required
+        />
+      </div>
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <TextareaInput
+          label="主な顧客層"
+          value={formState.primaryAudience}
+          onChange={(value) => updateForm("primaryAudience", value)}
+          required
+          rows={4}
+          placeholder="例: AI検索で比較されるBtoB SaaSの導入責任者"
+        />
+        <TextareaInput
+          label="主な検討者・利用者・決裁者"
+          value={formState.decisionRolesText}
+          onChange={(value) => updateForm("decisionRolesText", value)}
+          required
+          rows={4}
+          placeholder="例: 事業責任者、マーケ責任者、実務担当者"
+        />
+      </div>
+      <InfoCallout>
+        industryCategoryは顧客に細かく入力してもらわず、商品・サービス範囲からRecoraが暫定カテゴリを決めます。
+      </InfoCallout>
+    </WizardPanel>
+  );
+}
+
+function CompetitorStep({ formState, updateForm }: { formState: MeasurementWizardState; updateForm: UpdateForm }) {
+  const knownCompetitors = splitList(formState.knownCompetitorsText);
+
+  return (
+    <WizardPanel
+      eyebrow="Step 3"
+      title="競合・除外条件"
+      description="競合が未定でも診断準備は進められます。正式な競合比較は後続の承認対象として分けます。"
+    >
+      <ChoiceGroup
+        label="競合の扱い"
+        value={formState.competitorMode}
+        onChange={(value) => updateForm("competitorMode", value)}
+        options={competitorModeOptions}
+        required
+      />
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <TextareaInput
+          label="比較したい競合"
+          value={formState.knownCompetitorsText}
+          onChange={(value) => updateForm("knownCompetitorsText", value)}
+          rows={4}
+          placeholder="1行1件。3から5社までを目安に入力"
+        />
+        <TextareaInput
+          label="除外したい会社・媒体・カテゴリ"
+          value={formState.avoidCompetitorsText}
+          onChange={(value) => updateForm("avoidCompetitorsText", value)}
+          rows={4}
+          placeholder="例: 採用媒体、求人広告、特定の比較サイト"
+        />
+      </div>
+      <div className="mt-5">
+        <TextareaInput
+          label="競合ではないがAI/検索に出そうな媒体・カテゴリ"
+          value={formState.adjacentSourcesText}
+          onChange={(value) => updateForm("adjacentSourcesText", value)}
+          rows={3}
+          placeholder="例: 大手メディア、口コミサイト、業界団体"
+        />
+      </div>
+      {knownCompetitors.length > 5 ? (
+        <MessageBox tone="warning" title="競合数の目安">
+          比較したい競合は最初の5件までをgenerator入力に使います。残りは確認メモとして扱ってください。
+        </MessageBox>
+      ) : null}
+      {formState.competitorMode === "competitor_discovery_needed" ? <CompetitorDiscoveryNotice /> : null}
+    </WizardPanel>
+  );
+}
+
+function PurposeStep({
+  formState,
+  updateForm,
+  toggleReportPurpose
+}: {
+  formState: MeasurementWizardState;
+  updateForm: UpdateForm;
+  toggleReportPurpose: (purpose: ReportPurpose) => void;
+}) {
+  return (
+    <WizardPanel
+      eyebrow="Step 4"
+      title="重点論点・NG領域・レポート目的"
+      description="強みや既知リスクの入力欄は作らず、測定で見たい論点と避けたい領域として確認します。"
+    >
+      <div className="grid gap-5 lg:grid-cols-2">
+        <TextareaInput
+          label="重点的に見たい論点"
+          value={formState.focusAnglesText}
+          onChange={(value) => updateForm("focusAnglesText", value)}
+          required
+          rows={4}
+          placeholder="例: AI回答で候補に挙がるか、比較時にどんな評価軸で語られるか"
+        />
+        <TextareaInput
+          label="測定してほしくないNG領域"
+          value={formState.ngAreasText}
+          onChange={(value) => updateForm("ngAreasText", value)}
+          rows={4}
+          placeholder="空欄の場合は、NG領域なしとして確認済みにします"
+        />
+      </div>
+      <div className="mt-5">
+        <CheckboxGroup
+          label="レポート目的"
+          values={formState.reportPurposes}
+          onToggle={toggleReportPurpose}
+          options={reportPurposeOptions}
+          required
+        />
+      </div>
+      {formState.reportPurposes.includes("other") ? (
+        <div className="mt-5">
+          <TextInput
+            label="その他のレポート目的"
+            value={formState.reportPurposeOther}
+            onChange={(value) => updateForm("reportPurposeOther", value)}
+            placeholder="短く入力してください"
+          />
+        </div>
+      ) : null}
+      <div className="mt-5">
+        <TextareaInput
+          label="診断したい目的（確認用メモ）"
+          value={formState.diagnosisGoalText}
+          onChange={(value) => updateForm("diagnosisGoalText", value)}
+          rows={3}
+          placeholder="generatorには効かない、顧客確認用の補足メモです"
+        />
+      </div>
+      <InfoCallout>
+        確認用メモとNG領域はProjectSetupSeedInputに反映しません。generatorには、レポート目的から安全に対応できるdiagnosisGoalsだけを渡します。
+      </InfoCallout>
+    </WizardPanel>
+  );
+}
+
+function CostStep({ formState, updateForm }: { formState: MeasurementWizardState; updateForm: UpdateForm }) {
+  return (
+    <WizardPanel
+      eyebrow="Step 5"
+      title="計測頻度・モデル数・コスト許可"
+      description="この確認はAPI実行前の準備情報です。課金、決済、OpenAI API呼び出し、AI計測は行いません。"
+    >
+      <div className="grid gap-5">
+        <ChoiceGroup
+          label="計測頻度"
+          value={formState.measurementFrequency}
+          onChange={(value) => updateForm("measurementFrequency", value)}
+          options={frequencyOptions}
+          required
+        />
+        <ChoiceGroup
+          label="AIモデル数"
+          value={formState.modelCountPreference}
+          onChange={(value) => updateForm("modelCountPreference", value)}
+          options={modelCountOptions}
+          required
+        />
+        <ChoiceGroup
+          label="最大プロンプト数目安"
+          value={formState.maxPromptCount}
+          onChange={(value) => updateForm("maxPromptCount", value)}
+          options={maxPromptCountOptions}
+          required
+        />
+        <ChoiceGroup
+          label="コスト感"
+          value={formState.costPreference}
+          onChange={(value) => updateForm("costPreference", value)}
+          options={costPreferenceOptions}
+          required
+        />
+      </div>
+      <InfoCallout>
+        コスト許可は「どの程度の測定幅を許容できるか」の確認です。この画面では請求、決済、外部API、モデル呼び出しは発生しません。
+      </InfoCallout>
+    </WizardPanel>
+  );
+}
+
+function GeneratedDraftStep({
+  formState,
+  updateForm,
+  seedInput,
+  generationState,
+  promptSummaries,
+  promptBreakdown,
+  priorityQuestionCandidates,
+  checklist,
+  showPromptDetails,
+  setShowPromptDetails,
+  onRegenerate
+}: {
+  formState: MeasurementWizardState;
+  updateForm: UpdateForm;
+  seedInput: ProjectSetupSeedInput;
+  generationState: DraftGenerationState;
+  promptSummaries: PromptSummary[];
+  promptBreakdown: Record<PromptGroup, number>;
+  priorityQuestionCandidates: PriorityQuestionCandidate[];
+  checklist: MeasurementChecklistItem[];
+  showPromptDetails: boolean;
+  setShowPromptDetails: (value: boolean) => void;
+  onRegenerate: () => void;
+}) {
+  const draft = generationState.result?.draft ?? null;
+  const businessModel = getInputCompletionValue(draft, "businessModel");
+  const industryAdapter = getInputCompletionValue(draft, "industryAdapter");
+
+  if (generationState.status === "idle" || generationState.status === "generating") {
+    return <GenerationProgress onRegenerate={onRegenerate} isIdle={generationState.status === "idle"} />;
+  }
+
+  if (generationState.status === "error") {
+    return (
+      <WizardPanel eyebrow="Step 6" title="Recora生成下書き" description="外部APIや計測は行わず、画面内で下書き生成を試行しました。">
+        <MessageBox tone="error" title="下書きを生成できませんでした">
+          {generationState.error}
+        </MessageBox>
+        <div className="mt-5">
+          <Button type="button" onClick={onRegenerate}>
+            <RefreshCw className="h-4 w-4" />
+            もう一度生成する
+          </Button>
+        </div>
+      </WizardPanel>
+    );
+  }
+
+  return (
+    <WizardPanel
+      eyebrow="Step 6"
+      title="Recora生成下書きの確認"
+      description="ここで表示するcategory / persona / topic / promptは未承認の下書きです。顧客が詳細設計を作る画面ではありません。"
+    >
+      <div className="flex flex-col gap-3 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-bold text-[#0F172A]">Recoraが測定条件を整理しました</p>
+          <p className="mt-1 text-sm leading-6 text-[#64748B]">
+            カテゴリ、ペルソナ、トピック、プロンプト方針を下書きしています。外部API、Fetch、計測実行は行っていません。
+          </p>
+        </div>
+        <Button type="button" variant="outline" onClick={onRegenerate}>
+          <RefreshCw className="h-4 w-4" />
+          再生成
+        </Button>
+      </div>
+
+      <div className="mt-5 grid gap-4 md:grid-cols-4">
+        <SummaryTile label="暫定カテゴリ" value={seedInput.industryCategory} />
+        <SummaryTile label="persona" value={`${draft?.personas.length ?? 0}件`} />
+        <SummaryTile label="topic" value={`${draft?.topics.length ?? 0}件`} />
+        <SummaryTile label="prompt" value={`${draft?.prompts.length ?? 0}件`} />
+      </div>
+
+      <GeneratedCategoryCard
+        industryCategory={seedInput.industryCategory}
+        businessModel={businessModel}
+        industryAdapter={industryAdapter}
+      />
+      <PersonaSummary personas={draft?.personas ?? []} />
+      <TopicSummary topics={draft?.topics ?? []} />
+      <PromptSummarySection
+        promptSummaries={promptSummaries}
+        promptBreakdown={promptBreakdown}
+        showPromptDetails={showPromptDetails}
+        setShowPromptDetails={setShowPromptDetails}
+      />
+
+      <div className="mt-6">
+        <TextareaInput
+          label="必ず測りたい質問（任意）"
+          value={formState.priorityQuestionsText}
+          onChange={(value) => updateForm("priorityQuestionsText", value)}
+          rows={4}
+          placeholder="ここに入れた質問は優先候補として最終確認に表示します。brand / alias / domain / 競合名入りの質問はvisibility / ranking / SOV候補から外す前提です。"
+        />
+      </div>
+      <PriorityQuestionList candidates={priorityQuestionCandidates} />
+
+      {formState.competitorMode === "competitor_discovery_needed" ? <CompetitorDiscoveryNotice /> : null}
+      <GenerationMessages result={generationState.result} />
+      <MeasurementChecklist items={checklist} />
+      <ReviewNotes formState={formState} updateForm={updateForm} />
+    </WizardPanel>
+  );
+}
+
+function FinalConfirmationStep({
+  formState,
+  seedInput,
+  generationState,
+  promptBreakdown,
+  priorityQuestionCandidates,
+  checklist,
+  copyState,
+  onCopy,
+  onRegenerate
+}: {
+  formState: MeasurementWizardState;
+  seedInput: ProjectSetupSeedInput;
+  generationState: DraftGenerationState;
+  promptBreakdown: Record<PromptGroup, number>;
+  priorityQuestionCandidates: PriorityQuestionCandidate[];
+  checklist: MeasurementChecklistItem[];
+  copyState: CopyState;
+  onCopy: () => void;
+  onRegenerate: () => void;
+}) {
+  const draft = generationState.result?.draft ?? null;
+
+  return (
+    <WizardPanel
+      eyebrow="Step 7"
+      title="最終確認"
+      description="この内容はAPI前確認の下書きです。保存・承認・計測反映はまだ行いません。"
+    >
+      {generationState.status !== "ready" ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+          <p className="font-bold">Recora生成下書きが未生成です</p>
+          <p className="mt-1">最終確認の前に、画面内の同期生成を実行してください。</p>
+          <Button type="button" className="mt-3" variant="outline" onClick={onRegenerate}>
+            <RefreshCw className="h-4 w-4" />
+            下書きを生成する
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <ReviewCard title="対象ブランド">
+          <ReviewRow label="正式名" value={formState.brandName} />
+          <ReviewRow label="別名・表記ゆれ" value={formatList(splitList(formState.brandAliasesText), "なしとして確認済み")} />
+          <ReviewRow label="公式ドメイン / URL" value={formatList(splitList(formState.targetUrlsText))} />
+          <ReviewRow label="測定範囲" value={formState.measurementScope} />
+        </ReviewCard>
+        <ReviewCard title="市場・顧客">
+          <ReviewRow label="地域 / 言語" value={`${formatList(splitList(formState.regionsText))} / ${formState.language || "未入力"}`} />
+          <ReviewRow label="BtoB / BtoC" value={formatAudienceType(formState.audienceType)} />
+          <ReviewRow label="顧客層" value={formState.primaryAudience} />
+          <ReviewRow label="検討者・利用者・決裁者" value={formState.decisionRolesText} />
+        </ReviewCard>
+        <ReviewCard title="競合・除外">
+          <ReviewRow label="競合モード" value={formatCompetitorMode(formState.competitorMode)} />
+          <ReviewRow label="比較したい競合" value={formatList(getKnownCompetitorsForSeed(formState), "Recoraで候補抽出")} />
+          <ReviewRow label="除外条件" value={formatList(getAvoidCompetitorsForSeed(formState), "なしとして確認済み")} />
+          {formState.competitorMode === "competitor_discovery_needed" ? (
+            <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm font-semibold leading-6 text-amber-900">
+              SOV / ブランド比較は自動検出候補扱いです。正式な比較には後続の承認が必要です。
+            </p>
+          ) : null}
+        </ReviewCard>
+        <ReviewCard title="目的・頻度">
+          <ReviewRow label="重点論点" value={formatList(splitList(formState.focusAnglesText))} />
+          <ReviewRow label="NG領域" value={formatList(splitList(formState.ngAreasText), "なしとして確認済み")} />
+          <ReviewRow label="レポート目的" value={formatList(formatReportPurposeLabels(formState))} />
+          <ReviewRow label="確認用メモ" value={formState.diagnosisGoalText.trim() || "なし"} />
+          <ReviewRow label="頻度 / モデル / プロンプト / コスト" value={`${formatFrequency(formState.measurementFrequency)} / ${formatModelCount(formState.modelCountPreference)} / ${formState.maxPromptCount}件 / ${formatCostPreference(formState.costPreference)}`} />
+        </ReviewCard>
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-4">
+        <SummaryTile label="暫定カテゴリ" value={seedInput.industryCategory} />
+        <SummaryTile label="persona" value={`${draft?.personas.length ?? 0}件`} />
+        <SummaryTile label="topic" value={`${draft?.topics.length ?? 0}件`} />
+        <SummaryTile label="prompt" value={`${draft?.prompts.length ?? 0}件`} />
+      </div>
+
+      <PromptBreakdownCards breakdown={promptBreakdown} />
+      <PriorityQuestionList candidates={priorityQuestionCandidates} />
+      <MeasurementChecklist items={checklist} />
+
+      <div className="mt-6 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] p-4 text-sm leading-6 text-[#475569]">
+        <p className="font-bold text-[#0F172A]">この内容はAPI前確認の下書きです</p>
+        <ul className="mt-2 space-y-1">
+          <li>保存・承認・計測反映はまだ行いません。</li>
+          <li>Fetch / サイト調査 / 検索 / AI計測はこの画面では実行しません。</li>
+          <li>この画面の確認用メモ、計測頻度、モデル数、コスト許可はDBには保存しません。</li>
+        </ul>
+      </div>
+
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Button type="button" onClick={onCopy} disabled={generationState.status !== "ready"}>
+          <Clipboard className="h-4 w-4" />
+          確認テキストをコピー
+        </Button>
+        {copyState === "copied" ? <p className="text-sm font-bold text-[#00796B]">コピーしました。</p> : null}
+        {copyState === "failed" ? <p className="text-sm font-bold text-rose-700">コピーできませんでした。</p> : null}
+      </div>
+    </WizardPanel>
   );
 }
 
@@ -397,7 +958,7 @@ function StepRail({ stepIndex }: { stepIndex: number }) {
                 >
                   {isDone ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
                 </span>
-                <span>{step.short}</span>
+                <span className="min-w-0 truncate">{step.short}</span>
               </div>
             </li>
           );
@@ -407,676 +968,23 @@ function StepRail({ stepIndex }: { stepIndex: number }) {
   );
 }
 
-function InputStep({
-  formState,
-  updateField,
-  toggleDiagnosisGoal,
-  showSeedErrors,
-  seedBlockers,
-  generationState
-}: {
-  formState: SeedFormState;
-  updateField: (field: keyof SeedFormState, value: string) => void;
-  toggleDiagnosisGoal: (goal: PromptIntent) => void;
-  showSeedErrors: boolean;
-  seedBlockers: string[];
-  generationState: GenerationState;
-}) {
-  return (
-    <WizardPanel
-      eyebrow="Step 1"
-      title="会社情報を入力"
-      description="URLは入力値として扱うだけで、fetch / crawl は行いません。配列項目は1行1件またはカンマ区切りで入力できます。"
-    >
-      <div className="grid gap-5 lg:grid-cols-2">
-        <TextInput label="会社名" value={formState.companyName} onChange={(value) => updateField("companyName", value)} required />
-        <TextInput label="ブランド名 / サービス名" value={formState.brandName} onChange={(value) => updateField("brandName", value)} required />
-        <TextInput label="サービス名（任意）" value={formState.serviceName} onChange={(value) => updateField("serviceName", value)} />
-        <TextInput label="公式URL" value={formState.officialSiteUrl} onChange={(value) => updateField("officialSiteUrl", value)} required placeholder="https://example.com" />
-        <TextInput label="業種カテゴリ" value={formState.industryCategory} onChange={(value) => updateField("industryCategory", value)} required placeholder="例: BtoB SaaS、採用支援、地域サービス" />
-        <TextInput label="主な顧客層" value={formState.targetCustomers} onChange={(value) => updateField("targetCustomers", value)} required placeholder="例: 中小企業の経営者、人事責任者" />
-        <TextInput label="対象地域" value={formState.regionsText} onChange={(value) => updateField("regionsText", value)} required />
-        <TextInput label="言語" value={formState.language} onChange={(value) => updateField("language", value)} required />
-      </div>
-
-      <div className="mt-5 grid gap-5">
-        <TextareaInput
-          label="サービス概要"
-          value={formState.productOrServiceDescription}
-          onChange={(value) => updateField("productOrServiceDescription", value)}
-          required
-          rows={4}
-          placeholder="何を、誰に、どのような価値として提供しているかを短く入力してください。"
-        />
-        <TextareaInput label="強み" value={formState.strengthsText} onChange={(value) => updateField("strengthsText", value)} placeholder="例: 導入支援が手厚い、比較資料が豊富" />
-        <TextareaInput label="既知のリスク / 注意点" value={formState.knownRisksText} onChange={(value) => updateField("knownRisksText", value)} placeholder="例: 料金体系が分かりにくい、導入まで時間がかかる" />
-        <TextareaInput label="診断したい目的（確認用メモ）" value={formState.diagnosisGoalText} onChange={(value) => updateField("diagnosisGoalText", value)} placeholder="例: 競合だけが候補になる質問を見つけたい" />
-        <p className="text-xs font-semibold leading-5 text-[#64748B]">
-          このメモは画面と最終確認用です。ProjectSetupSeedInput には含めず、generator の下書き生成条件には使いません。
-        </p>
-      </div>
-
-      <div className="mt-6 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] p-4">
-        <h3 className="text-sm font-bold text-[#0F172A]">診断目的の候補</h3>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          {promptIntentOptions.map((option) => (
-            <label key={option.value} className="flex gap-3 rounded-md border border-[#DDE8E5] bg-white p-3 text-sm">
-              <input
-                className="mt-1 h-4 w-4 accent-[#00796B]"
-                type="checkbox"
-                checked={formState.diagnosisGoals.includes(option.value)}
-                onChange={() => toggleDiagnosisGoal(option.value)}
-              />
-              <span>
-                <span className="block font-bold text-[#0F172A]">{option.label}</span>
-                <span className="mt-1 block leading-5 text-[#64748B]">{option.description}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-6 grid gap-5 lg:grid-cols-2">
-        <TextareaInput label="brand aliases（任意）" value={formState.brandAliasesText} onChange={(value) => updateField("brandAliasesText", value)} />
-        <TextareaInput label="knownCompetitors（任意）" value={formState.knownCompetitorsText} onChange={(value) => updateField("knownCompetitorsText", value)} />
-        <TextareaInput label="avoidCompetitors（任意）" value={formState.avoidCompetitorsText} onChange={(value) => updateField("avoidCompetitorsText", value)} />
-        <TextareaInput
-          label="入れてほしいプロンプト（任意）"
-          value={formState.priorityPromptsText}
-          onChange={(value) => updateField("priorityPromptsText", value)}
-          placeholder="1行1promptで入力してください。"
-        />
-      </div>
-
-      {showSeedErrors && seedBlockers.length > 0 ? (
-        <MessageBox tone="error" title="必須入力不足">
-          <ul className="list-inside list-disc space-y-1">
-            {seedBlockers.map((blocker) => (
-              <li key={blocker}>{translateBlocker(blocker)}</li>
-            ))}
-          </ul>
-        </MessageBox>
-      ) : null}
-
-      {generationState.error ? (
-        <MessageBox tone="error" title="unexpected error">
-          下書き生成中に予期しないエラーが発生しました。入力内容を見直してください。
-        </MessageBox>
-      ) : null}
-    </WizardPanel>
-  );
-}
-
-function ClassificationStep({
-  formState,
-  updateField,
-  audienceOverride,
-  setAudienceOverride,
-  generatedDraft,
-  businessModel,
-  industryAdapter,
-  inferredAudience,
-  generationState
-}: {
-  formState: SeedFormState;
-  updateField: (field: keyof SeedFormState, value: string) => void;
-  audienceOverride: AudienceOverride;
-  setAudienceOverride: (value: AudienceOverride) => void;
-  generatedDraft: ProjectSetupDraftGenerationResult["draft"] | null;
-  businessModel: string;
-  industryAdapter: string;
-  inferredAudience: AudienceOverride;
-  generationState: GenerationState;
-}) {
-  return (
-    <WizardPanel
-      eyebrow="Step 2"
-      title="カテゴリ / BtoB・BtoC 判定"
-      description="既存の deterministic generator から推定した分類です。必要に応じて画面内だけで補正できます。"
-    >
-      <div className="grid gap-4 md:grid-cols-3">
-        <SummaryTile label="推定カテゴリ" value={formState.industryCategory || "未入力"} />
-        <SummaryTile label="business model" value={businessModel || "未判定"} />
-        <SummaryTile label="BtoB / BtoC 判定" value={formatAudience(inferredAudience)} />
-      </div>
-
-      <div className="mt-5 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] p-4">
-        <div className="flex items-start gap-3">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#00796B]" />
-          <div className="text-sm leading-6 text-[#475569]">
-            <p className="font-bold text-[#0F172A]">判定理由</p>
-            <p>
-              業種カテゴリ、サービス概要、主な顧客層、対象地域から deterministic に推定しています。
-              industry adapter は <span className="font-bold text-[#0F172A]">{industryAdapter || "未判定"}</span> です。
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-6 grid gap-5 lg:grid-cols-2">
-        <TextInput label="業種カテゴリを変更" value={formState.industryCategory} onChange={(value) => updateField("industryCategory", value)} />
-        <TextInput label="主な顧客層を変更" value={formState.targetCustomers} onChange={(value) => updateField("targetCustomers", value)} />
-        <TextInput label="対象地域を変更" value={formState.regionsText} onChange={(value) => updateField("regionsText", value)} />
-        <TextInput label="確認用メモを変更" value={formState.diagnosisGoalText} onChange={(value) => updateField("diagnosisGoalText", value)} />
-      </div>
-      <DraftNotice label="確認用メモは generator の入力ではありません。下書き生成条件には使わず、最終確認で見返すためだけに表示します。" />
-
-      <div className="mt-6">
-        <label className="text-sm font-bold text-[#0F172A]">BtoB / BtoC 判定を変更</label>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          {[
-            { value: "auto", label: "自動判定", note: "入力内容から推定" },
-            { value: "b2b", label: "BtoB", note: "法人向け意図を下書きへ反映" },
-            { value: "b2c", label: "BtoC", note: "一般消費者向け意図を下書きへ反映" }
-          ].map((option) => (
-            <button
-              key={option.value}
-              className={cn(
-                "rounded-md border p-3 text-left text-sm transition",
-                audienceOverride === option.value
-                  ? "border-[#00796B] bg-[#E6F4F1] text-[#005C50]"
-                  : "border-[#DDE8E5] bg-white text-[#64748B] hover:border-[#00796B]/40"
-              )}
-              type="button"
-              onClick={() => setAudienceOverride(option.value as AudienceOverride)}
-            >
-              <span className="block font-bold">{option.label}</span>
-              <span className="mt-1 block leading-5">{option.note}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {generationState.result?.blockers.length ? (
-        <MessageBox tone="error" title="generator validation blocker">
-          <ul className="list-inside list-disc space-y-1">
-            {generationState.result.blockers.map((blocker) => (
-              <li key={blocker}>{translateBlocker(blocker)}</li>
-            ))}
-          </ul>
-        </MessageBox>
-      ) : null}
-
-      {generationState.result?.warnings.length ? (
-        <MessageBox tone="warning" title="generator validation warning">
-          <ul className="list-inside list-disc space-y-1">
-            {generationState.result.warnings.map((warning) => (
-              <li key={warning}>{translateWarning(warning)}</li>
-            ))}
-          </ul>
-        </MessageBox>
-      ) : null}
-
-      {generatedDraft ? (
-        <p className="mt-5 text-xs font-semibold leading-5 text-[#64748B]">
-          生成された draft は reviewStatus: {generatedDraft.reviewStatus} です。measurement ready ではありません。
-        </p>
-      ) : null}
-    </WizardPanel>
-  );
-}
-
-function PersonaStep({
-  personas,
-  setPersonas,
-  seedInput
-}: {
-  personas: PersonaDraft[];
-  setPersonas: (items: PersonaDraft[]) => void;
-  seedInput: ProjectSetupSeedInput;
-}) {
-  return (
-    <WizardPanel
-      eyebrow="Step 3"
-      title="ペルソナ下書き"
-      description="生成された persona は仮説です。保存・承認・計測反映はまだ行いません。"
-      action={
-        <Button type="button" variant="outline" size="sm" onClick={() => setPersonas([...personas, createManualPersona(seedInput, personas.length)])}>
-          <Plus className="h-4 w-4" />
-          追加
-        </Button>
-      }
-    >
-      <div className="space-y-4">
-        {personas.map((persona, index) => (
-          <EditablePersonaCard
-            key={persona.personaId}
-            persona={persona}
-            index={index}
-            onChange={(updated) => setPersonas(replaceAt(personas, index, updated))}
-            onRemove={() => setPersonas(personas.filter((_, itemIndex) => itemIndex !== index))}
-          />
-        ))}
-        {personas.length === 0 ? <EmptyDraftState label="ペルソナは0件です。削除した状態を保持しています。" /> : null}
-      </div>
-      <DraftNotice label="このペルソナは下書きです。保存・承認・計測反映はまだ行いません。" />
-    </WizardPanel>
-  );
-}
-
-function TopicStep({
-  topics,
-  setTopics,
-  personas,
-  seedInput
-}: {
-  topics: TopicDraft[];
-  setTopics: (items: TopicDraft[]) => void;
-  personas: PersonaDraft[];
-  seedInput: ProjectSetupSeedInput;
-}) {
-  return (
-    <WizardPanel
-      eyebrow="Step 4"
-      title="トピック下書き"
-      description="topic は prompt より先に確認する観測テーマです。編集は画面内 state だけで保持します。"
-      action={
-        <Button type="button" variant="outline" size="sm" onClick={() => setTopics([...topics, createManualTopic(seedInput, personas, topics.length)])}>
-          <Plus className="h-4 w-4" />
-          追加
-        </Button>
-      }
-    >
-      <div className="space-y-4">
-        {topics.map((topic, index) => (
-          <EditableTopicCard
-            key={topic.topicId}
-            topic={topic}
-            personas={personas}
-            index={index}
-            onChange={(updated) => setTopics(replaceAt(topics, index, updated))}
-            onRemove={() => setTopics(topics.filter((_, itemIndex) => itemIndex !== index))}
-          />
-        ))}
-        {topics.length === 0 ? <EmptyDraftState label="トピックは0件です。削除した状態を保持しています。" /> : null}
-      </div>
-      <DraftNotice label="このトピックは下書きです。保存・承認・計測反映はまだ行いません。" />
-    </WizardPanel>
-  );
-}
-
-function PromptStep({
-  prompts,
-  setPrompts,
-  topics,
-  personas,
-  seedInput,
-  priorityPrompts,
-  extraPriorityPromptsText,
-  setExtraPriorityPromptsText,
-  promptFilter,
-  setPromptFilter,
-  promptSummaries,
-  promptBreakdown,
-  showPromptDetails,
-  setShowPromptDetails
-}: {
-  prompts: PromptDraft[];
-  setPrompts: (items: PromptDraft[]) => void;
-  topics: TopicDraft[];
-  personas: PersonaDraft[];
-  seedInput: ProjectSetupSeedInput;
-  priorityPrompts: PriorityPromptCandidate[];
-  extraPriorityPromptsText: string;
-  setExtraPriorityPromptsText: (value: string) => void;
-  promptFilter: PromptFilter;
-  setPromptFilter: (value: PromptFilter) => void;
-  promptSummaries: { prompt: PromptDraft; eligibility: PromptMetricEligibility; group: PromptGroup }[];
-  promptBreakdown: Record<PromptGroup, number>;
-  showPromptDetails: boolean;
-  setShowPromptDetails: (value: boolean) => void;
-}) {
-  return (
-    <WizardPanel
-      eyebrow="Step 5"
-      title="プロンプト下書き"
-      description="詳細は初期状態で畳んでいます。優先採用候補は画面上の優先表示であり、正式採用・計測反映は別PRです。"
-      action={
-        <Button type="button" variant="outline" size="sm" onClick={() => setPrompts([...prompts, createManualPrompt(seedInput, topics, personas, prompts.length)])}>
-          <Plus className="h-4 w-4" />
-          追加
-        </Button>
-      }
-    >
-      <div className="grid gap-4 md:grid-cols-4">
-        <SummaryTile label="指標候補" value={`${promptBreakdown.non_branded}件`} />
-        <SummaryTile label="ブランド認知" value={`${promptBreakdown.branded}件`} />
-        <SummaryTile label="引用確認" value={`${promptBreakdown.citation_check}件`} />
-        <SummaryTile label="対象外 / 要確認" value={`${promptBreakdown.excluded}件`} />
-      </div>
-
-      <div className="mt-6 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] p-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h3 className="text-base font-bold text-[#0F172A]">優先採用候補</h3>
-            <p className="mt-1 text-sm leading-6 text-[#64748B]">
-              brand / alias / domain / competitor を含む prompt は visibility / ranking / SOV 対象外候補として表示します。
-            </p>
-          </div>
-          <TextareaInput
-            className="lg:w-[360px]"
-            label="このステップで追加"
-            value={extraPriorityPromptsText}
-            onChange={setExtraPriorityPromptsText}
-            placeholder="1行1prompt"
-            rows={3}
-          />
-        </div>
-        <div className="mt-4 space-y-2">
-          {priorityPrompts.length > 0 ? priorityPrompts.map((candidate) => (
-            <div key={candidate.id} className="rounded-md border border-[#DDE8E5] bg-white p-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <p className="text-sm font-bold leading-6 text-[#0F172A]">{candidate.text}</p>
-                <PromptGroupBadge group={candidate.group} label={candidate.label} />
-              </div>
-              {candidate.reasons.length ? (
-                <p className="mt-2 text-xs font-semibold leading-5 text-[#64748B]">{candidate.reasons.join(" / ")}</p>
-              ) : null}
-            </div>
-          )) : (
-            <p className="text-sm leading-6 text-[#64748B]">優先採用候補はまだ入力されていません。</p>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-2">
-          {promptFilters.map((filter) => (
-            <button
-              key={filter.id}
-              className={cn(
-                "rounded-full border px-3 py-1.5 text-xs font-bold transition",
-                promptFilter === filter.id
-                  ? "border-[#00796B] bg-[#00796B] text-white"
-                  : "border-[#DDE8E5] bg-white text-[#64748B] hover:border-[#00796B]/40"
-              )}
-              type="button"
-              onClick={() => setPromptFilter(filter.id)}
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
-        <Button type="button" variant="secondary" onClick={() => setShowPromptDetails(!showPromptDetails)}>
-          {showPromptDetails ? "プロンプト詳細を畳む" : "プロンプトを確認・変更する"}
-        </Button>
-      </div>
-
-      <div className="mt-4 space-y-3">
-        {promptSummaries.map(({ prompt, eligibility, group }) => (
-          <EditablePromptCard
-            key={prompt.promptId}
-            prompt={prompt}
-            topics={topics}
-            personas={personas}
-            eligibility={eligibility}
-            group={group}
-            expanded={showPromptDetails}
-            onChange={(updated) => setPrompts(prompts.map((item) => item.promptId === prompt.promptId ? updated : item))}
-            onRemove={() => setPrompts(prompts.filter((item) => item.promptId !== prompt.promptId))}
-            onMove={(direction) => setPrompts(moveById(prompts, prompt.promptId, direction))}
-          />
-        ))}
-        {prompts.length === 0 ? <EmptyDraftState label="プロンプトは0件です。削除した状態を保持しています。" /> : null}
-      </div>
-      <DraftNotice label="未承認promptは measurement ready ではありません。branded / citation_check / 実名競合入りpromptは visibility / ranking / SOV から分離します。" />
-    </WizardPanel>
-  );
-}
-
-function ConfirmStep({
-  seedInput,
-  businessModel,
-  inferredAudience,
-  personas,
-  topics,
-  prompts,
-  priorityPrompts,
-  diagnosisGoalMemo,
-  promptBreakdown,
-  blockers,
-  warnings,
-  copyState,
-  onCopy,
-  onRestart
-}: {
-  seedInput: ProjectSetupSeedInput;
-  businessModel: string;
-  inferredAudience: AudienceOverride;
-  personas: PersonaDraft[];
-  topics: TopicDraft[];
-  prompts: PromptDraft[];
-  priorityPrompts: PriorityPromptCandidate[];
-  diagnosisGoalMemo: string;
-  promptBreakdown: Record<PromptGroup, number>;
-  blockers: string[];
-  warnings: string[];
-  copyState: CopyState;
-  onCopy: () => void;
-  onRestart: () => void;
-}) {
-  return (
-    <WizardPanel
-      eyebrow="Step 6"
-      title="最終確認"
-      description="ここまでの入力・判定・下書きを一覧で確認します。保存・承認・計測反映はまだ行いません。"
-      action={
-        <Button type="button" variant="outline" size="sm" onClick={onRestart}>
-          <RotateCcw className="h-4 w-4" />
-          最初からやり直す
-        </Button>
-      }
-    >
-      <MessageBox tone="warning" title="この下書きは未承認です">
-        保存・承認・計測反映はまだ行いません。non-branded prompt はAI表示率 / ranking / SOV の候補です。branded prompt は sentiment / brand perception 用です。citation_check は引用確認用です。
-      </MessageBox>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <SummaryTile label="会社 / ブランド" value={`${seedInput.companyName || "未入力"} / ${seedInput.brandName || "未入力"}`} />
-        <SummaryTile label="カテゴリ / 判定" value={`${seedInput.industryCategory || "未入力"} / ${formatAudience(inferredAudience)}`} />
-        <SummaryTile label="business model" value={businessModel || "未判定"} />
-      </div>
-
-      <div className="mt-6 grid gap-4 md:grid-cols-3">
-        <SummaryTile label="ペルソナ下書き" value={`${personas.length}件`} />
-        <SummaryTile label="トピック下書き" value={`${topics.length}件`} />
-        <SummaryTile label="プロンプト下書き" value={`${prompts.length}件`} />
-      </div>
-
-      <div className="mt-6 grid gap-4 md:grid-cols-4">
-        <SummaryTile label="non-branded" value={`${promptBreakdown.non_branded}件`} />
-        <SummaryTile label="branded" value={`${promptBreakdown.branded}件`} />
-        <SummaryTile label="citation_check" value={`${promptBreakdown.citation_check}件`} />
-        <SummaryTile label="対象外" value={`${promptBreakdown.excluded}件`} />
-      </div>
-
-      <ReviewList title="ペルソナ一覧" items={personas.map((persona) => `${persona.displayName} / ${persona.roleType} / ${persona.reviewStatus}`)} />
-      <ReviewList title="トピック一覧" items={topics.map((topic) => `${topic.topicName} / ${topic.topicType} / ${topic.reviewStatus}`)} />
-      <ReviewList title="優先採用候補prompt" items={priorityPrompts.map((candidate) => `${candidate.text} / ${candidate.label}`)} emptyText="優先採用候補はありません。" />
-      <ReviewList
-        title="診断したい目的（確認用メモ）"
-        items={diagnosisGoalMemo.trim() ? [diagnosisGoalMemo.trim()] : []}
-        emptyText="確認用メモはありません。"
-      />
-      <DraftNotice label="確認用メモは下書き生成条件には使っていません。保存・承認・計測反映もまだ行いません。" />
-
-      {blockers.length ? (
-        <MessageBox tone="error" title="validation blocker">
-          <ul className="list-inside list-disc space-y-1">
-            {blockers.map((blocker) => (
-              <li key={blocker}>{translateBlocker(blocker)}</li>
-            ))}
-          </ul>
-        </MessageBox>
-      ) : null}
-      {warnings.length ? (
-        <MessageBox tone="warning" title="validation warning">
-          <ul className="list-inside list-disc space-y-1">
-            {warnings.map((warning) => (
-              <li key={warning}>{translateWarning(warning)}</li>
-            ))}
-          </ul>
-        </MessageBox>
-      ) : null}
-
-      <div className="mt-6">
-        <Button type="button" onClick={onCopy}>
-          <Clipboard className="h-4 w-4" />
-          確認用テキストをコピー
-        </Button>
-        {copyState === "copied" ? <p className="mt-2 text-sm font-bold text-[#00796B]">コピーしました。</p> : null}
-        {copyState === "failed" ? <p className="mt-2 text-sm font-bold text-rose-700">ブラウザの権限によりコピーできませんでした。</p> : null}
-      </div>
-    </WizardPanel>
-  );
-}
-
-function EditablePersonaCard({
-  persona,
-  index,
-  onChange,
-  onRemove
-}: {
-  persona: PersonaDraft;
-  index: number;
-  onChange: (persona: PersonaDraft) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <div className="rounded-lg border border-[#DDE8E5] bg-white p-4">
-      <EditableHeader title={`ペルソナ ${index + 1}`} status={persona.reviewStatus} onRemove={onRemove} />
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <TextInput label="ペルソナ名" value={persona.displayName} onChange={(value) => onChange({ ...persona, displayName: value })} />
-        <TextInput label="segment" value={persona.segment} onChange={(value) => onChange({ ...persona, segment: value })} />
-        <TextInput label="buyer journey / intent" value={persona.buyerStage} onChange={(value) => onChange({ ...persona, buyerStage: value as PersonaDraft["buyerStage"] })} />
-        <TextInput label="review status" value={persona.reviewStatus} onChange={(value) => onChange({ ...persona, reviewStatus: value as PersonaDraft["reviewStatus"] })} />
-      </div>
-      <TextareaInput className="mt-4" label="説明 / prompt angle" value={persona.promptAngle} onChange={(value) => onChange({ ...persona, promptAngle: value })} />
-      <TextareaInput className="mt-4" label="想定課題" value={persona.painPoints.join("\n")} onChange={(value) => onChange({ ...persona, painPoints: splitList(value) })} />
-    </div>
-  );
-}
-
-function EditableTopicCard({
-  topic,
-  personas,
-  index,
-  onChange,
-  onRemove
-}: {
-  topic: TopicDraft;
-  personas: PersonaDraft[];
-  index: number;
-  onChange: (topic: TopicDraft) => void;
-  onRemove: () => void;
-}) {
-  const personaName = personas.find((persona) => persona.personaId === topic.targetPersonaId)?.displayName ?? "未設定";
-  return (
-    <div className="rounded-lg border border-[#DDE8E5] bg-white p-4">
-      <EditableHeader title={`トピック ${index + 1}`} status={topic.reviewStatus} onRemove={onRemove} />
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <TextInput label="topic名" value={topic.topicName} onChange={(value) => onChange({ ...topic, topicName: value })} />
-        <TextInput label="topic type" value={topic.topicType} onChange={(value) => onChange({ ...topic, topicType: value as TopicDraft["topicType"] })} />
-        <TextInput label="紐づく persona" value={personaName} onChange={() => undefined} disabled />
-        <TextInput label="review status" value={topic.reviewStatus} onChange={(value) => onChange({ ...topic, reviewStatus: value as TopicDraft["reviewStatus"] })} />
-      </div>
-      <TextareaInput className="mt-4" label="説明 / diagnosis goal" value={topic.diagnosisGoal} onChange={(value) => onChange({ ...topic, diagnosisGoal: value })} />
-      <TextareaInput className="mt-4" label="expected signal / metric target" value={topic.expectedSignal} onChange={(value) => onChange({ ...topic, expectedSignal: value })} />
-    </div>
-  );
-}
-
-function EditablePromptCard({
-  prompt,
-  topics,
-  personas,
-  eligibility,
-  group,
-  expanded,
-  onChange,
-  onRemove,
-  onMove
-}: {
-  prompt: PromptDraft;
-  topics: TopicDraft[];
-  personas: PersonaDraft[];
-  eligibility: PromptMetricEligibility;
-  group: PromptGroup;
-  expanded: boolean;
-  onChange: (prompt: PromptDraft) => void;
-  onRemove: () => void;
-  onMove: (direction: -1 | 1) => void;
-}) {
-  const topicName = topics.find((topic) => topic.topicId === prompt.topicId)?.topicName ?? "未設定";
-  const personaName = personas.find((persona) => persona.personaId === prompt.personaId)?.displayName ?? "未設定";
-
-  return (
-    <div className="rounded-lg border border-[#DDE8E5] bg-white p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap gap-2">
-            <PromptGroupBadge group={group} label={getPromptGroupLabel(group)} />
-            <Badge variant="outline" className="rounded-full border-[#DDE8E5] text-[#64748B]">
-              {prompt.reviewStatus}
-            </Badge>
-          </div>
-          <p className="mt-3 break-words text-sm font-bold leading-6 text-[#0F172A]">{prompt.text}</p>
-          <p className="mt-2 text-xs font-semibold leading-5 text-[#64748B]">
-            topic: {topicName} / persona: {personaName}
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => onMove(-1)}>上へ</Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => onMove(1)}>下へ</Button>
-          <Button type="button" variant="ghost" size="icon" aria-label="削除" onClick={onRemove}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-
-      {expanded ? (
-        <div className="mt-4 grid gap-4">
-          <TextareaInput label="prompt text" value={prompt.text} onChange={(value) => onChange({ ...prompt, text: value })} rows={3} />
-          <div className="grid gap-4 lg:grid-cols-3">
-            <TextInput label="prompt intent" value={prompt.intent} onChange={(value) => onChange({ ...prompt, intent: value as PromptDraft["intent"] })} />
-            <TextInput label="branding mode" value={prompt.brandingMode} onChange={(value) => onChange({ ...prompt, brandingMode: value as PromptDraft["brandingMode"] })} />
-            <TextInput label="brandMentionRule" value={prompt.brandMentionRule} onChange={(value) => onChange({ ...prompt, brandMentionRule: value as PromptDraft["brandMentionRule"] })} />
-          </div>
-          <div className="rounded-md border border-[#DDE8E5] bg-[#F8FBFA] p-3 text-xs font-semibold leading-5 text-[#64748B]">
-            metric eligibility: {formatMetricEligibility(eligibility)}
-            {eligibility.reasons.length ? <span className="block pt-1">{eligibility.reasons.join(" / ")}</span> : null}
-          </div>
-          <TextareaInput label="expected signal" value={prompt.expectedSignal} onChange={(value) => onChange({ ...prompt, expectedSignal: value })} />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function WizardPanel({
   eyebrow,
   title,
   description,
-  action,
   children
 }: {
   eyebrow: string;
   title: string;
   description: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-[#DDE8E5] bg-white p-5 shadow-[0_16px_44px_rgba(15,23,42,0.06)] sm:p-6">
-      <div className="flex flex-col gap-4 border-b border-[#DDE8E5] pb-5 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <p className="text-xs font-bold uppercase text-[#00796B]">{eyebrow}</p>
-          <h2 className="mt-1 text-2xl font-bold leading-tight tracking-normal text-[#0F172A]">{title}</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#64748B]">{description}</p>
-        </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
-      </div>
-      <div className="pt-5">{children}</div>
+    <div className="rounded-lg border border-[#DDE8E5] bg-white p-5 shadow-sm shadow-slate-950/[0.03] sm:p-6">
+      <p className="text-sm font-bold text-[#00796B]">{eyebrow}</p>
+      <h2 className="mt-2 text-2xl font-bold leading-tight tracking-normal text-[#0F172A]">{title}</h2>
+      <p className="mt-2 text-sm leading-7 text-[#64748B]">{description}</p>
+      <div className="mt-6">{children}</div>
     </div>
   );
 }
@@ -1086,28 +994,25 @@ function TextInput({
   value,
   onChange,
   required = false,
-  placeholder,
-  disabled = false
+  placeholder
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
   placeholder?: string;
-  disabled?: boolean;
 }) {
   return (
-    <label className="block">
+    <label className="block min-w-0">
       <span className="text-sm font-bold text-[#0F172A]">
         {label}
         {required ? <span className="text-rose-600"> *</span> : null}
       </span>
       <input
-        className="mt-2 h-11 w-full rounded-md border border-[#DDE8E5] bg-white px-3 text-sm text-[#0F172A] outline-none transition placeholder:text-slate-400 focus:border-[#00796B] focus:ring-2 focus:ring-[#00796B]/15 disabled:bg-slate-50 disabled:text-slate-500"
+        className="mt-2 h-11 w-full rounded-md border border-[#DDE8E5] bg-white px-3 text-sm text-[#0F172A] outline-none transition placeholder:text-slate-400 focus:border-[#00796B] focus:ring-2 focus:ring-[#00796B]/15"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        disabled={disabled}
       />
     </label>
   );
@@ -1131,7 +1036,7 @@ function TextareaInput({
   className?: string;
 }) {
   return (
-    <label className={cn("block", className)}>
+    <label className={cn("block min-w-0", className)}>
       <span className="text-sm font-bold text-[#0F172A]">
         {label}
         {required ? <span className="text-rose-600"> *</span> : null}
@@ -1147,11 +1052,95 @@ function TextareaInput({
   );
 }
 
-function SummaryTile({ label, value }: { label: string; value: string }) {
+function ChoiceGroup<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  required = false
+}: {
+  label: string;
+  value: T;
+  onChange: (value: T) => void;
+  options: readonly { value: T; label: string; description: string }[];
+  required?: boolean;
+}) {
   return (
-    <div className="min-w-0 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] p-4">
-      <p className="text-xs font-bold uppercase text-[#64748B]">{label}</p>
-      <p className="mt-2 break-words text-base font-bold leading-6 text-[#0F172A]">{value}</p>
+    <fieldset>
+      <legend className="text-sm font-bold text-[#0F172A]">
+        {label}
+        {required ? <span className="text-rose-600"> *</span> : null}
+      </legend>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        {options.map((option) => {
+          const checked = option.value === value;
+          return (
+            <label
+              key={option.value}
+              className={cn(
+                "flex min-w-0 gap-3 rounded-lg border bg-white p-3 text-sm transition",
+                checked ? "border-[#00796B] bg-[#E6F4F1]" : "border-[#DDE8E5]"
+              )}
+            >
+              <input
+                className="mt-1 h-4 w-4 shrink-0 accent-[#00796B]"
+                type="radio"
+                checked={checked}
+                onChange={() => onChange(option.value)}
+              />
+              <span className="min-w-0">
+                <span className="block font-bold text-[#0F172A]">{option.label}</span>
+                <span className="mt-1 block leading-5 text-[#64748B]">{option.description}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+function CheckboxGroup<T extends string>({
+  label,
+  values,
+  onToggle,
+  options,
+  required = false
+}: {
+  label: string;
+  values: readonly T[];
+  onToggle: (value: T) => void;
+  options: readonly { value: T; label: string }[];
+  required?: boolean;
+}) {
+  return (
+    <fieldset>
+      <legend className="text-sm font-bold text-[#0F172A]">
+        {label}
+        {required ? <span className="text-rose-600"> *</span> : null}
+      </legend>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        {options.map((option) => (
+          <label key={option.value} className="flex min-w-0 gap-3 rounded-lg border border-[#DDE8E5] bg-white p-3 text-sm">
+            <input
+              className="mt-1 h-4 w-4 shrink-0 accent-[#00796B]"
+              type="checkbox"
+              checked={values.includes(option.value)}
+              onChange={() => onToggle(option.value)}
+            />
+            <span className="font-bold text-[#0F172A]">{option.label}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function InfoCallout({ children }: { children: ReactNode }) {
+  return (
+    <div className="mt-5 flex gap-3 rounded-lg border border-[#B8D9D3] bg-[#F8FBFA] p-4 text-sm leading-6 text-[#475569]">
+      <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#00796B]" />
+      <div>{children}</div>
     </div>
   );
 }
@@ -1163,7 +1152,7 @@ function MessageBox({
 }: {
   tone: "error" | "warning";
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const isError = tone === "error";
   return (
@@ -1179,10 +1168,385 @@ function MessageBox({
   );
 }
 
-function DraftNotice({ label }: { label: string }) {
+function GenerationProgress({ onRegenerate, isIdle }: { onRegenerate: () => void; isIdle: boolean }) {
   return (
-    <div className="mt-5 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] px-4 py-3 text-sm font-semibold leading-6 text-[#475569]">
-      {label}
+    <WizardPanel
+      eyebrow="Step 6"
+      title="Recora生成下書き"
+      description="画面内の入力から、API前確認用の下書きを同期生成します。"
+    >
+      <div className="rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] p-5">
+        <div className="flex items-start gap-3">
+          {isIdle ? (
+            <ShieldCheck className="mt-1 h-5 w-5 shrink-0 text-[#00796B]" />
+          ) : (
+            <Loader2 className="mt-1 h-5 w-5 shrink-0 animate-spin text-[#00796B]" />
+          )}
+          <div>
+            <p className="text-base font-bold text-[#0F172A]">Recoraが測定条件を整理しています</p>
+            <p className="mt-2 text-sm leading-6 text-[#64748B]">
+              カテゴリ、ペルソナ、トピック、プロンプト方針を下書きしています。外部API、Fetch、計測実行は行っていません。
+            </p>
+          </div>
+        </div>
+        {isIdle ? (
+          <Button type="button" className="mt-4" onClick={onRegenerate}>
+            <RefreshCw className="h-4 w-4" />
+            下書きを生成する
+          </Button>
+        ) : null}
+      </div>
+    </WizardPanel>
+  );
+}
+
+function GeneratedCategoryCard({
+  industryCategory,
+  businessModel,
+  industryAdapter
+}: {
+  industryCategory: string;
+  businessModel: string;
+  industryAdapter: string;
+}) {
+  return (
+    <ReviewCard title="カテゴリ下書き">
+      <ReviewRow label="暫定カテゴリ" value={industryCategory} />
+      <ReviewRow label="business model" value={businessModel || "要確認"} />
+      <ReviewRow label="industry adapter" value={industryAdapter || "要確認"} />
+    </ReviewCard>
+  );
+}
+
+function PersonaSummary({ personas }: { personas: readonly PersonaDraft[] }) {
+  return (
+    <section className="mt-6">
+      <h3 className="text-base font-bold text-[#0F172A]">persona summary</h3>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        {personas.length ? (
+          personas.map((persona) => (
+            <div key={persona.personaId} className="rounded-lg border border-[#DDE8E5] bg-white p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="font-bold text-[#0F172A]">{persona.displayName}</h4>
+                <Badge variant="outline" className="rounded-full border-[#DDE8E5] text-[#64748B]">
+                  {persona.roleType}
+                </Badge>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[#475569]">{persona.detailedDecisionRole}</p>
+              <p className="mt-2 text-sm leading-6 text-[#64748B]">
+                判断軸: {persona.comparisonAxis.slice(0, 3).join(" / ") || persona.promptAngle}
+              </p>
+            </div>
+          ))
+        ) : (
+          <EmptyDraftState label="persona下書きはありません。blockerを確認してください。" />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TopicSummary({ topics }: { topics: readonly TopicDraft[] }) {
+  return (
+    <section className="mt-6">
+      <h3 className="text-base font-bold text-[#0F172A]">topic summary</h3>
+      <div className="mt-3 grid gap-3">
+        {topics.length ? (
+          topics.map((topic) => (
+            <div key={topic.topicId} className="rounded-lg border border-[#DDE8E5] bg-white p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="font-bold text-[#0F172A]">{topic.topicName}</h4>
+                <Badge variant="outline" className="rounded-full border-[#DDE8E5] text-[#64748B]">
+                  {topic.topicType}
+                </Badge>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[#475569]">{topic.expectedSignal}</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-[#00796B]">
+                metric target: {formatTopicMetricTargets(topic)}
+              </p>
+            </div>
+          ))
+        ) : (
+          <EmptyDraftState label="topic下書きはありません。blockerを確認してください。" />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PromptSummarySection({
+  promptSummaries,
+  promptBreakdown,
+  showPromptDetails,
+  setShowPromptDetails
+}: {
+  promptSummaries: PromptSummary[];
+  promptBreakdown: Record<PromptGroup, number>;
+  showPromptDetails: boolean;
+  setShowPromptDetails: (value: boolean) => void;
+}) {
+  return (
+    <section className="mt-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-base font-bold text-[#0F172A]">prompt summary</h3>
+          <p className="mt-1 text-sm leading-6 text-[#64748B]">
+            詳細は初期状態で畳んでいます。brand / alias / domain / 実名競合入りはmarket metric候補から分けます。
+          </p>
+        </div>
+        <Button type="button" variant="outline" onClick={() => setShowPromptDetails(!showPromptDetails)}>
+          <ChevronDown className={cn("h-4 w-4 transition", showPromptDetails && "rotate-180")} />
+          プロンプトを確認する
+        </Button>
+      </div>
+      <PromptBreakdownCards breakdown={promptBreakdown} />
+      {showPromptDetails ? (
+        <div className="mt-4 grid gap-3">
+          {promptSummaries.length ? (
+            promptSummaries.map(({ prompt, eligibility, group }) => (
+              <div key={prompt.promptId} className="rounded-lg border border-[#DDE8E5] bg-white p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <PromptGroupBadge group={group} />
+                  <Badge variant="outline" className="rounded-full border-[#DDE8E5] text-[#64748B]">
+                    {prompt.intent}
+                  </Badge>
+                </div>
+                <p className="mt-3 break-words text-sm font-bold leading-6 text-[#0F172A]">{prompt.text}</p>
+                <p className="mt-2 text-sm leading-6 text-[#64748B]">
+                  metric: {formatMetricEligibility(eligibility)}
+                </p>
+              </div>
+            ))
+          ) : (
+            <EmptyDraftState label="prompt下書きはありません。blockerを確認してください。" />
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function PromptBreakdownCards({ breakdown }: { breakdown: Record<PromptGroup, number> }) {
+  return (
+    <div className="mt-4 grid gap-3 md:grid-cols-4">
+      <SummaryTile label="non-branded" value={`${breakdown.non_branded}件`} />
+      <SummaryTile label="branded" value={`${breakdown.branded}件`} />
+      <SummaryTile label="citation_check" value={`${breakdown.citation_check}件`} />
+      <SummaryTile label="excluded" value={`${breakdown.excluded}件`} />
+    </div>
+  );
+}
+
+function PriorityQuestionList({ candidates }: { candidates: PriorityQuestionCandidate[] }) {
+  return (
+    <section className="mt-5">
+      <h3 className="text-base font-bold text-[#0F172A]">必ず測りたい質問の優先候補</h3>
+      {candidates.length ? (
+        <div className="mt-3 grid gap-3">
+          {candidates.map((candidate) => (
+            <div key={candidate.id} className="rounded-lg border border-[#DDE8E5] bg-white p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <PromptGroupBadge group={candidate.group} />
+                <Badge variant="outline" className="rounded-full border-[#DDE8E5] text-[#64748B]">
+                  {candidate.label}
+                </Badge>
+              </div>
+              <p className="mt-3 break-words text-sm font-bold leading-6 text-[#0F172A]">{candidate.text}</p>
+              <p className="mt-2 text-sm leading-6 text-[#64748B]">{candidate.reason}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyDraftState label="任意項目です。未入力の場合は優先候補なしとして確認します。" />
+      )}
+    </section>
+  );
+}
+
+function PromptGroupBadge({ group }: { group: PromptGroup }) {
+  const config = {
+    non_branded: {
+      label: "指標候補 non-branded",
+      className: "border-[#00796B]/25 bg-[#E6F4F1] text-[#005C50]"
+    },
+    branded: {
+      label: "ブランド認知 branded",
+      className: "border-indigo-200 bg-indigo-50 text-indigo-700"
+    },
+    citation_check: {
+      label: "引用確認 citation_check",
+      className: "border-sky-200 bg-sky-50 text-sky-700"
+    },
+    excluded: {
+      label: "対象外 / 要確認",
+      className: "border-amber-200 bg-amber-50 text-amber-800"
+    }
+  }[group];
+
+  return (
+    <Badge variant="outline" className={cn("w-fit rounded-full", config.className)}>
+      {config.label}
+    </Badge>
+  );
+}
+
+function CompetitorDiscoveryNotice() {
+  const rows = [
+    ["AI表示率", "出せる"],
+    ["自社サイト引用率", "出せる"],
+    ["AI回答", "出せる"],
+    ["参照元", "出せる"],
+    ["ブランド認知", "出せる"],
+    ["Share of Voice", "制限付き"],
+    ["ブランド比較", "自動検出候補扱い"],
+    ["競合に取られている質問", "候補扱い"],
+    ["競合に取られている参照元", "候補扱い"]
+  ];
+
+  return (
+    <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
+      <div className="flex gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+        <div>
+          <p className="text-sm font-bold text-amber-950">競合未定時の扱い</p>
+          <p className="mt-1 text-sm leading-6 text-amber-900">
+            SOV、ブランド比較、競合に取られている質問や参照元は自動検出候補です。正式な比較には後続の承認が必要です。
+          </p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded-md bg-white px-3 py-2 text-sm leading-6">
+            <span className="font-bold text-[#0F172A]">{label}: </span>
+            <span className="text-[#475569]">{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GenerationMessages({ result }: { result: ProjectSetupDraftGenerationResult | null }) {
+  if (!result) return null;
+
+  return (
+    <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      <StatusList title="blocker" items={result.blockers.map(translateBlocker)} tone="error" emptyText="blockerはありません。" />
+      <StatusList title="warning" items={result.warnings.map(translateWarning)} tone="warning" emptyText="warningはありません。" />
+    </div>
+  );
+}
+
+function StatusList({
+  title,
+  items,
+  tone,
+  emptyText
+}: {
+  title: string;
+  items: string[];
+  tone: "error" | "warning";
+  emptyText: string;
+}) {
+  const isError = tone === "error";
+  return (
+    <div
+      className={cn(
+        "rounded-lg border p-4 text-sm leading-6",
+        isError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-900"
+      )}
+    >
+      <p className="font-bold">{title}</p>
+      {items.length ? (
+        <ul className="mt-2 space-y-1">
+          {items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2">{emptyText}</p>
+      )}
+    </div>
+  );
+}
+
+function MeasurementChecklist({ items }: { items: MeasurementChecklistItem[] }) {
+  return (
+    <section className="mt-6">
+      <h3 className="text-base font-bold text-[#0F172A]">measurement ready checklist</h3>
+      <div className="mt-3 grid gap-3">
+        {items.map((item) => (
+          <div key={item.label} className="flex flex-col gap-2 rounded-lg border border-[#DDE8E5] bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-[#0F172A]">{item.label}</p>
+              <p className="mt-1 break-words text-sm leading-6 text-[#64748B]">{item.detail}</p>
+            </div>
+            <ChecklistStatusBadge status={item.status} />
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-xs font-semibold leading-5 text-[#64748B]">
+        checklistはUI上の確認表示です。measurement_readyのDB writeは行いません。
+      </p>
+    </section>
+  );
+}
+
+function ChecklistStatusBadge({ status }: { status: ChecklistStatus }) {
+  const config = {
+    ready: "border-[#00796B]/25 bg-[#E6F4F1] text-[#005C50]",
+    needs_confirmation: "border-amber-200 bg-amber-50 text-amber-800",
+    blocked: "border-rose-200 bg-rose-50 text-rose-700"
+  }[status];
+
+  return (
+    <Badge variant="outline" className={cn("w-fit shrink-0 rounded-full", config)}>
+      {status === "needs_confirmation" ? "needs confirmation" : status}
+    </Badge>
+  );
+}
+
+function ReviewNotes({ formState, updateForm }: { formState: MeasurementWizardState; updateForm: UpdateForm }) {
+  return (
+    <section className="mt-6">
+      <h3 className="text-base font-bold text-[#0F172A]">確認メモ</h3>
+      <div className="mt-3 grid gap-4 lg:grid-cols-2">
+        <TextareaInput label="カテゴリ確認メモ" value={formState.categoryNote} onChange={(value) => updateForm("categoryNote", value)} />
+        <TextareaInput label="persona確認メモ" value={formState.personaNote} onChange={(value) => updateForm("personaNote", value)} />
+        <TextareaInput label="topic確認メモ" value={formState.topicNote} onChange={(value) => updateForm("topicNote", value)} />
+        <TextareaInput label="prompt確認メモ" value={formState.promptNote} onChange={(value) => updateForm("promptNote", value)} />
+        <TextareaInput label="競合確認メモ" value={formState.competitorNote} onChange={(value) => updateForm("competitorNote", value)} className="lg:col-span-2" />
+      </div>
+      <p className="mt-3 text-xs font-semibold leading-5 text-[#64748B]">
+        メモは画面内だけの確認情報です。保存、承認、materializeは行いません。
+      </p>
+    </section>
+  );
+}
+
+function ReviewCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-[#DDE8E5] bg-white p-4">
+      <h3 className="text-base font-bold text-[#0F172A]">{title}</h3>
+      <div className="mt-3 space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function ReviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-bold uppercase text-[#64748B]">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold leading-6 text-[#0F172A]">{value || "未入力"}</p>
+    </div>
+  );
+}
+
+function SummaryTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] p-4">
+      <p className="text-xs font-bold uppercase text-[#64748B]">{label}</p>
+      <p className="mt-2 break-words text-base font-bold leading-6 text-[#0F172A]">{value}</p>
     </div>
   );
 }
@@ -1195,98 +1559,92 @@ function EmptyDraftState({ label }: { label: string }) {
   );
 }
 
-function EditableHeader({ title, status, onRemove }: { title: string; status: string; onRemove: () => void }) {
-  return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="font-bold text-[#0F172A]">{title}</h3>
-        <Badge variant="outline" className="rounded-full border-[#DDE8E5] text-[#64748B]">
-          {status}
-        </Badge>
-        <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-amber-700">
-          measurement ready ではない
-        </Badge>
-      </div>
-      <Button type="button" variant="ghost" size="icon" aria-label="削除" onClick={onRemove}>
-        <Trash2 className="h-4 w-4" />
-      </Button>
-    </div>
-  );
-}
+function buildSeedInput(formState: MeasurementWizardState): ProjectSetupSeedInput {
+  const brandName = formState.brandName.trim();
+  const measurementScope = formState.measurementScope.trim();
+  const reportPurposeLabels = formatReportPurposeLabels(formState);
+  const focusAngles = splitList(formState.focusAnglesText);
 
-function PromptGroupBadge({ group, label }: { group: PromptGroup; label: string }) {
-  const className = {
-    non_branded: "border-[#00796B]/25 bg-[#E6F4F1] text-[#005C50]",
-    branded: "border-indigo-200 bg-indigo-50 text-indigo-700",
-    citation_check: "border-sky-200 bg-sky-50 text-sky-700",
-    excluded: "border-amber-200 bg-amber-50 text-amber-800"
-  }[group];
-  return (
-    <Badge variant="outline" className={cn("w-fit rounded-full", className)}>
-      {label}
-    </Badge>
-  );
-}
-
-function ReviewList({ title, items, emptyText = "下書きはありません。" }: { title: string; items: string[]; emptyText?: string }) {
-  return (
-    <div className="mt-6 rounded-lg border border-[#DDE8E5] bg-white p-4">
-      <h3 className="text-base font-bold text-[#0F172A]">{title}</h3>
-      {items.length ? (
-        <ul className="mt-3 space-y-2 text-sm leading-6 text-[#475569]">
-          {items.map((item) => (
-            <li key={item} className="rounded-md bg-[#F8FBFA] px-3 py-2">{item}</li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-3 text-sm leading-6 text-[#64748B]">{emptyText}</p>
-      )}
-    </div>
-  );
-}
-
-function buildSeedInput(formState: SeedFormState, audienceOverride: AudienceOverride): ProjectSetupSeedInput {
-  const targetCustomers = appendAudienceHint(formState.targetCustomers, audienceOverride);
   return {
-    companyName: formState.companyName,
-    brandName: formState.brandName,
-    officialSiteUrl: formState.officialSiteUrl,
-    productOrServiceDescription: formState.productOrServiceDescription,
-    industryCategory: formState.industryCategory,
-    targetCustomers,
+    companyName: brandName,
+    brandName,
+    officialSiteUrl: normalizeTargetUrlForSeed(splitList(formState.targetUrlsText)[0] ?? ""),
+    productOrServiceDescription: buildProductOrServiceDescription({
+      measurementScope,
+      reportPurposeLabels,
+      focusAngles
+    }),
+    industryCategory: inferInterimCategory(measurementScope, formState.focusAnglesText, formState.primaryAudience),
+    targetCustomers: buildTargetCustomers(formState),
     regions: splitList(formState.regionsText),
-    language: formState.language || "ja",
-    serviceName: formState.serviceName || undefined,
+    language: formState.language.trim() || "ja",
+    serviceName: measurementScope || brandName,
     brandAliases: splitList(formState.brandAliasesText),
-    knownCompetitors: splitList(formState.knownCompetitorsText),
-    avoidCompetitors: splitList(formState.avoidCompetitorsText),
-    strengths: splitList(formState.strengthsText),
-    knownRisks: splitList(formState.knownRisksText),
-    diagnosisGoals: formState.diagnosisGoals.length > 0 ? formState.diagnosisGoals : undefined
+    knownCompetitors: getKnownCompetitorsForSeed(formState),
+    avoidCompetitors: getAvoidCompetitorsForSeed(formState),
+    strengths: [],
+    knownRisks: [],
+    diagnosisGoals: mapReportPurposesToPromptIntents(formState.reportPurposes)
   };
 }
 
-function appendAudienceHint(targetCustomers: string, audienceOverride: AudienceOverride) {
-  if (audienceOverride === "auto") return targetCustomers;
-  const hint = audienceOverride === "b2b" ? "法人向け / BtoB" : "一般消費者向け / BtoC";
-  if (targetCustomers.includes(hint)) return targetCustomers;
-  return [targetCustomers, hint].filter(Boolean).join(" / ");
-}
-
-function safelyGenerateDraft(seedInput: ProjectSetupSeedInput): GenerationState {
-  try {
-    return { result: generateProjectSetupDraft(seedInput), error: null };
-  } catch {
-    return { result: null, error: "unexpected_error" };
-  }
-}
-
-function splitList(value: string): string[] {
-  return value
-    .split(/[\n,、]+/)
-    .map((item) => item.trim())
+function buildProductOrServiceDescription(input: {
+  measurementScope: string;
+  reportPurposeLabels: string[];
+  focusAngles: string[];
+}) {
+  return [
+    input.measurementScope,
+    input.reportPurposeLabels.length ? `レポート目的: ${input.reportPurposeLabels.join(" / ")}` : "",
+    input.focusAngles.length ? `重点論点: ${input.focusAngles.join(" / ")}` : ""
+  ]
     .filter(Boolean)
-    .filter((item, index, array) => array.indexOf(item) === index);
+    .join("。");
+}
+
+function buildTargetCustomers(formState: MeasurementWizardState) {
+  return [
+    formatAudienceType(formState.audienceType),
+    formState.primaryAudience.trim(),
+    formState.decisionRolesText.trim() ? `検討者・利用者・決裁者: ${formState.decisionRolesText.trim()}` : ""
+  ]
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function getKnownCompetitorsForSeed(formState: MeasurementWizardState) {
+  if (formState.competitorMode !== "known_competitors_confirmed") return [];
+  return splitList(formState.knownCompetitorsText).slice(0, 5);
+}
+
+function getAvoidCompetitorsForSeed(formState: MeasurementWizardState) {
+  return uniqueStrings([...splitList(formState.avoidCompetitorsText), ...splitList(formState.adjacentSourcesText)]);
+}
+
+function mapReportPurposesToPromptIntents(reportPurposes: readonly ReportPurpose[]): PromptIntent[] {
+  const intents = new Set<PromptIntent>();
+  for (const purpose of reportPurposes) {
+    if (purpose === "visibility") intents.add("non_branded");
+    if (purpose === "competitor") intents.add("buyer_intent");
+    if (purpose === "citation") intents.add("citation_check");
+    if (purpose === "brand") intents.add("brand_perception");
+    if (purpose === "improvement") intents.add("problem_aware");
+    if (purpose === "other") intents.add("non_branded");
+  }
+  return Array.from(intents);
+}
+
+function inferInterimCategory(measurementScope: string, focusAnglesText: string, primaryAudience: string) {
+  const text = `${measurementScope} ${focusAnglesText} ${primaryAudience}`.normalize("NFKC").toLowerCase();
+  if (/(saas|software|ソフトウェア|crm|ツール|システム)/i.test(text)) return "BtoB SaaS / ソフトウェア";
+  if (/(採用|人事|hr|求人)/i.test(text)) return "採用・人事支援";
+  if (/(ec|通販|商品|購入|返品|素材)/i.test(text)) return "EC / 商品比較";
+  if (/(クリニック|医療|病院|歯科|美容医療)/i.test(text)) return "医療・クリニック";
+  if (/(不動産|住宅|マンション|賃貸)/i.test(text)) return "不動産";
+  if (/(税理士|弁護士|士業|コンサル|専門家)/i.test(text)) return "専門サービス";
+  if (/(教育|スクール|講座|塾|研修)/i.test(text)) return "教育・スクール";
+  if (/(店舗|地域|近く|予約|来店)/i.test(text)) return "地域サービス";
+  return "サービスカテゴリ（暫定）";
 }
 
 function buildBrandIdentity(seedInput: ProjectSetupSeedInput): BrandIdentityForDraft {
@@ -1297,50 +1655,6 @@ function buildBrandIdentity(seedInput: ProjectSetupSeedInput): BrandIdentityForD
     officialSiteUrl: seedInput.officialSiteUrl,
     domain: extractHostname(seedInput.officialSiteUrl)
   };
-}
-
-function buildPriorityPromptCandidates(
-  formState: SeedFormState,
-  extraPriorityPromptsText: string,
-  brandIdentity: BrandIdentityForDraft,
-  seedInput: ProjectSetupSeedInput
-): PriorityPromptCandidate[] {
-  const prompts = splitList([formState.priorityPromptsText, extraPriorityPromptsText].filter(Boolean).join("\n"));
-  const brandSignals = getBrandSignals(brandIdentity);
-  const competitorSignals = [...(seedInput.knownCompetitors ?? []), ...(seedInput.avoidCompetitors ?? [])]
-    .map(normalizeSignal)
-    .filter((value) => value.length >= 2);
-
-  return prompts.map((text, index) => {
-    const normalized = normalizeSignal(text);
-    const hasBrand = brandSignals.some((signal) => normalized.includes(signal));
-    const hasCompetitor = competitorSignals.some((signal) => normalized.includes(signal));
-    if (hasCompetitor) {
-      return {
-        id: `priority-${index}-${normalized}`,
-        text,
-        group: "excluded",
-        label: "対象外 / 実名競合入り",
-        reasons: ["実名競合を含むため visibility / ranking / SOV 対象外候補"]
-      };
-    }
-    if (hasBrand) {
-      return {
-        id: `priority-${index}-${normalized}`,
-        text,
-        group: "branded",
-        label: "ブランド認知",
-        reasons: ["brand / alias / domain を含むため sentiment / brand perception 用"]
-      };
-    }
-    return {
-      id: `priority-${index}-${normalized}`,
-      text,
-      group: "non_branded",
-      label: "指標候補 non-branded",
-      reasons: ["ブランド名・実名競合を含まないため AI表示率 / ranking / SOV 候補"]
-    };
-  });
 }
 
 function getBrandSignals(brandIdentity: BrandIdentityForDraft) {
@@ -1365,31 +1679,58 @@ function normalizeSignal(value: string) {
     .replace(/^www\./, "");
 }
 
-function extractHostname(value: string | undefined) {
-  if (!value) return undefined;
-  try {
-    return new URL(value).hostname;
-  } catch {
-    return value;
-  }
+function summarizePrompt(prompt: PromptDraft, brandIdentity: BrandIdentityForDraft): PromptSummary {
+  const eligibility = derivePromptMetricEligibility(prompt, brandIdentity);
+  return {
+    prompt,
+    eligibility,
+    group: getPromptGroup(prompt, eligibility)
+  };
 }
 
-function getInputCompletionValue(draft: ProjectSetupDraftGenerationResult["draft"] | null, field: string) {
-  const value = draft?.inputCompletion.find((item) => item.field === field)?.value;
-  if (Array.isArray(value)) return value.join(", ");
-  return typeof value === "string" ? value : "";
-}
+function buildPriorityQuestionCandidates(
+  formState: MeasurementWizardState,
+  brandIdentity: BrandIdentityForDraft,
+  seedInput: ProjectSetupSeedInput
+): PriorityQuestionCandidate[] {
+  const brandSignals = getBrandSignals(brandIdentity);
+  const competitorSignals = [...(seedInput.knownCompetitors ?? []), ...(seedInput.avoidCompetitors ?? [])]
+    .map(normalizeSignal)
+    .filter((value) => value.length >= 2);
 
-function inferAudienceFromBusinessModel(businessModel: string): AudienceOverride {
-  if (businessModel.startsWith("b2b") || businessModel === "professional_service" || businessModel === "recruiting_hr") return "b2b";
-  if (businessModel.startsWith("b2c") || businessModel === "local_service" || businessModel === "ecommerce") return "b2c";
-  return "auto";
-}
+  return splitList(formState.priorityQuestionsText).map((text, index) => {
+    const normalized = normalizeSignal(text);
+    const hasCompetitorSignal = competitorSignals.some((signal) => normalized.includes(signal));
+    const hasBrandSignal = brandSignals.some((signal) => normalized.includes(signal));
 
-function formatAudience(value: AudienceOverride) {
-  if (value === "b2b") return "BtoB";
-  if (value === "b2c") return "BtoC";
-  return "自動判定";
+    if (hasCompetitorSignal) {
+      return {
+        id: `priority-question-${index}`,
+        text,
+        group: "excluded",
+        label: "実名競合入り",
+        reason: "実名競合または除外対象を含むため、visibility / ranking / SOV候補から外します。"
+      };
+    }
+
+    if (hasBrandSignal) {
+      return {
+        id: `priority-question-${index}`,
+        text,
+        group: "branded",
+        label: "ブランド認知用",
+        reason: "brand / alias / domainを含むため、brand perception / sentiment確認用として扱います。"
+      };
+    }
+
+    return {
+      id: `priority-question-${index}`,
+      text,
+      group: "non_branded",
+      label: "指標候補",
+      reason: "brand / alias / domain / 実名競合を含まないため、AI表示率 / ranking / SOV候補として扱えます。"
+    };
+  });
 }
 
 function getPromptGroup(prompt: PromptDraft, eligibility: PromptMetricEligibility): PromptGroup {
@@ -1409,16 +1750,9 @@ function getPromptGroup(prompt: PromptDraft, eligibility: PromptMetricEligibilit
   return "excluded";
 }
 
-function getPromptGroupLabel(group: PromptGroup) {
-  if (group === "non_branded") return "指標候補 non-branded";
-  if (group === "branded") return "ブランド認知 branded";
-  if (group === "citation_check") return "引用確認 citation_check";
-  return "対象外 / 要確認";
-}
-
 function getPromptBreakdown(
-  summaries: { group: PromptGroup }[],
-  priorityPrompts: PriorityPromptCandidate[]
+  summaries: readonly PromptSummary[],
+  priorityQuestions: readonly PriorityQuestionCandidate[]
 ): Record<PromptGroup, number> {
   const initial: Record<PromptGroup, number> = {
     non_branded: 0,
@@ -1426,13 +1760,204 @@ function getPromptBreakdown(
     citation_check: 0,
     excluded: 0
   };
-  for (const item of summaries) initial[item.group] += 1;
-  for (const item of priorityPrompts) initial[item.group] += 1;
+  for (const summary of summaries) {
+    initial[summary.group] += 1;
+  }
+  for (const question of priorityQuestions) {
+    initial[question.group] += 1;
+  }
   return initial;
 }
 
+function buildMeasurementChecklist(formState: MeasurementWizardState): MeasurementChecklistItem[] {
+  const targetUrls = splitList(formState.targetUrlsText);
+  const aliases = splitList(formState.brandAliasesText);
+  const knownCompetitors = getKnownCompetitorsForSeed(formState);
+  const exclusions = getAvoidCompetitorsForSeed(formState);
+  const focusAngles = splitList(formState.focusAnglesText);
+  const ngAreas = splitList(formState.ngAreasText);
+
+  return [
+    checklistItem("target brand input", Boolean(formState.brandName.trim()), formState.brandName || "未入力"),
+    {
+      label: "brand aliases confirmed",
+      status: "ready",
+      detail: aliases.length ? aliases.join(", ") : "空欄。別名なしとして確認済み"
+    },
+    checklistItem("owned domains / target URLs input", targetUrls.length > 0, targetUrls.join(", ") || "未入力"),
+    checklistItem("measurement scope input", Boolean(formState.measurementScope.trim()), formState.measurementScope || "未入力"),
+    checklistItem("language/region input", Boolean(formState.language.trim() && formState.regionsText.trim()), `${formState.language || "未入力"} / ${formState.regionsText || "未入力"}`),
+    {
+      label: "BtoB/BtoC confirmed",
+      status: formState.audienceType === "both_or_confirm" ? "needs_confirmation" : "ready",
+      detail: formatAudienceType(formState.audienceType)
+    },
+    checklistItem("primary audience input", Boolean(formState.primaryAudience.trim()), formState.primaryAudience || "未入力"),
+    {
+      label: "known competitors or competitor discovery mode",
+      status: formState.competitorMode === "known_competitors_confirmed" && knownCompetitors.length === 0 ? "blocked" : formState.competitorMode === "competitor_discovery_needed" ? "needs_confirmation" : "ready",
+      detail: formState.competitorMode === "competitor_discovery_needed" ? "競合未定。Recoraで候補抽出" : formatList(knownCompetitors)
+    },
+    {
+      label: "excluded competitors/sources confirmed",
+      status: "ready",
+      detail: exclusions.length ? exclusions.join(", ") : "空欄。除外なしとして確認済み"
+    },
+    checklistItem("prompt generation scope/focus angles confirmed", focusAngles.length > 0, focusAngles.join(", ") || "未入力"),
+    {
+      label: "NG areas confirmed",
+      status: "ready",
+      detail: ngAreas.length ? ngAreas.join(", ") : "空欄。NG領域なしとして確認済み"
+    },
+    checklistItem("report purpose input", formState.reportPurposes.length > 0, formatReportPurposeLabels(formState).join(", ") || "未入力"),
+    {
+      label: "AI models/frequency/cost permission confirmed",
+      status:
+        formState.measurementFrequency === "unknown" ||
+        formState.modelCountPreference === "unknown" ||
+        formState.costPreference === "unknown"
+          ? "needs_confirmation"
+          : "ready",
+      detail: `${formatFrequency(formState.measurementFrequency)} / ${formatModelCount(formState.modelCountPreference)} / ${formatCostPreference(formState.costPreference)}`
+    }
+  ];
+}
+
+function checklistItem(label: string, ok: boolean, detail: string): MeasurementChecklistItem {
+  return {
+    label,
+    status: ok ? "ready" : "blocked",
+    detail
+  };
+}
+
+function getStepBlockers(stepIndex: number, formState: MeasurementWizardState) {
+  const blockers: string[] = [];
+
+  if (stepIndex === 0) {
+    if (!formState.brandName.trim()) blockers.push("正式な対象ブランド名を入力してください。");
+    if (splitList(formState.targetUrlsText).length === 0) blockers.push("公式ドメイン / 対象URLを1件以上入力してください。");
+    if (!formState.measurementScope.trim()) blockers.push("今回測りたい商品・サービス範囲を入力してください。");
+    const firstUrl = normalizeTargetUrlForSeed(splitList(formState.targetUrlsText)[0] ?? "");
+    if (firstUrl && !isLikelyHttpUrl(firstUrl)) blockers.push("公式ドメイン / 対象URLはURLとして扱える形式で入力してください。");
+  }
+
+  if (stepIndex === 1) {
+    if (!formState.regionsText.trim()) blockers.push("対象市場・地域を入力してください。");
+    if (!formState.language.trim()) blockers.push("言語を入力してください。");
+    if (!formState.primaryAudience.trim()) blockers.push("主な顧客層を入力してください。");
+    if (!formState.decisionRolesText.trim()) blockers.push("主な検討者・利用者・決裁者を入力してください。");
+  }
+
+  if (stepIndex === 2 && formState.competitorMode === "known_competitors_confirmed" && getKnownCompetitorsForSeed(formState).length === 0) {
+    blockers.push("競合ありを選ぶ場合は、比較したい競合を1件以上入力してください。");
+  }
+
+  if (stepIndex === 3) {
+    if (!formState.focusAnglesText.trim()) blockers.push("重点的に見たい論点を入力してください。");
+    if (formState.reportPurposes.length === 0) blockers.push("レポート目的を1件以上選択してください。");
+    if (formState.reportPurposes.includes("other") && !formState.reportPurposeOther.trim()) {
+      blockers.push("その他のレポート目的を入力してください。");
+    }
+  }
+
+  if (stepIndex === 4 && !formState.maxPromptCount.trim()) {
+    blockers.push("最大プロンプト数目安を選択してください。");
+  }
+
+  return blockers;
+}
+
+function splitList(value: string): string[] {
+  return value
+    .split(/[\n,、]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item, index, array) => array.indexOf(item) === index);
+}
+
+function uniqueStrings(values: readonly string[]) {
+  return values.filter((value, index, array) => array.indexOf(value) === index);
+}
+
+function formatList(values: readonly string[], emptyText = "未入力") {
+  return values.length ? values.join(", ") : emptyText;
+}
+
+function normalizeTargetUrlForSeed(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function isLikelyHttpUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function extractHostname(value: string | undefined) {
+  if (!value) return undefined;
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return value;
+  }
+}
+
+function getInputCompletionValue(draft: ProjectSetupDraftGenerationResult["draft"] | null, field: string) {
+  const value = draft?.inputCompletion.find((item) => item.field === field)?.value;
+  if (Array.isArray(value)) return value.join(", ");
+  return typeof value === "string" ? value : "";
+}
+
+function formatReportPurposeLabels(formState: MeasurementWizardState) {
+  return formState.reportPurposes.map((purpose) => {
+    if (purpose === "other") return formState.reportPurposeOther.trim() || "その他";
+    return reportPurposeOptions.find((option) => option.value === purpose)?.label ?? purpose;
+  });
+}
+
+function formatAudienceType(value: AudienceType) {
+  if (value === "b2b") return "BtoB";
+  if (value === "b2c") return "BtoC";
+  return "両方 / 要確認";
+}
+
+function formatCompetitorMode(value: CompetitorMode) {
+  if (value === "known_competitors_confirmed") return "比較したい競合がある";
+  return "未定 / Recoraで候補抽出";
+}
+
+function formatFrequency(value: MeasurementFrequency) {
+  return frequencyOptions.find((option) => option.value === value)?.label ?? value;
+}
+
+function formatModelCount(value: ModelCountPreference) {
+  return modelCountOptions.find((option) => option.value === value)?.label ?? value;
+}
+
+function formatCostPreference(value: CostPreference) {
+  return costPreferenceOptions.find((option) => option.value === value)?.label ?? value;
+}
+
+function formatTopicMetricTargets(topic: TopicDraft) {
+  const values = [
+    topic.metricTarget.visibilityRate === "eligible" ? "AI表示率" : null,
+    topic.metricTarget.ranking === "eligible" ? "ranking" : null,
+    topic.metricTarget.sentiment === "eligible" ? "sentiment" : null,
+    topic.metricTarget.citationCheck === "eligible" ? "citation" : null,
+    topic.metricTarget.riskCheck === "eligible" ? "risk" : null
+  ].filter(Boolean);
+  return values.length ? values.join(" / ") : "対象外 / 要確認";
+}
+
 function formatMetricEligibility(eligibility: PromptMetricEligibility) {
-  const eligible = [
+  const values = [
     eligibility.visibilityRate === "eligible" ? "AI表示率" : null,
     eligibility.ranking === "eligible" ? "ranking" : null,
     eligibility.shareOfVoice === "eligible" ? "SOV" : null,
@@ -1440,188 +1965,106 @@ function formatMetricEligibility(eligibility: PromptMetricEligibility) {
     eligibility.brandPerception === "eligible" ? "brand perception" : null,
     eligibility.citationCheck === "eligible" ? "citation check" : null
   ].filter(Boolean);
-  return eligible.length > 0 ? eligible.join(" / ") : "対象外 / 要確認";
-}
-
-function createManualPersona(seedInput: ProjectSetupSeedInput, index: number): PersonaDraft {
-  return {
-    personaId: `wizard-persona-${index + 1}`,
-    displayName: "新しいペルソナ",
-    segment: seedInput.targetCustomers || "対象顧客",
-    businessType: seedInput.industryCategory || "未分類",
-    industryCategory: seedInput.industryCategory || "未分類",
-    roleType: "evaluator",
-    detailedDecisionRole: "evaluator",
-    roleMappingReason: "画面上で追加した下書きです。",
-    buyerStage: "exploration",
-    jobs: [],
-    painPoints: [],
-    triggerEvents: [],
-    switchingForces: [],
-    alternativesConsidered: [],
-    comparisonAxis: [],
-    proofNeeded: [],
-    trustRequirement: "要確認",
-    promptAngle: "このペルソナに合わせた質問角度を確認してください。",
-    promptReadiness: "usable_with_caution",
-    researchSufficiency: "minimum_input",
-    confidenceScore: 50,
-    needsVerification: true,
-    riskFlags: ["wizard_added_draft"],
-    sourceStatus: "inferred",
-    reviewStatus: "needs_review"
-  };
-}
-
-function createManualTopic(seedInput: ProjectSetupSeedInput, personas: PersonaDraft[], index: number): TopicDraft {
-  const persona = personas[0] ?? null;
-  return {
-    topicId: `wizard-topic-${index + 1}`,
-    topicName: "新しいトピック",
-    topicType: "category_discovery_topic",
-    diagnosisGoal: seedInput.diagnosisGoals?.[0] ?? "non_branded",
-    targetPersonaId: persona?.personaId ?? null,
-    buyerStage: "exploration",
-    metricTarget: {
-      visibilityRate: "eligible",
-      ranking: "eligible",
-      sentiment: "excluded",
-      citationCheck: "excluded",
-      riskCheck: "excluded"
-    },
-    brandMentionPolicy: "brand_excluded",
-    expectedSignal: "候補として自然に挙がるかを確認する下書きです。",
-    minimumPromptCount: 1,
-    riskOrBias: null,
-    handoffSkill: "recora-prompt-topic-designer",
-    topicQualityDecision: "topic_needs_more_prompts",
-    coverageStatus: "undercovered",
-    confidenceScore: 50,
-    reviewStatus: "needs_review"
-  };
-}
-
-function createManualPrompt(seedInput: ProjectSetupSeedInput, topics: TopicDraft[], personas: PersonaDraft[], index: number): PromptDraft {
-  const topic = topics[0] ?? null;
-  const persona = personas[0] ?? null;
-  return {
-    promptId: `wizard-prompt-${index + 1}`,
-    topicId: topic?.topicId ?? "wizard-topic-required",
-    personaId: persona?.personaId ?? null,
-    text: `${seedInput.industryCategory || "このカテゴリ"}を検討するとき、候補になりやすいサービスを比較してください。`,
-    rawUserIntent: "wizard_added_prompt",
-    languageMode: "natural_conversation",
-    category: "non_branded",
-    intent: "non_branded",
-    intentType: "commercial_investigation",
-    buyerStage: "exploration",
-    brandingMode: "non_branded",
-    brandMentionRule: "brand_excluded",
-    competitorMentionRule: "no_competitor",
-    responseShape: "candidate_list",
-    candidateMentionOpportunity: "likely",
-    rankingOpportunity: "comparable_set",
-    expectedSignal: "候補群に含まれるかを確認します。",
-    qualityScore: 60,
-    gateDecision: "revise_before_measurement",
-    gateReason: "画面上で追加した未承認下書きです。",
-    sourceStatus: "inferred",
-    seedTerms: [],
-    seedContaminationRisk: "low",
-    needsVerification: true,
-    confidenceScore: 50,
-    reviewStatus: "needs_review",
-    riskFlags: ["wizard_added_draft"]
-  };
-}
-
-function replaceAt<T>(items: T[], index: number, value: T) {
-  return items.map((item, itemIndex) => itemIndex === index ? value : item);
-}
-
-function moveById(items: PromptDraft[], promptId: string, direction: -1 | 1) {
-  const index = items.findIndex((item) => item.promptId === promptId);
-  if (index < 0) return items;
-  const nextIndex = index + direction;
-  if (nextIndex < 0 || nextIndex >= items.length) return items;
-  const next = [...items];
-  const currentItem = next[index];
-  const targetItem = next[nextIndex];
-  next[index] = targetItem;
-  next[nextIndex] = currentItem;
-  return next;
+  return values.length ? values.join(" / ") : "対象外 / 要確認";
 }
 
 function translateBlocker(value: string) {
   const map: Record<string, string> = {
-    "seedInput.companyName is required": "会社名を入力してください。",
-    "seedInput.brandName is required": "ブランド名 / サービス名を入力してください。",
-    "seedInput.officialSiteUrl is required": "公式URLを入力してください。",
-    "seedInput.productOrServiceDescription is required": "サービス概要を入力してください。",
-    "seedInput.industryCategory is required": "業種カテゴリを入力してください。",
+    "seedInput.companyName is required": "正式な対象ブランド名を入力してください。",
+    "seedInput.brandName is required": "正式な対象ブランド名を入力してください。",
+    "seedInput.officialSiteUrl is required": "公式ドメイン / 対象URLを入力してください。",
+    "seedInput.productOrServiceDescription is required": "今回測りたい商品・サービス範囲を入力してください。",
+    "seedInput.industryCategory is required": "暫定カテゴリを確認してください。",
     "seedInput.targetCustomers is required": "主な顧客層を入力してください。",
-    "seedInput.regions must include at least one region": "対象地域を1件以上入力してください。",
+    "seedInput.regions must include at least one region": "対象市場・地域を1件以上入力してください。",
     "seedInput.language is required": "言語を入力してください。",
-    "seedInput.officialSiteUrl must be an http or https URL": "公式URLは http または https で始まるURLにしてください。"
+    "seedInput.officialSiteUrl must be an http or https URL": "公式ドメイン / 対象URLはURLとして扱える形式で入力してください。"
   };
   return map[value] ?? value;
 }
 
 function translateWarning(value: string) {
   const map: Record<string, string> = {
-    known_competitors_missing_use_unknown_competitor_discovery: "競合未入力のため、実名競合ではなくカテゴリ上の候補発見として扱います。",
-    strengths_missing_use_general_proof_needs: "強みが未入力のため、一般的な確認軸で下書きします。",
-    known_risks_missing_internal_review_required: "既知のリスクが未入力のため、内部レビューで確認が必要です。",
-    business_model_inference_needs_confirmation: "business model の推定に確認が必要です。",
+    known_competitors_missing_use_unknown_competitor_discovery: "競合未定のため、実名競合ではなく候補抽出モードとして扱います。",
+    strengths_missing_use_general_proof_needs: "強みは入力欄化せず、一般的な確認軸で下書きしています。",
+    known_risks_missing_internal_review_required: "既知リスクは入力欄化せず、NG領域は確認用メモとして扱います。",
+    business_model_inference_needs_confirmation: "business modelの推定に確認が必要です。",
     industry_adapter_generic_prompt_angles_need_review: "業種別の角度が汎用寄りです。下書きの確認が必要です。",
-    target_customers_broad_personas_need_confirmation: "主な顧客層が広いため、ペルソナ確認が必要です。",
-    service_description_thin_prompt_angles_need_review: "サービス概要が短いため、prompt角度の確認が必要です。"
+    target_customers_broad_personas_need_confirmation: "主な顧客層が広いため、persona summaryの確認が必要です。",
+    service_description_thin_prompt_angles_need_review: "測定範囲の説明が短いため、prompt角度の確認が必要です。"
   };
   return map[value] ?? value;
 }
 
 function buildConfirmationText(input: {
+  formState: MeasurementWizardState;
   seedInput: ProjectSetupSeedInput;
-  businessModel: string;
-  audience: AudienceOverride;
-  personas: PersonaDraft[];
-  topics: TopicDraft[];
-  prompts: PromptDraft[];
-  priorityPrompts: PriorityPromptCandidate[];
-  diagnosisGoalMemo: string;
+  draft: ProjectSetupDraftGenerationResult["draft"] | null;
+  promptBreakdown: Record<PromptGroup, number>;
+  priorityQuestionCandidates: PriorityQuestionCandidate[];
+  checklist: MeasurementChecklistItem[];
   blockers: string[];
   warnings: string[];
 }) {
+  const { formState, seedInput, draft } = input;
   return [
-    "Recora 無料診断 初期設定下書き",
+    "Recora API前確認 下書き",
     "",
-    `会社名: ${input.seedInput.companyName}`,
-    `ブランド名: ${input.seedInput.brandName}`,
-    `公式URL: ${input.seedInput.officialSiteUrl}`,
-    `カテゴリ: ${input.seedInput.industryCategory}`,
-    `BtoB/BtoC: ${formatAudience(input.audience)}`,
-    `business model: ${input.businessModel || "未判定"}`,
-    `診断したい目的（確認用メモ）: ${input.diagnosisGoalMemo.trim() || "なし"}`,
-    "確認用メモは ProjectSetupSeedInput には含めず、generator の下書き生成条件には使っていません。",
+    "この内容はAPI前確認の下書きです",
+    "保存・承認・計測反映はまだ行いません",
+    "Fetch / サイト調査 / 検索 / AI計測はこの画面では実行しません",
     "",
-    `ペルソナ下書き: ${input.personas.length}件`,
-    ...input.personas.map((persona) => `- ${persona.displayName} / ${persona.roleType}`),
+    `対象ブランド: ${formState.brandName}`,
+    `別名・表記ゆれ: ${formatList(splitList(formState.brandAliasesText), "なしとして確認済み")}`,
+    `公式ドメイン / URL: ${formatList(splitList(formState.targetUrlsText))}`,
+    `測定範囲: ${formState.measurementScope}`,
+    `暫定カテゴリ: ${seedInput.industryCategory}`,
     "",
-    `トピック下書き: ${input.topics.length}件`,
-    ...input.topics.map((topic) => `- ${topic.topicName} / ${topic.topicType}`),
+    `対象市場・地域: ${formatList(splitList(formState.regionsText))}`,
+    `言語: ${formState.language}`,
+    `BtoB/BtoC: ${formatAudienceType(formState.audienceType)}`,
+    `主な顧客層: ${formState.primaryAudience}`,
+    `検討者・利用者・決裁者: ${formState.decisionRolesText}`,
     "",
-    `プロンプト下書き: ${input.prompts.length}件`,
-    `優先採用候補: ${input.priorityPrompts.length}件`,
-    ...input.priorityPrompts.map((prompt) => `- ${prompt.text} / ${prompt.label}`),
+    `競合モード: ${formatCompetitorMode(formState.competitorMode)}`,
+    `比較したい競合: ${formatList(getKnownCompetitorsForSeed(formState), "Recoraで候補抽出")}`,
+    `除外条件: ${formatList(getAvoidCompetitorsForSeed(formState), "なしとして確認済み")}`,
+    formState.competitorMode === "competitor_discovery_needed"
+      ? "競合未定のため、SOV/ブランド比較は候補扱いです。正式な比較には後続の承認が必要です。"
+      : "",
     "",
-    "この下書きは未承認です。",
-    "保存・承認・計測反映はまだ行いません。",
-    "non-branded prompt はAI表示率 / ranking / SOV の候補です。",
-    "branded prompt は sentiment / brand perception 用です。",
-    "citation_check は引用確認用です。",
-    "実名競合を含むpromptは visibility / ranking / SOV 対象外です。",
+    `重点論点: ${formatList(splitList(formState.focusAnglesText))}`,
+    `NG領域: ${formatList(splitList(formState.ngAreasText), "なしとして確認済み")}`,
+    `レポート目的: ${formatList(formatReportPurposeLabels(formState))}`,
+    `診断したい目的（確認用メモ）: ${formState.diagnosisGoalText.trim() || "なし"}`,
+    "確認用メモはProjectSetupSeedInputには含めず、generatorの下書き生成条件には使っていません。",
     "",
-    `blocker: ${input.blockers.length ? input.blockers.join(", ") : "なし"}`,
-    `warning: ${input.warnings.length ? input.warnings.join(", ") : "なし"}`
-  ].join("\n");
+    `計測頻度: ${formatFrequency(formState.measurementFrequency)}`,
+    `AIモデル数: ${formatModelCount(formState.modelCountPreference)}`,
+    `最大プロンプト数目安: ${formState.maxPromptCount}`,
+    `コスト感: ${formatCostPreference(formState.costPreference)}`,
+    "",
+    `persona summary: ${draft?.personas.length ?? 0}件`,
+    `topic summary: ${draft?.topics.length ?? 0}件`,
+    `prompt summary: ${draft?.prompts.length ?? 0}件`,
+    `prompt breakdown: non-branded ${input.promptBreakdown.non_branded}件 / branded ${input.promptBreakdown.branded}件 / citation_check ${input.promptBreakdown.citation_check}件 / excluded ${input.promptBreakdown.excluded}件`,
+    "必ず測りたい質問の優先候補:",
+    ...(input.priorityQuestionCandidates.length
+      ? input.priorityQuestionCandidates.map((question) => `- ${question.text} / ${question.label} / ${question.reason}`)
+      : ["- なし"]),
+    "",
+    "measurement ready checklist:",
+    ...input.checklist.map((item) => `- ${item.label}: ${item.status} (${item.detail})`),
+    "",
+    `blocker: ${input.blockers.length ? input.blockers.map(translateBlocker).join(", ") : "なし"}`,
+    `warning: ${input.warnings.length ? input.warnings.map(translateWarning).join(", ") : "なし"}`,
+    "",
+    `カテゴリ確認メモ: ${formState.categoryNote.trim() || "なし"}`,
+    `persona確認メモ: ${formState.personaNote.trim() || "なし"}`,
+    `topic確認メモ: ${formState.topicNote.trim() || "なし"}`,
+    `prompt確認メモ: ${formState.promptNote.trim() || "なし"}`,
+    `競合確認メモ: ${formState.competitorNote.trim() || "なし"}`
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
 }

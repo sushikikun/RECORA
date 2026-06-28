@@ -12,16 +12,33 @@
 
 ## 無料診断後の初期設定ウィザード
 
-`app/onboarding/project-setup/page.tsx` は、無料診断 / 新規登録後に続く初期設定導線として `generateProjectSetupDraft` を画面内で利用する。会社情報からカテゴリ判定、persona / topic / prompt 下書き確認までを行う。
+`app/onboarding/project-setup/page.tsx` は、無料診断 / 新規登録後に続くAPI前の測定条件確認画面として `generateProjectSetupDraft` を画面内で利用する。顧客が詳細な persona / topic / prompt / category を作成する画面ではない。
 
-- 各ステップの下書きは画面内で編集できるが、保存・承認・materialize は未実装。
-- DB write、Supabase write、外部API呼び出し、Webクロール、計測実行は行わない。
-- 入力値と編集内容は React state のみで保持し、ページ reload で消えてよい。
-- prompt 詳細は初期状態で畳み、「プロンプトを確認・変更する」で表示する。
-- 「入れてほしいプロンプト」は優先採用候補として上部に表示するが、metric eligibility は Recora の既存方針に従う。
-- brand / alias / domain を含む prompt は branded / brand perception 用として扱い、visibility / ranking / SOV 対象外候補として表示する。
-- knownCompetitors / avoidCompetitors を含む prompt は実名競合入り prompt として扱い、visibility / ranking / SOV 対象外候補として表示する。
+画面で顧客に確認する項目:
+
+- 正式な対象ブランド名、別名・表記ゆれ、公式ドメイン / 対象URL、今回測りたい商品・サービス範囲
+- 対象市場・地域、言語、BtoB / BtoC、主な顧客層、検討者・利用者・決裁者
+- 比較したい競合、競合未定 / Recoraで候補抽出、除外したい会社・媒体・カテゴリ、競合ではないがAI/検索に出そうな媒体・カテゴリ
+- 重点的に見たい論点、測定してほしくないNG領域、レポート目的、確認用メモ
+- 計測頻度、AIモデル数、最大プロンプト数目安、コスト感
+
+画面の役割:
+
+- 入力値は React state のみで保持し、ページ reload で消えてよい。
+- Step 6で、画面内の同期処理として `generateProjectSetupDraft` を呼び、Recoraが category / persona / topic / prompt の下書き要約を生成する。
+- 顧客には詳細persona、細かいtopic、prompt本文の作成を要求しない。Recora生成下書きは要約確認とメモ入力に留める。
+- prompt詳細は初期状態で畳み、「プロンプトを確認する」で表示する。
+- 「必ず測りたい質問」は優先候補として表示するが、brand / alias / domain / 実名競合を含む場合は visibility / ranking / SOV 候補から外す前提で扱う。
+- 競合が未定でも進行できる。`knownCompetitors` は空配列、画面状態は `competitor_discovery_needed` とする。
+- 競合未定時、AI表示率、自社サイト引用率、AI回答、参照元、ブランド認知は出せる。Share of Voice は制限付き、ブランド比較、競合に取られている質問、競合に取られている参照元は自動検出候補扱いとする。正式な比較には後続の承認が必要。
+- 計測頻度、AIモデル数、最大プロンプト数目安、コスト感、NG領域、確認用メモはUI確認情報として扱い、新しい永続fieldやDB schemaは追加しない。
+- 診断したい目的の自由入力メモは確認用メモであり、`ProjectSetupSeedInput` や generator 入力には反映しない。
 - 公開用サンプルJSONは追加しない。
+
+画面が行わないこと:
+
+- DB write、Supabase write、外部API呼び出し、OpenAI API呼び出し、Webクロール、Fetch、検索、AI計測、計測実行
+- 保存、承認、materialize、レポート確定、認証本実装、middleware変更、`package-lock.json` 変更
 
 ## 主な関数
 
