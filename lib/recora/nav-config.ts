@@ -1,14 +1,19 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  BriefcaseBusiness,
   CircleGauge,
   Database,
+  FolderKanban,
   Gauge,
   Home,
   Layers3,
   Lightbulb,
+  LineChart,
   MessageSquareText,
   Radar,
-  Swords
+  Settings,
+  Swords,
+  Users
 } from "lucide-react";
 
 export type RecoraNavStatus = "ready" | "preparing";
@@ -16,6 +21,8 @@ export type RecoraNavStatus = "ready" | "preparing";
 export type RecoraNavSection =
   | "ホーム"
   | "レポート"
+  | "プロジェクト管理"
+  | "ワークスペース"
   | "測定管理"
   | "設定";
 
@@ -35,16 +42,20 @@ export type RecoraNavGroup = {
 
 const sectionOrder: RecoraNavSection[] = [
   "ホーム",
-  "レポート"
+  "レポート",
+  "プロジェクト管理",
+  "ワークスペース"
 ];
 
 export type RecoraNavBuildOptions = {
   showReportContextItems?: boolean;
+  showCustomerWorkspaceItems?: boolean;
 };
 
-export function buildRecoraNavItems(reportId?: string, _options: RecoraNavBuildOptions = {}): RecoraNavItem[] {
+export function buildRecoraNavItems(reportId?: string, options: RecoraNavBuildOptions = {}): RecoraNavItem[] {
   const reportBase = reportId ? `/dashboard/reports/${reportId}` : undefined;
   const dashboardHref = reportId === "design-check" ? "/dashboard?design-check=1" : "/dashboard";
+  const showCustomerWorkspaceItems = options.showCustomerWorkspaceItems ?? false;
 
   const reportDetailItems: RecoraNavItem[] = reportBase
     ? [
@@ -54,6 +65,13 @@ export function buildRecoraNavItems(reportId?: string, _options: RecoraNavBuildO
           section: "レポート",
           status: "ready",
           icon: Radar
+        },
+        {
+          label: "推移",
+          href: `${reportBase}/trends`,
+          section: "レポート",
+          status: "ready",
+          icon: LineChart
         },
         {
           label: "ブランド比較",
@@ -100,6 +118,43 @@ export function buildRecoraNavItems(reportId?: string, _options: RecoraNavBuildO
       ]
     : [];
 
+  const workspaceItems: RecoraNavItem[] = showCustomerWorkspaceItems
+    ? [
+        {
+          label: "プロジェクト管理",
+          href: "/dashboard/config/project",
+          section: "プロジェクト管理",
+          status: "ready",
+          icon: BriefcaseBusiness,
+          description: "プロジェクトの基本情報を確認します。"
+        },
+        {
+          label: "プロジェクト一覧",
+          href: "/dashboard/config/project",
+          section: "ワークスペース",
+          status: "ready",
+          icon: FolderKanban,
+          description: "ワークスペース内のプロジェクトを確認します。"
+        },
+        {
+          label: "メンバー管理",
+          href: "/dashboard/config/team",
+          section: "ワークスペース",
+          status: "ready",
+          icon: Users,
+          description: "メンバーと権限を確認します。"
+        },
+        {
+          label: "設定",
+          href: "/dashboard/config/settings",
+          section: "ワークスペース",
+          status: "ready",
+          icon: Settings,
+          description: "ワークスペース設定を確認します。"
+        }
+      ]
+    : [];
+
   return [
     {
       label: "ホーム",
@@ -117,7 +172,8 @@ export function buildRecoraNavItems(reportId?: string, _options: RecoraNavBuildO
       icon: Home,
       description: "レポート一覧を確認します。"
     },
-    ...reportDetailItems
+    ...reportDetailItems,
+    ...workspaceItems
   ];
 }
 

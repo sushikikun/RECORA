@@ -18,6 +18,12 @@ import {
   getRecoraRealDbPreviewProjectDisplayName,
   withRecoraRealDbPreviewSearchParam
 } from "@/lib/recora/dev-preview/real-db-preview-url";
+import {
+  CUSTOMER_REPORT_DESIGN_LAB_PROJECT_NAME,
+  CUSTOMER_REPORT_DESIGN_LAB_SEARCH_PARAM,
+  CUSTOMER_REPORT_DESIGN_LAB_SEARCH_VALUE,
+  withCustomerReportDesignLabSearchParam
+} from "@/lib/recora/customer-report-design-lab/url";
 
 const alwaysVisibleSections: RecoraNavSection[] = ["ホーム", "レポート"];
 const reportContextSettingPaths = [
@@ -71,7 +77,10 @@ function buildInitialExpandedSections(navGroups: RecoraNavGroup[], pathname: str
   return Object.fromEntries(
     navGroups
       .filter((group) => !isAlwaysVisibleSection(group.label))
-      .map((group) => [group.label, group.label === activeSection])
+      .map((group) => [
+        group.label,
+        group.label === activeSection || group.label === "プロジェクト管理" || group.label === "ワークスペース"
+      ])
   ) as Partial<Record<RecoraNavSection, boolean>>;
 }
 
@@ -87,18 +96,27 @@ export function DashboardShell({
   const visualVariant = resolveRecoraVisualVariant(searchParams.get("visual"), designPreviewEnabled);
   const realDbPreviewActive =
     searchParams.get(RECORA_REAL_DB_PREVIEW_SEARCH_PARAM) === RECORA_REAL_DB_PREVIEW_SEARCH_VALUE;
+  const customerReportDesignLabActive =
+    searchParams.get(CUSTOMER_REPORT_DESIGN_LAB_SEARCH_PARAM) === CUSTOMER_REPORT_DESIGN_LAB_SEARCH_VALUE;
   const isDataRichFinal = visualVariant === "data-rich-final";
   const reportId = getSelectedReportId(pathname);
-  const projectCardLabel = realDbPreviewActive
-    ? getRecoraRealDbPreviewProjectDisplayName(reportId)
-    : "Recora";
+  const projectCardLabel = customerReportDesignLabActive
+    ? CUSTOMER_REPORT_DESIGN_LAB_PROJECT_NAME
+    : realDbPreviewActive
+      ? getRecoraRealDbPreviewProjectDisplayName(reportId)
+      : "Recora";
   const showReportContextItems = Boolean(reportId) || isReportContextSettingPath(pathname);
-  const withPreviewHref = (href: string) =>
-    withRecoraRealDbPreviewSearchParam(withRecoraVisualVariantSearchParam(href, visualVariant), realDbPreviewActive);
+  const withPreviewHref = (href: string) => {
+    const previewHref = withRecoraRealDbPreviewSearchParam(
+      withRecoraVisualVariantSearchParam(href, visualVariant),
+      realDbPreviewActive
+    );
+    return customerReportDesignLabActive ? withCustomerReportDesignLabSearchParam(previewHref) : previewHref;
+  };
   const currentReportHref = withPreviewHref(reportId ? `/dashboard/reports/${reportId}` : "/dashboard/reports");
   const navGroups = useMemo(
-    () => buildRecoraNavGroups(reportId, { showReportContextItems }),
-    [reportId, showReportContextItems]
+    () => buildRecoraNavGroups(reportId, { showReportContextItems, showCustomerWorkspaceItems: customerReportDesignLabActive }),
+    [reportId, showReportContextItems, customerReportDesignLabActive]
   );
   const activeSection = getActiveSection(navGroups, pathname);
   const [expandedSections, setExpandedSections] = useState<Partial<Record<RecoraNavSection, boolean>>>(() =>

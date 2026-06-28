@@ -1,4 +1,6 @@
+import { CustomerReportDesignLab } from "@/components/recora/customer-report-design-lab/customer-report-design-lab";
 import { ReportsIndexPage, type ReportsIndexPreviewRow } from "@/components/recora/report-pages";
+import { canUseCustomerReportDesignLab } from "@/lib/recora/customer-report-design-lab/access";
 import {
   getRecoraDesignPreviewLabel,
   isRecoraDesignPreviewEnabled
@@ -29,6 +31,10 @@ type ReportsPageProps = {
 
 export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const visualVariant = getRecoraVisualVariant(searchParams);
+
+  if (canUseCustomerReportDesignLab(searchParams)) {
+    return <CustomerReportDesignLab activePage="reports" />;
+  }
 
   if (isRecoraRealDbPreviewEnabled(searchParams)) {
     return (
