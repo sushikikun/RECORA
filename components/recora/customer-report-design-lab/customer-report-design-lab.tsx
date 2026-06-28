@@ -90,16 +90,12 @@ const pageIconMap: Record<CustomerReportDesignLabPageId, typeof Gauge> = {
 
 export function CustomerReportDesignLab({ activePage }: { activePage: CustomerReportDesignLabPageId }) {
   const page = customerReportDesignLabPages.find((item) => item.id === activePage) ?? customerReportDesignLabPages[0];
-  const isHome = activePage === "home";
 
   return (
     <div className="min-w-0 overflow-x-hidden text-[#0F172A]" data-recora-customer-report-design-lab>
-      {isHome ? null : <PageHeading eyebrow={page.eyebrow} title={page.title} />}
-      <div className={isHome ? undefined : "mt-4"}>
-        <ScopeStrip />
-      </div>
+      <PageHeading eyebrow={page.eyebrow} title={page.title} />
       <div className="mt-4">
-        <ReportNav activePage={activePage} />
+        <ScopeStrip />
       </div>
       <div className="mt-4 min-w-0">{renderPage(activePage)}</div>
     </div>
@@ -172,34 +168,6 @@ function ScopeStrip() {
   );
 }
 
-function ReportNav({ activePage }: { activePage: CustomerReportDesignLabPageId }) {
-  return (
-    <nav className="border-b border-[#E1E7E4] bg-white" aria-label="顧客レポートナビゲーション">
-      <div className="grid min-w-0 grid-cols-2 gap-0 sm:grid-cols-5 lg:grid-cols-10">
-        {customerReportDesignLabPages.map((page) => {
-          const active = page.id === activePage;
-
-          return (
-            <Link
-              key={page.id}
-              href={getCustomerReportDesignLabHref(page.id)}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex min-h-12 min-w-0 items-center justify-center border-b-2 px-2 text-center text-[13px] font-bold leading-5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#006B57]",
-                active
-                  ? "border-[#007A5A] text-[#006B57]"
-                  : "border-transparent text-[#1F2937] hover:border-[#B8DCD2] hover:text-[#006B57]"
-              )}
-            >
-              <span className="min-w-0 truncate">{page.label}</span>
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
-  );
-}
-
 function HomePage() {
   return (
     <div className="space-y-4">
@@ -215,7 +183,7 @@ function HomePage() {
 
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.78fr)]">
         <HomeSection title="クイックアクセス">
-          <div className="grid min-w-0 gap-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid min-w-0 gap-4 p-4 sm:grid-cols-2 xl:grid-cols-5">
             {quickAccessItems.map((item) => (
               <QuickAccessCard key={item.label} item={item} />
             ))}

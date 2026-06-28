@@ -105,6 +105,7 @@ export const recentChanges = [
 
 export const quickAccessItems = [
   { label: "概要", description: "結論と優先論点", page: "overview" as const },
+  { label: "推移", description: "主要指標の変化", page: "trends" as const },
   { label: "質問別分析", description: "弱い質問と優先度", page: "prompts" as const },
   { label: "参照元", description: "引用元と不足ソース", page: "sources" as const },
   { label: "改善候補", description: "根拠つき施策候補", page: "recommendations" as const }
