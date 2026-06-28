@@ -17,29 +17,31 @@
 画面は5ステップ構成とする:
 
 1. ブランド確認
-2. サービス理解・市場・顧客層
-3. 競合・除外
-4. 見たいこと・避けたいこと
-5. Recoraの測定設計
+2. サービス理解・市場・顧客層・競合
+3. 見たいこと
+4. プロンプト例
+5. 最終確認
 
 画面で顧客に確認する項目:
 
 - 正式なブランド名 / サービス名、表記ゆれ・別名、公式URL
 - サービス説明、サービスカテゴリ、対象市場・地域、測定する言語、BtoB / BtoC、主に見る顧客層
-- 比較したい競合、競合未定 / Recoraで候補抽出、除外したい会社・媒体・カテゴリ
-- 特に見たいこと、測ってほしくない話題、今回知りたいこと
-- Recoraが測定前に確認する測定対象、見る相手、質問領域、質問例、注意点
+- 比較したい競合、競合未定 / Recoraで候補抽出
+- 特に見たいこと、今回知りたいこと
+- Recoraが生成したプロンプト例、顧客が追加したいプロンプト
+- 最終確認としてブランド情報、サービス理解、市場・言語、顧客層 / 主に見たい相手、競合、見たいこと、プロンプト例
 
 画面の役割:
 
 - 入力値は React state のみで保持し、ページ reload で消えてよい。
-- 旧Step5の診断プランは顧客向けUIから削除する。診断プラン、計測量、モデル数、頻度、コスト感は顧客が決める項目として扱わない。
-- 旧Step6のRecora生成下書きは新Step5「Recoraの測定設計」に統合する。最終確認もStep5下部に統合し、別ステップにはしない。
-- Step5で、画面内の同期処理として `generateProjectSetupDraft` を呼び、Recoraが測定前に確認する設計案に変換する。
-- 顧客には詳細persona、細かいtopic、prompt本文の作成を要求しない。内部の persona / topic / prompt は、顧客向けには「見る相手」「質問領域」「質問例」として表示する。
+- Step2に競合入力を統合し、除外系 / NG系の顧客入力は置かない。
+- Step3は「見たいこと」だけに絞り、除外・NG系の入力を置かない。
+- Step4で、画面内の同期処理として `generateProjectSetupDraft` を呼び、Recoraが生成したプロンプト例を表示する。
+- Step4ではプロンプト例を直接編集・削除でき、追加したプロンプトはStep5の最終確認に反映する。
+- Step5は最終確認のみとし、計測設計、計測量、利用モデル、頻度、費用感を顧客が決める項目として扱わない。
+- 顧客には詳細personaや細かいtopicの作成を要求しない。内部の persona / topic / prompt は raw generator output としてそのまま表示しない。
 - UIには `businessModel`、`industryAdapter`、`topicType`、`roleType`、blocker ID、warning ID などの内部IDや生の内部分類を出さない。
-- promptという語は顧客向けUIでは使わず、質問例として扱う。詳細表示ボタンも「質問例をもっと見る」のように表現する。
-- 「必ず入れたい質問」「測ってほしくない質問」は確認情報として保持する。brand / alias / domain / 実名競合を含む場合は visibility / ranking / SOV 候補から外す前提で扱う。
+- 顧客向けUIではStep4/Step5のラベルとして「プロンプト例」を使うが、内部IDや `promptId` は表示しない。
 - 競合が未定でも進行できる。`knownCompetitors` は空配列、画面状態は `competitor_discovery_needed` とする。
 - 競合未定時、AI表示率、自社サイト引用率、AI回答、参照元、ブランド認知は確認対象にできる。Share of Voice は制限付き、ブランド比較、競合に取られている質問、競合に取られている参照元は自動検出候補扱いとする。正式な比較には後続の承認が必要。
 - 新しい永続fieldやDB schemaは追加しない。
@@ -161,7 +163,7 @@ warningは主に次を示す。
 - buyer intentのnon-branded promptがmarket metric対象になり得る
 - 高単価BtoBで `economic_buyer`、費用対効果、移行負荷、セキュリティ確認が出る
 - BtoC/EC比較で `repeat_user`、raw-search-like/anxious/comparison-shortcutの文体、口コミ/返品条件/素材などの確認軸が出る
-- 未承認promptがmeasurement readyにならない
+- 未承認promptが計測可能扱いにならない
 - 重複persona/topic/promptがない
 - 入力不足時にblockerが返る
 - 未承認draftをmaterialize判定が拒否する
