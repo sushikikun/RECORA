@@ -69,6 +69,10 @@ branded sentiment topic は visibility/ranking/SOV に混ぜない。
 prompt は必ず `topicId` と `personaId` を持つ。
 
 - non-branded prompt はブランド名、alias、domainを含めない。
+- non-branded prompt は `knownCompetitors` や `avoidCompetitors` が入力されていても、実名競合を含めない。比較候補は unknown competitor / category discovery として扱う。
+- BtoB の non-branded prompt は、導入判断、比較検討、費用対効果、運用負荷、セキュリティ、社内承認、既存ツール連携、契約前確認のような実務文脈に寄せる。
+- BtoC の non-branded prompt は、失敗回避、口コミ、料金、自分に合うか、初めて選ぶ不安、通いやすさ、家族への適合のような消費者文脈に寄せる。
+- 「おすすめは？」「どこがいい？」だけに近い短すぎる文や、SEOキーワード羅列に近い文は生成しない。
 - buyer intent prompt は候補や推薦順を自然に聞く形にし、market metric対象になり得る。
 - selection criteria prompt は評価軸確認用で、visibility/ranking対象にしない。
 - EC/商品比較では、サービス会社向け語彙ではなく、商品、ブランド、価格、口コミ、返品条件、素材や品質を確認軸にする。
@@ -108,6 +112,10 @@ warningは主に次を示す。
 - 同じseedから同じ結果が返る
 - persona/topic/promptの参照関係が壊れていない
 - non-branded promptにブランド名やaliasが含まれない
+- `knownCompetitors` が入力されても non-branded prompt に競合名が含まれない
+- BtoB prompt に「近く」「家族」「子ども」「口コミだけ」「初めてで不安」のようなBtoC色が強い語彙が不自然に混ざらない
+- BtoC prompt に「導入」「稟議」「ROI」「費用対効果」「ベンダー選定」「SaaS」「セキュリティ」「既存ツール連携」のようなBtoB色が強い語彙が不自然に混ざらない
+- non-branded prompt が抽象的すぎる短文やキーワード羅列にならない
 - branded promptがvisibility/ranking/SOV対象にならない
 - branded sentiment promptがsentiment / brandPerception用になる
 - buyer intentのnon-branded promptがmarket metric対象になり得る
