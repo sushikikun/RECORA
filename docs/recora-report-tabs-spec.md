@@ -708,6 +708,21 @@ UI:
 | Review queue | 候補の承認/保留/却下を整理する | T07 | review status、risk、evidence | quality gateと公開判断を分ける |
 | Impact/difficulty matrix | 優先度を判断する | T07 | impact、effort | スコアは内部仮説として扱う |
 
+## Prompt Scope UI Contract (2026-07-01)
+
+T04 now treats `prompt_type` and `measurement_purpose` as code-level first-class display contracts through `lib/recora/prompt-scope.ts`.
+
+T04 display rules:
+
+- Show Japanese labels for recognized prompt types and measurement purposes.
+- Show `needs_metadata` as "formal metadata required" when official scope fields are missing.
+- Show unknown or inferred scope separately from official metadata.
+- Do not use inferred scope to make visibility/ranking/SOV rows eligible.
+- Keep citation-check prompts separate from ranking evidence.
+- Keep branded sentiment and brand perception separate from non-branded visibility/ranking/SOV.
+
+This PR intentionally does not change customer-facing public specification, DB schema, Supabase state, measurement execution, LP/Auth/handoff files, or `package-lock.json`.
+
 ## Open decisions
 
 - 7タブを既存routesにどう対応させるか。
