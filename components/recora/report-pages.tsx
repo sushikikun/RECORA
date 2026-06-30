@@ -122,6 +122,13 @@ import {
 import {
   DataRichSourcesMasterDetail
 } from "@/components/recora/data-rich/data-rich-sources-master-detail";
+import {
+  RecoraReportTabs
+} from "@/components/recora/report-tabs/recora-report-tabs";
+import {
+  buildRecoraReportViewModel,
+  type ReportTabId
+} from "@/lib/recora/report-tabs-view-model";
 
 const currentReportSlug = "mieruca-seo-demo";
 const reportBase = `/dashboard/reports/${currentReportSlug}`;
@@ -3149,12 +3156,14 @@ export async function ReportLandingPage({
   projectSlug = currentReportSlug,
   data,
   visualVariant = "data-rich-final",
-  readOnlyRealDbPreviewEnabled = false
+  readOnlyRealDbPreviewEnabled = false,
+  activeReportTab = "overview"
 }: {
   projectSlug?: string;
   data?: ReportOverviewDataBundle;
   visualVariant?: RecoraVisualVariant;
   readOnlyRealDbPreviewEnabled?: boolean;
+  activeReportTab?: ReportTabId;
 } = {}) {
   const overviewData = data ?? await getReportOverviewData(projectSlug);
 
@@ -3164,6 +3173,7 @@ export async function ReportLandingPage({
       projectSlug={projectSlug}
       visualVariant={visualVariant}
       readOnlyRealDbPreviewEnabled={readOnlyRealDbPreviewEnabled}
+      activeReportTab={activeReportTab}
     />
   );
 }
@@ -3172,12 +3182,14 @@ export async function OverviewPage({
   projectSlug = currentReportSlug,
   data,
   visualVariant = "data-rich-final",
-  readOnlyRealDbPreviewEnabled = false
+  readOnlyRealDbPreviewEnabled = false,
+  activeReportTab = "overview"
 }: {
   projectSlug?: string;
   data?: ReportOverviewDataBundle;
   visualVariant?: RecoraVisualVariant;
   readOnlyRealDbPreviewEnabled?: boolean;
+  activeReportTab?: ReportTabId;
 } = {}) {
   const overviewData = data ?? await getReportOverviewData(projectSlug);
 
@@ -3187,6 +3199,7 @@ export async function OverviewPage({
       projectSlug={projectSlug}
       visualVariant={visualVariant}
       readOnlyRealDbPreviewEnabled={readOnlyRealDbPreviewEnabled}
+      activeReportTab={activeReportTab}
     />
   );
 }
@@ -3231,6 +3244,35 @@ function getSafeReportDataError(error: unknown) {
   }
 
   return { message: String(error) };
+}
+
+function createReportTabsViewModel(data: ReportOverviewDataBundle) {
+  const dashboardData = data.dashboardData;
+  const leaderboardData = data.leaderboardData;
+  const project = dashboardData?.project ?? leaderboardData?.project ?? null;
+  const latestRun = dashboardData?.latestRun ?? leaderboardData?.latestRun ?? null;
+  const brands = dashboardData?.brands.length ? dashboardData.brands : leaderboardData?.brands ?? [];
+  const metricSnapshots = dashboardData?.metricSnapshots.length
+    ? dashboardData.metricSnapshots
+    : leaderboardData?.metricSnapshots ?? [];
+
+  return buildRecoraReportViewModel({
+    project,
+    currentRun: latestRun,
+    aggregateRun: latestRun,
+    brands,
+    personas: leaderboardData?.personas ?? [],
+    topics: leaderboardData?.topics ?? [],
+    prompts: leaderboardData?.prompts ?? [],
+    runItems: leaderboardData?.runItems ?? [],
+    conversations: leaderboardData?.conversations ?? [],
+    brandMentions: leaderboardData?.brandMentions ?? [],
+    citations: leaderboardData?.citations ?? [],
+    metricSnapshots,
+    recommendations: dashboardData?.recommendations ?? [],
+    reportReadyGate: dashboardData?.reportReadyGate ?? null,
+    generatedAt: latestRun?.completed_at ?? null
+  });
 }
 
 function createReportOverviewViewModel(
@@ -3452,12 +3494,14 @@ function ReportOverviewTab({
   data,
   projectSlug = currentReportSlug,
   visualVariant,
-  readOnlyRealDbPreviewEnabled = false
+  readOnlyRealDbPreviewEnabled = false,
+  activeReportTab = "overview"
 }: {
   data: ReportOverviewDataBundle;
   projectSlug?: string;
   visualVariant: RecoraVisualVariant;
   readOnlyRealDbPreviewEnabled?: boolean;
+  activeReportTab?: ReportTabId;
 }) {
   const view = createReportOverviewViewModel(data, projectSlug, { readOnlyRealDbPreviewEnabled });
   const reportReadyGate = data.dashboardData?.reportReadyGate ?? null;
@@ -3466,11 +3510,10 @@ function ReportOverviewTab({
     return <ReportNotReadyPage />;
   }
 
-  if (visualVariant === "data-rich-final") {
-    return <DataRichReportOverviewView view={view} visualVariant={visualVariant} />;
-  }
-
-  return (
+  const reportTabsView = createReportTabsViewModel(data);
+  const overviewContent = visualVariant === "data-rich-final"
+    ? <DataRichReportOverviewView view={view} visualVariant={visualVariant} />
+    : (
     <div className="min-w-0 space-y-5">
       <ReportOverviewHero view={view} visualVariant={visualVariant} />
 
@@ -3490,6 +3533,17 @@ function ReportOverviewTab({
 
       <ReportOverviewNextSteps links={view.detailLinks} visualVariant={visualVariant} />
     </div>
+    );
+
+  return (
+    <RecoraReportTabs
+      model={reportTabsView}
+      activeTab={activeReportTab}
+      reportBase={view.reportBase}
+      visualVariant={visualVariant}
+      readOnlyRealDbPreviewEnabled={readOnlyRealDbPreviewEnabled}
+      overview={overviewContent}
+    />
   );
 }
 

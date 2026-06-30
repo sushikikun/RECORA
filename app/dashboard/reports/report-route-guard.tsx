@@ -26,6 +26,7 @@ export type ReportSlugPageProps = {
   searchParams?: {
     visual?: string;
     data?: string | string[];
+    reportTab?: string | string[];
   };
 };
 
