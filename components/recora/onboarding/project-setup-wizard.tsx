@@ -54,6 +54,27 @@ type AudienceType = "b2b" | "b2c" | "both_or_confirm";
 type CompetitorMode = "known_competitors_confirmed" | "competitor_discovery_needed";
 type ReportGoal = "visibility" | "competitor" | "citation" | "brand" | "improvement" | "other";
 type PromptGroup = "candidate" | "brand" | "citation" | "review";
+type OnboardingSuggestionProfileKey =
+  | "b2bSaasOrSeo"
+  | "b2bProfessionalService"
+  | "b2cSchoolEducation"
+  | "healthcareClinic"
+  | "localService"
+  | "ecommerceProduct"
+  | "genericB2C"
+  | "genericB2B";
+
+type ReportGoalOption = { value: ReportGoal; label: string };
+
+type OnboardingSuggestionProfile = {
+  key: OnboardingSuggestionProfileKey;
+  serviceCategories: string[];
+  audienceTargets: string[];
+  watchTopics: string[];
+  reportGoalOptions: ReportGoalOption[];
+  promptFallbacks: { text: string; group: PromptGroup }[];
+  questionAreaFallbacks: string[];
+};
 
 type WizardState = {
   brandName: string;
@@ -148,32 +169,151 @@ const languageOptions = [
   { value: "en", label: "英語" }
 ] as const;
 
-const audienceSuggestionsByType: Record<AudienceType, string[]> = {
-  b2b: ["マーケティング担当者", "Web担当者", "経営者", "比較評価担当者", "現場利用者"],
-  b2c: ["初めて検討する人", "口コミを重視する人", "価格を比較する人", "家族や同僚に相談する人"],
-  both_or_confirm: ["マーケティング担当者", "個人の比較検討者", "利用者", "紹介・推薦する人"]
-};
-
 const regionSuggestions = ["日本", "首都圏", "関西", "全国", "英語圏", "北米", "アジア"];
 
-const watchTopicOptions = [
-  "AI検索での露出・存在感",
-  "競合との比較（強み・弱み）",
-  "公式サイトの引用状況",
-  "ユーザーの関心（検索テーマ）",
-  "ブランドの認知・想起",
-  "市場トレンド・話題の変化",
-  "コンテンツの評価・改善点"
+const defaultReportGoalOptions: ReportGoalOption[] = [
+  { value: "visibility", label: "AI検索で候補に出るか知りたい" },
+  { value: "competitor", label: "競合と比べたい" },
+  { value: "citation", label: "公式サイトの引用を確認したい" },
+  { value: "brand", label: "評判や認知を確認したい" },
+  { value: "improvement", label: "改善候補を出したい" },
+  { value: "other", label: "その他" }
 ];
 
-const reportGoalOptions = [
-  { value: "visibility", label: "AI検索で自社が候補に選ばれるための改善点を知りたい" },
-  { value: "competitor", label: "競合と比べたときの強み・弱みを把握したい" },
-  { value: "citation", label: "公式サイトが引用されやすいページを知りたい" },
-  { value: "brand", label: "ブランドの認知・想起の状況を確認したい" },
-  { value: "improvement", label: "ユーザーがどんなテーマを知りたがっているか知りたい" },
-  { value: "other", label: "その他" }
-] as const;
+const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSuggestionProfile> = {
+  b2bSaasOrSeo: {
+    key: "b2bSaasOrSeo",
+    serviceCategories: ["SEO / AI検索対策", "マーケティング / SEO", "SaaS / 分析ツール"],
+    audienceTargets: ["SEO担当者", "マーケティング責任者", "Web担当者", "比較評価担当者", "経営者"],
+    watchTopics: ["AI検索での露出", "競合との比較", "公式サイトの引用状況", "料金", "機能", "導入事例", "費用対効果", "導入負荷"],
+    reportGoalOptions: [
+      { value: "visibility", label: "AI検索で自社が候補に出るか知りたい" },
+      { value: "competitor", label: "競合と比べたい" },
+      { value: "citation", label: "参照元を増やしたい" },
+      { value: "improvement", label: "改善候補を出したい" },
+      { value: "other", label: "その他" }
+    ],
+    promptFallbacks: [
+      { text: "AI検索対策ツールを比較するとき、どの指標を見るべきですか？", group: "candidate" },
+      { text: "生成AIで公式サイトが引用されやすくなるには、何を整えるべきですか？", group: "citation" },
+      { text: "SEO支援ツールを導入する前に、費用対効果はどう確認すべきですか？", group: "candidate" }
+    ],
+    questionAreaFallbacks: ["AI検索での露出", "競合比較", "公式サイトの引用状況"]
+  },
+  b2bProfessionalService: {
+    key: "b2bProfessionalService",
+    serviceCategories: ["専門サービス", "コンサルティング", "BtoBサービス"],
+    audienceTargets: ["相談前に比較する人", "専門性を重視する人", "料金を確認したい人", "経営者"],
+    watchTopics: ["実績", "専門性", "料金", "相談前の確認点", "対応範囲", "信頼性"],
+    reportGoalOptions: [
+      { value: "visibility", label: "専門サービスとして候補に出るか知りたい" },
+      { value: "competitor", label: "他の依頼先と比べたい" },
+      { value: "brand", label: "信頼材料や評判を確認したい" },
+      { value: "improvement", label: "相談前の不安を知りたい" },
+      { value: "other", label: "その他" }
+    ],
+    promptFallbacks: [
+      { text: "専門サービスを依頼する前に、実績や相談前の確認点は何を見るべきですか？", group: "candidate" },
+      { text: "料金と専門性を比較する時、どんな点を確認すべきですか？", group: "candidate" }
+    ],
+    questionAreaFallbacks: ["実績", "専門性", "相談前の確認点"]
+  },
+  b2cSchoolEducation: {
+    key: "b2cSchoolEducation",
+    serviceCategories: ["スクール / 教育", "習い事", "語学スクール"],
+    audienceTargets: ["初めて選ぶ人", "料金を重視する人", "口コミを重視する人", "通いやすさを重視する人"],
+    watchTopics: ["初めて選ぶ時の不安", "料金", "口コミ・評判", "通いやすさ", "自分に合うか", "体験や相談のしやすさ", "家族に合うか"],
+    reportGoalOptions: [
+      { value: "visibility", label: "AI検索で候補に出るか知りたい" },
+      { value: "brand", label: "口コミ・評判を確認したい" },
+      { value: "competitor", label: "他のスクールと比べたい" },
+      { value: "improvement", label: "初めて選ぶ人の不安を知りたい" },
+      { value: "other", label: "その他" }
+    ],
+    promptFallbacks: [
+      { text: "初めて英会話スクールを選ぶ時、何を確認すれば失敗しにくいですか？", group: "candidate" },
+      { text: "英会話スクールの口コミを見る時、どこに注意すべきですか？", group: "brand" },
+      { text: "料金が安い英会話スクールを選ぶ時、確認した方がいい点はありますか？", group: "candidate" }
+    ],
+    questionAreaFallbacks: ["初めて選ぶ時の不安", "料金", "口コミ・評判", "通いやすさ"]
+  },
+  healthcareClinic: {
+    key: "healthcareClinic",
+    serviceCategories: ["クリニック / 医療", "美容クリニック", "医療サービス"],
+    audienceTargets: ["初めて相談する人", "料金を重視する人", "口コミを重視する人", "リスク説明を確認したい人"],
+    watchTopics: ["料金", "口コミ・評判", "資格・専門性", "リスク説明", "初回相談のしやすさ", "通いやすさ"],
+    reportGoalOptions: [
+      { value: "visibility", label: "AI検索で候補に出るか知りたい" },
+      { value: "brand", label: "口コミ・評判を確認したい" },
+      { value: "improvement", label: "相談前の不安を知りたい" },
+      { value: "other", label: "その他" }
+    ],
+    promptFallbacks: [
+      { text: "初めてクリニックを選ぶ時、料金や説明で確認すべき点は何ですか？", group: "candidate" },
+      { text: "口コミだけでクリニックを選んでも大丈夫ですか？", group: "brand" },
+      { text: "施術や相談前に、資格やリスク説明で何を見るべきですか？", group: "review" }
+    ],
+    questionAreaFallbacks: ["料金", "口コミ・評判", "資格・専門性", "リスク説明"]
+  },
+  localService: {
+    key: "localService",
+    serviceCategories: ["地域サービス", "店舗サービス", "予約サービス"],
+    audienceTargets: ["近くで探す人", "予約しやすさを重視する人", "口コミを重視する人"],
+    watchTopics: ["近さ", "予約しやすさ", "料金", "口コミ", "対応エリア", "相談しやすさ"],
+    reportGoalOptions: [
+      { value: "visibility", label: "近くの候補に出るか知りたい" },
+      { value: "brand", label: "口コミを確認したい" },
+      { value: "improvement", label: "予約前の不安を知りたい" },
+      { value: "other", label: "その他" }
+    ],
+    promptFallbacks: [
+      { text: "近くでサービスを探す時、口コミ以外に何を確認すべきですか？", group: "candidate" },
+      { text: "予約しやすい地域サービスを選ぶ時、どんな点を見るべきですか？", group: "candidate" }
+    ],
+    questionAreaFallbacks: ["近さ", "予約しやすさ", "口コミ", "対応エリア"]
+  },
+  ecommerceProduct: {
+    key: "ecommerceProduct",
+    serviceCategories: ["EC / 商品", "通販", "商品比較"],
+    audienceTargets: ["価格を比較する人", "口コミを重視する人", "品質を確認したい人", "返品条件を確認したい人"],
+    watchTopics: ["価格", "口コミ", "返品条件", "品質", "自分に合うか", "比較時の注意点"],
+    reportGoalOptions: [
+      { value: "visibility", label: "商品候補に出るか知りたい" },
+      { value: "competitor", label: "他の商品と比べたい" },
+      { value: "brand", label: "口コミ・評判を確認したい" },
+      { value: "other", label: "その他" }
+    ],
+    promptFallbacks: [
+      { text: "商品を比較する時、価格や口コミ以外に何を見るべきですか？", group: "candidate" },
+      { text: "返品条件や品質を確認する時、注意すべき点はありますか？", group: "review" }
+    ],
+    questionAreaFallbacks: ["価格", "口コミ", "返品条件", "品質"]
+  },
+  genericB2C: {
+    key: "genericB2C",
+    serviceCategories: ["BtoCサービス", "比較サービス", "その他"],
+    audienceTargets: ["初めて選ぶ人", "料金を重視する人", "口コミを重視する人"],
+    watchTopics: ["料金", "口コミ・評判", "自分に合うか", "比較時の注意点", "相談しやすさ"],
+    reportGoalOptions: defaultReportGoalOptions,
+    promptFallbacks: [
+      { text: "初めてサービスを選ぶ時、何を確認すれば失敗しにくいですか？", group: "candidate" },
+      { text: "口コミや料金を見る時、どこに注意すべきですか？", group: "brand" }
+    ],
+    questionAreaFallbacks: ["料金", "口コミ・評判", "比較時の注意点"]
+  },
+  genericB2B: {
+    key: "genericB2B",
+    serviceCategories: ["BtoBサービス", "専門サービス", "その他"],
+    audienceTargets: ["導入判断者", "比較評価担当者", "現場利用者"],
+    watchTopics: ["候補比較", "料金", "導入負荷", "実績", "信頼性", "公式サイトの引用状況"],
+    reportGoalOptions: defaultReportGoalOptions,
+    promptFallbacks: [
+      { text: "サービスを比較検討するとき、候補を絞る前に何を確認すべきですか？", group: "candidate" },
+      { text: "導入前に、料金や運用負荷はどう確認すべきですか？", group: "review" }
+    ],
+    questionAreaFallbacks: ["候補比較", "料金", "導入負荷", "信頼性"]
+  }
+};
 
 const promptSeedFields = new Set<keyof WizardState>([
   "brandName",
@@ -474,7 +614,9 @@ function ServiceStep({
   updateForm: UpdateForm;
   siteInspection: SiteInspectionState;
 }) {
-  const audienceSuggestions = audienceSuggestionsByType[formState.audienceType];
+  const suggestionProfile = deriveOnboardingSuggestionProfile(formState);
+  const audienceSuggestions = suggestionProfile.audienceTargets;
+  const categorySuggestions = suggestionProfile.serviceCategories;
 
   return (
     <WizardCard
@@ -485,38 +627,41 @@ function ServiceStep({
     >
       <SiteInspectionPanel formState={formState} siteInspection={siteInspection} />
 
-      <div className="mt-4 rounded-xl border border-[#CFE2DA] bg-[#F2FAF6] p-4">
+      <div className="mt-3 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] px-3 py-2.5">
         <div className="flex gap-3">
-          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#1B8B65]" />
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#1B8B65]" />
           <div>
             <h3 className="text-sm font-bold text-[#075E44]">Recoraからの提案</h3>
-            <p className="mt-1 text-sm leading-6 text-[#506158]">
+            <p className="mt-0.5 text-xs leading-5 text-[#64736C]">
               公式URLのページ情報と入力内容をもとに、以下の候補を入れています。必要なら編集してください。
             </p>
           </div>
         </div>
       </div>
 
-      <div className="mt-5 space-y-5">
-        <TextareaInput
-          label="どんなサービスですか？"
-          value={formState.serviceDescription}
-          onChange={(value) => updateForm("serviceDescription", value)}
-          required
-          rows={4}
-          placeholder="サービスの目的、提供価値、主な機能や特徴を入力してください。"
-        />
-        <SelectLikeInput
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.82fr)]">
+        <div className="space-y-4">
+          <TextareaInput
+            label="どんなサービスですか？"
+            value={formState.serviceDescription}
+            onChange={(value) => updateForm("serviceDescription", value)}
+            required
+            rows={3}
+            placeholder="サービスの目的、提供価値、主な特徴を入力してください。"
+          />
+          <SelectLikeInput
           label="サービスカテゴリ"
           value={formState.serviceCategory}
           onChange={(value) => updateForm("serviceCategory", value)}
           required
           placeholder="例 SEO / AI検索対策"
-          suggestions={["SEO / AI検索対策", "マーケティング / SEO", "SaaS / 分析ツール", "地域サービス", "クリニック / スクール", "その他"]}
-        />
+          suggestions={categorySuggestions}
+          />
+        </div>
+        <div className="space-y-4">
         <div>
           <p className="text-sm font-bold text-[#334155]">提供形態</p>
-          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
             {audienceOptions.map((option) => (
               <ChoicePill
                 key={option.value}
@@ -528,7 +673,7 @@ function ServiceStep({
             ))}
           </div>
         </div>
-        <div className="grid gap-5 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2">
           <ChipInput
             label="対象市場・地域"
             items={formState.regions}
@@ -556,7 +701,7 @@ function ServiceStep({
           placeholder="例 マーケティング担当者"
           suggestions={audienceSuggestions}
         />
-        <section className="rounded-xl border border-[#E1E8E5] bg-white p-4">
+        <section className="rounded-xl border border-[#E1E8E5] bg-white p-3.5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h3 className="text-sm font-bold text-[#0B1F17]">競合</h3>
@@ -594,6 +739,7 @@ function ServiceStep({
             />
           </div>
         </section>
+        </div>
       </div>
     </WizardCard>
   );
@@ -642,7 +788,7 @@ function SiteInspectionPanel({
 
   const result = siteInspection.result;
   return (
-    <div className="rounded-xl border border-[#CFE2DA] bg-white p-4 text-sm leading-6 text-[#20352C]">
+    <div className="rounded-xl border border-[#CFE2DA] bg-white p-3.5 text-sm leading-6 text-[#20352C] shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       <div className="flex items-start gap-3">
         <SearchCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#1B8B65]" />
         <div className="min-w-0 flex-1">
@@ -654,7 +800,7 @@ function SiteInspectionPanel({
             <InspectionLink href={result.normalizedUrl} />
           </div>
 
-          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+          <dl className="mt-3 grid gap-2 sm:grid-cols-2">
             <InspectionDatum label="ページタイトル" value={result.title} />
             <InspectionDatum label="説明文" value={result.description} />
             <InspectionDatum label="ブランド確認" value={result.brandNameFound ? "確認できました" : "確認できませんでした"} />
@@ -700,6 +846,10 @@ function InspectionLink({ href, className }: { href: string; className?: string 
 }
 
 function FocusStep({ formState, updateForm }: { formState: WizardState; updateForm: UpdateForm }) {
+  const suggestionProfile = deriveOnboardingSuggestionProfile(formState);
+  const watchTopicOptions = suggestionProfile.watchTopics;
+  const reportGoalOptions = suggestionProfile.reportGoalOptions;
+
   return (
     <WizardCard
       icon={<Target className="h-9 w-9" />}
@@ -707,7 +857,7 @@ function FocusStep({ formState, updateForm }: { formState: WizardState; updateFo
       description="特に知りたいテーマを選択してください。上位3つ程度を目安にすると、確認しやすくなります。"
       footer="選択内容をもとに、次のステップでプロンプト例をご提案します。"
     >
-      <div className="space-y-6">
+      <div className="grid gap-4 lg:grid-cols-2">
         <div>
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-bold text-[#0B1F17]">特に見たいこと</h3>
@@ -715,7 +865,7 @@ function FocusStep({ formState, updateForm }: { formState: WizardState; updateFo
               上位3つまで
             </Badge>
           </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {watchTopicOptions.map((topic) => (
               <CheckCard
                 key={topic}
@@ -743,7 +893,7 @@ function FocusStep({ formState, updateForm }: { formState: WizardState; updateFo
               上位3つまで
             </Badge>
           </div>
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 grid gap-2">
             {reportGoalOptions.map((goal) => {
               const selected = formState.reportGoals.includes(goal.value);
               return (
@@ -805,7 +955,7 @@ function PromptStep({
     >
       {draftPreview ? <DraftPreviewSummary draftPreview={draftPreview} /> : null}
 
-      <div className="space-y-3">
+      <div className="grid gap-3">
         {prompts.length > 0 ? (
           prompts.map((prompt, index) => (
             <PromptCard
@@ -824,7 +974,7 @@ function PromptStep({
           </div>
         )}
       </div>
-      <div className="mt-5 rounded-xl border border-[#E1E8E5] bg-white p-4">
+      <div className="mt-4 rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-3.5">
         <TextareaInput
           label="追加したいプロンプトがあれば入力してください"
           value={newPromptText}
@@ -905,12 +1055,12 @@ function ConfirmationStep({
           </ul>
         </MessageBox>
       ) : null}
-      <div className="overflow-hidden rounded-xl border border-[#E1E8E5] bg-white">
+      <div className="grid gap-3 sm:grid-cols-2">
         {rows.map((row) => (
-          <div key={row.label} className="grid gap-2 border-b border-[#EAF0ED] p-4 last:border-b-0 sm:grid-cols-[160px_minmax(0,1fr)]">
-            <div className="text-sm font-bold text-[#506158]">{row.label}</div>
-            <div className="min-w-0 text-sm leading-6 text-[#0B1F17]">{row.value}</div>
-          </div>
+          <section key={row.label} className="rounded-xl border border-[#E1E8E5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <div className="text-xs font-bold uppercase text-[#64736C]">{row.label}</div>
+            <div className="mt-2 min-w-0 text-sm leading-6 text-[#0B1F17]">{row.value}</div>
+          </section>
         ))}
       </div>
       <Button type="button" className="mt-6 h-12 w-full bg-[#075E44] text-base hover:bg-[#064D39]" onClick={onConfirm}>
@@ -947,16 +1097,16 @@ function WizardCard({
   return (
     <section
       className={cn(
-        "mx-auto rounded-xl border border-[#E1E8E5] bg-white p-4 shadow-[0_16px_42px_rgba(15,23,42,0.07)] sm:p-5",
-        size === "wide" ? "max-w-3xl" : "max-w-xl"
+        "mx-auto rounded-xl border border-[#E1E8E5] bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)] sm:p-5",
+        size === "wide" ? "max-w-5xl" : "max-w-2xl"
       )}
     >
       <div className="text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#F0F6F3] text-[#075E44] [&_svg]:h-6 [&_svg]:w-6">
+        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-[#F0F6F3] text-[#075E44] [&_svg]:h-5 [&_svg]:w-5">
           {icon}
         </div>
-        <h2 className="mt-3 text-xl font-bold tracking-normal text-[#0B1F17]">{title}</h2>
-        <p className="mx-auto mt-1.5 max-w-lg text-sm leading-6 text-[#64736C]">{description}</p>
+        <h2 className="mt-2 text-lg font-bold tracking-normal text-[#0B1F17] sm:text-xl">{title}</h2>
+        <p className="mx-auto mt-1 max-w-xl text-sm leading-6 text-[#64736C]">{description}</p>
       </div>
       <div className="mt-4">{children}</div>
       {footer ? (
@@ -1258,7 +1408,7 @@ function ChoicePill({
     <button
       type="button"
       className={cn(
-        "rounded-xl border px-4 py-3 text-left transition",
+        "rounded-lg border px-3 py-2.5 text-left transition",
         selected ? "border-[#1B8B65] bg-[#F2FAF6] text-[#075E44]" : "border-[#DDE8E5] bg-white text-[#506158] hover:border-[#A9C6BA]"
       )}
       onClick={onClick}
@@ -1289,7 +1439,7 @@ function CheckCard({ selected, label, onClick }: { selected: boolean; label: str
     <button
       type="button"
       className={cn(
-        "flex min-h-[78px] items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-bold leading-6 transition",
+        "flex min-h-11 items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm font-bold leading-6 transition",
         selected ? "border-[#1B8B65] bg-[#F2FAF6] text-[#075E44]" : "border-[#E1E8E5] bg-white text-[#20352C] hover:border-[#A9C6BA]"
       )}
       onClick={onClick}
@@ -1319,9 +1469,9 @@ function PromptCard({
   onRemove: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-[#E1E8E5] bg-white p-4">
+    <div className="rounded-xl border border-[#E1E8E5] bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       <div className="flex items-start gap-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#075E44] text-sm font-bold text-white">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#075E44] text-xs font-bold text-white">
           {index + 1}
         </span>
         <div className="min-w-0 flex-1">
@@ -1332,7 +1482,7 @@ function PromptCard({
           </div>
           <textarea
             className="w-full resize-y rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] px-3 py-3 text-sm leading-6 text-[#0B1F17] outline-none focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15"
-            rows={2}
+            rows={3}
             value={prompt.text}
             onChange={(event) => onChange({ ...prompt, text: event.target.value })}
             aria-label={`プロンプト例 ${index + 1}`}
@@ -1447,21 +1597,26 @@ function applyServiceSuggestions(
 function buildCustomerFacingDraftPreview(seedInput: ProjectSetupSeedInput, formState: WizardState): CustomerFacingDraftPreview {
   const result = generateProjectSetupDraft(seedInput);
   const brandIdentity = buildBrandIdentity(seedInput);
+  const profile = deriveOnboardingSuggestionProfile(formState);
   const generated = result.draft.prompts.slice(0, 5).map((prompt) => ({
     id: prompt.promptId,
     text: prompt.text,
     group: classifyGeneratedPrompt(prompt, derivePromptMetricEligibility(prompt, brandIdentity))
   }));
+  const customerReadyGenerated = filterPromptsForSuggestionProfile(generated, profile);
   const fallback = buildFallbackPrompts(formState);
-  const prompts = uniquePrompts(generated.length > 0 ? generated : fallback).slice(0, 5);
-  const serviceCategories = uniqueStrings([seedInput.industryCategory, formState.serviceCategory]).slice(0, 3);
+  const prompts = uniquePrompts(customerReadyGenerated.length > 0 ? customerReadyGenerated : fallback).slice(0, 5);
+  const serviceCategories = uniqueStrings([seedInput.industryCategory, formState.serviceCategory, ...profile.serviceCategories]).slice(0, 3);
   const audienceTargets = uniqueStrings([
     ...result.draft.personas.map((persona) => persona.displayName),
-    ...formState.audienceTargets
+    ...formState.audienceTargets,
+    ...profile.audienceTargets
   ]).slice(0, 5);
-  const questionAreas = uniqueStrings(
-    result.draft.topics.map((topic) => buildCustomerFacingQuestionArea(topic.topicName, topic.diagnosisGoal))
-  ).slice(0, 6);
+  const generatedQuestionAreas = result.draft.topics.map((topic) => buildCustomerFacingQuestionArea(topic.topicName, topic.diagnosisGoal));
+  const questionAreas = uniqueStrings([
+    ...generatedQuestionAreas,
+    ...profile.questionAreaFallbacks
+  ]).slice(0, 6);
 
   return {
     serviceCategories,
@@ -1472,30 +1627,38 @@ function buildCustomerFacingDraftPreview(seedInput: ProjectSetupSeedInput, formS
 }
 
 function buildFallbackPrompts(formState: WizardState): EditablePrompt[] {
-  const category = formState.serviceCategory || "このカテゴリのサービス";
-  const brand = formState.brandName || "このサービス";
-  return [
-    {
-      id: "fallback-candidate",
-      text: `${category}を検討するとき、候補になるサービスや会社を比較してください。`,
-      group: "candidate"
-    },
-    {
-      id: "fallback-competitor",
-      text: `${category}で選ばれるサービスの違いと、比較時に見られるポイントを整理してください。`,
-      group: "candidate"
-    },
-    {
-      id: "fallback-citation",
-      text: `${brand}について、公式サイトで引用されやすい情報はどれですか？`,
-      group: "citation"
-    },
-    {
-      id: "fallback-brand",
-      text: `${brand}はどんなサービスとして説明されていますか？`,
-      group: "brand"
-    }
-  ];
+  const profile = deriveOnboardingSuggestionProfile(formState);
+  return profile.promptFallbacks.map((prompt, index) => ({
+    id: "fallback-" + profile.key + "-" + index,
+    text: prompt.text,
+    group: prompt.group
+  }));
+}
+
+function filterPromptsForSuggestionProfile(prompts: EditablePrompt[], profile: OnboardingSuggestionProfile): EditablePrompt[] {
+  if (!isConsumerSuggestionProfile(profile.key)) return prompts;
+
+  return prompts.filter((prompt) => !containsBusinessAdoptionLanguage(prompt.text));
+}
+
+function isConsumerSuggestionProfile(profileKey: OnboardingSuggestionProfileKey) {
+  return ["b2cSchoolEducation", "healthcareClinic", "localService", "ecommerceProduct", "genericB2C"].includes(profileKey);
+}
+
+function containsBusinessAdoptionLanguage(value: string) {
+  return matchesAnyText(value, [
+    "SaaS",
+    "??",
+    "????",
+    "??",
+    "??????",
+    "?????",
+    "????",
+    "?????",
+    "??????",
+    "????",
+    "BtoB"
+  ]);
 }
 
 function buildCustomerFacingQuestionArea(topicName: string, diagnosisGoal: string) {
@@ -1698,14 +1861,7 @@ function buildSuggestedServiceCategoryForStep(
 }
 
 function inferAudienceTargetsForStep(state: WizardState, serviceCategory: string) {
-  const text = normalizeText(`${serviceCategory} ${state.brandName} ${state.officialUrl}`);
-  if (matchesAnyText(text, ["スクール", "教育", "英会話", "school", "lesson", "b2c"])) {
-    return ["初めて選ぶ人", "料金を重視する人", "口コミを重視する人"];
-  }
-  if (matchesAnyText(text, ["採用", "hr", "人事", "recruit"])) {
-    return ["人事担当者", "採用責任者", "経営者"];
-  }
-  return audienceSuggestionsByType[state.audienceType].slice(0, 3);
+  return deriveOnboardingSuggestionProfile({ ...state, serviceCategory }).audienceTargets.slice(0, 3);
 }
 
 function inferInterimCategory(
@@ -1742,6 +1898,23 @@ function inferInterimCategory(
   if (matchesAnyText(text, ["地域", "店舗", "予約", "来店", "local", "エリア"])) return "地域サービス";
   if (matchesAnyText(text, ["SaaS", "分析", "analytics", "dashboard", "ツール", "platform"])) return "SaaS / 分析ツール";
   return "その他";
+}
+
+function deriveOnboardingSuggestionProfile(state: Pick<WizardState, "brandName" | "brandAliases" | "officialUrl" | "serviceDescription" | "serviceCategory" | "audienceType" | "audienceTargets">): OnboardingSuggestionProfile {
+  const text = normalizeText(
+    [state.brandName, state.brandAliases.join(" "), state.officialUrl, state.serviceDescription, state.serviceCategory, state.audienceType, state.audienceTargets.join(" ")]
+      .filter(Boolean)
+      .join(" ")
+  );
+
+  if (matchesAnyText(text, ["英会話", "スクール", "教育", "学校", "講座", "school", "lesson", "english"])) return suggestionProfiles.b2cSchoolEducation;
+  if (matchesAnyText(text, ["クリニック", "医療", "美容", "病院", "clinic", "medical"])) return suggestionProfiles.healthcareClinic;
+  if (matchesAnyText(text, ["地域", "店舗", "予約", "来店", "local", "エリア", "近く"])) return suggestionProfiles.localService;
+  if (matchesAnyText(text, ["EC", "通販", "商品", "shop", "store", "ecommerce", "返品"])) return suggestionProfiles.ecommerceProduct;
+  if (matchesAnyText(text, ["士業", "法律", "会計", "コンサル", "専門サービス", "相談", "professional"])) return suggestionProfiles.b2bProfessionalService;
+  if (matchesAnyText(text, ["AI検索", "LLMO", "GEO", "AIO", "AI search", "SEO", "Mieruca", "ミエルカ", "マーケティング", "SaaS", "分析ツール"])) return suggestionProfiles.b2bSaasOrSeo;
+  if (state.audienceType === "b2c") return suggestionProfiles.genericB2C;
+  return suggestionProfiles.genericB2B;
 }
 
 function normalizeTargetUrlForSeed(value: string) {
@@ -1833,9 +2006,10 @@ function formatLanguage(value: "ja" | "en") {
 }
 
 function formatReportGoalLabels(formState: WizardState) {
+  const options = deriveOnboardingSuggestionProfile(formState).reportGoalOptions;
   return formState.reportGoals.map((goal) => {
     if (goal === "other") return formState.reportGoalInput.trim() || "その他";
-    return reportGoalOptions.find((option) => option.value === goal)?.label ?? goal;
+    return options.find((option) => option.value === goal)?.label ?? defaultReportGoalOptions.find((option) => option.value === goal)?.label ?? goal;
   });
 }
 

@@ -37,15 +37,37 @@ const schoolSeed: ProjectSetupSeedInput = {
   diagnosisGoals: ["non_branded", "brand_perception", "problem_aware"]
 };
 
+
+const clinicSeed: ProjectSetupSeedInput = {
+  companyName: "??????????",
+  brandName: "??????????",
+  officialSiteUrl: "https://example.com/clinic",
+  productOrServiceDescription: "?????????????????????????????????????????",
+  industryCategory: "????? / ??",
+  targetCustomers: "BtoC / ???????????????????????????",
+  regions: ["??"],
+  language: "ja",
+  serviceName: "??????????",
+  brandAliases: ["????????"],
+  knownCompetitors: [],
+  strengths: [],
+  knownRisks: [],
+  diagnosisGoals: ["non_branded", "brand_perception", "problem_aware"]
+};
+
 const seoSeedKey = stableSeedKey(seoSeed);
 const schoolSeedKey = stableSeedKey(schoolSeed);
+const clinicSeedKey = stableSeedKey(clinicSeed);
 assert.notEqual(seoSeedKey, schoolSeedKey, "different Step1/Step2 inputs must create different seed keys");
+assert.notEqual(schoolSeedKey, clinicSeedKey, "different BtoC categories must create different seed keys");
 
 const seoDraft = generateProjectSetupDraft(seoSeed).draft;
 const schoolDraft = generateProjectSetupDraft(schoolSeed).draft;
+const clinicDraft = generateProjectSetupDraft(clinicSeed).draft;
 
 const seoPromptText = seoDraft.prompts.map((prompt) => prompt.text).join("\n");
 const schoolPromptText = schoolDraft.prompts.map((prompt) => prompt.text).join("\n");
+const clinicPromptText = clinicDraft.prompts.map((prompt) => prompt.text).join("\n");
 
 assert.notEqual(seoPromptText, schoolPromptText, "different seeds must create different prompt examples");
 assert.notDeepEqual(
@@ -55,6 +77,13 @@ assert.notDeepEqual(
 );
 assert.ok(seoDraft.prompts.length > 0, "SEO seed must create prompt examples");
 assert.ok(schoolDraft.prompts.length > 0, "school seed must create prompt examples");
+assert.ok(clinicDraft.prompts.length > 0, "clinic seed must create prompt examples");
+assert.notEqual(schoolPromptText, clinicPromptText, "school and clinic seeds must create different prompt examples");
+assert.notDeepEqual(
+  schoolDraft.topics.map((topic) => topic.topicName),
+  clinicDraft.topics.map((topic) => topic.topicName),
+  "school and clinic seeds must create different question areas"
+);
 
 console.log(
   JSON.stringify(
@@ -67,7 +96,9 @@ console.log(
           JSON.stringify(seoDraft.topics.map((topic) => topic.topicName)) !==
           JSON.stringify(schoolDraft.topics.map((topic) => topic.topicName)),
         seoPromptCount: seoDraft.prompts.length,
-        schoolPromptCount: schoolDraft.prompts.length
+        schoolPromptCount: schoolDraft.prompts.length,
+        clinicPromptCount: clinicDraft.prompts.length,
+        differentB2cPromptExamples: schoolPromptText !== clinicPromptText
       }
     },
     null,

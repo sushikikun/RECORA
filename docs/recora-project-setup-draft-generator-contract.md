@@ -188,3 +188,30 @@ warningは主に次を示す。
 ```powershell
 npm run recora:project-setup-draft-generator:check
 ```
+
+
+## Onboarding UI suggestion profiles
+
+`/onboarding/project-setup` builds `ProjectSetupSeedInput` from Step1 through Step3 customer inputs, then calls `generateProjectSetupDraft` before Step4. The generator output is converted into customer-facing labels instead of showing raw internal names.
+
+- category -> service category support
+- `PersonaDraft` -> primary viewers to check
+- `TopicDraft` -> question areas
+- `PromptDraft` -> prompt examples
+
+The onboarding UI uses a screen-side suggestion profile helper equivalent to `deriveOnboardingSuggestionProfile`. It switches candidate chips and fallback examples based on service category, service description, BtoB/BtoC selection, and audience targets. It must not always show SaaS-first candidates.
+
+Supported profile keys:
+
+- b2bSaasOrSeo
+- b2bProfessionalService
+- b2cSchoolEducation
+- healthcareClinic
+- localService
+- ecommerceProduct
+- genericB2C
+- genericB2B
+
+Step2 and Step3 candidate chips, plus Step4 fallback prompt examples, should follow this profile. Step4 prioritizes generator output when it is available. For consumer-facing profiles such as school, clinic, local service, ecommerce, and generic B2C, obviously BtoB adoption terms such as internal approval, security review, ROI, operational burden, existing-tool integration, or SaaS procurement should be filtered from customer-facing prompt examples. If that leaves no suitable generated prompt, use the profile-specific fallback examples.
+
+Step5 final confirmation reflects generated primary viewers, question areas, prompt examples, and any prompt examples added by the customer in Step4. Customer-facing UI must not expose raw generator output or internal fields/IDs such as `businessModel`, `industryAdapter`, `topicType`, `roleType`, `promptId`, `personaId`, or `topicId`.
