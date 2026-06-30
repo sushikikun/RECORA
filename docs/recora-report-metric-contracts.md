@@ -309,9 +309,21 @@ Last updated: 2026-07-01
 
 ## Prompt Scope First-Class Types (2026-07-01)
 
-This PR adds code-level prompt scope contracts in `lib/recora/prompt-scope.ts`. It does not add DB fields, does not backfill existing prompts, and does not run Supabase writes.
+PR #45 added code-level prompt scope contracts in `lib/recora/prompt-scope.ts`.
 
-DB migration and backfill planning for these fields is tracked separately in `docs/recora-prompt-scope-db-migration-plan.md`. Until that plan is implemented in later approved PRs, `prompt_type` and `measurement_purpose` remain code/read-model contracts rather than guaranteed first-class DB fields.
+The local schema PR adds `supabase/migrations/20260701044743_recora_prompt_scope_fields.sql`. The migration file adds nullable `prompt_type` and `measurement_purpose` fields to `public.prompts` only, with check constraints aligned to `RecoraPromptType` and `RecoraMeasurementPurpose`. It does not backfill existing prompts and does not run Supabase writes.
+
+Remote DB application and backfill planning for these fields is tracked separately in `docs/recora-prompt-scope-db-migration-plan.md`. Until that migration is explicitly applied remotely and rows are backfilled or materialized in later approved PRs, `prompt_type` and `measurement_purpose` remain unavailable for existing deployed rows that do not carry explicit recognized metadata.
+
+Local migration status:
+
+- Migration file: `supabase/migrations/20260701044743_recora_prompt_scope_fields.sql`
+- Target table: `public.prompts`
+- Added columns: `prompt_type`, `measurement_purpose`
+- Constraints: `prompts_prompt_type_check`, `prompts_measurement_purpose_check`
+- Remote apply: not executed
+- Backfill: not executed
+- Existing rows: unchanged / expected to remain `null` until a separate approved backfill or materialization step
 
 First-class `RecoraPromptType` values:
 
