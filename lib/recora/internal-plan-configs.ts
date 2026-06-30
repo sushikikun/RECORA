@@ -5,7 +5,6 @@ import { unstable_noStore as noStore } from "next/cache";
 
 import { createRecoraSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
-const PLAN_CONFIG_COLUMNS = "plan_code, display_name, status, config";
 const PLAN_ORDER = [
   "free_preview",
   "trial_audit",
@@ -45,12 +44,7 @@ export async function getRecoraAdminPlanConfigs(): Promise<RecoraAdminPlanConfig
   noStore();
 
   const supabase = createRecoraSupabaseServiceRoleClient();
-  const { data, error } = await supabase
-    .schema("recora_admin")
-    .from("plan_configs")
-    .select(PLAN_CONFIG_COLUMNS)
-    .in("plan_code", [...PLAN_ORDER])
-    .order("plan_code", { ascending: true });
+  const { data, error } = await supabase.rpc("recora_admin_plan_configs_readonly");
 
   throwIfSupabaseError("plan_configs", error);
 
