@@ -168,6 +168,11 @@ export function AdminOperationsOverviewPage({ data }: { data: RecoraAdminOperati
             description="案件一覧、report-ready状態、完了済みmeasurement runの有無を確認します。"
           />
           <OverviewLink
+            href="/internal/customer-ops"
+            title="顧客運用"
+            description="顧客ごとの契約プラン、計測予定、計測待ち、公開確認を確認します。"
+          />
+          <OverviewLink
             href="/internal/operations"
             title="実行管理"
             description="既存measurement runを使った実行計画の確認へ進みます。実処理は起動しません。"
