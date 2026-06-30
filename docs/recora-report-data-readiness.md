@@ -217,12 +217,14 @@ DB readiness remains unchanged:
 - No Supabase db push.
 - No local or production DB write.
 - Any future `prompts.prompt_type` / `prompts.measurement_purpose` column addition and backfill must be a separate PR with explicit approval.
+- Planning for that future migration/backfill lives in `docs/recora-prompt-scope-db-migration-plan.md`; until then, rows without explicit recognized metadata remain `needs_metadata`.
 
 ## Open questions
 
 - 既存DB schema上、`ai_conversations` / `citations` / `brand_mentions` / `recommendations` がどの型で保持されているか。
 - `competitors` をfirst-class tableにするか、`brands.brand_type = competitor` として扱うか。
 - prompt metadataをどこに持たせるか。
+- `prompt_type` / `measurement_purpose` persistence and backfill rules are planned in `docs/recora-prompt-scope-db-migration-plan.md`.
 - draft generator出力とmeasurement ready dataの境界をどう切るか。
 - source owner_typeの管理方法を `source_domains` に寄せるか、read modelに寄せるか。
 - sentiment / caveat / narrativeをいつ抽出するか。

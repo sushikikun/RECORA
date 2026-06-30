@@ -311,6 +311,8 @@ Last updated: 2026-07-01
 
 This PR adds code-level prompt scope contracts in `lib/recora/prompt-scope.ts`. It does not add DB fields, does not backfill existing prompts, and does not run Supabase writes.
 
+DB migration and backfill planning for these fields is tracked separately in `docs/recora-prompt-scope-db-migration-plan.md`. Until that plan is implemented in later approved PRs, `prompt_type` and `measurement_purpose` remain code/read-model contracts rather than guaranteed first-class DB fields.
+
 First-class `RecoraPromptType` values:
 
 - `non_branded`: 非指名
@@ -352,6 +354,7 @@ For this PR, visibility/ranking/SOV helpers accept only explicit `non_branded` s
 - caveat分類の粒度。
 - persona/use_case/funnel_stage/topicをDBに持つかdraft schema/read modelに持つか。
 - `prompt_type` / `measurement_purpose` をfirst-class DB fieldにする時期。
+- `prompt_type` / `measurement_purpose` migration and backfill details are tracked in `docs/recora-prompt-scope-db-migration-plan.md`.
 - `source_type` と `owner_type` の用語・責務分担。
 - recommendation review statusを顧客向けに見せるか。
 - AI対応度をいつ独立機能にするか。

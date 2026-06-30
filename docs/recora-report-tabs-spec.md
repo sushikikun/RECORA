@@ -723,6 +723,8 @@ T04 display rules:
 
 This PR intentionally does not change customer-facing public specification, DB schema, Supabase state, measurement execution, LP/Auth/handoff files, or `package-lock.json`.
 
+Future DB migration and backfill planning for `prompt_type` and `measurement_purpose` is tracked in `docs/recora-prompt-scope-db-migration-plan.md`. Until those later approved PRs land, T04 should continue treating missing official scope metadata as `needs_metadata`.
+
 ## Open decisions
 
 - 7タブを既存routesにどう対応させるか。
@@ -730,6 +732,7 @@ This PR intentionally does not change customer-facing public specification, DB s
 - T02のブランドランキングをSOV basisにするか、AI visibility score basisにするか。
 - T03の persona/use_case/funnel_stage/topic をDB first-class fieldsにするか、draft schema/read modelで扱うか。
 - T04の `prompt_type` / `measurement_purpose` をいつfirst-class DB fieldにするか。
+- T04の `prompt_type` / `measurement_purpose` migration/backfill planは `docs/recora-prompt-scope-db-migration-plan.md` に分離する。
 - T05の推薦順を単純な言及順で扱うか、recommendation order抽出を行うか。
 - T06のowner type分類を `source_domains` で持つか、read modelで持つか。
 - source freshnessをどの粒度で顧客向け表示するか。
