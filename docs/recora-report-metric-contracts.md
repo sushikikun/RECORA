@@ -307,6 +307,42 @@ Last updated: 2026-07-01
 - recommendation candidateを承認済み施策として見せない。
 - internal raw IDs、raw metadata、provider raw payload、API usage/cost、env値、secretsは顧客向け表示しない。
 
+## Prompt Scope First-Class Types (2026-07-01)
+
+This PR adds code-level prompt scope contracts in `lib/recora/prompt-scope.ts`. It does not add DB fields, does not backfill existing prompts, and does not run Supabase writes.
+
+First-class `RecoraPromptType` values:
+
+- `non_branded`: 非指名
+- `branded`: 指名
+- `comparison_generic`: 一般比較
+- `comparison_named`: 指名比較
+- `competitor_named`: 競合名入り
+- `citation_check`: 引用確認
+
+First-class `RecoraMeasurementPurpose` values:
+
+- `visibility`: 表示率
+- `ranking`: ランキング
+- `sov`: Share of Voice
+- `sentiment`: 感情
+- `brand_perception`: ブランド認識
+- `citation_validation`: 引用確認
+- `recommendation_input`: 改善候補入力
+
+Eligibility rules now live in code helpers:
+
+- `isVisibilityEligiblePromptScope`
+- `isRankingEligiblePromptScope`
+- `isSovEligiblePromptScope`
+- `isSentimentEligiblePromptScope`
+- `isBrandPerceptionEligiblePromptScope`
+- `isCitationValidationPromptScope`
+
+Only `status: "explicit"` scope can become metric eligible. `status: "missing"` and `status: "inferred"` are not eligible for visibility/ranking/SOV. This keeps text-based branded inference separate from official prompt metadata.
+
+For this PR, visibility/ranking/SOV helpers accept only explicit `non_branded` scope with the matching `measurement_purpose`. `branded`, `comparison_named`, `competitor_named`, and `citation_check` are excluded from visibility/ranking/SOV. `comparison_generic` remains a first-class display type, but is not automatically eligible until a later DB/read-model contract can prove it is generic and brand/alias-free.
+
 ## Open decisions
 
 - SOVをmention countで数えるかprompt-level presenceで数えるか。

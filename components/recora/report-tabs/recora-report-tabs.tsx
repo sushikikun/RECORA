@@ -33,6 +33,10 @@ import {
   withRecoraVisualVariantSearchParam
 } from "@/lib/recora/dev-preview/design-visual-variant";
 import { withRecoraRealDbPreviewSearchParam } from "@/lib/recora/dev-preview/real-db-preview-url";
+import {
+  getRecoraMeasurementPurposeLabel,
+  getRecoraPromptTypeLabel
+} from "@/lib/recora/prompt-scope";
 import type {
   RecoraReportViewModel,
   ReportCitationDomainRow,
@@ -40,6 +44,9 @@ import type {
   ReportDataAvailability,
   ReportDataStatus,
   ReportMetricValue,
+  ReportMeasurementPurpose,
+  ReportPromptScopeFilterOption,
+  ReportPromptType,
   ReportRecommendationRow,
   ReportSegmentPerformanceRow,
   ReportTabId,
@@ -300,14 +307,26 @@ function PromptsTab({ model }: { model: RecoraReportViewModel }) {
         availability={tab.availability}
       />
       <div className="grid min-w-0 gap-3 xl:grid-cols-2">
-        <DataRichPanel title="Prompt scope readiness" description="Visibility, ranking, and SOV require prompt_type metadata.">
+        <DataRichPanel
+          title="Prompt scope metadata"
+          description="Formal prompt_type metadata keeps non-branded visibility/ranking/SOV separate from branded sentiment and citation-check prompts."
+        >
           <AvailabilityLine label="prompt_type" availability={tab.promptTypeAvailability} />
+          <PromptScopeFilterPills options={tab.promptTypeFilters} />
         </DataRichPanel>
-        <DataRichPanel title="Measurement purpose readiness" description="Sentiment and brand perception stay separate from visibility metrics.">
+        <DataRichPanel
+          title="Measurement purpose metadata"
+          description="Formal measurement_purpose metadata prevents visibility/ranking/SOV, sentiment, brand perception, and citation validation from being mixed."
+        >
           <AvailabilityLine label="measurement_purpose" availability={tab.measurementPurposeAvailability} />
+          <PromptScopeFilterPills options={tab.measurementPurposeFilters} />
         </DataRichPanel>
       </div>
-      <DataRichPanel title="Prompt rows" description="Rows keep metadata-dependent fields in needs_metadata until explicit scope exists." bodyClassName="p-0">
+      <DataRichPanel
+        title="Prompt rows"
+        description="Rows keep inferred, missing, or unknown scope out of official metric eligibility until explicit metadata exists."
+        bodyClassName="p-0"
+      >
         {tab.promptRows.length > 0 ? (
           <DataRichTableWrap>
             <Table className="w-full table-fixed text-sm">
@@ -328,8 +347,8 @@ function PromptsTab({ model }: { model: RecoraReportViewModel }) {
                     <TableCell>
                       <p className="line-clamp-2 text-[13px] font-semibold leading-5 text-[#0F172A]" title={row.promptText}>{row.promptText}</p>
                     </TableCell>
-                    <TableCell><UnavailableOrText item={row.promptType} /></TableCell>
-                    <TableCell><UnavailableOrText item={row.measurementPurpose} /></TableCell>
+                    <TableCell><PromptScopeValueText item={row.promptType} getLabel={getRecoraPromptTypeLabel} /></TableCell>
+                    <TableCell><PromptScopeValueText item={row.measurementPurpose} getLabel={getRecoraMeasurementPurposeLabel} /></TableCell>
                     <TableCell>
                       <p className="line-clamp-2 text-[12px] font-semibold leading-5 text-[#475569]">
                         {row.personaName ?? "No persona"} / {row.topicName ?? "No topic"}
@@ -355,6 +374,27 @@ function PromptsTab({ model }: { model: RecoraReportViewModel }) {
           <AvailabilityLine label="Rows" availability={tab.weakOwnBrandPrompts.availability} />
         </DataRichPanel>
       </div>
+    </div>
+  );
+}
+
+function PromptScopeFilterPills<TValue extends ReportPromptType | ReportMeasurementPurpose>({
+  options
+}: {
+  options: Array<ReportPromptScopeFilterOption<TValue>>;
+}) {
+  return (
+    <div className="mt-3 flex min-w-0 flex-wrap gap-1.5">
+      {options.map((option) => (
+        <span
+          key={option.value}
+          className="inline-flex max-w-full items-center gap-1 rounded-sm border border-[#DFE6E2] bg-white px-2 py-1 text-[11px] font-bold leading-4 text-[#334155]"
+          title={option.value}
+        >
+          <span className="truncate">{option.label}</span>
+          <span className="tabular-nums text-[#64748B]">{option.promptCount}</span>
+        </span>
+      ))}
     </div>
   );
 }
@@ -789,6 +829,42 @@ function UnavailableOrText<T>({
   }
 
   return <span className="text-[12px] font-semibold text-[#0F172A]">{formatPrimitiveValue(item.value)}</span>;
+}
+
+function PromptScopeValueText<T extends ReportPromptType | ReportMeasurementPurpose>({
+  item,
+  getLabel
+}: {
+  item: ReportUnavailableOr<T>;
+  getLabel: (value: T) => string;
+}) {
+  if (item.availability.status === "available" && item.value) {
+    return (
+      <span className="text-[12px] font-semibold text-[#0F172A]" title={item.value}>
+        {getLabel(item.value)}
+      </span>
+    );
+  }
+
+  if (item.availability.status === "partial") {
+    return (
+      <div className="min-w-0 space-y-1">
+        <StatusBadge status={item.availability.status} />
+        <p className="text-[11px] font-semibold leading-4 text-[#64748B]">inferred or unknown</p>
+      </div>
+    );
+  }
+
+  if (item.availability.status === "needs_metadata") {
+    return (
+      <div className="min-w-0 space-y-1">
+        <StatusBadge status={item.availability.status} />
+        <p className="text-[11px] font-semibold leading-4 text-[#64748B]">formal metadata required</p>
+      </div>
+    );
+  }
+
+  return <StatusBadge status={item.availability.status} />;
 }
 
 function StatusBadge({ status }: { status: ReportDataStatus }) {

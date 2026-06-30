@@ -5,6 +5,24 @@ import {
   type RecoraSourceFreshnessReadModel,
   type RecoraSourceToClaimReadModel
 } from "./measurement-analysis-read-model";
+import {
+  RECORA_MEASUREMENT_PURPOSES,
+  RECORA_PROMPT_TYPES,
+  getRecoraMeasurementPurposeLabel,
+  getRecoraPromptTypeLabel,
+  isBrandPerceptionEligiblePromptScope,
+  isCitationValidationPromptScope,
+  isRankingEligiblePromptScope,
+  isRecoraMeasurementPurpose,
+  isRecoraPromptType,
+  isSentimentEligiblePromptScope,
+  isSovEligiblePromptScope,
+  isVisibilityEligiblePromptScope,
+  type RecoraMeasurementPurpose,
+  type RecoraPromptScope,
+  type RecoraPromptScopeStatus,
+  type RecoraPromptType
+} from "./prompt-scope";
 import type { RecoraReportReadyGateResult } from "./report-eligibility";
 import type {
   Json,
@@ -219,24 +237,15 @@ export type ReportPersonaTopicHeatmapRow = {
   availability: ReportDataAvailability;
 };
 
-export type ReportPromptType =
-  | "non_branded"
-  | "branded"
-  | "comparison_generic"
-  | "comparison_named"
-  | "competitor_named"
-  | "citation_check"
-  | "unknown";
+export type ReportPromptType = RecoraPromptType;
+export type ReportMeasurementPurpose = RecoraMeasurementPurpose;
 
-export type ReportMeasurementPurpose =
-  | "visibility"
-  | "ranking"
-  | "sov"
-  | "sentiment"
-  | "brand_perception"
-  | "citation_validation"
-  | "recommendation_input"
-  | "unknown";
+export type ReportPromptScopeFilterOption<TValue extends string> = {
+  value: TValue;
+  label: string;
+  promptCount: number;
+  availability: ReportDataAvailability;
+};
 
 export type ReportPromptMetricEligibility = {
   visibility: boolean;
@@ -259,6 +268,7 @@ export type ReportPromptRow = {
   category: ReportUnavailableOr<string>;
   promptType: ReportUnavailableOr<ReportPromptType>;
   measurementPurpose: ReportUnavailableOr<ReportMeasurementPurpose>;
+  promptScopeStatus: RecoraPromptScopeStatus;
   metricEligibility: ReportPromptMetricEligibility;
   answerCount: number;
   targetBrandMentionedCount: number;
@@ -400,6 +410,8 @@ export type ReportPromptsTabViewModel = {
   promptRows: ReportPromptRow[];
   promptTypeAvailability: ReportDataAvailability;
   measurementPurposeAvailability: ReportDataAvailability;
+  promptTypeFilters: Array<ReportPromptScopeFilterOption<ReportPromptType>>;
+  measurementPurposeFilters: Array<ReportPromptScopeFilterOption<ReportMeasurementPurpose>>;
   competitorOnlyPrompts: ReportUnavailableOr<ReportPromptRow[]>;
   weakOwnBrandPrompts: ReportUnavailableOr<ReportPromptRow[]>;
 };
@@ -518,27 +530,6 @@ type BuildContext = {
   sourceDomainById: Map<string, RecoraSourceDomainRow>;
   eligibleConversationIdsByPurpose: Map<ReportMeasurementPurpose, Set<string>>;
 };
-
-const KNOWN_PROMPT_TYPES: ReportPromptType[] = [
-  "non_branded",
-  "branded",
-  "comparison_generic",
-  "comparison_named",
-  "competitor_named",
-  "citation_check",
-  "unknown"
-];
-
-const KNOWN_MEASUREMENT_PURPOSES: ReportMeasurementPurpose[] = [
-  "visibility",
-  "ranking",
-  "sov",
-  "sentiment",
-  "brand_perception",
-  "citation_validation",
-  "recommendation_input",
-  "unknown"
-];
 
 export function buildRecoraReportViewModel(input: BuildRecoraReportViewModelInput): RecoraReportViewModel {
   const normalized = normalizeInput(input);
@@ -659,12 +650,8 @@ function buildAvailabilityMap(input: NormalizedInput): ReportAvailabilityMap {
       input.project && input.currentRun ? "Report project and run are available." : "Report project or run is missing.",
       input.project && input.currentRun ? undefined : "missing_input"
     ),
-    prompt_type: promptMetadataAvailability(input.prompts, "prompt_type", "Prompt type metadata is available."),
-    measurement_purpose: promptMetadataAvailability(
-      input.prompts,
-      "measurement_purpose",
-      "Measurement purpose metadata is available."
-    ),
+    prompt_type: promptTypeMetadataAvailability(input.prompts),
+    measurement_purpose: measurementPurposeMetadataAvailability(input.prompts),
     persona_metadata: relationAvailability(
       input.prompts,
       input.personas,
@@ -846,9 +833,45 @@ function buildPromptsTab(context: BuildContext): ReportPromptsTabViewModel {
     promptRows,
     promptTypeAvailability: context.availability.prompt_type,
     measurementPurposeAvailability: context.availability.measurement_purpose,
+    promptTypeFilters: buildPromptTypeFilters(promptRows, context.availability.prompt_type),
+    measurementPurposeFilters: buildMeasurementPurposeFilters(promptRows, context.availability.measurement_purpose),
     competitorOnlyPrompts,
     weakOwnBrandPrompts
   };
+}
+
+function buildPromptTypeFilters(
+  promptRows: ReportPromptRow[],
+  availabilityValue: ReportDataAvailability
+): Array<ReportPromptScopeFilterOption<ReportPromptType>> {
+  const counts = countBy(
+    promptRows.map((row) => row.promptType.value).filter(isNonNullable),
+    (value) => value
+  );
+
+  return RECORA_PROMPT_TYPES.map((value) => ({
+    value,
+    label: getRecoraPromptTypeLabel(value),
+    promptCount: counts.get(value) ?? 0,
+    availability: availabilityValue
+  }));
+}
+
+function buildMeasurementPurposeFilters(
+  promptRows: ReportPromptRow[],
+  availabilityValue: ReportDataAvailability
+): Array<ReportPromptScopeFilterOption<ReportMeasurementPurpose>> {
+  const counts = countBy(
+    promptRows.map((row) => row.measurementPurpose.value).filter(isNonNullable),
+    (value) => value
+  );
+
+  return RECORA_MEASUREMENT_PURPOSES.map((value) => ({
+    value,
+    label: getRecoraMeasurementPurposeLabel(value),
+    promptCount: counts.get(value) ?? 0,
+    availability: availabilityValue
+  }));
 }
 
 function buildAnswersTab(context: BuildContext): ReportAnswersTabViewModel {
@@ -1382,7 +1405,12 @@ function buildPromptRow(context: BuildContext, prompt: RecoraPromptRow): ReportP
   const promptCitations = context.input.citations.filter((citation) => conversationIds.has(citation.conversation_id));
   const promptType = getPromptType(prompt);
   const measurementPurpose = getMeasurementPurpose(prompt);
-  const eligibility = getPromptMetricEligibility(promptType.value, measurementPurpose.value, promptType.availability);
+  const promptScope = getPromptScope(promptType, measurementPurpose);
+  const promptScopeAvailability = mergeAvailability(
+    [promptType.availability, measurementPurpose.availability],
+    "Prompt scope metadata is available."
+  );
+  const eligibility = getPromptMetricEligibility(promptScope, promptScopeAvailability);
 
   return {
     promptId: prompt.id,
@@ -1396,6 +1424,7 @@ function buildPromptRow(context: BuildContext, prompt: RecoraPromptRow): ReportP
     category: promptMetadataValue(prompt, "category", context.availability.category_metadata),
     promptType,
     measurementPurpose,
+    promptScopeStatus: promptScope.status,
     metricEligibility: eligibility,
     answerCount: promptConversations.length,
     targetBrandMentionedCount: unique(targetMentions.map((mention) => mention.conversation_id)).length,
@@ -1429,10 +1458,10 @@ function buildPromptRow(context: BuildContext, prompt: RecoraPromptRow): ReportP
         ? availability("available", "Position labels are available for this prompt.")
         : context.availability.position_labels
     }),
-    status: promptType.availability.status === "available" && measurementPurpose.availability.status === "available"
+    status: promptScope.status === "explicit"
       ? "ready_for_metrics"
       : "needs_metadata",
-    availability: mergeAvailability([promptType.availability, measurementPurpose.availability], "Prompt metadata is available.")
+    availability: promptScopeAvailability
   };
 }
 
@@ -1604,7 +1633,7 @@ function buildEligibleConversationIdsByPurpose(input: NormalizedInput) {
   const promptById = new Map(input.prompts.map((prompt) => [prompt.id, prompt]));
   const result = new Map<ReportMeasurementPurpose, Set<string>>();
 
-  for (const purpose of KNOWN_MEASUREMENT_PURPOSES) {
+  for (const purpose of RECORA_MEASUREMENT_PURPOSES) {
     result.set(purpose, new Set<string>());
   }
 
@@ -1612,19 +1641,20 @@ function buildEligibleConversationIdsByPurpose(input: NormalizedInput) {
     const runItem = runItemById.get(conversation.run_item_id);
     const prompt = runItem ? promptById.get(runItem.prompt_id) : null;
     if (!prompt) continue;
-    const promptType = getPromptType(prompt).value;
-    const purpose = getMeasurementPurpose(prompt).value;
-    if (!promptType || !purpose) continue;
-    if (!isMarketMetricEligiblePrompt(promptType, purpose)) continue;
+    const promptScope = getPromptScope(getPromptType(prompt), getMeasurementPurpose(prompt));
+    if (
+      !isVisibilityEligiblePromptScope(promptScope) &&
+      !isRankingEligiblePromptScope(promptScope) &&
+      !isSovEligiblePromptScope(promptScope)
+    ) {
+      continue;
+    }
+    const purpose = promptScope.measurementPurpose;
+    if (!purpose) continue;
     const bucket = result.get(purpose) ?? new Set<string>();
     bucket.add(conversation.id);
     result.set(purpose, bucket);
 
-    if (purpose === "visibility" || purpose === "ranking") {
-      const visibilityBucket = result.get("visibility") ?? new Set<string>();
-      visibilityBucket.add(conversation.id);
-      result.set("visibility", visibilityBucket);
-    }
     if (purpose === "sov") {
       const sovBucket = result.get("sov") ?? new Set<string>();
       sovBucket.add(conversation.id);
@@ -1670,48 +1700,74 @@ function snapshotScopeAvailability(context: BuildContext) {
 
 function getPromptType(prompt: RecoraPromptRow): ReportUnavailableOr<ReportPromptType> {
   const value = getPromptMetadataString(prompt, "prompt_type");
-  if (value && isReportPromptType(value)) {
-    return unavailableOr(value, availability("available", "Prompt type metadata is available."));
+  if (value && isRecoraPromptType(value)) {
+    return unavailableOr(value, availability("available", "prompt_type official metadata is available."));
   }
   if (value) {
-    return unavailableOr("unknown", availability("partial", `Unknown prompt_type value: ${value}`, "partial_metadata"));
+    return unavailableOr<ReportPromptType>(
+      null,
+      availability("partial", `Unknown prompt_type value: ${value}. Formal prompt scope metadata is required.`, "partial_metadata")
+    );
   }
-  return unavailableOr<ReportPromptType>(null, availability("needs_metadata", "prompt_type is missing.", "missing_metadata"));
+  return unavailableOr<ReportPromptType>(
+    null,
+    availability(
+      "needs_metadata",
+      "prompt_type is required to keep non-branded visibility/ranking/SOV prompts separate from branded sentiment and citation-check prompts.",
+      "missing_metadata"
+    )
+  );
 }
 
 function getMeasurementPurpose(prompt: RecoraPromptRow): ReportUnavailableOr<ReportMeasurementPurpose> {
   const value = getPromptMetadataString(prompt, "measurement_purpose");
-  if (value && isReportMeasurementPurpose(value)) {
-    return unavailableOr(value, availability("available", "Measurement purpose metadata is available."));
+  if (value && isRecoraMeasurementPurpose(value)) {
+    return unavailableOr(value, availability("available", "measurement_purpose official metadata is available."));
   }
   if (value) {
-    return unavailableOr("unknown", availability("partial", `Unknown measurement_purpose value: ${value}`, "partial_metadata"));
+    return unavailableOr<ReportMeasurementPurpose>(
+      null,
+      availability("partial", `Unknown measurement_purpose value: ${value}. Formal measurement purpose metadata is required.`, "partial_metadata")
+    );
   }
-  return unavailableOr<ReportMeasurementPurpose>(null, availability("needs_metadata", "measurement_purpose is missing.", "missing_metadata"));
+  return unavailableOr<ReportMeasurementPurpose>(
+    null,
+    availability(
+      "needs_metadata",
+      "measurement_purpose is required to prevent visibility/ranking/SOV, sentiment, brand perception, and citation validation from being mixed.",
+      "missing_metadata"
+    )
+  );
 }
 
-function getPromptMetricEligibility(
-  promptType: ReportPromptType | null,
-  measurementPurpose: ReportMeasurementPurpose | null,
-  baseAvailability: ReportDataAvailability
-): ReportPromptMetricEligibility {
-  const marketEligible = Boolean(promptType && measurementPurpose && isMarketMetricEligiblePrompt(promptType, measurementPurpose));
-  const sentimentEligible = Boolean(promptType === "branded" && (measurementPurpose === "sentiment" || measurementPurpose === "brand_perception"));
-  const citationEligible = measurementPurpose === "citation_validation" || promptType === "citation_check";
+function getPromptScope(
+  promptType: ReportUnavailableOr<ReportPromptType>,
+  measurementPurpose: ReportUnavailableOr<ReportMeasurementPurpose>
+): RecoraPromptScope {
+  const status: RecoraPromptScopeStatus =
+    promptType.availability.status === "available" && measurementPurpose.availability.status === "available"
+      ? "explicit"
+      : "missing";
 
   return {
-    visibility: marketEligible && (measurementPurpose === "visibility" || measurementPurpose === "ranking"),
-    ranking: marketEligible && (measurementPurpose === "ranking" || measurementPurpose === "visibility"),
-    shareOfVoice: marketEligible && measurementPurpose === "sov",
-    sentiment: sentimentEligible,
-    citation: citationEligible,
-    availability: baseAvailability
+    promptType: promptType.value,
+    measurementPurpose: measurementPurpose.value,
+    status
   };
 }
 
-function isMarketMetricEligiblePrompt(promptType: ReportPromptType, measurementPurpose: ReportMeasurementPurpose) {
-  if (promptType !== "non_branded" && promptType !== "comparison_generic") return false;
-  return measurementPurpose === "visibility" || measurementPurpose === "ranking" || measurementPurpose === "sov";
+function getPromptMetricEligibility(
+  promptScope: RecoraPromptScope,
+  availabilityValue: ReportDataAvailability
+): ReportPromptMetricEligibility {
+  return {
+    visibility: isVisibilityEligiblePromptScope(promptScope),
+    ranking: isRankingEligiblePromptScope(promptScope),
+    shareOfVoice: isSovEligiblePromptScope(promptScope),
+    sentiment: isSentimentEligiblePromptScope(promptScope) || isBrandPerceptionEligiblePromptScope(promptScope),
+    citation: isCitationValidationPromptScope(promptScope),
+    availability: availabilityValue
+  };
 }
 
 function promptMetadataValue(
@@ -1883,6 +1939,59 @@ function countAvailability(count: number, message: string): ReportDataAvailabili
   return count > 0
     ? availability("available", message, undefined, count, count)
     : availability("unavailable", "No rows are available.", "empty_result", 0, 0);
+}
+
+function promptTypeMetadataAvailability(prompts: RecoraPromptRow[]): ReportDataAvailability {
+  return promptScopeMetadataAvailability({
+    prompts,
+    key: "prompt_type",
+    isKnownValue: isRecoraPromptType,
+    availableMessage: "prompt_type metadata is available and can separate non-branded visibility/ranking/SOV prompts from branded sentiment and citation-check prompts.",
+    missingMessage: "prompt_type is required to keep non-branded visibility/ranking/SOV prompts separate from branded sentiment and citation-check prompts."
+  });
+}
+
+function measurementPurposeMetadataAvailability(prompts: RecoraPromptRow[]): ReportDataAvailability {
+  return promptScopeMetadataAvailability({
+    prompts,
+    key: "measurement_purpose",
+    isKnownValue: isRecoraMeasurementPurpose,
+    availableMessage: "measurement_purpose metadata is available and can separate visibility/ranking/SOV, sentiment, brand perception, and citation validation.",
+    missingMessage: "measurement_purpose is required to prevent visibility/ranking/SOV, sentiment, brand perception, and citation validation from being mixed."
+  });
+}
+
+function promptScopeMetadataAvailability(input: {
+  prompts: RecoraPromptRow[];
+  key: "prompt_type" | "measurement_purpose";
+  isKnownValue: (value: string) => boolean;
+  availableMessage: string;
+  missingMessage: string;
+}): ReportDataAvailability {
+  const { prompts, key, isKnownValue, availableMessage, missingMessage } = input;
+  if (prompts.length === 0) {
+    return availability("unavailable", "No prompts are available.", "missing_input", 0, 0);
+  }
+
+  const values = prompts.map((prompt) => getPromptMetadataString(prompt, key));
+  const knownCount = values.filter((value): value is string => Boolean(value && isKnownValue(value))).length;
+  const providedCount = values.filter(isNonNullable).length;
+
+  if (knownCount === prompts.length) {
+    return availability("available", availableMessage, undefined, knownCount, prompts.length);
+  }
+
+  if (knownCount > 0 || providedCount > 0) {
+    return availability(
+      "partial",
+      `${key} official metadata is available for ${knownCount}/${prompts.length} prompts; missing, inferred, or unknown values still require formal metadata.`,
+      "partial_metadata",
+      knownCount,
+      prompts.length
+    );
+  }
+
+  return availability("needs_metadata", missingMessage, "missing_metadata", 0, prompts.length);
 }
 
 function promptMetadataAvailability(
@@ -2153,14 +2262,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function getStringArray(value: Json): string[] {
   return Array.isArray(value) ? value.filter(isNonEmptyString) : [];
-}
-
-function isReportPromptType(value: string): value is ReportPromptType {
-  return KNOWN_PROMPT_TYPES.includes(value as ReportPromptType);
-}
-
-function isReportMeasurementPurpose(value: string): value is ReportMeasurementPurpose {
-  return KNOWN_MEASUREMENT_PURPOSES.includes(value as ReportMeasurementPurpose);
 }
 
 function isOwnerType(value: string): value is ReportCitationOwnerType {

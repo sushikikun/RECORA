@@ -200,6 +200,24 @@ T03/T04の精度を上げるには、prompt単位またはprompt set単位で以
 - recommendation grouping / review queue。
 - DB保存は別判断。
 
+## Prompt Scope Readiness Update (2026-07-01)
+
+This PR adds first-class code contracts for `prompt_type` and `measurement_purpose` in `lib/recora/prompt-scope.ts`, but does not add DB columns or backfill existing rows.
+
+Current readiness rule:
+
+- Existing prompt rows without explicit, recognized `prompt_type` remain `needs_metadata`.
+- Existing prompt rows without explicit, recognized `measurement_purpose` remain `needs_metadata`.
+- Unknown values are `partial` and cannot enter official metric eligibility until normalized.
+- Text-based or heuristic inference is treated separately from official metadata and must not make a prompt eligible for visibility/ranking/SOV.
+
+DB readiness remains unchanged:
+
+- No DB migration in this PR.
+- No Supabase db push.
+- No local or production DB write.
+- Any future `prompts.prompt_type` / `prompts.measurement_purpose` column addition and backfill must be a separate PR with explicit approval.
+
 ## Open questions
 
 - 既存DB schema上、`ai_conversations` / `citations` / `brand_mentions` / `recommendations` がどの型で保持されているか。

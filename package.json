@@ -13,6 +13,7 @@
     "recora:doctor": "tsx scripts/recora-dev-checks.ts doctor",
     "recora:dashboard-read-model:check": "tsx scripts/recora-dev-checks.ts dashboard-read-model-check",
     "recora:recommendation-publication-surface:check": "tsx scripts/verify-recommendation-publication-surface.ts",
+    "recora:prompt-scope:check": "tsx scripts/verify-prompt-scope.ts",
     "recora:project-setup-draft:check": "tsx scripts/verify-recora-project-setup-draft.ts",
     "recora:project-setup-draft-generator:check": "tsx scripts/verify-recora-project-setup-draft-generator.ts",
     "recora:project-setup-draft-generator:eval": "tsx scripts/audit-recora-project-setup-draft-generator.ts",
