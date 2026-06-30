@@ -39,7 +39,9 @@
 - Step2では公式URL確認結果としてページタイトル、説明文、ブランド確認結果を表示し、「公式URLを開いて確認」リンクを置いてよい。
 - Step2に競合入力を統合し、除外系 / NG系の顧客入力は置かない。
 - Step3は「見たいこと」だけに絞り、除外・NG系の入力を置かない。
-- Step4で、画面内の同期処理として `generateProjectSetupDraft` を呼び、Recoraが生成したプロンプト例を表示する。
+- Step4で、画面内の同期処理として `generateProjectSetupDraft` を呼び、Recoraが生成した質問領域とプロンプト例を表示する。
+- Step1からStep3までの入力から `ProjectSetupSeedInput` を作り、`generateProjectSetupDraft` が作るカテゴリ / persona / topic / prompt 下書きを顧客向け表示へ変換する。
+- 顧客向け表示では、カテゴリは「サービスカテゴリ」、personaは「主に見たい相手」、topicは「質問領域」、promptは「プロンプト例」として扱う。
 - Step4ではプロンプト例を直接編集・削除でき、追加したプロンプトはStep5の最終確認に反映する。
 - Step5は最終確認のみとし、計測設計、計測量、利用モデル、頻度、費用感を顧客が決める項目として扱わない。
 - 顧客には詳細personaや細かいtopicの作成を要求しない。内部の persona / topic / prompt は raw generator output としてそのまま表示しない。

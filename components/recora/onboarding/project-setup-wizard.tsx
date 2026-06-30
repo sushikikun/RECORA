@@ -83,6 +83,13 @@ type EditablePrompt = {
   group: PromptGroup;
 };
 
+type CustomerFacingDraftPreview = {
+  serviceCategories: string[];
+  audienceTargets: string[];
+  questionAreas: string[];
+  prompts: EditablePrompt[];
+};
+
 type SiteInspectionState =
   | { status: "idle" }
   | { status: "loading" }
@@ -178,6 +185,7 @@ export function ProjectSetupWizard() {
   const [formState, setFormState] = useState<WizardState>(initialFormState);
   const [attemptedSteps, setAttemptedSteps] = useState<Record<number, boolean>>({});
   const [promptExamples, setPromptExamples] = useState<EditablePrompt[] | null>(null);
+  const [draftPreview, setDraftPreview] = useState<CustomerFacingDraftPreview | null>(null);
   const [promptSeedKey, setPromptSeedKey] = useState<string | null>(null);
   const [newPromptText, setNewPromptText] = useState("");
   const [confirmationDone, setConfirmationDone] = useState(false);
@@ -198,6 +206,7 @@ export function ProjectSetupWizard() {
     }
     if (promptSeedFields.has(field)) {
       setPromptExamples(null);
+      setDraftPreview(null);
       setPromptSeedKey(null);
     }
   };
@@ -218,8 +227,10 @@ export function ProjectSetupWizard() {
     }
 
     if (stepIndex === 2) {
-      if (promptExamples === null || promptSeedKey !== seedKey) {
-        setPromptExamples(buildPromptExamples(seedInput, formState));
+      if (draftPreview === null || promptExamples === null || promptSeedKey !== seedKey) {
+        const preview = buildCustomerFacingDraftPreview(seedInput, formState);
+        setDraftPreview(preview);
+        setPromptExamples(preview.prompts);
         setPromptSeedKey(seedKey);
       }
       setStepIndex(3);
@@ -281,6 +292,7 @@ export function ProjectSetupWizard() {
         {stepIndex === 2 ? <FocusStep formState={formState} updateForm={updateForm} /> : null}
         {stepIndex === 3 ? (
           <PromptStep
+            draftPreview={draftPreview}
             prompts={currentPrompts}
             newPromptText={newPromptText}
             setNewPromptText={setNewPromptText}
@@ -294,6 +306,7 @@ export function ProjectSetupWizard() {
         {stepIndex === 4 ? (
           <ConfirmationStep
             formState={formState}
+            draftPreview={draftPreview}
             prompts={currentPrompts}
             seedBlockers={seedBlockers}
             confirmationDone={confirmationDone}
@@ -745,12 +758,14 @@ function FocusStep({ formState, updateForm }: { formState: WizardState; updateFo
 }
 
 function PromptStep({
+  draftPreview,
   prompts,
   newPromptText,
   setNewPromptText,
   onAddPrompt,
   onChangePrompts
 }: {
+  draftPreview: CustomerFacingDraftPreview | null;
   prompts: EditablePrompt[];
   newPromptText: string;
   setNewPromptText: (value: string) => void;
@@ -761,9 +776,11 @@ function PromptStep({
     <WizardCard
       icon={<MessageSquareText className="h-9 w-9" />}
       title="プロンプト例"
-      description="Recora が生成したプロンプト例です。必要に応じて追加してください。"
+      description="入力内容をもとに、診断で確認する領域と質問例を整理しました。"
       footer="ここでは診断で使う質問文の方向性だけを確認します。"
     >
+      {draftPreview ? <DraftPreviewSummary draftPreview={draftPreview} /> : null}
+
       <div className="space-y-3">
         {prompts.length > 0 ? (
           prompts.map((prompt, index) => (
@@ -803,20 +820,51 @@ function PromptStep({
   );
 }
 
+function DraftPreviewSummary({ draftPreview }: { draftPreview: CustomerFacingDraftPreview }) {
+  return (
+    <div className="mb-5 grid gap-3">
+      <PreviewSection title="サービスカテゴリ" values={draftPreview.serviceCategories} emptyText="未入力" />
+      <PreviewSection title="主に見たい相手" values={draftPreview.audienceTargets} emptyText="未入力" />
+      <PreviewSection title="質問領域" values={draftPreview.questionAreas} emptyText="未入力" />
+    </div>
+  );
+}
+
+function PreviewSection({ title, values, emptyText }: { title: string; values: readonly string[]; emptyText: string }) {
+  return (
+    <section className="rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-4">
+      <h3 className="text-sm font-bold text-[#0B1F17]">{title}</h3>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {values.length > 0 ? (
+          values.map((value) => (
+            <span key={value} className="rounded-full bg-white px-3 py-1 text-xs font-semibold leading-5 text-[#506158] ring-1 ring-[#DDE8E5]">
+              {value}
+            </span>
+          ))
+        ) : (
+          <span className="text-sm text-[#8B9A93]">{emptyText}</span>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ConfirmationStep({
   formState,
+  draftPreview,
   prompts,
   seedBlockers,
   confirmationDone,
   onConfirm
 }: {
   formState: WizardState;
+  draftPreview: CustomerFacingDraftPreview | null;
   prompts: EditablePrompt[];
   seedBlockers: string[];
   confirmationDone: boolean;
   onConfirm: () => void;
 }) {
-  const rows = buildConfirmationRows(formState, prompts);
+  const rows = buildConfirmationRows(formState, draftPreview, prompts);
 
   return (
     <WizardCard
@@ -1363,7 +1411,7 @@ function applyServiceSuggestions(state: WizardState, inspection: SiteInspectionR
   };
 }
 
-function buildPromptExamples(seedInput: ProjectSetupSeedInput, formState: WizardState): EditablePrompt[] {
+function buildCustomerFacingDraftPreview(seedInput: ProjectSetupSeedInput, formState: WizardState): CustomerFacingDraftPreview {
   const result = generateProjectSetupDraft(seedInput);
   const brandIdentity = buildBrandIdentity(seedInput);
   const generated = result.draft.prompts.slice(0, 5).map((prompt) => ({
@@ -1372,7 +1420,22 @@ function buildPromptExamples(seedInput: ProjectSetupSeedInput, formState: Wizard
     group: classifyGeneratedPrompt(prompt, derivePromptMetricEligibility(prompt, brandIdentity))
   }));
   const fallback = buildFallbackPrompts(formState);
-  return uniquePrompts([...generated, ...fallback]).slice(0, 5);
+  const prompts = uniquePrompts([...generated, ...fallback]).slice(0, 5);
+  const serviceCategories = uniqueStrings([seedInput.industryCategory, formState.serviceCategory]).slice(0, 3);
+  const audienceTargets = uniqueStrings([
+    ...result.draft.personas.map((persona) => persona.displayName),
+    ...formState.audienceTargets
+  ]).slice(0, 5);
+  const questionAreas = uniqueStrings(
+    result.draft.topics.map((topic) => buildCustomerFacingQuestionArea(topic.topicName, topic.diagnosisGoal))
+  ).slice(0, 6);
+
+  return {
+    serviceCategories,
+    audienceTargets,
+    questionAreas,
+    prompts
+  };
 }
 
 function buildFallbackPrompts(formState: WizardState): EditablePrompt[] {
@@ -1402,6 +1465,14 @@ function buildFallbackPrompts(formState: WizardState): EditablePrompt[] {
   ];
 }
 
+function buildCustomerFacingQuestionArea(topicName: string, diagnosisGoal: string) {
+  const name = topicName.trim();
+  const goal = diagnosisGoal.trim();
+  if (!name) return goal;
+  if (!goal || normalizeText(name) === normalizeText(goal)) return name;
+  return `${name}: ${goal}`;
+}
+
 function buildSeedInput(formState: WizardState): ProjectSetupSeedInput {
   return {
     companyName: formState.brandName.trim(),
@@ -1429,7 +1500,11 @@ function buildSeedInput(formState: WizardState): ProjectSetupSeedInput {
   };
 }
 
-function buildConfirmationRows(formState: WizardState, prompts: EditablePrompt[]): ConfirmationRow[] {
+function buildConfirmationRows(
+  formState: WizardState,
+  draftPreview: CustomerFacingDraftPreview | null,
+  prompts: EditablePrompt[]
+): ConfirmationRow[] {
   return [
     {
       label: "ブランド情報",
@@ -1445,7 +1520,14 @@ function buildConfirmationRows(formState: WizardState, prompts: EditablePrompt[]
     },
     {
       label: "サービス理解",
-      value: <StackedValues values={[formState.serviceDescription || "未入力", formState.serviceCategory || "未入力"]} />
+      value: (
+        <StackedValues
+          values={[
+            formState.serviceDescription || "未入力",
+            formatList(draftPreview?.serviceCategories ?? [formState.serviceCategory].filter(Boolean))
+          ]}
+        />
+      )
     },
     {
       label: "市場・言語",
@@ -1453,7 +1535,14 @@ function buildConfirmationRows(formState: WizardState, prompts: EditablePrompt[]
     },
     {
       label: "顧客層 / 主に見たい相手",
-      value: <StackedValues values={[formatAudienceType(formState.audienceType), formatList(formState.audienceTargets)]} />
+      value: (
+        <StackedValues
+          values={[
+            formatAudienceType(formState.audienceType),
+            formatList(draftPreview?.audienceTargets ?? formState.audienceTargets)
+          ]}
+        />
+      )
     },
     {
       label: "競合",
@@ -1465,8 +1554,16 @@ function buildConfirmationRows(formState: WizardState, prompts: EditablePrompt[]
         )
     },
     {
-      label: "見たいこと",
-      value: <StackedValues values={[formatList(formState.watchTopics), formatList(formatReportGoalLabels(formState))]} />
+      label: "見たいこと / 質問領域",
+      value: (
+        <StackedValues
+          values={[
+            formatList(formState.watchTopics),
+            formatList(formatReportGoalLabels(formState)),
+            draftPreview ? `質問領域: ${formatList(draftPreview.questionAreas)}` : ""
+          ].filter(Boolean)}
+        />
+      )
     },
     {
       label: "プロンプト例",
