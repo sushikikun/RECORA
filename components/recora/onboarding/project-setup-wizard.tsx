@@ -11,7 +11,6 @@ import {
   CheckCircle2,
   ClipboardCheck,
   ExternalLink,
-  GripVertical,
   Info,
   Loader2,
   MessageSquareText,
@@ -19,7 +18,6 @@ import {
   SearchCheck,
   Sparkles,
   Target,
-  Trash2,
   Wand2,
   X
 } from "lucide-react";
@@ -121,11 +119,6 @@ type AutoSuggestionSources = {
   serviceDescription: string | null;
   serviceCategory: string | null;
   audienceTargets: string | null;
-};
-
-type ConfirmationRow = {
-  label: string;
-  value: ReactNode;
 };
 
 type UpdateForm = <K extends keyof WizardState>(field: K, value: WizardState[K]) => void;
@@ -946,72 +939,118 @@ function PromptStep({
   onAddPrompt: () => void;
   onChangePrompts: (prompts: EditablePrompt[]) => void;
 }) {
+  const generatedPrompts = prompts.filter((prompt) => !isCustomPrompt(prompt));
+  const customPrompts = prompts.filter(isCustomPrompt);
+
   return (
     <WizardCard
       icon={<MessageSquareText className="h-9 w-9" />}
       title="プロンプト例"
-      description="入力内容をもとに、診断で確認する領域と質問例を整理しました。"
-      footer="ここでは診断で使う質問文の方向性だけを確認します。"
+      description="入力内容をもとに、診断で使う質問例を確認しやすい形に整理しました。"
+      footer="この画面では質問文の方向性だけを確認します。保存・承認・計測反映は行いません。"
+      size="wide"
     >
       {draftPreview ? <DraftPreviewSummary draftPreview={draftPreview} /> : null}
 
-      <div className="grid gap-3">
-        {prompts.length > 0 ? (
-          prompts.map((prompt, index) => (
-            <PromptCard
-              key={prompt.id}
-              index={index}
-              prompt={prompt}
-              onChange={(nextPrompt) =>
-                onChangePrompts(prompts.map((item) => (item.id === prompt.id ? nextPrompt : item)))
-              }
-              onRemove={() => onChangePrompts(prompts.filter((item) => item.id !== prompt.id))}
-            />
-          ))
-        ) : (
-          <div className="rounded-xl border border-dashed border-[#C8D8D2] bg-[#F8FBFA] p-5 text-sm leading-6 text-[#64736C]">
-            追加したいプロンプトを下の欄から入力してください。
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <section className="min-w-0 rounded-xl border border-[#DDE8E5] bg-[#FBFDFC] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold text-[#0B1F17]">Recoraからの提案</h3>
+              <p className="mt-1 text-sm leading-6 text-[#64736C]">
+                Step1〜Step3の入力から作成した下書きです。必要に応じて文章だけ調整できます。
+              </p>
+            </div>
+            <Badge variant="outline" className="border-[#CFE2DA] bg-white text-[#075E44]">
+              {generatedPrompts.length}件
+            </Badge>
           </div>
-        )}
+          <div className="mt-4 overflow-hidden rounded-xl border border-[#E1E8E5] bg-white">
+            {generatedPrompts.length > 0 ? (
+              generatedPrompts.map((prompt, index) => (
+                <PromptListItem
+                  key={prompt.id}
+                  index={index}
+                  prompt={prompt}
+                  onChange={(nextPrompt) =>
+                    onChangePrompts(prompts.map((item) => (item.id === prompt.id ? nextPrompt : item)))
+                  }
+                  onRemove={() => onChangePrompts(prompts.filter((item) => item.id !== prompt.id))}
+                />
+              ))
+            ) : (
+              <EmptyPromptState />
+            )}
+          </div>
+
+          {customPrompts.length > 0 ? (
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-bold text-[#0B1F17]">追加したプロンプト</h3>
+                <span className="text-xs font-semibold text-[#64736C]">{customPrompts.length}件</span>
+              </div>
+              <div className="overflow-hidden rounded-xl border border-[#E1E8E5] bg-white">
+                {customPrompts.map((prompt, index) => (
+                  <PromptListItem
+                    key={prompt.id}
+                    index={generatedPrompts.length + index}
+                    prompt={prompt}
+                    onChange={(nextPrompt) =>
+                      onChangePrompts(prompts.map((item) => (item.id === prompt.id ? nextPrompt : item)))
+                    }
+                    onRemove={() => onChangePrompts(prompts.filter((item) => item.id !== prompt.id))}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        <aside className="h-fit rounded-xl border border-[#DDE8E5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <TextareaInput
+            label="追加したいプロンプト"
+            value={newPromptText}
+            onChange={setNewPromptText}
+            rows={4}
+            placeholder="例 海外市場での評判や評価はどうですか？"
+          />
+          <Button type="button" variant="outline" className="mt-3 w-full border-[#C9D8D2] text-[#075E44]" onClick={onAddPrompt}>
+            <Plus className="h-4 w-4" />
+            追加
+          </Button>
+          <p className="mt-3 text-xs leading-5 text-[#7A8982]">
+            追加・編集・削除した内容は、次の最終確認に反映されます。
+          </p>
+        </aside>
       </div>
-      <div className="mt-4 rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-3.5">
-        <TextareaInput
-          label="追加したいプロンプトがあれば入力してください"
-          value={newPromptText}
-          onChange={setNewPromptText}
-          rows={3}
-          placeholder="例 海外市場での評判や評価はどうですか？"
-        />
-        <Button type="button" variant="outline" className="mt-3 w-full border-[#C9D8D2] text-[#075E44]" onClick={onAddPrompt}>
-          <Plus className="h-4 w-4" />
-          プロンプトを追加
-        </Button>
-      </div>
-      <p className="mt-4 text-center text-xs leading-5 text-[#7A8982]">
-        追加・編集した内容は最終確認に反映されます。
-      </p>
     </WizardCard>
   );
 }
 
 function DraftPreviewSummary({ draftPreview }: { draftPreview: CustomerFacingDraftPreview }) {
+  const summaryItems = [
+    { title: "サービスカテゴリ", values: draftPreview.serviceCategories, emptyText: "未入力" },
+    { title: "主に見たい相手", values: draftPreview.audienceTargets, emptyText: "未入力" },
+    { title: "質問領域", values: draftPreview.questionAreas, emptyText: "未入力" }
+  ];
+
   return (
-    <div className="mb-5 grid gap-3">
-      <PreviewSection title="サービスカテゴリ" values={draftPreview.serviceCategories} emptyText="未入力" />
-      <PreviewSection title="主に見たい相手" values={draftPreview.audienceTargets} emptyText="未入力" />
-      <PreviewSection title="質問領域" values={draftPreview.questionAreas} emptyText="未入力" />
+    <div className="mb-4 grid gap-3 md:grid-cols-3">
+      {summaryItems.map((item) => (
+        <PreviewSection key={item.title} title={item.title} values={item.values} emptyText={item.emptyText} />
+      ))}
     </div>
   );
 }
 
 function PreviewSection({ title, values, emptyText }: { title: string; values: readonly string[]; emptyText: string }) {
   return (
-    <section className="rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-4">
-      <h3 className="text-sm font-bold text-[#0B1F17]">{title}</h3>
-      <div className="mt-3 flex flex-wrap gap-2">
+    <section className="min-w-0 rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-3">
+      <h3 className="text-xs font-bold uppercase tracking-normal text-[#64736C]">{title}</h3>
+      <div className="mt-2 flex flex-wrap gap-1.5">
         {values.length > 0 ? (
           values.map((value) => (
-            <span key={value} className="rounded-full bg-white px-3 py-1 text-xs font-semibold leading-5 text-[#506158] ring-1 ring-[#DDE8E5]">
+            <span key={value} className="max-w-full rounded-full bg-white px-2.5 py-1 text-xs font-semibold leading-5 text-[#506158] ring-1 ring-[#DDE8E5]">
               {value}
             </span>
           ))
@@ -1038,13 +1077,15 @@ function ConfirmationStep({
   confirmationDone: boolean;
   onConfirm: () => void;
 }) {
-  const rows = buildConfirmationRows(formState, draftPreview, prompts);
+  const sections = buildConfirmationSections(formState, draftPreview);
+  const promptCount = prompts.filter((prompt) => prompt.text.trim()).length;
 
   return (
     <WizardCard
       icon={<ClipboardCheck className="h-9 w-9" />}
       title="最終確認"
-      description="入力内容のサマリーです。この内容でよろしければ完了してください。"
+      description="確認内容をまとめました。この内容でよろしければ完了してください。"
+      size="wide"
     >
       {seedBlockers.length > 0 ? (
         <MessageBox title="確認が必要な項目があります" tone="error">
@@ -1055,14 +1096,22 @@ function ConfirmationStep({
           </ul>
         </MessageBox>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2">
-        {rows.map((row) => (
-          <section key={row.label} className="rounded-xl border border-[#E1E8E5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <div className="text-xs font-bold uppercase text-[#64736C]">{row.label}</div>
-            <div className="mt-2 min-w-0 text-sm leading-6 text-[#0B1F17]">{row.value}</div>
-          </section>
-        ))}
+      <div className="grid gap-3 md:grid-cols-4">
+        <SummaryStat label="測定対象" value={formState.brandName || "未入力"} />
+        <SummaryStat label="市場" value={formatList(formState.regions)} />
+        <SummaryStat label="顧客層" value={formatAudienceType(formState.audienceType)} />
+        <SummaryStat label="プロンプト例" value={`${promptCount}件`} />
       </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="grid gap-3">
+          {sections.map((section) => (
+            <ConfirmationSection key={section.title} title={section.title} items={section.items} />
+          ))}
+        </div>
+        <PromptSummaryList prompts={prompts} />
+      </div>
+
       <Button type="button" className="mt-6 h-12 w-full bg-[#075E44] text-base hover:bg-[#064D39]" onClick={onConfirm}>
         この内容で確認を完了
         <CheckCircle2 className="h-5 w-5" />
@@ -1073,7 +1122,7 @@ function ConfirmationStep({
         </p>
       ) : null}
       <p className="mt-3 text-center text-xs leading-5 text-[#7A8982]">
-        この画面では保存・承認・計測反映は行いません。
+        この画面では保存・承認・計測反映は行いません。診断は次のステップで実行されます。
       </p>
     </WizardCard>
   );
@@ -1457,7 +1506,7 @@ function CheckCard({ selected, label, onClick }: { selected: boolean; label: str
   );
 }
 
-function PromptCard({
+function PromptListItem({
   index,
   prompt,
   onChange,
@@ -1469,39 +1518,45 @@ function PromptCard({
   onRemove: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-[#E1E8E5] bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <div className="flex items-start gap-3">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#075E44] text-xs font-bold text-white">
-          {index + 1}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="border-[#D6E2DD] bg-[#F8FBFA] text-[#64736C]">
-              {formatPromptGroup(prompt.group)}
-            </Badge>
-          </div>
-          <textarea
-            className="w-full resize-y rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] px-3 py-3 text-sm leading-6 text-[#0B1F17] outline-none focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15"
-            rows={3}
-            value={prompt.text}
-            onChange={(event) => onChange({ ...prompt, text: event.target.value })}
-            aria-label={`プロンプト例 ${index + 1}`}
-          />
-        </div>
-        <div className="flex shrink-0 flex-col gap-2">
-          <span className="rounded-lg p-2 text-[#A3AEA8]" aria-hidden="true">
-            <GripVertical className="h-4 w-4" />
+    <div className="border-b border-[#E8EFEC] p-3.5 last:border-b-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        <div className="flex min-w-0 flex-1 gap-3">
+          <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#075E44] text-xs font-bold text-white">
+            {index + 1}
           </span>
-          <button
-            type="button"
-            className="rounded-lg border border-[#E1E8E5] p-2 text-[#7A8982] hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
-            onClick={onRemove}
-            aria-label={`プロンプト例 ${index + 1}を削除`}
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          <label className="min-w-0 flex-1">
+            <span className="mb-2 flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="border-[#D6E2DD] bg-[#F8FBFA] text-[#64736C]">
+                {getPromptGroupLabel(prompt.group)}
+              </Badge>
+              <span className="text-xs font-semibold text-[#7A8982]">直接編集できます</span>
+            </span>
+            <textarea
+              className="min-h-24 w-full resize-y rounded-lg border border-transparent bg-[#F8FBFA] px-3 py-3 text-sm leading-6 text-[#0B1F17] outline-none transition focus:border-[#1B8B65] focus:bg-white focus:ring-2 focus:ring-[#1B8B65]/15"
+              rows={3}
+              value={prompt.text}
+              onChange={(event) => onChange({ ...prompt, text: event.target.value })}
+              aria-label={`プロンプト例 ${index + 1}`}
+            />
+          </label>
         </div>
+        <button
+          type="button"
+          className="w-full shrink-0 rounded-lg border border-[#E1E8E5] px-3 py-2 text-xs font-bold text-[#7A8982] hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 sm:w-auto"
+          onClick={onRemove}
+          aria-label={`プロンプト例 ${index + 1}を削除`}
+        >
+          削除
+        </button>
       </div>
+    </div>
+  );
+}
+
+function EmptyPromptState() {
+  return (
+    <div className="p-5 text-sm leading-6 text-[#64736C]">
+      表示できるプロンプト例がありません。右側の欄から確認したい質問を追加できます。
     </div>
   );
 }
@@ -1696,115 +1751,125 @@ function buildSeedInput(formState: WizardState): ProjectSetupSeedInput {
   };
 }
 
-function buildConfirmationRows(
-  formState: WizardState,
-  draftPreview: CustomerFacingDraftPreview | null,
-  prompts: EditablePrompt[]
-): ConfirmationRow[] {
+function buildConfirmationSections(formState: WizardState, draftPreview: CustomerFacingDraftPreview | null) {
   return [
     {
-      label: "ブランド情報",
-      value: (
-        <StackedValues
-          values={[
-            formState.brandName || "未入力",
-            formState.officialUrl || "未入力",
-            formState.brandAliases.length ? `別名: ${formatList(formState.brandAliases)}` : "別名なし"
-          ]}
-        />
-      )
+      title: "ブランド確認",
+      items: [
+        { label: "ブランド名", value: formState.brandName || "未入力" },
+        { label: "公式URL", value: formState.officialUrl || "未入力" },
+        { label: "別名", value: formState.brandAliases.length ? formatList(formState.brandAliases) : "別名なし" }
+      ]
     },
     {
-      label: "サービス理解",
-      value: (
-        <StackedValues
-          values={[
-            formState.serviceDescription || "未入力",
-            formatList(draftPreview?.serviceCategories ?? [formState.serviceCategory].filter(Boolean))
-          ]}
-        />
-      )
+      title: "サービスカテゴリ",
+      items: [
+        { label: "概要", value: formState.serviceDescription || "未入力" },
+        { label: "カテゴリ", value: formatList(draftPreview?.serviceCategories ?? [formState.serviceCategory].filter(Boolean)) }
+      ]
     },
     {
-      label: "市場・言語",
-      value: <StackedValues values={[formatList(formState.regions), formatLanguage(formState.language)]} />
+      title: "対象市場",
+      items: [
+        { label: "地域", value: formatList(formState.regions) },
+        { label: "言語", value: formatLanguage(formState.language) },
+        { label: "顧客層", value: formatAudienceType(formState.audienceType) }
+      ]
     },
     {
-      label: "顧客層 / 主に見たい相手",
-      value: (
-        <StackedValues
-          values={[
-            formatAudienceType(formState.audienceType),
-            formatList(draftPreview?.audienceTargets ?? formState.audienceTargets)
-          ]}
-        />
-      )
+      title: "主に見たい相手",
+      items: [{ label: "確認対象", value: formatList(draftPreview?.audienceTargets ?? formState.audienceTargets) }]
     },
     {
-      label: "競合",
-      value:
-        formState.competitorMode === "competitor_discovery_needed" ? (
-          "Recoraで候補抽出"
-        ) : (
-          <ChipList values={formState.competitors} emptyText="未入力" />
-        )
+      title: "競合",
+      items: [
+        {
+          label: "扱い",
+          value:
+            formState.competitorMode === "competitor_discovery_needed"
+              ? "Recoraで候補抽出"
+              : formatList(formState.competitors)
+        }
+      ]
     },
     {
-      label: "見たいこと / 質問領域",
-      value: (
-        <StackedValues
-          values={[
-            formatList(formState.watchTopics),
-            formatList(formatReportGoalLabels(formState)),
-            draftPreview ? `質問領域: ${formatList(draftPreview.questionAreas)}` : ""
-          ].filter(Boolean)}
-        />
-      )
-    },
-    {
-      label: "プロンプト例",
-      value: <NumberedValues values={prompts.map((prompt) => prompt.text)} emptyText="未入力" />
+      title: "質問領域",
+      items: [
+        { label: "重点論点", value: formatList(formState.watchTopics) },
+        { label: "確認領域", value: formatList(draftPreview?.questionAreas ?? formState.watchTopics) },
+        { label: "レポート目的", value: formatList(formatReportGoalLabels(formState)) }
+      ]
     }
   ];
 }
 
-function StackedValues({ values }: { values: readonly string[] }) {
+function SummaryStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="space-y-1">
-      {values.map((value) => (
-        <p key={value} className="break-words">
-          {value}
-        </p>
-      ))}
-    </div>
+    <section className="min-w-0 rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-3">
+      <div className="text-xs font-bold uppercase tracking-normal text-[#64736C]">{label}</div>
+      <div className="mt-1 truncate text-sm font-bold text-[#0B1F17]">{value}</div>
+    </section>
   );
 }
 
-function ChipList({ values, emptyText }: { values: readonly string[]; emptyText: string }) {
-  if (values.length === 0) return <span>{emptyText}</span>;
+function ConfirmationSection({
+  title,
+  items
+}: {
+  title: string;
+  items: { label: string; value: string }[];
+}) {
   return (
-    <div className="flex flex-wrap gap-2">
-      {values.map((value) => (
-        <span key={value} className="rounded-full bg-[#F1F5F3] px-3 py-1 text-xs font-semibold text-[#506158]">
-          {value}
-        </span>
-      ))}
-    </div>
+    <section className="rounded-xl border border-[#E1E8E5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <h3 className="text-sm font-bold text-[#0B1F17]">{title}</h3>
+      <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+        {items.map((item) => (
+          <div key={item.label} className="min-w-0">
+            <dt className="text-xs font-bold text-[#64736C]">{item.label}</dt>
+            <dd className="mt-1 break-words text-sm leading-6 text-[#0B1F17]">{item.value || "未入力"}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 
-function NumberedValues({ values, emptyText }: { values: readonly string[]; emptyText: string }) {
-  if (values.length === 0) return <span>{emptyText}</span>;
+function PromptSummaryList({ prompts }: { prompts: EditablePrompt[] }) {
+  const visiblePrompts = prompts.filter((prompt) => prompt.text.trim());
+
   return (
-    <ol className="space-y-2">
-      {values.map((value, index) => (
-        <li key={`${index}-${value}`} className="grid grid-cols-[28px_minmax(0,1fr)] gap-2">
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#075E44] text-xs font-bold text-white">{index + 1}</span>
-          <span className="break-words">{value}</span>
-        </li>
-      ))}
-    </ol>
+    <section className="h-fit rounded-xl border border-[#DDE8E5] bg-[#FBFDFC] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-bold text-[#0B1F17]">プロンプト例</h3>
+        <span className="text-xs font-semibold text-[#64736C]">{visiblePrompts.length}件</span>
+      </div>
+      {visiblePrompts.length > 0 ? (
+        <ol className="mt-3 space-y-2">
+          {visiblePrompts.map((prompt, index) => (
+            <li key={`${prompt.id}-${index}`} className="rounded-lg border border-[#E1E8E5] bg-white p-3">
+              <div className="mb-1 flex items-center gap-2">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#075E44] text-[11px] font-bold text-white">
+                  {index + 1}
+                </span>
+                <span className="text-xs font-semibold text-[#64736C]">{getPromptGroupLabel(prompt.group)}</span>
+              </div>
+              <p className="break-words text-sm leading-6 text-[#0B1F17]">{prompt.text}</p>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="mt-3 text-sm leading-6 text-[#64736C]">未入力</p>
+      )}
+    </section>
   );
+}
+
+function isCustomPrompt(prompt: EditablePrompt) {
+  return prompt.id.startsWith("custom-");
+}
+
+function getPromptGroupLabel(group: PromptGroup) {
+  return formatPromptGroup(group);
 }
 
 function getStepBlockers(stepIndex: number, formState: WizardState) {

@@ -215,3 +215,13 @@ Supported profile keys:
 Step2 and Step3 candidate chips, plus Step4 fallback prompt examples, should follow this profile. Step4 prioritizes generator output when it is available. For consumer-facing profiles such as school, clinic, local service, ecommerce, and generic B2C, obviously BtoB adoption terms such as internal approval, security review, ROI, operational burden, existing-tool integration, or SaaS procurement should be filtered from customer-facing prompt examples. If that leaves no suitable generated prompt, use the profile-specific fallback examples.
 
 Step5 final confirmation reflects generated primary viewers, question areas, prompt examples, and any prompt examples added by the customer in Step4. Customer-facing UI must not expose raw generator output or internal fields/IDs such as `businessModel`, `industryAdapter`, `topicType`, `roleType`, `promptId`, `personaId`, or `topicId`.
+
+### Step4 and Step5 confirmation display
+
+Step4 and Step5 are customer-facing confirmation screens, not raw generator management screens.
+
+- Step4 shows prompt examples as a readable review list, grouped into generated prompt examples and customer-added prompt examples.
+- Step4 allows editing, deleting, and adding prompt examples, and those changes must be reflected in Step5.
+- Step5 starts with a compact summary, then shows customer-readable confirmation sections for brand, service, market/language, viewers, competitors, and question areas.
+- Step5 summarizes generated prompt examples and customer-added prompt examples without exposing internal prompt IDs or generator internals.
+- Step4 and Step5 must keep the no-save/no-approval/no-measurement boundary clear.
