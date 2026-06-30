@@ -96,12 +96,24 @@ type SiteInspectionState =
   | { status: "success"; result: SiteInspectionResult }
   | { status: "failed"; message: string; code?: string; warnings?: SiteInspectionWarning[] };
 
+type AutoSuggestionSources = {
+  serviceDescription: string | null;
+  serviceCategory: string | null;
+  audienceTargets: string | null;
+};
+
 type ConfirmationRow = {
   label: string;
   value: ReactNode;
 };
 
 type UpdateForm = <K extends keyof WizardState>(field: K, value: WizardState[K]) => void;
+
+const initialAutoSuggestionSources: AutoSuggestionSources = {
+  serviceDescription: null,
+  serviceCategory: null,
+  audienceTargets: null
+};
 
 const initialFormState: WizardState = {
   brandName: "",
@@ -190,6 +202,7 @@ export function ProjectSetupWizard() {
   const [newPromptText, setNewPromptText] = useState("");
   const [confirmationDone, setConfirmationDone] = useState(false);
   const [siteInspection, setSiteInspection] = useState<SiteInspectionState>({ status: "idle" });
+  const [autoSuggestionSources, setAutoSuggestionSources] = useState<AutoSuggestionSources>(initialAutoSuggestionSources);
 
   const seedInput = useMemo(() => buildSeedInput(formState), [formState]);
   const seedKey = useMemo(() => stableSeedKey(seedInput), [seedInput]);
@@ -201,6 +214,9 @@ export function ProjectSetupWizard() {
   const updateForm: UpdateForm = (field, value) => {
     setConfirmationDone(false);
     setFormState((current) => ({ ...current, [field]: value }));
+    if (field === "serviceDescription" || field === "serviceCategory" || field === "audienceTargets") {
+      setAutoSuggestionSources((current) => ({ ...current, [field]: null }));
+    }
     if (field === "brandName" || field === "brandAliases" || field === "officialUrl") {
       setSiteInspection({ status: "idle" });
     }
@@ -220,8 +236,16 @@ export function ProjectSetupWizard() {
     if (stepIndex === 0) {
       setSiteInspection({ status: "loading" });
       const inspection = await inspectOfficialUrlForStep(formState);
+      const sourceKey = stableStep1SourceKey(formState);
+      const nextSuggestions = applyServiceSuggestions(
+        formState,
+        autoSuggestionSources,
+        sourceKey,
+        inspection.status === "success" ? inspection.result : null
+      );
       setSiteInspection(inspection);
-      setFormState((current) => applyServiceSuggestions(current, inspection.status === "success" ? inspection.result : null));
+      setFormState(nextSuggestions.state);
+      setAutoSuggestionSources(nextSuggestions.sources);
       setStepIndex(1);
       return;
     }
@@ -1391,23 +1415,32 @@ async function inspectOfficialUrlForStep(state: WizardState): Promise<SiteInspec
   }
 }
 
-function applyServiceSuggestions(state: WizardState, inspection: SiteInspectionResult | null = null): WizardState {
-  const brandName = state.brandName.trim() || "対象サービス";
-  const inspectedDescription = inspection?.suggestedServiceDescription?.trim() ?? "";
-  const inspectedCategory = inspection?.suggestedCategory?.trim() ?? "";
-  const serviceDescription =
-    state.serviceDescription.trim() ||
-    inspectedDescription ||
-    `AI検索で、${brandName}がどのように候補として表示されるかを確認するためのサービス。`;
-  const serviceCategory = state.serviceCategory.trim() || inspectedCategory || inferInterimCategory(state);
-  const audienceTargets =
-    state.audienceTargets.length > 0 ? state.audienceTargets : audienceSuggestionsByType[state.audienceType].slice(0, 3);
+function applyServiceSuggestions(
+  state: WizardState,
+  sources: AutoSuggestionSources,
+  sourceKey: string,
+  inspection: SiteInspectionResult | null = null
+): { state: WizardState; sources: AutoSuggestionSources } {
+  const proposedServiceDescription = buildSuggestedServiceDescriptionForStep(state, inspection);
+  const proposedServiceCategory = buildSuggestedServiceCategoryForStep(state, inspection, proposedServiceDescription);
+  const proposedAudienceTargets = inferAudienceTargetsForStep(state, proposedServiceCategory);
+
+  const shouldReplaceServiceDescription = !state.serviceDescription.trim() || sources.serviceDescription !== null;
+  const shouldReplaceServiceCategory = !state.serviceCategory.trim() || sources.serviceCategory !== null;
+  const shouldReplaceAudienceTargets = state.audienceTargets.length === 0 || sources.audienceTargets !== null;
 
   return {
-    ...state,
-    serviceDescription,
-    serviceCategory,
-    audienceTargets
+    state: {
+      ...state,
+      serviceDescription: shouldReplaceServiceDescription ? proposedServiceDescription : state.serviceDescription,
+      serviceCategory: shouldReplaceServiceCategory ? proposedServiceCategory : state.serviceCategory,
+      audienceTargets: shouldReplaceAudienceTargets ? proposedAudienceTargets : state.audienceTargets
+    },
+    sources: {
+      serviceDescription: shouldReplaceServiceDescription ? sourceKey : sources.serviceDescription,
+      serviceCategory: shouldReplaceServiceCategory ? sourceKey : sources.serviceCategory,
+      audienceTargets: shouldReplaceAudienceTargets ? sourceKey : sources.audienceTargets
+    }
   };
 }
 
@@ -1420,7 +1453,7 @@ function buildCustomerFacingDraftPreview(seedInput: ProjectSetupSeedInput, formS
     group: classifyGeneratedPrompt(prompt, derivePromptMetricEligibility(prompt, brandIdentity))
   }));
   const fallback = buildFallbackPrompts(formState);
-  const prompts = uniquePrompts([...generated, ...fallback]).slice(0, 5);
+  const prompts = uniquePrompts(generated.length > 0 ? generated : fallback).slice(0, 5);
   const serviceCategories = uniqueStrings([seedInput.industryCategory, formState.serviceCategory]).slice(0, 3);
   const audienceTargets = uniqueStrings([
     ...result.draft.personas.map((persona) => persona.displayName),
@@ -1641,15 +1674,74 @@ function getStepBlockers(stepIndex: number, formState: WizardState) {
   return blockers;
 }
 
-function inferInterimCategory(formState: WizardState) {
-  const text = `${formState.brandName} ${formState.officialUrl}`.toLowerCase();
-  if (text.includes("recora") || text.includes("seo") || text.includes("geo") || text.includes("ai")) {
+function buildSuggestedServiceDescriptionForStep(state: WizardState, inspection: SiteInspectionResult | null) {
+  const inspectedDescription = inspection?.suggestedServiceDescription?.trim();
+  if (inspectedDescription) return inspectedDescription;
+  const metadataDescription = inspection ? [inspection.description, inspection.h1, inspection.title].find((value) => value?.trim()) : null;
+  if (metadataDescription) return metadataDescription.trim();
+
+  const brandName = state.brandName.trim() || "対象サービス";
+  const hostname = extractHostname(normalizeTargetUrlForSeed(state.officialUrl));
+  return hostname
+    ? `${brandName}（${hostname}）のサービス内容をもとに、AI検索での見え方を確認するための測定対象です。`
+    : `${brandName}のサービス内容をもとに、AI検索での見え方を確認するための測定対象です。`;
+}
+
+function buildSuggestedServiceCategoryForStep(
+  state: WizardState,
+  inspection: SiteInspectionResult | null,
+  serviceDescription: string
+) {
+  const inspectedCategory = inspection?.suggestedCategory?.trim();
+  if (inspectedCategory && inspectedCategory !== "その他") return inspectedCategory;
+  return inferInterimCategory(state, inspection, serviceDescription);
+}
+
+function inferAudienceTargetsForStep(state: WizardState, serviceCategory: string) {
+  const text = normalizeText(`${serviceCategory} ${state.brandName} ${state.officialUrl}`);
+  if (matchesAnyText(text, ["スクール", "教育", "英会話", "school", "lesson", "b2c"])) {
+    return ["初めて選ぶ人", "料金を重視する人", "口コミを重視する人"];
+  }
+  if (matchesAnyText(text, ["採用", "hr", "人事", "recruit"])) {
+    return ["人事担当者", "採用責任者", "経営者"];
+  }
+  return audienceSuggestionsByType[state.audienceType].slice(0, 3);
+}
+
+function inferInterimCategory(
+  formState: WizardState,
+  inspection: SiteInspectionResult | null = null,
+  serviceDescription = formState.serviceDescription
+) {
+  const text = normalizeText(
+    [
+      formState.brandName,
+      formState.brandAliases.join(" "),
+      formState.officialUrl,
+      serviceDescription,
+      inspection?.title,
+      inspection?.description,
+      inspection?.siteName,
+      inspection?.h1,
+      inspection?.hostname
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+
+  if (matchesAnyText(text, ["AI検索", "LLMO", "GEO", "AIO", "AI search", "SEO", "Mieruca", "ミエルカ"])) {
     return "SEO / AI検索対策";
   }
-  if (text.includes("clinic") || text.includes("medical")) return "クリニック / スクール";
-  if (text.includes("school") || text.includes("edu")) return "クリニック / スクール";
-  if (text.includes("ecommerce") || text.includes("shop") || text.includes("store")) return "その他";
-  return "SaaS / 分析ツール";
+  if (matchesAnyText(text, ["マーケティング", "広告", "コンテンツ", "集客"])) return "マーケティング / SEO";
+  if (matchesAnyText(text, ["採用", "HR", "人事", "recruit", "求人"])) return "採用 / HR";
+  if (matchesAnyText(text, ["英会話", "スクール", "学校", "教育", "講座", "school", "lesson", "english"])) {
+    return "スクール / 教育";
+  }
+  if (matchesAnyText(text, ["clinic", "クリニック", "医療", "病院"])) return "クリニック / 医療";
+  if (matchesAnyText(text, ["EC", "通販", "商品", "shop", "store", "ecommerce"])) return "EC / 商品";
+  if (matchesAnyText(text, ["地域", "店舗", "予約", "来店", "local", "エリア"])) return "地域サービス";
+  if (matchesAnyText(text, ["SaaS", "分析", "analytics", "dashboard", "ツール", "platform"])) return "SaaS / 分析ツール";
+  return "その他";
 }
 
 function normalizeTargetUrlForSeed(value: string) {
@@ -1798,6 +1890,18 @@ function formatList(values: readonly string[], emptyText = "未入力") {
 
 function normalizeText(value: string) {
   return value.normalize("NFKC").trim().toLowerCase();
+}
+
+function stableStep1SourceKey(formState: WizardState) {
+  return JSON.stringify({
+    brandName: normalizeText(formState.brandName),
+    brandAliases: formState.brandAliases.map(normalizeText),
+    officialUrl: normalizeTargetUrlForSeed(formState.officialUrl)
+  });
+}
+
+function matchesAnyText(text: string, candidates: readonly string[]) {
+  return candidates.some((candidate) => text.includes(normalizeText(candidate)));
 }
 
 function stableSeedKey(seedInput: ProjectSetupSeedInput) {
