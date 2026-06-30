@@ -202,7 +202,9 @@ T03/T04の精度を上げるには、prompt単位またはprompt set単位で以
 
 ## Prompt Scope Readiness Update (2026-07-01)
 
-This PR adds first-class code contracts for `prompt_type` and `measurement_purpose` in `lib/recora/prompt-scope.ts`, but does not add DB columns or backfill existing rows.
+PR #45 added first-class code contracts for `prompt_type` and `measurement_purpose` in `lib/recora/prompt-scope.ts`.
+
+The local schema PR adds `supabase/migrations/20260701044743_recora_prompt_scope_fields.sql`. It targets `public.prompts` only and adds nullable `prompt_type text` and `measurement_purpose text` columns with allowed-value check constraints. It does not backfill existing rows.
 
 Current readiness rule:
 
@@ -211,13 +213,19 @@ Current readiness rule:
 - Unknown values are `partial` and cannot enter official metric eligibility until normalized.
 - Text-based or heuristic inference is treated separately from official metadata and must not make a prompt eligible for visibility/ranking/SOV.
 
-DB readiness remains unchanged:
+DB readiness after the local migration file:
 
-- No DB migration in this PR.
+- Local migration file added: `supabase/migrations/20260701044743_recora_prompt_scope_fields.sql`.
+- Target table: `public.prompts` only.
+- Added columns: `prompt_type`, `measurement_purpose`.
+- Check constraints: `prompts_prompt_type_check`, `prompts_measurement_purpose_check`.
 - No Supabase db push.
 - No local or production DB write.
-- Any future `prompts.prompt_type` / `prompts.measurement_purpose` column addition and backfill must be a separate PR with explicit approval.
-- Planning for that future migration/backfill lives in `docs/recora-prompt-scope-db-migration-plan.md`; until then, rows without explicit recognized metadata remain `needs_metadata`.
+- No remote DB apply.
+- No backfill.
+- Existing remote rows remain unchanged. After a future remote apply, existing rows should remain `null` until a separate approved backfill or materialization step.
+- T04 `needs_metadata` remains expected until remote apply and explicit metadata/backfill are handled in later PRs.
+- Remote apply and backfill planning remains in `docs/recora-prompt-scope-db-migration-plan.md`; rows without explicit recognized metadata remain `needs_metadata`.
 
 ## Open questions
 

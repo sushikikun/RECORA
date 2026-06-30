@@ -1,11 +1,11 @@
 # Recora Prompt Scope DB Migration Plan
 
-Status: Planning proposal / docs-only
+Status: Local migration added / remote apply pending
 Last updated: 2026-07-01
 
-This document is a plan and proposal. It is not a migration execution.
+This document started as a plan and proposal. It now records the local schema migration file added for review, while remote execution remains out of scope.
 
-This PR does not create a migration file.
+This PR creates a local migration file only.
 This PR does not run Supabase db push.
 This PR does not write to any remote DB.
 This PR does not execute external APIs.
@@ -37,6 +37,8 @@ Confirmed from repo artifacts only:
 - `public.metric_snapshots` is documented as aggregate data whose source of truth remains raw run items, AI conversations, brand mentions, and citations.
 - `docs/recora-admin-db-design.md` already notes a later first-class column review for `public.prompts.prompt_type`, `metric_eligibility`, `prompt_set_version`, and run prompt-set versioning.
 - Project setup drafts are generated as `needs_review` and are not automatically approved or measurement-ready.
+- Local migration file `supabase/migrations/20260701044743_recora_prompt_scope_fields.sql` now adds nullable `prompt_type` and `measurement_purpose` columns to `public.prompts` only, with allowed-value check constraints.
+- The local migration file has not been applied to any linked Supabase project or remote DB.
 
 Not confirmed in this PR:
 
@@ -58,7 +60,7 @@ Not confirmed in this PR:
 
 ## Non-goals
 
-- No migration SQL in this PR.
+- No remote migration execution in this PR.
 - No Supabase db push.
 - No local or remote DB writes.
 - No metric recalculation job.
@@ -125,9 +127,71 @@ Recommended future model:
 - Use joins or measurement-time snapshots when downstream evidence rows need to display scope.
 - Preserve historical run interpretation by reading the measurement-time snapshot for past runs rather than the current mutable prompt definition.
 
-This is a proposal subject to real schema confirmation. No migration is created here.
+This remains subject to live schema confirmation before any remote apply. The local migration below is the first additive schema file and does not execute against a remote DB.
 
 Future schema design should decide whether to use Postgres enums, text with check constraints, or a reference table. Whichever option is chosen, the allowed values must stay aligned with `lib/recora/prompt-scope.ts`.
+
+## Local schema migration added (2026-07-01)
+
+Migration file:
+
+- `supabase/migrations/20260701044743_recora_prompt_scope_fields.sql`
+
+Target table:
+
+- `public.prompts` only
+
+Added columns:
+
+- `prompt_type text`
+- `measurement_purpose text`
+
+Constraints:
+
+- `prompts_prompt_type_check`
+- `prompts_measurement_purpose_check`
+
+Allowed `prompt_type` values:
+
+- `non_branded`
+- `branded`
+- `comparison_generic`
+- `comparison_named`
+- `competitor_named`
+- `citation_check`
+
+Allowed `measurement_purpose` values:
+
+- `visibility`
+- `ranking`
+- `sov`
+- `sentiment`
+- `brand_perception`
+- `citation_validation`
+- `recommendation_input`
+
+Scope memo:
+
+- Prompt definition candidate: `public.prompts` is the only safely identified prompt definition table in the repo migrations.
+- Draft prompt candidate: no DB-backed draft prompt table is safely identified in the repo migrations. Project setup drafts remain TypeScript/domain-model drafts and are not measurement-ready until approved and materialized.
+- Measurement-run prompt snapshot candidate: no dedicated run prompt snapshot table is safely identified. `public.run_items` links to `public.prompts`, and `public.ai_conversations.prompt_text_snapshot` stores answer evidence text, not official prompt scope ownership.
+- Downstream evidence and aggregate tables are not targeted. The migration does not alter `public.ai_conversations`, `public.brand_mentions`, `public.citations`, `public.metric_snapshots`, or `public.recommendations`.
+- Nullable field additions are enough for this local schema step because existing rows can remain `null` / `needs_metadata` until a separately approved remote apply and backfill.
+
+Remote and data status:
+
+- No Supabase db push was executed.
+- No remote DB write was executed.
+- No production DB write was executed.
+- No backfill was executed.
+- Existing rows remain unchanged; after future remote apply they will remain `null` until a separate approved backfill.
+- T04 `needs_metadata` remains the expected behavior until the migration is remotely applied and explicit metadata is backfilled or materialized.
+
+Open design points after this local migration:
+
+- Whether measurement-time scope should later be copied onto `public.run_items`, a dedicated prompt snapshot table, or another approved snapshot model.
+- Whether project setup drafts should persist candidate scope values in a future draft table or stay as operator-reviewed domain-model output until materialization.
+- Whether future remote apply should generate DB types or additional schema checks after the linked project is explicitly approved.
 
 ## Backfill strategy
 
