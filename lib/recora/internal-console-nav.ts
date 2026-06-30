@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { BriefcaseBusiness, ClipboardList, Gauge } from "lucide-react";
+import { BriefcaseBusiness, ClipboardList, Gauge, WalletCards } from "lucide-react";
 
 import type { RecoraInternalAdminAccess, RecoraInternalRole } from "@/lib/recora/internal-admin-access";
 
@@ -28,6 +28,14 @@ const internalNavItems: RecoraInternalNavItem[] = [
     href: "/internal/projects",
     description: "案件ごとのread model、run history、report-ready状態を確認します。",
     icon: BriefcaseBusiness,
+    status: "ready",
+    requiredRole: "viewer"
+  },
+  {
+    label: "料金プラン",
+    href: "/internal/plans",
+    description: "現在の料金プラン定義をread-onlyで確認します。",
+    icon: WalletCards,
     status: "ready",
     requiredRole: "viewer"
   },
