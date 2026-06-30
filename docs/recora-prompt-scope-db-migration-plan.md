@@ -197,6 +197,40 @@ Open design points after this local migration:
 
 Backfill should categorize rows before writing any data.
 
+### Read-only dry-run script
+
+PR 1 of the customer DB completion track adds:
+
+- `scripts/inspect-recora-prompt-scope-backfill.ts`
+- `npm run recora:prompt-scope-backfill:dry-run`
+
+The script is a read-only inspection step. It uses `supabase db query --linked` to run a fixed SELECT against `public.prompts`, joined only to existing project, topic, persona, and brand context needed for classification. It does not generate UPDATE SQL and does not run INSERT, UPDATE, DELETE, migration, seed, repair, reset, or backfill apply.
+
+The dry-run buckets existing prompt rows into:
+
+- `already_explicit`
+- `safe_explicit_candidate`
+- `inferred_candidate`
+- `manual_review`
+- `leave_null`
+- `invalid_existing_value`
+- `missing_required_context`
+
+Dry-run output includes total row counts, counts by bucket, existing `prompt_type` and `measurement_purpose` value counts, reason-code counts, and up to five truncated samples per bucket. Samples are for operator review only and intentionally do not produce executable SQL.
+
+Classification rules are intentionally conservative:
+
+- `already_explicit` requires recognized existing values in both first-class fields.
+- `invalid_existing_value` is used when an existing non-null field is outside the allowed contract.
+- `safe_explicit_candidate` requires trusted existing metadata, such as existing prompt intent or topic intent values, that clearly maps to both scope fields.
+- Prompt text alone can only create `inferred_candidate`, never a safe explicit backfill.
+- `inferred_candidate` is review-only and must not be treated as official market-metric scope.
+- `manual_review` is used for partial existing metadata, known competitor mentions, named or ambiguous comparisons, or conflicts between trusted metadata and prompt text.
+- `leave_null` keeps rows without enough evidence as `needs_metadata`.
+- `missing_required_context` is used when required project or primary-brand context is absent.
+
+This dry-run is a gate before any future write-capable backfill PR. A later apply PR must compare the dry-run counts, explicitly choose which `safe_explicit_candidate` rows are eligible, and require a separate human checkpoint before any remote DB write.
+
 ### A. Safe explicit backfill
 
 Use when an existing trusted source already contains explicit scope metadata, for example an approved fixture, materialized prompt contract, or operator-approved draft.
