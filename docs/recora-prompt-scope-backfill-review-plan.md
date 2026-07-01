@@ -31,6 +31,12 @@ PR #51 dry-run result:
 - existing prompt_type: null 8
 - existing measurement_purpose: null 8
 
+Follow-up review record:
+
+- `docs/recora-prompt-scope-backfill-review-record.md`
+
+The review record keeps all 8 rows as `manual_review_needed`, sets every `apply_candidate` to `false`, and treats all proposed values as review aids only.
+
 Interpretation:
 
 - All inspected prompts currently have `prompt_type = null` and `measurement_purpose = null`.
