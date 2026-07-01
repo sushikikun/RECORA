@@ -220,6 +220,12 @@ Step5 final confirmation reflects generated persona labels, question areas, prom
 
 The onboarding UI must not show `PersonaDraft` raw fields directly.
 
+- The onboarding persona model borrows the SPASM-style separation of persona schema, plausibility validation, and natural-language persona crafting, but it does not add an external dependency or copy external OSS code.
+- Recora adapts that idea into a UI-only `OnboardingPersonaFrame` flow: propose persona frames from Step1-Step3 inputs, selected chips, and `PersonaDraft`; validate category / BtoB-BtoC fit; then render customer-facing labels and descriptions.
+- `OnboardingPersonaFrame` is not a database schema and does not change `ProjectSetupDraft`; it exists only to make customer-facing onboarding personas more stable and useful for Step4/Step5 confirmation.
+- Persona frames may use `PersonaDraft.displayName`, `promptAngle`, `painPoints`, `proofNeeded`, `comparisonAxis`, and `buyerStage` as material, but must not show raw `personaId`, `roleType`, `detailedDecisionRole`, `sourceStatus`, `confidenceScore`, `needsVerification`, `decision_maker`, `evaluator`, or `end_user`.
+- Category profiles must validate persona fit before rendering: BtoC flows should remove BtoB/SaaS role labels, BtoB flows should remove stale consumer-only labels, EC should carry price/review/quality/return-condition concerns, clinic should carry fee/review/qualification/risk concerns, and school should carry first-time/fee/review/fit concerns.
+- `targetCustomers` should be generated from the validated persona frames as natural context for the generator, not as raw chip concatenation or mechanically joined BtoB/BtoC role suffixes.
 - Show customer-facing labels under `ペルソナ`, not `主に見たい相手`.
 - Normalize `PersonaDraft.displayName` into short customer-readable persona labels.
 - Do not mechanically combine BtoB/BtoC, audience chip text, and role suffixes into persona names.
@@ -227,8 +233,8 @@ The onboarding UI must not show `PersonaDraft` raw fields directly.
 - Build `ProjectSetupSeedInput.targetCustomers` as natural context, not as a raw joined UI label list.
 - Regenerate the customer-facing persona display when the persona source context changes: brand name, service description, service category, BtoB/BtoC selection, selected audience chips, regions, language, watch topics, report goals, competitor mode, or known competitors.
 - Treat selected audience chips, generated `PersonaDraft`, and profile fallbacks as display candidates, then filter out candidates that do not match the current suggestion profile.
-- For BtoC school, clinic, local-service, ecommerce, and generic BtoC flows, do not keep stale BtoB/SaaS persona labels such as SEO???, ??????????, ??????????, Web???, or ?????.
-- For BtoB flows, do not replace the intended business viewers with stale consumer-only labels such as ??????, ????????, ?????????, ????????, or ???????????.
+- For BtoC school, clinic, local-service, ecommerce, and generic BtoC flows, do not keep stale BtoB/SaaS persona labels such as SEO担当者, マーケティング責任者, 導入を判断する責任者, Web担当者, or 事業責任者.
+- For BtoB flows, do not replace the intended business viewers with stale consumer-only labels such as 初めて選ぶ人, 料金を比較する人, 口コミを重視する人, 価格を比較する人, or 返品条件を確認したい人.
 - For BtoB, use labels such as `SEO担当者`, `マーケティング責任者`, `導入を判断する責任者`, `比較検討する担当者`, or `実際に利用する担当者`.
 - For BtoC, EC, school, clinic, and local-service flows, use labels such as `初めて選ぶ人`, `料金を比較する人`, `口コミを重視する人`, `品質を確認したい人`, `返品条件を確認したい人`, or `初めて相談する人`.
 

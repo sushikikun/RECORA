@@ -106,18 +106,50 @@ type EditablePrompt = {
 type CustomerFacingDraftPreview = {
   serviceCategories: string[];
   audienceTargets: string[];
+  audiencePersonas: CustomerPersona[];
   questionAreas: string[];
   prompts: EditablePrompt[];
 };
 
-type CustomerPersonaSource = "selected" | "generated" | "fallback";
+type OnboardingCategoryProfile =
+  | "b2b_saas_or_seo"
+  | "b2b_professional_service"
+  | "b2c_school_education"
+  | "healthcare_clinic"
+  | "local_service"
+  | "ecommerce_product"
+  | "generic_b2c"
+  | "generic_b2b";
 
-type CustomerPersona = {
+type OnboardingPersonaDecisionRole =
+  | "decision_owner"
+  | "evaluator"
+  | "practical_user"
+  | "first_time_buyer"
+  | "price_checker"
+  | "review_checker"
+  | "quality_checker"
+  | "risk_checker";
+
+type CustomerPersonaSource = "selected" | "generator" | "profile_fallback";
+
+type OnboardingPersonaFrame = {
   id: string;
   label: string;
   description: string;
+  audienceType: AudienceType;
+  categoryProfile: OnboardingCategoryProfile;
+  decisionRole: OnboardingPersonaDecisionRole;
+  buyerStage: string;
+  triggerSituation: string;
+  evaluationCriteria: string[];
+  proofNeeded: string[];
+  riskConcern: string[];
+  promptAngle: string;
   source: CustomerPersonaSource;
 };
+
+type CustomerPersona = OnboardingPersonaFrame;
 
 type SiteInspectionState =
   | { status: "idle" }
@@ -261,7 +293,7 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
   localService: {
     key: "localService",
     serviceCategories: ["地域サービス", "店舗サービス", "予約サービス"],
-    audienceTargets: ["近くで探す人", "予約しやすさを重視する人", "口コミを重視する人"],
+    audienceTargets: ["近くで探している人", "予約しやすさを重視する人", "口コミを重視する人"],
     watchTopics: ["近さ", "予約しやすさ", "料金", "口コミ", "対応エリア", "相談しやすさ"],
     reportGoalOptions: [
       { value: "visibility", label: "近くの候補に出るか知りたい" },
@@ -1050,18 +1082,32 @@ function PromptStep({
 }
 
 function DraftPreviewSummary({ draftPreview }: { draftPreview: CustomerFacingDraftPreview }) {
-  const summaryItems = [
-    { title: "サービスカテゴリ", values: draftPreview.serviceCategories, emptyText: "未入力" },
-    { title: "ペルソナ", values: draftPreview.audienceTargets, emptyText: "未入力" },
-    { title: "質問領域", values: draftPreview.questionAreas, emptyText: "未入力" }
-  ];
-
   return (
     <div className="mb-4 grid gap-3 md:grid-cols-3">
-      {summaryItems.map((item) => (
-        <PreviewSection key={item.title} title={item.title} values={item.values} emptyText={item.emptyText} />
-      ))}
+      <PreviewSection title="サービスカテゴリ" values={draftPreview.serviceCategories} emptyText="未入力" />
+      <PersonaPreviewSection personas={draftPreview.audiencePersonas} />
+      <PreviewSection title="質問領域" values={draftPreview.questionAreas} emptyText="未入力" />
     </div>
+  );
+}
+
+function PersonaPreviewSection({ personas }: { personas: readonly CustomerPersona[] }) {
+  return (
+    <section className="min-w-0 rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-3">
+      <h3 className="text-xs font-bold uppercase tracking-normal text-[#64736C]">ペルソナ</h3>
+      <div className="mt-2 space-y-2">
+        {personas.length > 0 ? (
+          personas.map((persona) => (
+            <div key={persona.id} className="rounded-lg bg-white px-3 py-2 ring-1 ring-[#DDE8E5]">
+              <div className="text-xs font-bold leading-5 text-[#0B1F17]">{persona.label}</div>
+              <div className="mt-0.5 text-xs leading-5 text-[#64736C]">{persona.description}</div>
+            </div>
+          ))
+        ) : (
+          <span className="text-sm text-[#8B9A93]">未入力</span>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1684,7 +1730,8 @@ function buildCustomerFacingDraftPreview(seedInput: ProjectSetupSeedInput, formS
   const fallback = buildFallbackPrompts(formState);
   const prompts = uniquePrompts(customerReadyGenerated.length > 0 ? customerReadyGenerated : fallback).slice(0, 5);
   const serviceCategories = uniqueStrings([seedInput.industryCategory, formState.serviceCategory, ...profile.serviceCategories]).slice(0, 3);
-  const audienceTargets = buildCustomerPersonas(formState, result.draft.personas, profile).map((persona) => persona.label);
+  const audiencePersonas = buildCustomerPersonas(formState, result.draft.personas, profile);
+  const audienceTargets = audiencePersonas.map((persona) => persona.label);
   const generatedQuestionAreas = result.draft.topics.map((topic) => buildCustomerFacingQuestionArea(topic.topicName, topic.diagnosisGoal));
   const questionAreas = uniqueStrings([
     ...generatedQuestionAreas,
@@ -1694,6 +1741,7 @@ function buildCustomerFacingDraftPreview(seedInput: ProjectSetupSeedInput, formS
   return {
     serviceCategories,
     audienceTargets,
+    audiencePersonas,
     questionAreas,
     prompts
   };
@@ -1733,49 +1781,221 @@ function buildCustomerPersonas(
   generatedPersonas: readonly PersonaDraft[],
   profile: OnboardingSuggestionProfile
 ): CustomerPersona[] {
+  return renderCustomerPersonas(validateOnboardingPersonaFrames(proposeOnboardingPersonaFrames(formState, generatedPersonas, profile), profile));
+}
+
+function proposeOnboardingPersonaFrames(
+  formState: WizardState,
+  generatedPersonas: readonly PersonaDraft[],
+  profile: OnboardingSuggestionProfile
+): OnboardingPersonaFrame[] {
   const sourceKey = buildCustomerPersonaSourceKey(formState);
   const selected = formState.audienceTargets
-    .map((label, index) => buildCustomerPersona(label, profile, "selected", `${sourceKey}-selected-${index}`))
-    .filter((persona): persona is CustomerPersona => persona !== null);
+    .map((label, index) => buildCustomerPersonaFrame(label, formState, profile, "selected", sourceKey + "-selected-" + index))
+    .filter((persona): persona is OnboardingPersonaFrame => persona !== null);
   const generated = generatedPersonas
-    .map((persona, index) => buildCustomerPersona(buildCustomerPersonaLabel(persona, profile), profile, "generated", `${sourceKey}-generated-${index}`))
-    .filter((persona): persona is CustomerPersona => persona !== null);
+    .map((persona, index) =>
+      buildCustomerPersonaFrame(
+        buildCustomerPersonaLabel(persona, profile),
+        formState,
+        profile,
+        "generator",
+        sourceKey + "-generated-" + index,
+        persona
+      )
+    )
+    .filter((persona): persona is OnboardingPersonaFrame => persona !== null);
   const fallback = profile.audienceTargets
-    .map((label, index) => buildCustomerPersona(label, profile, "fallback", `${sourceKey}-fallback-${index}`))
-    .filter((persona): persona is CustomerPersona => persona !== null);
+    .map((label, index) => buildCustomerPersonaFrame(label, formState, profile, "profile_fallback", sourceKey + "-fallback-" + index))
+    .filter((persona): persona is OnboardingPersonaFrame => persona !== null);
 
-  const personas: CustomerPersona[] = [];
-  for (const persona of [...selected, ...generated, ...fallback]) {
+  return [...selected, ...generated, ...fallback];
+}
+
+function validateOnboardingPersonaFrames(
+  frames: readonly OnboardingPersonaFrame[],
+  profile: OnboardingSuggestionProfile
+): OnboardingPersonaFrame[] {
+  const personas: OnboardingPersonaFrame[] = [];
+  for (const persona of frames) {
+    if (!isCustomerPersonaCompatibleWithProfile(persona.label, profile)) continue;
     if (personas.some((current) => normalizeText(current.label) === normalizeText(persona.label))) continue;
     personas.push(persona);
   }
-  return personas.slice(0, 5);
+  return personas.slice(0, 4);
 }
 
-function buildCustomerPersona(
+function renderCustomerPersonas(frames: readonly OnboardingPersonaFrame[]): CustomerPersona[] {
+  return frames.map((frame) => ({
+    ...frame,
+    label: frame.label.trim(),
+    description: frame.description.trim()
+  }));
+}
+
+function buildCustomerPersonaFrame(
   label: string,
+  formState: WizardState,
   profile: OnboardingSuggestionProfile,
   source: CustomerPersonaSource,
-  id: string
-): CustomerPersona | null {
+  id: string,
+  persona?: PersonaDraft
+): OnboardingPersonaFrame | null {
   const normalized = normalizeCustomerPersonaLabel(label, profile);
   if (!isCustomerPersonaCompatibleWithProfile(normalized, profile)) return null;
+  const personaText = persona
+    ? [
+        persona.displayName,
+        persona.promptAngle,
+        persona.buyerStage,
+        ...persona.painPoints,
+        ...persona.proofNeeded,
+        ...persona.comparisonAxis
+      ].join(" ")
+    : normalized;
+  const decisionRole = derivePersonaDecisionRole(normalized, profile, personaText);
   return {
     id,
     label: normalized,
-    description: buildCustomerPersonaDescription(normalized, profile),
+    description: buildCustomerPersonaDescription(normalized, profile, decisionRole),
+    audienceType: formState.audienceType,
+    categoryProfile: mapSuggestionProfileToCategoryProfile(profile.key),
+    decisionRole,
+    buyerStage: derivePersonaBuyerStage(decisionRole, profile),
+    triggerSituation: derivePersonaTriggerSituation(normalized, profile, personaText),
+    evaluationCriteria: derivePersonaEvaluationCriteria(normalized, profile, personaText),
+    proofNeeded: derivePersonaProofNeeded(normalized, profile, personaText),
+    riskConcern: derivePersonaRiskConcern(normalized, profile, personaText),
+    promptAngle: derivePersonaPromptAngle(normalized, profile, decisionRole, persona?.promptAngle),
     source
   };
 }
 
-function buildCustomerPersonaDescription(label: string, profile: OnboardingSuggestionProfile) {
-  if (profile.key === "b2bSaasOrSeo") return `${label}の比較・導入判断で見られやすい論点を確認します。`;
-  if (profile.key === "b2bProfessionalService") return `${label}が相談前に確認しやすい論点を確認します。`;
-  if (profile.key === "ecommerceProduct") return `${label}が購入前に確認しやすい論点を確認します。`;
-  if (profile.key === "healthcareClinic") return `${label}が相談前に確認しやすい論点を確認します。`;
-  if (profile.key === "b2cSchoolEducation") return `${label}が申し込み前に確認しやすい論点を確認します。`;
-  if (profile.key === "localService") return `${label}が来店・予約前に確認しやすい論点を確認します。`;
-  return `${label}が比較前に確認しやすい論点を確認します。`;
+function buildCustomerPersonaDescription(
+  label: string,
+  profile: OnboardingSuggestionProfile,
+  decisionRole: OnboardingPersonaDecisionRole
+) {
+  const criteria = derivePersonaEvaluationCriteria(label, profile, "").slice(0, 2).join("・");
+  if (profile.key === "b2bSaasOrSeo") return label + "が比較・導入判断で確認しやすい" + criteria + "を見ます。";
+  if (profile.key === "b2bProfessionalService") return label + "が相談前に確認しやすい" + criteria + "を見ます。";
+  if (profile.key === "ecommerceProduct") return label + "が購入前に確認しやすい" + criteria + "を見ます。";
+  if (profile.key === "healthcareClinic") return label + "が初回相談前に確認しやすい" + criteria + "を見ます。";
+  if (profile.key === "b2cSchoolEducation") return label + "が申し込み前に確認しやすい" + criteria + "を見ます。";
+  if (profile.key === "localService") return label + "が来店・予約前に確認しやすい" + criteria + "を見ます。";
+  if (decisionRole === "decision_owner") return label + "が判断前に確認しやすい" + criteria + "を見ます。";
+  return label + "が比較前に確認しやすい" + criteria + "を見ます。";
+}
+
+function mapSuggestionProfileToCategoryProfile(profileKey: OnboardingSuggestionProfileKey): OnboardingCategoryProfile {
+  const map: Record<OnboardingSuggestionProfileKey, OnboardingCategoryProfile> = {
+    b2bSaasOrSeo: "b2b_saas_or_seo",
+    b2bProfessionalService: "b2b_professional_service",
+    b2cSchoolEducation: "b2c_school_education",
+    healthcareClinic: "healthcare_clinic",
+    localService: "local_service",
+    ecommerceProduct: "ecommerce_product",
+    genericB2C: "generic_b2c",
+    genericB2B: "generic_b2b"
+  };
+  return map[profileKey];
+}
+
+function derivePersonaDecisionRole(
+  label: string,
+  profile: OnboardingSuggestionProfile,
+  sourceText: string
+): OnboardingPersonaDecisionRole {
+  const text = normalizeText(label + " " + sourceText);
+  if (profile.key === "ecommerceProduct") {
+    if (matchesAnyText(text, ["返品", "リスク"])) return "risk_checker";
+    if (matchesAnyText(text, ["品質", "素材", "スペック"])) return "quality_checker";
+    if (matchesAnyText(text, ["口コミ", "評判", "レビュー"])) return "review_checker";
+    if (matchesAnyText(text, ["価格", "料金", "費用"])) return "price_checker";
+    return "first_time_buyer";
+  }
+  if (profile.key === "healthcareClinic") {
+    if (matchesAnyText(text, ["リスク", "安全", "説明"])) return "risk_checker";
+    if (matchesAnyText(text, ["資格", "専門", "医師"])) return "quality_checker";
+    if (matchesAnyText(text, ["口コミ", "評判", "レビュー"])) return "review_checker";
+    if (matchesAnyText(text, ["料金", "費用", "価格"])) return "price_checker";
+    return "first_time_buyer";
+  }
+  if (profile.key === "b2cSchoolEducation" || profile.key === "localService" || profile.key === "genericB2C") {
+    if (matchesAnyText(text, ["口コミ", "評判", "レビュー"])) return "review_checker";
+    if (matchesAnyText(text, ["料金", "費用", "価格"])) return "price_checker";
+    if (matchesAnyText(text, ["品質", "専門", "実績"])) return "quality_checker";
+    return "first_time_buyer";
+  }
+  if (matchesAnyText(text, ["導入", "判断", "責任", "経営", "役員", "decision"])) return "decision_owner";
+  if (matchesAnyText(text, ["利用", "運用", "現場", "user"])) return "practical_user";
+  return "evaluator";
+}
+
+function derivePersonaBuyerStage(decisionRole: OnboardingPersonaDecisionRole, profile: OnboardingSuggestionProfile) {
+  if (decisionRole === "decision_owner") return "導入前の最終判断";
+  if (decisionRole === "practical_user") return "実利用前の確認";
+  if (profile.key === "healthcareClinic") return "初回相談前の比較";
+  if (profile.key === "ecommerceProduct") return "購入前の比較";
+  if (profile.key === "b2cSchoolEducation") return "申し込み前の比較";
+  return "候補比較中";
+}
+
+function derivePersonaTriggerSituation(label: string, profile: OnboardingSuggestionProfile, sourceText: string) {
+  if (profile.key === "b2bSaasOrSeo") return "AI検索やSEO施策の候補を比較し、社内で説明できる根拠を探している。";
+  if (profile.key === "b2bProfessionalService") return "相談先を絞る前に、実績や専門性を確認している。";
+  if (profile.key === "b2cSchoolEducation") return "初めて選ぶ前に、料金・口コミ・通いやすさを比べている。";
+  if (profile.key === "healthcareClinic") return "初回相談前に、料金・口コミ・資格・リスク説明を確認している。";
+  if (profile.key === "localService") return "近くで予約や来店を検討し、口コミや対応範囲を確認している。";
+  if (profile.key === "ecommerceProduct") return "購入前に、価格・口コミ・品質・返品条件を比べている。";
+  return sourceText.includes(label) ? "候補を比較する前に確認点を整理している。" : "サービス選定前に確認点を整理している。";
+}
+
+function derivePersonaEvaluationCriteria(label: string, profile: OnboardingSuggestionProfile, sourceText: string) {
+  const text = normalizeText(label + " " + sourceText);
+  if (profile.key === "b2bSaasOrSeo") return uniqueStrings(["効果指標", "改善余地", "公式サイト引用", "競合比較", "運用負荷"]);
+  if (profile.key === "b2bProfessionalService") return uniqueStrings(["実績", "専門性", "料金", "相談前の確認点", "信頼性"]);
+  if (profile.key === "b2cSchoolEducation") return uniqueStrings(["料金", "口コミ", "初心者向けか", "通いやすさ", "体験しやすさ"]);
+  if (profile.key === "healthcareClinic") return uniqueStrings(["料金", "口コミ", "資格・専門性", "リスク説明", "初回相談のしやすさ"]);
+  if (profile.key === "localService") return uniqueStrings(["近さ", "予約しやすさ", "料金", "口コミ", "対応エリア"]);
+  if (profile.key === "ecommerceProduct") return uniqueStrings(["価格", "口コミ", "品質", "返品条件", "自分に合うか"]);
+  if (matchesAnyText(text, ["価格", "料金", "費用"])) return ["料金", "比較しやすさ", "納得感"];
+  return ["比較軸", "信頼材料", "不安点"];
+}
+
+function derivePersonaProofNeeded(label: string, profile: OnboardingSuggestionProfile, sourceText: string) {
+  if (profile.key === "b2bSaasOrSeo") return ["公式サイトの根拠", "比較理由", "導入前に説明できる材料"];
+  if (profile.key === "healthcareClinic") return ["資格・専門性", "説明の分かりやすさ", "口コミの傾向"];
+  if (profile.key === "ecommerceProduct") return ["レビュー", "品質説明", "返品条件"];
+  if (profile.key === "b2cSchoolEducation") return ["口コミ", "料金説明", "体験・相談のしやすさ"];
+  if (profile.key === "localService") return ["口コミ", "対応エリア", "予約条件"];
+  return ["実績", "料金説明", "信頼材料"];
+}
+
+function derivePersonaRiskConcern(label: string, profile: OnboardingSuggestionProfile, sourceText: string) {
+  if (profile.key === "b2bSaasOrSeo") return ["費用対効果が説明しにくい", "運用負荷が見えにくい", "既存施策との差分が曖昧"];
+  if (profile.key === "healthcareClinic") return ["料金が分かりにくい", "リスク説明が足りない", "専門性を判断しにくい"];
+  if (profile.key === "ecommerceProduct") return ["期待と違う", "品質が判断しにくい", "返品条件が分かりにくい"];
+  if (profile.key === "b2cSchoolEducation") return ["続けられるか分からない", "料金差が分かりにくい", "自分に合うか不安"];
+  if (profile.key === "localService") return ["予約しにくい", "対応範囲が分かりにくい", "口コミだけでは判断しにくい"];
+  return ["比較軸が曖昧", "信頼材料が足りない"];
+}
+
+function derivePersonaPromptAngle(
+  label: string,
+  profile: OnboardingSuggestionProfile,
+  decisionRole: OnboardingPersonaDecisionRole,
+  generatedPromptAngle?: string
+) {
+  const generated = generatedPromptAngle?.trim();
+  if (generated && !containsRawPersonaLanguage(generated)) return generated;
+  if (profile.key === "b2bSaasOrSeo") return label + "がAI検索・SEOの比較前に確認したい効果指標、競合比較、公式サイト引用の論点。";
+  if (profile.key === "healthcareClinic") return label + "が初回相談前に確認したい料金、口コミ、資格、リスク説明の論点。";
+  if (profile.key === "ecommerceProduct") return label + "が購入前に確認したい価格、口コミ、品質、返品条件の論点。";
+  if (profile.key === "b2cSchoolEducation") return label + "が申し込み前に確認したい料金、口コミ、通いやすさ、自分に合うかの論点。";
+  if (profile.key === "localService") return label + "が予約・来店前に確認したい近さ、口コミ、料金、対応範囲の論点。";
+  if (decisionRole === "decision_owner") return label + "が判断前に確認したい費用、比較理由、信頼材料の論点。";
+  return label + "が比較前に確認したい評価軸と不安点。";
 }
 
 function buildCustomerPersonaSourceKey(formState: WizardState) {
@@ -1849,15 +2069,15 @@ function containsConsumerPersonaLanguage(value: string) {
 function containsBusinessAdoptionLanguage(value: string) {
   return matchesAnyText(value, [
     "SaaS",
-    "??",
-    "????",
-    "??",
-    "??????",
-    "?????",
-    "????",
-    "?????",
-    "??????",
-    "????",
+    "社内承認",
+    "稟議",
+    "導入",
+    "費用対効果",
+    "運用負荷",
+    "既存ツール",
+    "システム連携",
+    "セキュリティ",
+    "ベンダー選定",
     "BtoB"
   ]);
 }
@@ -2048,7 +2268,7 @@ function buildConfirmationSections(formState: WizardState, draftPreview: Custome
     },
     {
       title: "ペルソナ",
-      items: [{ label: "確認対象", value: formatList(draftPreview?.audienceTargets ?? formState.audienceTargets) }]
+      items: [{ label: "確認対象", value: formatPersonaFrames(draftPreview?.audiencePersonas, formState.audienceTargets) }]
     },
     {
       title: "競合",
@@ -2400,6 +2620,13 @@ function formatList(values: readonly string[], emptyText = "未入力") {
   return values.length ? values.join("、") : emptyText;
 }
 
+function formatPersonaFrames(personas: readonly CustomerPersona[] | undefined, fallbackLabels: readonly string[]) {
+  if (personas && personas.length > 0) {
+    return personas.map((persona) => persona.label + ": " + persona.description).join("、");
+  }
+  return formatList(fallbackLabels);
+}
+
 function normalizeText(value: string) {
   return value.normalize("NFKC").trim().toLowerCase();
 }
@@ -2413,7 +2640,8 @@ function stableStep1SourceKey(formState: WizardState) {
 }
 
 function matchesAnyText(text: string, candidates: readonly string[]) {
-  return candidates.some((candidate) => text.includes(normalizeText(candidate)));
+  const normalizedText = normalizeText(text);
+  return candidates.some((candidate) => normalizedText.includes(normalizeText(candidate)));
 }
 
 function stableSeedKey(seedInput: ProjectSetupSeedInput) {
