@@ -225,6 +225,10 @@ The onboarding UI must not show `PersonaDraft` raw fields directly.
 - Do not mechanically combine BtoB/BtoC, audience chip text, and role suffixes into persona names.
 - Do not expose `roleType`, `personaId`, `decision_maker`, `evaluator`, `end_user`, `sourceStatus`, confidence scores, or raw role mappings.
 - Build `ProjectSetupSeedInput.targetCustomers` as natural context, not as a raw joined UI label list.
+- Regenerate the customer-facing persona display when the persona source context changes: brand name, service description, service category, BtoB/BtoC selection, selected audience chips, regions, language, watch topics, report goals, competitor mode, or known competitors.
+- Treat selected audience chips, generated `PersonaDraft`, and profile fallbacks as display candidates, then filter out candidates that do not match the current suggestion profile.
+- For BtoC school, clinic, local-service, ecommerce, and generic BtoC flows, do not keep stale BtoB/SaaS persona labels such as SEO???, ??????????, ??????????, Web???, or ?????.
+- For BtoB flows, do not replace the intended business viewers with stale consumer-only labels such as ??????, ????????, ?????????, ????????, or ???????????.
 - For BtoB, use labels such as `SEO担当者`, `マーケティング責任者`, `導入を判断する責任者`, `比較検討する担当者`, or `実際に利用する担当者`.
 - For BtoC, EC, school, clinic, and local-service flows, use labels such as `初めて選ぶ人`, `料金を比較する人`, `口コミを重視する人`, `品質を確認したい人`, `返品条件を確認したい人`, or `初めて相談する人`.
 

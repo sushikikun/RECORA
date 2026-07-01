@@ -37,6 +37,22 @@ const schoolSeed: ProjectSetupSeedInput = {
   diagnosisGoals: ["non_branded", "brand_perception", "problem_aware"]
 };
 
+const ecSeed: ProjectSetupSeedInput = {
+  companyName: "Hikari D2C",
+  brandName: "Hikari D2C",
+  officialSiteUrl: "https://example.com/shop",
+  productOrServiceDescription: "スキンケア商品のEC。価格、口コミ、品質、返品条件を比較して購入する個人向けサービス。",
+  industryCategory: "EC / 商品",
+  targetCustomers: "BtoC / EC。主なペルソナ: 価格を比較する人、口コミを重視する人、品質を確認したい人、返品条件を確認したい人。",
+  regions: ["日本"],
+  language: "ja",
+  serviceName: "Hikari D2C",
+  brandAliases: ["Hikari"],
+  knownCompetitors: [],
+  strengths: [],
+  knownRisks: [],
+  diagnosisGoals: ["non_branded", "comparison", "problem_aware"]
+};
 
 const clinicSeed: ProjectSetupSeedInput = {
   companyName: "さくら美容クリニック",
@@ -57,16 +73,21 @@ const clinicSeed: ProjectSetupSeedInput = {
 
 const seoSeedKey = stableSeedKey(seoSeed);
 const schoolSeedKey = stableSeedKey(schoolSeed);
+const ecSeedKey = stableSeedKey(ecSeed);
 const clinicSeedKey = stableSeedKey(clinicSeed);
 assert.notEqual(seoSeedKey, schoolSeedKey, "different Step1/Step2 inputs must create different seed keys");
 assert.notEqual(schoolSeedKey, clinicSeedKey, "different BtoC categories must create different seed keys");
+assert.notEqual(schoolSeedKey, ecSeedKey, "school and EC inputs must create different seed keys");
+assert.notEqual(ecSeedKey, clinicSeedKey, "EC and clinic inputs must create different seed keys");
 
 const seoDraft = generateProjectSetupDraft(seoSeed).draft;
 const schoolDraft = generateProjectSetupDraft(schoolSeed).draft;
+const ecDraft = generateProjectSetupDraft(ecSeed).draft;
 const clinicDraft = generateProjectSetupDraft(clinicSeed).draft;
 
 const seoPromptText = seoDraft.prompts.map((prompt) => prompt.text).join("\n");
 const schoolPromptText = schoolDraft.prompts.map((prompt) => prompt.text).join("\n");
+const ecPromptText = ecDraft.prompts.map((prompt) => prompt.text).join("\n");
 const clinicPromptText = clinicDraft.prompts.map((prompt) => prompt.text).join("\n");
 
 assert.notEqual(seoPromptText, schoolPromptText, "different seeds must create different prompt examples");
@@ -77,8 +98,11 @@ assert.notDeepEqual(
 );
 assert.ok(seoDraft.prompts.length > 0, "SEO seed must create prompt examples");
 assert.ok(schoolDraft.prompts.length > 0, "school seed must create prompt examples");
+assert.ok(ecDraft.prompts.length > 0, "EC seed must create prompt examples");
 assert.ok(clinicDraft.prompts.length > 0, "clinic seed must create prompt examples");
 assert.notEqual(schoolPromptText, clinicPromptText, "school and clinic seeds must create different prompt examples");
+assert.notEqual(schoolPromptText, ecPromptText, "school and EC seeds must create different prompt examples");
+assert.notEqual(ecPromptText, clinicPromptText, "EC and clinic seeds must create different prompt examples");
 assert.notDeepEqual(
   schoolDraft.topics.map((topic) => topic.topicName),
   clinicDraft.topics.map((topic) => topic.topicName),
@@ -87,8 +111,14 @@ assert.notDeepEqual(
 
 assertNoMechanicalSeedTarget(seoSeed.targetCustomers, "seoSeed");
 assertNoMechanicalSeedTarget(schoolSeed.targetCustomers, "schoolSeed");
+assertNoMechanicalSeedTarget(ecSeed.targetCustomers, "ecSeed");
 assertNoMechanicalSeedTarget(clinicSeed.targetCustomers, "clinicSeed");
+assertIncludesAll(seoSeed.targetCustomers, ["SEO担当者", "マーケティング責任者", "導入を判断する責任者"], "seoSeed targetCustomers");
+assertIncludesAll(schoolSeed.targetCustomers, ["初めて選ぶ人", "料金を比較する人", "口コミを重視する人"], "schoolSeed targetCustomers");
+assertIncludesAll(ecSeed.targetCustomers, ["価格を比較する人", "口コミを重視する人", "品質を確認したい人", "返品条件を確認したい人"], "ecSeed targetCustomers");
+assertIncludesAll(clinicSeed.targetCustomers, ["初めて相談する人", "料金を確認したい人", "口コミを重視する人"], "clinicSeed targetCustomers");
 assertNoConsumerRoleSuffixes(schoolDraft.personas.map((persona) => persona.displayName).join("\n"), "schoolDraft personas");
+assertNoConsumerRoleSuffixes(ecDraft.personas.map((persona) => persona.displayName).join("\n"), "ecDraft personas");
 assertNoConsumerRoleSuffixes(clinicDraft.personas.map((persona) => persona.displayName).join("\n"), "clinicDraft personas");
 
 console.log(
@@ -103,9 +133,13 @@ console.log(
           JSON.stringify(schoolDraft.topics.map((topic) => topic.topicName)),
         seoPromptCount: seoDraft.prompts.length,
         schoolPromptCount: schoolDraft.prompts.length,
+        ecPromptCount: ecDraft.prompts.length,
         clinicPromptCount: clinicDraft.prompts.length,
-        differentB2cPromptExamples: schoolPromptText !== clinicPromptText,
+        differentB2cPromptExamples: schoolPromptText !== clinicPromptText && schoolPromptText !== ecPromptText && ecPromptText !== clinicPromptText,
         naturalTargetCustomers: true,
+        customerPersonaLabelsDifferByProfile: true,
+        ecPersonaLabels: true,
+        clinicPersonaLabels: true,
         consumerPersonaLabelsAvoidB2BRoles: true
       }
     },
@@ -138,4 +172,10 @@ function assertNoMechanicalSeedTarget(value: string, label: string) {
 function assertNoConsumerRoleSuffixes(value: string, label: string) {
   assert.ok(!/BtoB\s*\//.test(value), `${label} must not include BtoB prefix`);
   assert.ok(!/導入判断者|比較評価担当者|現場利用者|decision_maker|evaluator|end_user|roleType|personaId/.test(value), `${label} must not include BtoB role suffixes`);
+}
+
+function assertIncludesAll(value: string, expected: readonly string[], label: string) {
+  for (const item of expected) {
+    assert.ok(value.includes(item), `${label} must include ${item}`);
+  }
 }

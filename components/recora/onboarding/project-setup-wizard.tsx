@@ -110,6 +110,15 @@ type CustomerFacingDraftPreview = {
   prompts: EditablePrompt[];
 };
 
+type CustomerPersonaSource = "selected" | "generated" | "fallback";
+
+type CustomerPersona = {
+  id: string;
+  label: string;
+  description: string;
+  source: CustomerPersonaSource;
+};
+
 type SiteInspectionState =
   | { status: "idle" }
   | { status: "loading" }
@@ -347,9 +356,21 @@ export function ProjectSetupWizard() {
 
   const updateForm: UpdateForm = (field, value) => {
     setConfirmationDone(false);
-    setFormState((current) => ({ ...current, [field]: value }));
+    setFormState((current) => {
+      const next = { ...current, [field]: value };
+      if (field === "serviceDescription" || field === "serviceCategory" || field === "audienceType") {
+        return {
+          ...next,
+          audienceTargets: reconcileAudienceTargetsForProfile(next, current.audienceTargets.length > 0)
+        };
+      }
+      return next;
+    });
     if (field === "serviceDescription" || field === "serviceCategory" || field === "audienceTargets") {
       setAutoSuggestionSources((current) => ({ ...current, [field]: null }));
+    }
+    if (field === "audienceType") {
+      setAutoSuggestionSources((current) => ({ ...current, audienceTargets: null }));
     }
     if (field === "brandName" || field === "brandAliases" || field === "officialUrl") {
       setSiteInspection({ status: "idle" });
@@ -1663,12 +1684,7 @@ function buildCustomerFacingDraftPreview(seedInput: ProjectSetupSeedInput, formS
   const fallback = buildFallbackPrompts(formState);
   const prompts = uniquePrompts(customerReadyGenerated.length > 0 ? customerReadyGenerated : fallback).slice(0, 5);
   const serviceCategories = uniqueStrings([seedInput.industryCategory, formState.serviceCategory, ...profile.serviceCategories]).slice(0, 3);
-  const generatedAudienceTargets = result.draft.personas.map((persona) => buildCustomerPersonaLabel(persona, profile));
-  const audienceTargets = uniqueStrings([
-    ...formState.audienceTargets.map((label) => normalizeCustomerPersonaLabel(label, profile)),
-    ...profile.audienceTargets,
-    ...generatedAudienceTargets
-  ]).slice(0, 5);
+  const audienceTargets = buildCustomerPersonas(formState, result.draft.personas, profile).map((persona) => persona.label);
   const generatedQuestionAreas = result.draft.topics.map((topic) => buildCustomerFacingQuestionArea(topic.topicName, topic.diagnosisGoal));
   const questionAreas = uniqueStrings([
     ...generatedQuestionAreas,
@@ -1700,6 +1716,134 @@ function filterPromptsForSuggestionProfile(prompts: EditablePrompt[], profile: O
 
 function isConsumerSuggestionProfile(profileKey: OnboardingSuggestionProfileKey) {
   return ["b2cSchoolEducation", "healthcareClinic", "localService", "ecommerceProduct", "genericB2C"].includes(profileKey);
+}
+
+function reconcileAudienceTargetsForProfile(state: WizardState, preserveCompatibleExisting: boolean) {
+  const profile = deriveOnboardingSuggestionProfile(state);
+  const existing = preserveCompatibleExisting
+    ? state.audienceTargets
+        .map((label) => normalizeCustomerPersonaLabel(label, profile))
+        .filter((label) => isCustomerPersonaCompatibleWithProfile(label, profile))
+    : [];
+  return uniqueStrings([...existing, ...profile.audienceTargets]).slice(0, existing.length > 0 ? 5 : 3);
+}
+
+function buildCustomerPersonas(
+  formState: WizardState,
+  generatedPersonas: readonly PersonaDraft[],
+  profile: OnboardingSuggestionProfile
+): CustomerPersona[] {
+  const sourceKey = buildCustomerPersonaSourceKey(formState);
+  const selected = formState.audienceTargets
+    .map((label, index) => buildCustomerPersona(label, profile, "selected", `${sourceKey}-selected-${index}`))
+    .filter((persona): persona is CustomerPersona => persona !== null);
+  const generated = generatedPersonas
+    .map((persona, index) => buildCustomerPersona(buildCustomerPersonaLabel(persona, profile), profile, "generated", `${sourceKey}-generated-${index}`))
+    .filter((persona): persona is CustomerPersona => persona !== null);
+  const fallback = profile.audienceTargets
+    .map((label, index) => buildCustomerPersona(label, profile, "fallback", `${sourceKey}-fallback-${index}`))
+    .filter((persona): persona is CustomerPersona => persona !== null);
+
+  const personas: CustomerPersona[] = [];
+  for (const persona of [...selected, ...generated, ...fallback]) {
+    if (personas.some((current) => normalizeText(current.label) === normalizeText(persona.label))) continue;
+    personas.push(persona);
+  }
+  return personas.slice(0, 5);
+}
+
+function buildCustomerPersona(
+  label: string,
+  profile: OnboardingSuggestionProfile,
+  source: CustomerPersonaSource,
+  id: string
+): CustomerPersona | null {
+  const normalized = normalizeCustomerPersonaLabel(label, profile);
+  if (!isCustomerPersonaCompatibleWithProfile(normalized, profile)) return null;
+  return {
+    id,
+    label: normalized,
+    description: buildCustomerPersonaDescription(normalized, profile),
+    source
+  };
+}
+
+function buildCustomerPersonaDescription(label: string, profile: OnboardingSuggestionProfile) {
+  if (profile.key === "b2bSaasOrSeo") return `${label}の比較・導入判断で見られやすい論点を確認します。`;
+  if (profile.key === "b2bProfessionalService") return `${label}が相談前に確認しやすい論点を確認します。`;
+  if (profile.key === "ecommerceProduct") return `${label}が購入前に確認しやすい論点を確認します。`;
+  if (profile.key === "healthcareClinic") return `${label}が相談前に確認しやすい論点を確認します。`;
+  if (profile.key === "b2cSchoolEducation") return `${label}が申し込み前に確認しやすい論点を確認します。`;
+  if (profile.key === "localService") return `${label}が来店・予約前に確認しやすい論点を確認します。`;
+  return `${label}が比較前に確認しやすい論点を確認します。`;
+}
+
+function buildCustomerPersonaSourceKey(formState: WizardState) {
+  return JSON.stringify({
+    brandName: formState.brandName,
+    serviceDescription: formState.serviceDescription,
+    serviceCategory: formState.serviceCategory,
+    audienceType: formState.audienceType,
+    audienceTargets: formState.audienceTargets,
+    regions: formState.regions,
+    language: formState.language,
+    watchTopics: formState.watchTopics,
+    reportGoals: formState.reportGoals,
+    competitorMode: formState.competitorMode,
+    competitors: formState.competitors
+  });
+}
+
+function isCustomerPersonaCompatibleWithProfile(label: string, profile: OnboardingSuggestionProfile) {
+  const normalized = normalizeCustomerPersonaLabel(label, profile);
+  if (!isNaturalCustomerPersonaLabel(normalized, profile)) return false;
+  if (profile.audienceTargets.some((target) => normalizeText(target) === normalizeText(normalized))) return true;
+
+  if (isConsumerSuggestionProfile(profile.key)) return !containsB2BPersonaLanguage(normalized);
+  if (profile.key === "b2bSaasOrSeo" || profile.key === "b2bProfessionalService" || profile.key === "genericB2B") {
+    return !containsConsumerPersonaLanguage(normalized);
+  }
+  return true;
+}
+
+function containsB2BPersonaLanguage(value: string) {
+  return matchesAnyText(value, [
+    "BtoB",
+    "SaaS",
+    "SEO担当者",
+    "マーケティング責任者",
+    "導入を判断する責任者",
+    "比較検討する担当者",
+    "実際に利用する担当者",
+    "Web担当者",
+    "事業責任者",
+    "経営者",
+    "役員",
+    "社内承認",
+    "稟議",
+    "セキュリティ",
+    "運用負荷",
+    "既存ツール",
+    "システム連携"
+  ]);
+}
+
+function containsConsumerPersonaLanguage(value: string) {
+  return matchesAnyText(value, [
+    "初めて選ぶ人",
+    "初めて相談する人",
+    "料金を比較する人",
+    "料金を確認したい人",
+    "価格を比較する人",
+    "口コミを重視する人",
+    "品質を確認したい人",
+    "返品条件を確認したい人",
+    "自分に合うか確認したい人",
+    "通いやすさを重視する人",
+    "家族に合うか確認したい人",
+    "資格や専門性を確認したい人",
+    "リスク説明を確認したい人"
+  ]);
 }
 
 function containsBusinessAdoptionLanguage(value: string) {
@@ -1838,11 +1982,7 @@ function selectConsumerPersonaLabel(text: string, profile: OnboardingSuggestionP
 
 function buildNaturalTargetCustomers(formState: WizardState) {
   const profile = deriveOnboardingSuggestionProfile(formState);
-  const personas = uniqueStrings(
-    (formState.audienceTargets.length > 0 ? formState.audienceTargets : profile.audienceTargets)
-      .map((label) => normalizeCustomerPersonaLabel(label, profile))
-      .filter((label) => isNaturalCustomerPersonaLabel(label, profile))
-  ).slice(0, 4);
+  const personas = buildCustomerPersonas(formState, [], profile).map((persona) => persona.label).slice(0, 4);
   const personaText = personas.length > 0 ? personas.join("、") : "確認したい顧客層";
   const category = formState.serviceCategory.trim() || profile.serviceCategories[0] || "サービス";
 
@@ -2100,12 +2240,11 @@ function inferInterimCategory(
 
 function deriveOnboardingSuggestionProfile(state: Pick<WizardState, "brandName" | "brandAliases" | "officialUrl" | "serviceDescription" | "serviceCategory" | "audienceType" | "audienceTargets">): OnboardingSuggestionProfile {
   const text = normalizeText(
-    [state.brandName, state.brandAliases.join(" "), state.officialUrl, state.serviceDescription, state.serviceCategory, state.audienceType]
+    [state.brandName, state.brandAliases.join(" "), state.serviceDescription, state.serviceCategory, state.audienceType]
       .filter(Boolean)
       .join(" ")
   );
 
-  if (matchesAnyText(text, ["AI search", "SEO", "LLMO", "GEO", "AIO", "SaaS"])) return suggestionProfiles.b2bSaasOrSeo;
   if (matchesAnyText(text, ["英会話", "スクール", "教育", "学校", "講座", "school", "lesson", "english"])) return suggestionProfiles.b2cSchoolEducation;
   if (matchesAnyText(text, ["クリニック", "医療", "美容", "病院", "clinic", "medical"])) return suggestionProfiles.healthcareClinic;
   if (matchesAnyText(text, ["地域", "店舗", "予約", "来店", "local", "エリア", "近く"])) return suggestionProfiles.localService;
