@@ -231,6 +231,8 @@ Classification rules are intentionally conservative:
 
 This dry-run is a gate before any future write-capable backfill PR. A later apply PR must compare the dry-run counts, explicitly choose which `safe_explicit_candidate` rows are eligible, and require a separate human checkpoint before any remote DB write.
 
+PR #51 dry-run follow-up is tracked in `docs/recora-prompt-scope-backfill-review-plan.md`. Because the dry-run found `safe_explicit_candidate = 0`, there is no safe automatic apply path. The next step is human review planning for `inferred_candidate` and `manual_review` rows, not DB write or backfill apply.
+
 ### A. Safe explicit backfill
 
 Use when an existing trusted source already contains explicit scope metadata, for example an approved fixture, materialized prompt contract, or operator-approved draft.
