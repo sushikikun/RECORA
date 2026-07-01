@@ -9,7 +9,7 @@ const seoSeed: ProjectSetupSeedInput = {
   officialSiteUrl: "https://mieru-ca.com/",
   productOrServiceDescription: "SEOとAI検索での露出を改善するマーケティング向け分析サービス。",
   industryCategory: "SEO / AI検索対策",
-  targetCustomers: "BtoB / SEO担当者、マーケティング責任者",
+  targetCustomers: "BtoB。主な検討者: SEO担当者、マーケティング責任者、導入を判断する責任者。",
   regions: ["日本"],
   language: "ja",
   serviceName: "ミエルカSEO",
@@ -26,7 +26,7 @@ const schoolSeed: ProjectSetupSeedInput = {
   officialSiteUrl: "https://example.com/",
   productOrServiceDescription: "初心者向けの英会話スクール。口コミや料金を重視する個人が比較するサービス。",
   industryCategory: "スクール / 教育",
-  targetCustomers: "BtoC / 初めて選ぶ人、料金を重視する人、口コミを重視する人",
+  targetCustomers: "BtoC。主なペルソナ: 初めて選ぶ人、料金を比較する人、口コミを重視する人。",
   regions: ["日本"],
   language: "ja",
   serviceName: "さくら英会話",
@@ -39,16 +39,16 @@ const schoolSeed: ProjectSetupSeedInput = {
 
 
 const clinicSeed: ProjectSetupSeedInput = {
-  companyName: "??????????",
-  brandName: "??????????",
+  companyName: "さくら美容クリニック",
+  brandName: "さくら美容クリニック",
   officialSiteUrl: "https://example.com/clinic",
-  productOrServiceDescription: "?????????????????????????????????????????",
-  industryCategory: "????? / ??",
-  targetCustomers: "BtoC / ???????????????????????????",
-  regions: ["??"],
+  productOrServiceDescription: "美容クリニック。初めて相談する人が料金、口コミ、資格、リスク説明を確認するサービス。",
+  industryCategory: "クリニック / 医療",
+  targetCustomers: "BtoC。主なペルソナ: 初めて相談する人、料金を確認したい人、口コミを重視する人。",
+  regions: ["日本"],
   language: "ja",
-  serviceName: "??????????",
-  brandAliases: ["????????"],
+  serviceName: "さくら美容クリニック",
+  brandAliases: ["さくら美容"],
   knownCompetitors: [],
   strengths: [],
   knownRisks: [],
@@ -85,6 +85,12 @@ assert.notDeepEqual(
   "school and clinic seeds must create different question areas"
 );
 
+assertNoMechanicalSeedTarget(seoSeed.targetCustomers, "seoSeed");
+assertNoMechanicalSeedTarget(schoolSeed.targetCustomers, "schoolSeed");
+assertNoMechanicalSeedTarget(clinicSeed.targetCustomers, "clinicSeed");
+assertNoConsumerRoleSuffixes(schoolDraft.personas.map((persona) => persona.displayName).join("\n"), "schoolDraft personas");
+assertNoConsumerRoleSuffixes(clinicDraft.personas.map((persona) => persona.displayName).join("\n"), "clinicDraft personas");
+
 console.log(
   JSON.stringify(
     {
@@ -98,7 +104,9 @@ console.log(
         seoPromptCount: seoDraft.prompts.length,
         schoolPromptCount: schoolDraft.prompts.length,
         clinicPromptCount: clinicDraft.prompts.length,
-        differentB2cPromptExamples: schoolPromptText !== clinicPromptText
+        differentB2cPromptExamples: schoolPromptText !== clinicPromptText,
+        naturalTargetCustomers: true,
+        consumerPersonaLabelsAvoidB2BRoles: true
       }
     },
     null,
@@ -120,4 +128,14 @@ function stableSeedKey(seedInput: ProjectSetupSeedInput) {
     knownCompetitors: seedInput.knownCompetitors,
     diagnosisGoals: seedInput.diagnosisGoals
   });
+}
+
+function assertNoMechanicalSeedTarget(value: string, label: string) {
+  assert.ok(!/Bto[BC]\s*\/\s*.+の導入判断者/.test(value), `${label} must not join BtoB/BtoC and role suffix`);
+  assert.ok(!/decision_maker|evaluator|end_user|roleType|personaId/.test(value), `${label} must not include raw role fields`);
+}
+
+function assertNoConsumerRoleSuffixes(value: string, label: string) {
+  assert.ok(!/BtoB\s*\//.test(value), `${label} must not include BtoB prefix`);
+  assert.ok(!/導入判断者|比較評価担当者|現場利用者|decision_maker|evaluator|end_user|roleType|personaId/.test(value), `${label} must not include BtoB role suffixes`);
 }

@@ -25,11 +25,11 @@
 画面で顧客に確認する項目:
 
 - 正式なブランド名 / サービス名、表記ゆれ・別名、公式URL
-- サービス説明、サービスカテゴリ、対象市場・地域、測定する言語、BtoB / BtoC、主に見る顧客層
+- サービス説明、サービスカテゴリ、対象市場・地域、測定する言語、BtoB / BtoC、ペルソナ
 - 比較したい競合、競合未定 / Recoraで候補抽出
 - 特に見たいこと、今回知りたいこと
 - Recoraが生成したプロンプト例、顧客が追加したいプロンプト
-- 最終確認としてブランド情報、サービス理解、市場・言語、顧客層 / 主に見たい相手、競合、見たいこと、プロンプト例
+- 最終確認としてブランド情報、サービス理解、市場・言語、ペルソナ、競合、見たいこと、プロンプト例
 
 画面の役割:
 
@@ -41,7 +41,7 @@
 - Step3は「見たいこと」だけに絞り、除外・NG系の入力を置かない。
 - Step4で、画面内の同期処理として `generateProjectSetupDraft` を呼び、Recoraが生成した質問領域とプロンプト例を表示する。
 - Step1からStep3までの入力から `ProjectSetupSeedInput` を作り、`generateProjectSetupDraft` が作るカテゴリ / persona / topic / prompt 下書きを顧客向け表示へ変換する。
-- 顧客向け表示では、カテゴリは「サービスカテゴリ」、personaは「主に見たい相手」、topicは「質問領域」、promptは「プロンプト例」として扱う。
+- 顧客向け表示では、カテゴリは「サービスカテゴリ」、personaは「ペルソナ」、topicは「質問領域」、promptは「プロンプト例」として扱う。
 - Step4ではプロンプト例を直接編集・削除でき、追加したプロンプトはStep5の最終確認に反映する。
 - Step5は最終確認のみとし、計測設計、計測量、利用モデル、頻度、費用感を顧客が決める項目として扱わない。
 - 顧客には詳細personaや細かいtopicの作成を要求しない。内部の persona / topic / prompt は raw generator output としてそのまま表示しない。
@@ -195,7 +195,7 @@ npm run recora:project-setup-draft-generator:check
 `/onboarding/project-setup` builds `ProjectSetupSeedInput` from Step1 through Step3 customer inputs, then calls `generateProjectSetupDraft` before Step4. The generator output is converted into customer-facing labels instead of showing raw internal names.
 
 - category -> service category support
-- `PersonaDraft` -> primary viewers to check
+- `PersonaDraft` -> customer-readable persona labels
 - `TopicDraft` -> question areas
 - `PromptDraft` -> prompt examples
 
@@ -214,7 +214,19 @@ Supported profile keys:
 
 Step2 and Step3 candidate chips, plus Step4 fallback prompt examples, should follow this profile. Step4 prioritizes generator output when it is available. For consumer-facing profiles such as school, clinic, local service, ecommerce, and generic B2C, obviously BtoB adoption terms such as internal approval, security review, ROI, operational burden, existing-tool integration, or SaaS procurement should be filtered from customer-facing prompt examples. If that leaves no suitable generated prompt, use the profile-specific fallback examples.
 
-Step5 final confirmation reflects generated primary viewers, question areas, prompt examples, and any prompt examples added by the customer in Step4. Customer-facing UI must not expose raw generator output or internal fields/IDs such as `businessModel`, `industryAdapter`, `topicType`, `roleType`, `promptId`, `personaId`, or `topicId`.
+Step5 final confirmation reflects generated persona labels, question areas, prompt examples, and any prompt examples added by the customer in Step4. Customer-facing UI must not expose raw generator output or internal fields/IDs such as `businessModel`, `industryAdapter`, `topicType`, `roleType`, `promptId`, `personaId`, or `topicId`.
+
+### Customer-facing persona display
+
+The onboarding UI must not show `PersonaDraft` raw fields directly.
+
+- Show customer-facing labels under `ペルソナ`, not `主に見たい相手`.
+- Normalize `PersonaDraft.displayName` into short customer-readable persona labels.
+- Do not mechanically combine BtoB/BtoC, audience chip text, and role suffixes into persona names.
+- Do not expose `roleType`, `personaId`, `decision_maker`, `evaluator`, `end_user`, `sourceStatus`, confidence scores, or raw role mappings.
+- Build `ProjectSetupSeedInput.targetCustomers` as natural context, not as a raw joined UI label list.
+- For BtoB, use labels such as `SEO担当者`, `マーケティング責任者`, `導入を判断する責任者`, `比較検討する担当者`, or `実際に利用する担当者`.
+- For BtoC, EC, school, clinic, and local-service flows, use labels such as `初めて選ぶ人`, `料金を比較する人`, `口コミを重視する人`, `品質を確認したい人`, `返品条件を確認したい人`, or `初めて相談する人`.
 
 ### Step4 and Step5 confirmation display
 

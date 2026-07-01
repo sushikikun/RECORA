@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { derivePromptMetricEligibility, validateProjectSetupSeedInput } from "@/lib/recora/project-setup-draft";
 import type {
   BrandIdentityForDraft,
+  PersonaDraft,
   ProjectSetupSeedInput,
   PromptDraft,
   PromptIntent,
@@ -177,7 +178,7 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
   b2bSaasOrSeo: {
     key: "b2bSaasOrSeo",
     serviceCategories: ["SEO / AI検索対策", "マーケティング / SEO", "SaaS / 分析ツール"],
-    audienceTargets: ["SEO担当者", "マーケティング責任者", "Web担当者", "比較評価担当者", "経営者"],
+    audienceTargets: ["SEO担当者", "マーケティング責任者", "導入を判断する責任者", "比較検討する担当者", "実際に利用する担当者"],
     watchTopics: ["AI検索での露出", "競合との比較", "公式サイトの引用状況", "料金", "機能", "導入事例", "費用対効果", "導入負荷"],
     reportGoalOptions: [
       { value: "visibility", label: "AI検索で自社が候補に出るか知りたい" },
@@ -196,7 +197,7 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
   b2bProfessionalService: {
     key: "b2bProfessionalService",
     serviceCategories: ["専門サービス", "コンサルティング", "BtoBサービス"],
-    audienceTargets: ["相談前に比較する人", "専門性を重視する人", "料金を確認したい人", "経営者"],
+    audienceTargets: ["相談前に比較する人", "専門性を重視する人", "料金を確認したい人", "依頼を判断する責任者"],
     watchTopics: ["実績", "専門性", "料金", "相談前の確認点", "対応範囲", "信頼性"],
     reportGoalOptions: [
       { value: "visibility", label: "専門サービスとして候補に出るか知りたい" },
@@ -214,7 +215,7 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
   b2cSchoolEducation: {
     key: "b2cSchoolEducation",
     serviceCategories: ["スクール / 教育", "習い事", "語学スクール"],
-    audienceTargets: ["初めて選ぶ人", "料金を重視する人", "口コミを重視する人", "通いやすさを重視する人"],
+    audienceTargets: ["初めて選ぶ人", "料金を比較する人", "口コミを重視する人", "通いやすさを重視する人"],
     watchTopics: ["初めて選ぶ時の不安", "料金", "口コミ・評判", "通いやすさ", "自分に合うか", "体験や相談のしやすさ", "家族に合うか"],
     reportGoalOptions: [
       { value: "visibility", label: "AI検索で候補に出るか知りたい" },
@@ -233,7 +234,7 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
   healthcareClinic: {
     key: "healthcareClinic",
     serviceCategories: ["クリニック / 医療", "美容クリニック", "医療サービス"],
-    audienceTargets: ["初めて相談する人", "料金を重視する人", "口コミを重視する人", "リスク説明を確認したい人"],
+    audienceTargets: ["初めて相談する人", "料金を確認したい人", "口コミを重視する人", "資格や専門性を確認したい人"],
     watchTopics: ["料金", "口コミ・評判", "資格・専門性", "リスク説明", "初回相談のしやすさ", "通いやすさ"],
     reportGoalOptions: [
       { value: "visibility", label: "AI検索で候補に出るか知りたい" },
@@ -285,7 +286,7 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
   genericB2C: {
     key: "genericB2C",
     serviceCategories: ["BtoCサービス", "比較サービス", "その他"],
-    audienceTargets: ["初めて選ぶ人", "料金を重視する人", "口コミを重視する人"],
+    audienceTargets: ["初めて選ぶ人", "料金を比較する人", "口コミを重視する人"],
     watchTopics: ["料金", "口コミ・評判", "自分に合うか", "比較時の注意点", "相談しやすさ"],
     reportGoalOptions: defaultReportGoalOptions,
     promptFallbacks: [
@@ -297,7 +298,7 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
   genericB2B: {
     key: "genericB2B",
     serviceCategories: ["BtoBサービス", "専門サービス", "その他"],
-    audienceTargets: ["導入判断者", "比較評価担当者", "現場利用者"],
+    audienceTargets: ["導入を判断する責任者", "比較検討する担当者", "実際に利用する担当者"],
     watchTopics: ["候補比較", "料金", "導入負荷", "実績", "信頼性", "公式サイトの引用状況"],
     reportGoalOptions: defaultReportGoalOptions,
     promptFallbacks: [
@@ -685,7 +686,7 @@ function ServiceStep({
           />
         </div>
         <ChipInput
-          label="主に見たい相手"
+          label="ペルソナ"
           items={formState.audienceTargets}
           inputValue={formState.audienceTargetInput}
           onInputChange={(value) => updateForm("audienceTargetInput", value)}
@@ -1030,7 +1031,7 @@ function PromptStep({
 function DraftPreviewSummary({ draftPreview }: { draftPreview: CustomerFacingDraftPreview }) {
   const summaryItems = [
     { title: "サービスカテゴリ", values: draftPreview.serviceCategories, emptyText: "未入力" },
-    { title: "主に見たい相手", values: draftPreview.audienceTargets, emptyText: "未入力" },
+    { title: "ペルソナ", values: draftPreview.audienceTargets, emptyText: "未入力" },
     { title: "質問領域", values: draftPreview.questionAreas, emptyText: "未入力" }
   ];
 
@@ -1655,17 +1656,18 @@ function buildCustomerFacingDraftPreview(seedInput: ProjectSetupSeedInput, formS
   const profile = deriveOnboardingSuggestionProfile(formState);
   const generated = result.draft.prompts.slice(0, 5).map((prompt) => ({
     id: prompt.promptId,
-    text: prompt.text,
+    text: normalizeCustomerPromptExampleText(prompt.text),
     group: classifyGeneratedPrompt(prompt, derivePromptMetricEligibility(prompt, brandIdentity))
   }));
   const customerReadyGenerated = filterPromptsForSuggestionProfile(generated, profile);
   const fallback = buildFallbackPrompts(formState);
   const prompts = uniquePrompts(customerReadyGenerated.length > 0 ? customerReadyGenerated : fallback).slice(0, 5);
   const serviceCategories = uniqueStrings([seedInput.industryCategory, formState.serviceCategory, ...profile.serviceCategories]).slice(0, 3);
+  const generatedAudienceTargets = result.draft.personas.map((persona) => buildCustomerPersonaLabel(persona, profile));
   const audienceTargets = uniqueStrings([
-    ...result.draft.personas.map((persona) => persona.displayName),
-    ...formState.audienceTargets,
-    ...profile.audienceTargets
+    ...formState.audienceTargets.map((label) => normalizeCustomerPersonaLabel(label, profile)),
+    ...profile.audienceTargets,
+    ...generatedAudienceTargets
   ]).slice(0, 5);
   const generatedQuestionAreas = result.draft.topics.map((topic) => buildCustomerFacingQuestionArea(topic.topicName, topic.diagnosisGoal));
   const questionAreas = uniqueStrings([
@@ -1724,6 +1726,136 @@ function buildCustomerFacingQuestionArea(topicName: string, diagnosisGoal: strin
   return `${name}: ${goal}`;
 }
 
+function normalizeCustomerPromptExampleText(text: string) {
+  return text
+    .replace(/^BtoB。主な検討者: [^。]+。の導入判断者の立場で、/, "導入を判断する立場で、")
+    .replace(/^BtoB。主な検討者: [^。]+。の比較評価担当者の立場で、/, "比較検討する立場で、")
+    .replace(/^BtoB。主な検討者: [^。]+。の現場利用者の立場で、/, "実際に利用する立場で、")
+    .replace(/^BtoC(?: \/ EC)?。主な検討者: [^。]+。の[^。、]+の立場で、/, "利用者の立場で、")
+    .replace(/BtoB \/ ([^、。\n]+)の導入判断者/g, "$1を導入判断する人")
+    .replace(/BtoB \/ ([^、。\n]+)の比較評価担当者/g, "$1を比較検討する人")
+    .replace(/BtoB \/ ([^、。\n]+)の現場利用者/g, "$1を実際に利用する人");
+}
+
+function buildCustomerPersonaLabel(persona: PersonaDraft, profile: OnboardingSuggestionProfile) {
+  const displayName = normalizeCustomerPersonaLabel(persona.displayName, profile);
+  if (isNaturalCustomerPersonaLabel(displayName, profile)) return displayName;
+
+  const sourceText = [
+    persona.displayName,
+    persona.segment,
+    persona.detailedDecisionRole,
+    persona.roleType,
+    persona.buyerStage,
+    persona.promptAngle,
+    ...persona.jobs,
+    ...persona.painPoints,
+    ...persona.comparisonAxis
+  ].join(" ");
+  const selected = selectPersonaLabelFromCombinedText(sourceText, profile);
+  return selected ?? profile.audienceTargets[0] ?? "比較検討する担当者";
+}
+
+function normalizeCustomerPersonaLabel(label: string, profile: OnboardingSuggestionProfile) {
+  const normalized = label
+    .trim()
+    .replace(/^BtoB\s*\/\s*/i, "")
+    .replace(/^BtoC\s*\/\s*/i, "")
+    .replace(/の導入判断者$/, "")
+    .replace(/の比較評価担当者$/, "")
+    .replace(/の現場利用者$/, "")
+    .replace(/の決裁者$/, "")
+    .replace(/の購買担当者$/, "")
+    .replace(/の利用者$/, "")
+    .replace(/の検討者$/, "")
+    .replace(/の相談者$/, "")
+    .replace(/の購入者$/, "")
+    .replace(/の継続・返品条件確認者$/, "")
+    .trim();
+
+  if (isNaturalCustomerPersonaLabel(normalized, profile)) return normalized;
+  return selectPersonaLabelFromCombinedText(label, profile) ?? normalized;
+}
+
+function isNaturalCustomerPersonaLabel(label: string, profile: OnboardingSuggestionProfile) {
+  if (!label) return false;
+  if (containsRawPersonaLanguage(label)) return false;
+  if (label.length > 26) return false;
+  if (label.includes("、") || label.includes("\n")) return false;
+  return profile.audienceTargets.includes(label) || !label.includes(" / ");
+}
+
+function containsRawPersonaLanguage(value: string) {
+  return matchesAnyText(value, [
+    "BtoB /",
+    "BtoC /",
+    "decision_maker",
+    "evaluator",
+    "end_user",
+    "roleType",
+    "personaId",
+    "導入判断者",
+    "比較評価担当者",
+    "現場利用者"
+  ]);
+}
+
+function selectPersonaLabelFromCombinedText(text: string, profile: OnboardingSuggestionProfile) {
+  const normalized = normalizeText(text);
+  const matched = profile.audienceTargets.find((target) => normalized.includes(normalizeText(target)));
+  if (matched) return matched;
+
+  if (isConsumerSuggestionProfile(profile.key)) return selectConsumerPersonaLabel(normalized, profile);
+  if (matchesAnyText(normalized, ["seo"])) return "SEO担当者";
+  if (matchesAnyText(normalized, ["marketing", "マーケティング"])) return "マーケティング責任者";
+  if (matchesAnyText(normalized, ["導入", "決裁", "責任者", "decision"])) return "導入を判断する責任者";
+  if (matchesAnyText(normalized, ["比較", "評価", "検討", "evaluator"])) return "比較検討する担当者";
+  if (matchesAnyText(normalized, ["利用", "user"])) return "実際に利用する担当者";
+  return profile.audienceTargets[0] ?? "比較検討する担当者";
+}
+
+function selectConsumerPersonaLabel(text: string, profile: OnboardingSuggestionProfile) {
+  if (profile.key === "healthcareClinic") {
+    if (matchesAnyText(text, ["資格", "専門性", "医師", "安全", "リスク"])) return "資格や専門性を確認したい人";
+    if (matchesAnyText(text, ["料金", "費用", "価格"])) return "料金を確認したい人";
+    if (matchesAnyText(text, ["口コミ", "評判", "レビュー"])) return "口コミを重視する人";
+    return "初めて相談する人";
+  }
+
+  if (profile.key === "ecommerceProduct") {
+    if (matchesAnyText(text, ["返品", "交換", "継続"])) return "返品条件を確認したい人";
+    if (matchesAnyText(text, ["品質", "素材", "スペック"])) return "品質を確認したい人";
+    if (matchesAnyText(text, ["口コミ", "評判", "レビュー"])) return "口コミを重視する人";
+    if (matchesAnyText(text, ["料金", "費用", "価格"])) return "価格を比較する人";
+    return "自分に合うか確認したい人";
+  }
+
+  if (matchesAnyText(text, ["口コミ", "評判", "レビュー"])) return "口コミを重視する人";
+  if (matchesAnyText(text, ["料金", "費用", "価格"])) return "料金を比較する人";
+  if (matchesAnyText(text, ["家族", "子ども", "親"])) return "家族に合うか確認したい人";
+  return profile.audienceTargets[0] ?? "初めて選ぶ人";
+}
+
+function buildNaturalTargetCustomers(formState: WizardState) {
+  const profile = deriveOnboardingSuggestionProfile(formState);
+  const personas = uniqueStrings(
+    (formState.audienceTargets.length > 0 ? formState.audienceTargets : profile.audienceTargets)
+      .map((label) => normalizeCustomerPersonaLabel(label, profile))
+      .filter((label) => isNaturalCustomerPersonaLabel(label, profile))
+  ).slice(0, 4);
+  const personaText = personas.length > 0 ? personas.join("、") : "確認したい顧客層";
+  const category = formState.serviceCategory.trim() || profile.serviceCategories[0] || "サービス";
+
+  if (formState.audienceType === "b2c") {
+    if (profile.key === "ecommerceProduct") return `BtoC / EC。主な検討者: ${personaText}。`;
+    return `BtoC。主な検討者: ${personaText}。`;
+  }
+  if (formState.audienceType === "both_or_confirm") {
+    return `${category}の主な検討者: ${personaText}。BtoB/BtoCは確認中。`;
+  }
+  return `BtoB。主な検討者: ${personaText}。`;
+}
+
 function buildSeedInput(formState: WizardState): ProjectSetupSeedInput {
   return {
     companyName: formState.brandName.trim(),
@@ -1737,9 +1869,7 @@ function buildSeedInput(formState: WizardState): ProjectSetupSeedInput {
       .filter(Boolean)
       .join("\n"),
     industryCategory: formState.serviceCategory.trim(),
-    targetCustomers: [formatAudienceType(formState.audienceType), formState.audienceTargets.join("、")]
-      .filter(Boolean)
-      .join(" / "),
+    targetCustomers: buildNaturalTargetCustomers(formState),
     regions: formState.regions,
     language: formState.language,
     serviceName: formState.brandName.trim() || undefined,
@@ -1777,7 +1907,7 @@ function buildConfirmationSections(formState: WizardState, draftPreview: Custome
       ]
     },
     {
-      title: "主に見たい相手",
+      title: "ペルソナ",
       items: [{ label: "確認対象", value: formatList(draftPreview?.audienceTargets ?? formState.audienceTargets) }]
     },
     {
@@ -1885,7 +2015,7 @@ function getStepBlockers(stepIndex: number, formState: WizardState) {
     if (!formState.serviceDescription.trim()) blockers.push("どんなサービスかを入力してください。");
     if (!formState.serviceCategory.trim()) blockers.push("サービスカテゴリを入力してください。");
     if (formState.regions.length === 0) blockers.push("対象市場・地域を1件以上入力してください。");
-    if (formState.audienceTargets.length === 0) blockers.push("主に見たい相手を1件以上入力してください。");
+    if (formState.audienceTargets.length === 0) blockers.push("ペルソナを1件以上入力してください。");
     if (formState.competitorMode === "known_competitors_confirmed" && formState.competitors.length === 0) {
       blockers.push("競合を入力する場合は、競合を1件以上入力してください。");
     }
@@ -1950,6 +2080,9 @@ function inferInterimCategory(
       .join(" ")
   );
 
+  if (matchesAnyText(text, ["英会話", "スクール", "学校", "教育", "講座", "school", "lesson", "english"])) return "スクール / 教育";
+  if (matchesAnyText(text, ["clinic", "クリニック", "医療", "美容", "病院"])) return "クリニック / 医療";
+  if (matchesAnyText(text, ["EC /", "D2C", "通販", "商品", "shop", "store", "ecommerce", "e-commerce", "返品"])) return "EC / 商品";
   if (matchesAnyText(text, ["AI検索", "LLMO", "GEO", "AIO", "AI search", "SEO", "Mieruca", "ミエルカ"])) {
     return "SEO / AI検索対策";
   }
@@ -1967,11 +2100,12 @@ function inferInterimCategory(
 
 function deriveOnboardingSuggestionProfile(state: Pick<WizardState, "brandName" | "brandAliases" | "officialUrl" | "serviceDescription" | "serviceCategory" | "audienceType" | "audienceTargets">): OnboardingSuggestionProfile {
   const text = normalizeText(
-    [state.brandName, state.brandAliases.join(" "), state.officialUrl, state.serviceDescription, state.serviceCategory, state.audienceType, state.audienceTargets.join(" ")]
+    [state.brandName, state.brandAliases.join(" "), state.officialUrl, state.serviceDescription, state.serviceCategory, state.audienceType]
       .filter(Boolean)
       .join(" ")
   );
 
+  if (matchesAnyText(text, ["AI search", "SEO", "LLMO", "GEO", "AIO", "SaaS"])) return suggestionProfiles.b2bSaasOrSeo;
   if (matchesAnyText(text, ["英会話", "スクール", "教育", "学校", "講座", "school", "lesson", "english"])) return suggestionProfiles.b2cSchoolEducation;
   if (matchesAnyText(text, ["クリニック", "医療", "美容", "病院", "clinic", "medical"])) return suggestionProfiles.healthcareClinic;
   if (matchesAnyText(text, ["地域", "店舗", "予約", "来店", "local", "エリア", "近く"])) return suggestionProfiles.localService;
@@ -2085,7 +2219,7 @@ function translateSeedBlocker(value: string) {
     "seedInput.officialSiteUrl is required": "公式URLを確認してください。",
     "seedInput.productOrServiceDescription is required": "サービス説明を確認してください。",
     "seedInput.industryCategory is required": "サービスカテゴリを確認してください。",
-    "seedInput.targetCustomers is required": "主に見たい相手を確認してください。",
+    "seedInput.targetCustomers is required": "ペルソナを確認してください。",
     "seedInput.regions must include at least one region": "対象市場・地域を確認してください。",
     "seedInput.language is required": "言語を確認してください。",
     "seedInput.officialSiteUrl must be an http or https URL": "公式URLの形式を確認してください。"
