@@ -254,6 +254,15 @@ Report readiness rule after this dry-run:
 
 The dry-run does not run UPDATE, INSERT, DELETE, migration, seed, repair, reset, or backfill apply. It does not change remote data and does not make any additional report tab customer-facing.
 
+Review planning after PR #51 is tracked in `docs/recora-prompt-scope-backfill-review-plan.md`.
+
+Readiness status after the dry-run:
+
+- `public.prompts.prompt_type` and `public.prompts.measurement_purpose` exist, but the inspected rows remain null.
+- `safe_explicit_candidate` is 0, so there is no automatic backfill path.
+- `inferred_candidate` and `manual_review` rows require human review before any explicit values can be applied.
+- Report UI should continue to expect `needs_metadata` for rows without explicit recognized values.
+
 ## Open questions
 
 - 既存DB schema上、`ai_conversations` / `citations` / `brand_mentions` / `recommendations` がどの型で保持されているか。
