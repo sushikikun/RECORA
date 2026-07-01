@@ -51,91 +51,95 @@ export function AdminCustomerOpsPage({ data }: { data: RecoraAdminCustomerOpsDat
         {data.customers.length === 0 ? (
           <EmptyState />
         ) : (
-          <Table className="min-w-[1580px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="min-w-[230px]">顧客</TableHead>
-                <TableHead className="min-w-[210px]">プロジェクト</TableHead>
-                <TableHead>顧客状態</TableHead>
-                <TableHead>優先度</TableHead>
-                <TableHead className="min-w-[190px]">契約プラン</TableHead>
-                <TableHead>契約状態</TableHead>
-                <TableHead>支払い</TableHead>
-                <TableHead>期間開始</TableHead>
-                <TableHead>期間終了</TableHead>
-                <TableHead>AI質問</TableHead>
-                <TableHead>モデル</TableHead>
-                <TableHead>計測</TableHead>
-                <TableHead>改善提案</TableHead>
-                <TableHead>計測予定</TableHead>
-                <TableHead>次回計測</TableHead>
-                <TableHead>最終計測</TableHead>
-                <TableHead>最新batch</TableHead>
-                <TableHead>公開確認</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.customers.map((customer) => (
-                <TableRow key={`${customer.organizationId}-${customer.projectId ?? "organization"}`}>
-                  <TableCell>
-                    <p className="font-bold text-slate-950">{customer.organizationName}</p>
-                    <p className="mt-1 text-xs font-semibold text-slate-500">
-                      担当: {customer.internalOwner || "未設定"}
-                    </p>
-                  </TableCell>
-                  <TableCell>
-                    <p className="font-semibold text-slate-800">{customer.projectName || "代表project未設定"}</p>
-                    <p className="mt-1 font-mono text-xs font-bold text-slate-500">
-                      {shortId(customer.projectId)}
-                    </p>
-                  </TableCell>
-                  <TableCell><LifecycleBadge status={customer.customerLifecycleStatus} /></TableCell>
-                  <TableCell><PriorityBadge priority={customer.priority} /></TableCell>
-                  <TableCell>
-                    {customer.planDisplayName ? (
-                      <>
-                        <p className="font-bold text-slate-950">{customer.planDisplayName}</p>
-                        <p className="mt-1 font-mono text-xs font-bold text-slate-500">{customer.planCode}</p>
-                      </>
-                    ) : (
-                      <MissingPlan />
-                    )}
-                  </TableCell>
-                  <TableCell><SubscriptionBadge status={customer.subscriptionStatus} /></TableCell>
-                  <TableCell>
-                    <p className="font-semibold text-slate-800">{formatBillingType(customer.billingType)}</p>
-                    <p className="mt-1 text-xs font-semibold text-slate-500">{formatPrice(customer.priceJpy)}</p>
-                  </TableCell>
-                  <TableCell>{formatDate(customer.currentPeriodStart)}</TableCell>
-                  <TableCell>{formatDate(customer.currentPeriodEnd)}</TableCell>
-                  <TableCell>{formatNumberWithUnit(customer.questionLimit, "問")}</TableCell>
-                  <TableCell>{formatNumberWithUnit(customer.modelLimit, "モデル")}</TableCell>
-                  <TableCell>{formatRunMode(customer)}</TableCell>
-                  <TableCell><RecommendationBadge visible={customer.customerRecommendationsVisible} /></TableCell>
-                  <TableCell>
-                    <ScheduleBadge status={customer.scheduleStatus} />
-                    <p className="mt-1 text-xs font-semibold text-slate-500">
-                      {formatScheduleType(customer.scheduleType)}
-                    </p>
-                  </TableCell>
-                  <TableCell>{formatDateTime(customer.nextRunAt)}</TableCell>
-                  <TableCell>{formatDateTime(customer.lastRunAt)}</TableCell>
-                  <TableCell>
-                    <BatchBadge status={customer.latestBatchStatus} />
-                    <p className="mt-1 text-xs font-semibold text-slate-500">
-                      {formatDateTime(customer.latestBatchQueuedAt)}
-                    </p>
-                  </TableCell>
-                  <TableCell>
-                    <ReportReviewBadge status={customer.latestReportReviewStatus} />
-                    <p className="mt-1 text-xs font-semibold text-slate-500">
-                      {formatDateTime(customer.latestReportReviewUpdatedAt)}
-                    </p>
-                  </TableCell>
+          <div className="w-full overflow-x-auto">
+            <Table className="min-w-[1660px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="min-w-[230px]">顧客</TableHead>
+                  <TableHead className="min-w-[210px]">プロジェクト</TableHead>
+                  <TableHead>顧客状態</TableHead>
+                  <TableHead>優先度</TableHead>
+                  <TableHead className="min-w-[190px]">契約プラン</TableHead>
+                  <TableHead>契約状態</TableHead>
+                  <TableHead className="min-w-[170px]">支払い</TableHead>
+                  <TableHead>期間開始</TableHead>
+                  <TableHead>期間終了</TableHead>
+                  <TableHead>AI質問</TableHead>
+                  <TableHead>モデル</TableHead>
+                  <TableHead>計測</TableHead>
+                  <TableHead>改善提案</TableHead>
+                  <TableHead>計測予定</TableHead>
+                  <TableHead>次回計測</TableHead>
+                  <TableHead>最終計測</TableHead>
+                  <TableHead>最新batch</TableHead>
+                  <TableHead>公開確認</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {data.customers.map((customer) => (
+                  <TableRow key={`${customer.organizationId}-${customer.projectId ?? "organization"}`}>
+                    <TableCell>
+                      <p className="font-bold text-slate-950">{customer.organizationName}</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">
+                        担当: {customer.internalOwner || "未設定"}
+                      </p>
+                    </TableCell>
+                    <TableCell>
+                      <p className="font-semibold text-slate-800">{customer.projectName || "代表project未設定"}</p>
+                      <p className="mt-1 font-mono text-xs font-bold text-slate-500">
+                        {shortId(customer.projectId)}
+                      </p>
+                    </TableCell>
+                    <TableCell><LifecycleBadge status={customer.customerLifecycleStatus} /></TableCell>
+                    <TableCell><PriorityBadge priority={customer.priority} /></TableCell>
+                    <TableCell>
+                      {customer.planDisplayName ? (
+                        <>
+                          <p className="font-bold text-slate-950">{customer.planDisplayName}</p>
+                          <p className="mt-1 font-mono text-xs font-bold text-slate-500">{customer.planCode}</p>
+                        </>
+                      ) : (
+                        <MissingPlan />
+                      )}
+                    </TableCell>
+                    <TableCell><SubscriptionBadge status={customer.subscriptionStatus} /></TableCell>
+                    <TableCell>
+                      <p className="font-semibold text-slate-800">{formatBillingMode(customer.billingMode)}</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">
+                        {formatPlanPrice(customer.priceJpy, customer.billingType)}
+                      </p>
+                    </TableCell>
+                    <TableCell>{formatDate(customer.currentPeriodStart)}</TableCell>
+                    <TableCell>{formatDate(customer.currentPeriodEnd)}</TableCell>
+                    <TableCell>{formatNumberWithUnit(customer.questionLimit, "問")}</TableCell>
+                    <TableCell>{formatNumberWithUnit(customer.modelLimit, "モデル")}</TableCell>
+                    <TableCell>{formatRunMode(customer)}</TableCell>
+                    <TableCell><RecommendationBadge visible={customer.customerRecommendationsVisible} /></TableCell>
+                    <TableCell>
+                      <ScheduleBadge status={customer.scheduleStatus} />
+                      <p className="mt-1 text-xs font-semibold text-slate-500">
+                        {formatScheduleType(customer.scheduleType)}
+                      </p>
+                    </TableCell>
+                    <TableCell>{formatDateTime(customer.nextRunAt)}</TableCell>
+                    <TableCell>{formatDateTime(customer.lastRunAt)}</TableCell>
+                    <TableCell>
+                      <BatchBadge status={customer.latestBatchStatus} />
+                      <p className="mt-1 text-xs font-semibold text-slate-500">
+                        {formatDateTime(customer.latestBatchQueuedAt)}
+                      </p>
+                    </TableCell>
+                    <TableCell>
+                      <ReportReviewBadge status={customer.latestReportReviewStatus} />
+                      <p className="mt-1 text-xs font-semibold text-slate-500">
+                        {formatDateTime(customer.latestReportReviewUpdatedAt)}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </DataCard>
 
@@ -352,9 +356,20 @@ function formatBillingType(value: string | null) {
   return value ?? "未設定";
 }
 
+function formatBillingMode(value: string | null) {
+  if (value === "manual") return "手動管理";
+  if (value === "stripe") return "Stripe";
+  if (value === "invoice") return "請求書";
+  return value ?? "支払い未設定";
+}
+
 function formatPrice(value: number | null) {
   if (value === null) return "価格未設定";
   return `${new Intl.NumberFormat("ja-JP").format(value)}円`;
+}
+
+function formatPlanPrice(priceJpy: number | null, billingType: string | null) {
+  return `${formatPrice(priceJpy)} / ${formatBillingType(billingType)}`;
 }
 
 function formatNumberWithUnit(value: number | null, unit: string) {
