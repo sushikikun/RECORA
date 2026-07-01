@@ -8,6 +8,8 @@ Last updated: 2026-07-01
 
 Customer DB overall readiness is tracked in `docs/recora-customer-db-readiness-audit.md`. That audit organizes P0/P1/P2 priorities across organization/project boundaries, prompt metadata, measurement snapshots, RLS, publication state, source metadata, recommendation workflow, and plan linkage.
 
+Customer, organization, membership, project, and report visibility boundaries are defined in `docs/recora-customer-org-project-boundary-design.md`. The next RLS readiness audit should use that boundary design as the expected ownership model, while customer-facing UI remains a separate track.
+
 Prompt scope backfill remains paused at review-record state because `safe_explicit_candidate = 0` and `apply_candidate = 0`.
 
 ## Overview

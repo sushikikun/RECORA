@@ -9,6 +9,12 @@ This document audits the current Recora repository state as a customer DB founda
 
 This is not a UI implementation, not a DB migration, and not a remote DB operation. It does not run backfill, seed, repair, reset, external API jobs, web crawling, or Supabase db push. The intent is to sequence the next DB work safely after the prompt scope backfill track was paused with no automatic apply candidates.
 
+Boundary design update:
+
+- Customer, organization, membership, project, and report visibility boundaries are defined in `docs/recora-customer-org-project-boundary-design.md`.
+- The next RLS readiness audit should use that boundary design as the expected ownership model.
+- Customer-facing UI remains out of scope for that boundary design.
+
 Prompt scope context:
 
 - PR #48 added `supabase/migrations/20260701044743_recora_prompt_scope_fields.sql`.
