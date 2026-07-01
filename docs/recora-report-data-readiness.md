@@ -227,6 +227,33 @@ DB readiness after the local migration file:
 - T04 `needs_metadata` remains expected until remote apply and explicit metadata/backfill are handled in later PRs.
 - Remote apply and backfill planning remains in `docs/recora-prompt-scope-db-migration-plan.md`; rows without explicit recognized metadata remain `needs_metadata`.
 
+## Prompt Scope Backfill Dry-Run Update (2026-07-01)
+
+The first customer DB completion PR adds a read-only operator check:
+
+- `scripts/inspect-recora-prompt-scope-backfill.ts`
+- `npm run recora:prompt-scope-backfill:dry-run`
+
+This command inspects existing `public.prompts` rows and classifies them into:
+
+- `already_explicit`
+- `safe_explicit_candidate`
+- `inferred_candidate`
+- `manual_review`
+- `leave_null`
+- `invalid_existing_value`
+- `missing_required_context`
+
+Report readiness rule after this dry-run:
+
+- `already_explicit` rows can be considered official only when both values are recognized.
+- `safe_explicit_candidate` rows are candidates for a later human-approved backfill, not applied by this PR.
+- `inferred_candidate` rows are review-only and must not enter visibility, ranking, or SOV eligibility.
+- `manual_review`, `leave_null`, and `missing_required_context` rows remain `needs_metadata`.
+- `invalid_existing_value` rows are blockers for automatic use until normalized.
+
+The dry-run does not run UPDATE, INSERT, DELETE, migration, seed, repair, reset, or backfill apply. It does not change remote data and does not make any additional report tab customer-facing.
+
 ## Open questions
 
 - 既存DB schema上、`ai_conversations` / `citations` / `brand_mentions` / `recommendations` がどの型で保持されているか。
