@@ -13,6 +13,10 @@ This document is not the final customer-facing public specification.
 
 The prompt scope basis is to avoid mixing visibility, ranking, and Share of Voice with sentiment, brand perception, and citation validation. Visibility/ranking/SOV must be traceable to prompts that are eligible for market-discovery measurement, not to branded, named-comparison, competitor-seeded, or citation-only checks.
 
+## Customer DB readiness audit link
+
+The broader customer DB completion track is tracked in `docs/recora-customer-db-readiness-audit.md`. Prompt scope backfill remains paused at review-record state because `safe_explicit_candidate = 0` and `apply_candidate = 0`; the next customer DB PRs should prioritize customer/org/project boundary design, RLS readiness audit, and measurement prompt snapshot design.
+
 ## Overview
 
 PR #45 added code-level first-class prompt scope contracts in `lib/recora/prompt-scope.ts`:

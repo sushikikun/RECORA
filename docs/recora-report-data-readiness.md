@@ -4,6 +4,12 @@ Status: Development draft / initial proposal
 Scope: Data readiness inventory for the 7-tab Recora report proposal
 Last updated: 2026-07-01
 
+## Customer DB readiness audit update
+
+Customer DB overall readiness is tracked in `docs/recora-customer-db-readiness-audit.md`. That audit organizes P0/P1/P2 priorities across organization/project boundaries, prompt metadata, measurement snapshots, RLS, publication state, source metadata, recommendation workflow, and plan linkage.
+
+Prompt scope backfill remains paused at review-record state because `safe_explicit_candidate = 0` and `apply_candidate = 0`.
+
 ## Overview
 
 このドキュメントは、Recoraレポート7タブ表示項目を実装する前に、どのデータが既存で使える可能性があるか、どれが派生可能か、どれが新規抽出・DB項目追加・将来連携を必要とするかを整理する棚卸しです。
