@@ -2495,6 +2495,7 @@ export function scoreCategoryCandidates(
   const seedAudienceText = normalizeEvidenceTerm(`${seed.targetCustomers} ${seed.industryCategory}`);
   const legacyBusinessModel = classifyBusinessModel(seed);
   const allowLegacyEcommerce = hasExplicitEcommerceEvidence(evidenceTerms);
+  const allowFinanceInvestment = hasExplicitFinanceEvidence(evidenceTerms);
   const scored = CATEGORY_SCORING_RULES.map((rule) => {
     const reasons: string[] = [];
     let score = 0;
@@ -2518,7 +2519,7 @@ export function scoreCategoryCandidates(
       score += 8;
       reasons.push("audience:b2b_hint");
     }
-    if (isB2CAudience(seedAudienceText) && isConsumerCategoryProfile(rule.profile)) {
+    if (isB2CAudience(seedAudienceText) && isConsumerCategoryProfile(rule.profile) && (rule.profile !== "finance_investment" || allowFinanceInvestment)) {
       score += 8;
       reasons.push("audience:b2c_hint");
     }
@@ -2534,7 +2535,7 @@ export function scoreCategoryCandidates(
       score += 3;
       reasons.push("service_description:seo_supporting_signal");
     }
-    if (rule.businessModel === legacyBusinessModel && (legacyBusinessModel !== "ecommerce" || allowLegacyEcommerce)) {
+    if (rule.businessModel === legacyBusinessModel && (legacyBusinessModel !== "ecommerce" || allowLegacyEcommerce) && (rule.profile !== "finance_investment" || allowFinanceInvestment)) {
       score += 14;
       reasons.push(`legacy_classifier:${legacyBusinessModel}`);
     }
@@ -2558,6 +2559,8 @@ export function scoreQuestionAreaCandidates(
   evidenceTerms: readonly ServiceEvidenceTerm[],
   seed: ProjectSetupSeedInput
 ): QuestionAreaCandidate[] {
+  const isJapanese = seed.language === "ja";
+  const t = (ja: string, en: string) => isJapanese ? ja : en;
   const serviceText = evidenceTerms
     .filter((term) => term.source !== "brand" && term.source !== "competitor")
     .map((term) => term.normalized)
@@ -2597,15 +2600,15 @@ export function scoreQuestionAreaCandidates(
   });
 
   const commonCitation = makeCandidate(
-    "Source and evidence behavior",
-    "Check which sources, proof points, and verification gaps appear in AI answers.",
+    t("公式サイトや第三者情報で根拠を確認できるか", "Source and evidence behavior"),
+    t("AI回答で参照される情報源、根拠、確認不足の点を確認します。", "Check which sources, proof points, and verification gaps appear in AI answers."),
     "citation_evidence_topic",
     "evidence",
     64
   );
   const commonSentiment = makeCandidate(
-    "Brand perception summary",
-    "Check how the brand is described when the customer asks directly about it.",
+    t("ブランド名で聞かれた時の見え方", "Brand perception summary"),
+    t("ブランド名を含む質問で、評価・不安・認識がどう表れるかを確認します。", "Check how the brand is described when the customer asks directly about it."),
     "branded_sentiment_topic",
     "sentiment",
     60
@@ -2613,20 +2616,20 @@ export function scoreQuestionAreaCandidates(
 
   if (category.profile === "seo_ai_search") {
     return [
-      makeCandidate("AI search visibility", "Check whether the service category appears naturally in AI search answers.", "category_discovery_topic", "visibility", 92),
-      makeCandidate("Comparison with alternatives", "Check how AI answers compare candidate services and evaluation axes without naming the brand.", "alternative_search_topic", "comparison", 88),
-      makeCandidate("Citation and source readiness", "Check whether official pages and third-party evidence are likely to support the answer.", "citation_evidence_topic", "evidence", 84),
-      makeCandidate("Pre-adoption concerns", "Check what proof, scope, and operational concerns appear before inquiry.", "persona_specific_topic", "risk", 76),
+      makeCandidate(t("AI検索で候補に出るか", "AI search visibility"), t("サービスカテゴリがAI検索回答で自然に候補として出るかを確認します。", "Check whether the service category appears naturally in AI search answers."), "category_discovery_topic", "visibility", 92),
+      makeCandidate(t("競合や代替手段とどう比較されるか", "Comparison with alternatives"), t("ブランド名を出さない質問で、候補サービスや評価軸がどう比較されるかを確認します。", "Check how AI answers compare candidate services and evaluation axes without naming the brand."), "alternative_search_topic", "comparison", 88),
+      makeCandidate(t("公式サイトが引用されやすいか", "Citation and source readiness"), t("公式ページや第三者情報が回答の根拠として使われそうかを確認します。", "Check whether official pages and third-party evidence are likely to support the answer."), "citation_evidence_topic", "evidence", 84),
+      makeCandidate(t("導入前の不安に答えられるか", "Pre-adoption concerns"), t("問い合わせ前に出やすい証拠、対象範囲、運用面の不安を確認します。", "Check what proof, scope, and operational concerns appear before inquiry."), "persona_specific_topic", "risk", 76),
       commonSentiment
     ];
   }
 
   if (category.profile === "recruiting_hr") {
     return [
-      makeCandidate("Hiring workflow fit", "Check whether candidate management, interview coordination, and hiring workflow needs appear.", "category_discovery_topic", "visibility", 91),
-      makeCandidate("Recruiting tool comparison", "Check how AI answers compare ATS, recruiting tools, outsourcing, and current workflows.", "alternative_search_topic", "comparison", 88),
-      makeCandidate("Stakeholder concerns", "Check concerns for HR owners, hiring managers, executives, and interviewers before adoption.", "persona_specific_topic", "risk", 84),
-      makeCandidate("Evidence and trust checks", "Check what proof, implementation cautions, and data handling points appear.", "regulated_risk_topic", "risk", 78),
+      makeCandidate(t("採用管理が候補に出るか", "Hiring workflow fit"), t("候補者管理、面接調整、採用業務の課題が回答に出るかを確認します。", "Check whether candidate management, interview coordination, and hiring workflow needs appear."), "category_discovery_topic", "visibility", 91),
+      makeCandidate(t("採用ツールや外注と比較されるか", "Recruiting tool comparison"), t("ATS、採用管理ツール、外注、現行業務との比較軸を確認します。", "Check how AI answers compare ATS, recruiting tools, outsourcing, and current workflows."), "alternative_search_topic", "comparison", 88),
+      makeCandidate(t("関係者ごとの確認点が出るか", "Stakeholder concerns"), t("人事、採用責任者、経営者、面接担当者が導入前に見る不安を確認します。", "Check concerns for HR owners, hiring managers, executives, and interviewers before adoption."), "persona_specific_topic", "risk", 84),
+      makeCandidate(t("実績や運用上の信頼材料を確認できるか", "Evidence and trust checks"), t("導入実績、運用上の注意点、データ取り扱いの確認点を見ます。", "Check what proof, implementation cautions, and data handling points appear."), "regulated_risk_topic", "risk", 78),
       commonCitation,
       commonSentiment
     ];
@@ -2635,26 +2638,26 @@ export function scoreQuestionAreaCandidates(
   if (category.profile === "school_education") {
     return [
       makeCandidate(
-        isKidsEducation ? "Child fit and guardian concerns" : isEnglishSchool ? "Beginner fit and lesson choice" : "Course fit and learning needs",
+        isKidsEducation ? t("子どもに合うか、保護者の不安に答えられるか", "Child fit and guardian concerns") : isEnglishSchool ? t("初めて選ぶ時に失敗しないか", "Beginner fit and lesson choice") : t("講座や学び方が合うか", "Course fit and learning needs"),
         isKidsEducation
-          ? "Check whether guardian concerns about teachers, curriculum, safety, and fit for the child appear."
-          : "Check whether level fit, trial lessons, price, reviews, and learning continuity appear.",
+          ? t("講師、カリキュラム、安全性、子どもとの相性への不安が出るかを確認します。", "Check whether guardian concerns about teachers, curriculum, safety, and fit for the child appear.")
+          : t("レベルの合い方、体験レッスン、料金、口コミ、続けやすさが出るかを確認します。", "Check whether level fit, trial lessons, price, reviews, and learning continuity appear."),
         "category_discovery_topic",
         "visibility",
         90,
         isKidsEducation ? ["service_description:kids_education"] : ["service_description:adult_or_general_education"]
       ),
       makeCandidate(
-        isKidsEducation ? "Teacher, curriculum, and safety comparison" : "Price, reviews, and trial lesson comparison",
+        isKidsEducation ? t("講師・カリキュラム・安全性を比較できるか", "Teacher, curriculum, and safety comparison") : t("料金・口コミ・体験レッスンを比較できるか", "Price, reviews, and trial lesson comparison"),
         isKidsEducation
-          ? "Check how AI answers compare teachers, curriculum, commute, safety, and trial lessons."
-          : "Check how AI answers compare price, reviews, access, trial lessons, and lesson style.",
+          ? t("講師、カリキュラム、通いやすさ、安全性、体験の比較軸を確認します。", "Check how AI answers compare teachers, curriculum, commute, safety, and trial lessons.")
+          : t("料金、口コミ、通いやすさ、体験レッスン、授業スタイルの比較軸を確認します。", "Check how AI answers compare price, reviews, access, trial lessons, and lesson style."),
         "alternative_search_topic",
         "comparison",
         86
       ),
-      makeCandidate("Before-enrollment checks", "Check what customers should confirm before applying or taking a trial lesson.", "persona_specific_topic", "risk", 80),
-      makeCandidate("Reviews and reputation", "Check how reviews, outcomes, price, and support are handled without unsupported claims.", "pricing_reputation_topic", "reputation", 75),
+      makeCandidate(t("申込前に何を確認すべきか", "Before-enrollment checks"), t("申込や体験前に確認すべき相性、費用、通いやすさ、注意点を見ます。", "Check what customers should confirm before applying or taking a trial lesson."), "persona_specific_topic", "risk", 80),
+      makeCandidate(t("口コミや評判をどう見るか", "Reviews and reputation"), t("口コミ、成果、料金、サポートが誇張なく扱われるかを確認します。", "Check how reviews, outcomes, price, and support are handled without unsupported claims."), "pricing_reputation_topic", "reputation", 75),
       commonCitation,
       commonSentiment
     ];
@@ -2663,30 +2666,30 @@ export function scoreQuestionAreaCandidates(
   if (category.profile === "ecommerce_product") {
     return [
       makeCandidate(
-        isMattress ? "Sleep concern and mattress fit" : isCosmetics ? "Skin fit and ingredient concerns" : "Product fit and purchase concerns",
+        isMattress ? t("睡眠悩みや寝心地に合うか", "Sleep concern and mattress fit") : isCosmetics ? t("肌に合うか、成分に不安がないか", "Skin fit and ingredient concerns") : t("商品が自分に合うか", "Product fit and purchase concerns"),
         isMattress
-          ? "Check whether sleep concerns, comfort, materials, price, reviews, and return conditions appear."
+          ? t("睡眠悩み、寝心地、素材、価格、口コミ、返品条件が出るかを確認します。", "Check whether sleep concerns, comfort, materials, price, reviews, and return conditions appear.")
           : isCosmetics
-            ? "Check whether skin fit, ingredients, reviews, price, and subscription conditions appear."
-            : "Check whether product fit, quality, price, reviews, and return conditions appear.",
+            ? t("肌との相性、成分、口コミ、価格、定期購入条件が出るかを確認します。", "Check whether skin fit, ingredients, reviews, price, and subscription conditions appear.")
+            : t("商品の合い方、品質、価格、口コミ、返品条件が出るかを確認します。", "Check whether product fit, quality, price, reviews, and return conditions appear."),
         "category_discovery_topic",
         "visibility",
         90,
         isMattress ? ["service_description:mattress"] : isCosmetics ? ["service_description:cosmetics"] : []
       ),
       makeCandidate(
-        isMattress ? "Comfort, materials, and return comparison" : isCosmetics ? "Ingredients, reviews, and subscription comparison" : "Price, quality, and return comparison",
+        isMattress ? t("寝心地・素材・返品条件を比較できるか", "Comfort, materials, and return comparison") : isCosmetics ? t("成分・口コミ・定期購入条件を比較できるか", "Ingredients, reviews, and subscription comparison") : t("価格・品質・返品条件を比較できるか", "Price, quality, and return comparison"),
         isMattress
-          ? "Check how AI answers compare comfort, material, body fit, warranty, price, and return policy."
+          ? t("寝心地、素材、体への合い方、保証、価格、返品条件の比較軸を確認します。", "Check how AI answers compare comfort, material, body fit, warranty, price, and return policy.")
           : isCosmetics
-            ? "Check how AI answers compare ingredients, skin concerns, reviews, price, and subscription terms."
-            : "Check how AI answers compare products, brands, quality, price, reviews, and return policy.",
+            ? t("成分、肌悩み、口コミ、価格、定期購入条件の比較軸を確認します。", "Check how AI answers compare ingredients, skin concerns, reviews, price, and subscription terms.")
+            : t("商品、ブランド、品質、価格、口コミ、返品条件の比較軸を確認します。", "Check how AI answers compare products, brands, quality, price, reviews, and return policy."),
         "alternative_search_topic",
         "comparison",
         86
       ),
-      makeCandidate("Purchase risk checks", "Check what customers should confirm before purchasing rather than relying only on reviews.", "persona_specific_topic", "risk", 80),
-      makeCandidate("Price, reviews, and trust", "Check how price, reviews, proof, delivery, and returns are organized.", "pricing_reputation_topic", "reputation", 77),
+      makeCandidate(t("購入前の失敗を避けられるか", "Purchase risk checks"), t("口コミだけに頼らず、購入前に確認すべき条件を見ます。", "Check what customers should confirm before purchasing rather than relying only on reviews."), "persona_specific_topic", "risk", 80),
+      makeCandidate(t("価格・口コミ・信頼材料を確認できるか", "Price, reviews, and trust"), t("価格、口コミ、根拠、配送、返品が整理されるかを確認します。", "Check how price, reviews, proof, delivery, and returns are organized."), "pricing_reputation_topic", "reputation", 77),
       commonCitation,
       commonSentiment
     ];
@@ -2694,11 +2697,11 @@ export function scoreQuestionAreaCandidates(
 
   if (category.profile === "healthcare_clinic") {
     return [
-      makeCandidate("First consultation concerns", "Check whether fees, doctor information, risks, and consultation flow appear.", "category_discovery_topic", "visibility", 90),
-      makeCandidate("Clinic comparison cautions", "Check how AI answers compare clinics without making treatment guarantees.", "alternative_search_topic", "comparison", 86),
-      makeCandidate("Pre-consultation checks", "Check what customers should confirm about fit, fees, scope, and risks before consulting.", "persona_specific_topic", "risk", 84),
-      makeCandidate("Safety and qualification checks", "Check qualifications, fees, scope, risks, and pre-consultation questions.", "regulated_risk_topic", "risk", 88),
-      makeCandidate("Reviews and fee checks", "Check how reviews, fees, and trust points are handled cautiously.", "pricing_reputation_topic", "reputation", 78),
+      makeCandidate(t("初回相談前の不安に答えられるか", "First consultation concerns"), t("料金、医師情報、リスク、相談の流れが出るかを確認します。", "Check whether fees, doctor information, risks, and consultation flow appear."), "category_discovery_topic", "visibility", 90),
+      makeCandidate(t("クリニック比較の注意点が出るか", "Clinic comparison cautions"), t("治療効果を断定せず、クリニックの比較軸が出るかを確認します。", "Check how AI answers compare clinics without making treatment guarantees."), "alternative_search_topic", "comparison", 86),
+      makeCandidate(t("相談前に何を確認すべきか", "Pre-consultation checks"), t("相性、料金、対応範囲、リスクを相談前に確認できるかを見ます。", "Check what customers should confirm about fit, fees, scope, and risks before consulting."), "persona_specific_topic", "risk", 84),
+      makeCandidate(t("資格やリスク説明を確認できるか", "Safety and qualification checks"), t("資格、料金、対応範囲、リスク、相談前の確認事項を見ます。", "Check qualifications, fees, scope, risks, and pre-consultation questions."), "regulated_risk_topic", "risk", 88),
+      makeCandidate(t("口コミと料金を慎重に確認できるか", "Reviews and fee checks"), t("口コミ、料金、信頼材料が慎重に扱われるかを確認します。", "Check how reviews, fees, and trust points are handled cautiously."), "pricing_reputation_topic", "reputation", 78),
       commonCitation,
       commonSentiment
     ];
@@ -2706,10 +2709,10 @@ export function scoreQuestionAreaCandidates(
 
   if (category.profile === "local_service") {
     return [
-      makeCandidate("Nearby provider discovery", "Check whether nearby options, access, booking, price, and reviews appear.", "category_discovery_topic", "local", 88),
-      makeCandidate("Area and booking comparison", "Check how AI answers compare area, booking ease, availability, and substitutes.", "local_regional_topic", "local", 86),
-      makeCandidate("Pre-booking checks", "Check what customers should confirm about fit, price, booking flow, and cautions before booking.", "persona_specific_topic", "risk", 80),
-      makeCandidate("Price and review trust", "Check how price, reviews, staff, and pre-booking cautions appear.", "pricing_reputation_topic", "reputation", 78),
+      makeCandidate(t("近くで候補に出るか", "Nearby provider discovery"), t("近くの候補、アクセス、予約しやすさ、料金、口コミが出るかを確認します。", "Check whether nearby options, access, booking, price, and reviews appear."), "category_discovery_topic", "local", 88),
+      makeCandidate(t("エリアや予約しやすさで比較できるか", "Area and booking comparison"), t("エリア、予約しやすさ、空き状況、代替候補の比較軸を確認します。", "Check how AI answers compare area, booking ease, availability, and substitutes."), "local_regional_topic", "local", 86),
+      makeCandidate(t("予約前に何を確認すべきか", "Pre-booking checks"), t("相性、料金、予約の流れ、注意点を予約前に確認できるかを見ます。", "Check what customers should confirm about fit, price, booking flow, and cautions before booking."), "persona_specific_topic", "risk", 80),
+      makeCandidate(t("料金や口コミをどう見るか", "Price and review trust"), t("料金、口コミ、スタッフ、予約前の注意点が出るかを確認します。", "Check how price, reviews, staff, and pre-booking cautions appear."), "pricing_reputation_topic", "reputation", 78),
       commonCitation,
       commonSentiment
     ];
@@ -2717,18 +2720,18 @@ export function scoreQuestionAreaCandidates(
 
   if (category.profile === "professional_service" || category.profile === "marketing_seo") {
     return [
-      makeCandidate("Consultation need discovery", "Check whether customer problems, scope, and expected support paths appear.", "category_discovery_topic", "visibility", 88),
-      makeCandidate("Provider and in-house comparison", "Check how AI answers compare agencies, experts, tools, and in-house work.", "alternative_search_topic", "comparison", 86),
-      makeCandidate("Before-consultation checks", "Check proof, scope, fees, project fit, and risks before inquiry.", "persona_specific_topic", "risk", 82),
+      makeCandidate(t("相談したい課題に合うか", "Consultation need discovery"), t("顧客の課題、対応範囲、支援の進め方が出るかを確認します。", "Check whether customer problems, scope, and expected support paths appear."), "category_discovery_topic", "visibility", 88),
+      makeCandidate(t("専門会社・内製・ツールと比較できるか", "Provider and in-house comparison"), t("支援会社、専門家、ツール、内製との比較軸を確認します。", "Check how AI answers compare agencies, experts, tools, and in-house work."), "alternative_search_topic", "comparison", 86),
+      makeCandidate(t("相談前の確認点が出るか", "Before-consultation checks"), t("実績、対応範囲、費用、プロジェクト適性、リスクを確認します。", "Check proof, scope, fees, project fit, and risks before inquiry."), "persona_specific_topic", "risk", 82),
       commonCitation,
       commonSentiment
     ];
   }
 
   return [
-    makeCandidate("Category discovery", "Check how AI answers describe the customer problem and candidate category.", "category_discovery_topic", "visibility", 72),
-    makeCandidate("Alternative comparison", "Check which comparable options and evaluation axes appear.", "alternative_search_topic", "comparison", 68),
-    makeCandidate("Selection criteria", "Check what customers should verify before choosing.", "persona_specific_topic", "risk", 64),
+    makeCandidate(t("カテゴリ候補に出るか", "Category discovery"), t("顧客課題と候補カテゴリがAI回答でどう説明されるかを確認します。", "Check how AI answers describe the customer problem and candidate category."), "category_discovery_topic", "visibility", 72),
+    makeCandidate(t("代替手段と比較されるか", "Alternative comparison"), t("比較される選択肢と評価軸を確認します。", "Check which comparable options and evaluation axes appear."), "alternative_search_topic", "comparison", 68),
+    makeCandidate(t("選ぶ前の確認点が出るか", "Selection criteria"), t("選ぶ前に確認すべき条件を確認します。", "Check what customers should verify before choosing."), "persona_specific_topic", "risk", 64),
     commonCitation,
     commonSentiment
   ];
@@ -2862,6 +2865,39 @@ function hasExplicitEcommerceEvidence(evidenceTerms: readonly ServiceEvidenceTer
   );
 }
 
+function hasExplicitFinanceEvidence(evidenceTerms: readonly ServiceEvidenceTerm[]) {
+  const financeKeywords = [
+    "finance",
+    "investment",
+    "insurance",
+    "loan",
+    "securities",
+    "bank",
+    "fx",
+    "nisa",
+    "ideco",
+    "fintech",
+    "mortgage",
+    "金融",
+    "投資",
+    "資産運用",
+    "保険",
+    "ローン",
+    "証券",
+    "銀行",
+    "仮想通貨",
+    "暗号資産",
+    "株式",
+    "債券",
+    "住宅ローン",
+    "保険相談"
+  ];
+  return evidenceTerms.some((term) =>
+    (term.source === "service_description" || term.source === "category" || term.source === "audience") &&
+    financeKeywords.some((needle) => evidenceMatchesTerm(term.normalized, needle))
+  );
+}
+
 function scoreCategoryKeyword(evidenceTerms: readonly ServiceEvidenceTerm[], keyword: string) {
   return evidenceTerms.reduce((score, term) => {
     return score + (evidenceMatchesTerm(term.normalized, keyword) ? term.weight : 0);
@@ -2945,7 +2981,7 @@ function isLocalIntent(seed: ProjectSetupSeedInput) {
   if (containsAny(text, ["local", "nearby", "regional", "area", "store", "clinic", "restaurant", "地域", "近く", "店舗", "通える", "来店", "予約"])) {
     return true;
   }
-  return seed.regions.some((region) => !containsAny(normalizeForMatch(region), ["japan", "national", "全国", "国内", "unspecified"]));
+  return seed.regions.some((region) => !containsAny(normalizeForMatch(region), ["japan", "national", "日本", "国内", "全国", "unspecified"]));
 }
 
 function isRegulatedOrHighTrustIndustry(seed: ProjectSetupSeedInput) {

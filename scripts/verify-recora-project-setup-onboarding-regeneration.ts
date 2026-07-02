@@ -244,31 +244,31 @@ assert.notDeepEqual(
 );
 assertIncludesAny(
   beginnerEnglishDraft.topics.map((topic) => topic.topicName).join("\n"),
-  ["Beginner", "lesson", "trial", "level"],
+  ["初めて", "料金", "体験レッスン", "レベル"],
   "beginner English question areas"
 );
 assertIncludesAny(
   kidsEnglishDraft.topics.map((topic) => topic.topicName).join("\n"),
-  ["Child", "guardian", "teacher", "curriculum", "safety"],
+  ["子ども", "保護者", "講師", "カリキュラム", "安全"],
   "kids English question areas"
 );
 assertIncludesAny(
   mattressEcDraft.topics.map((topic) => topic.topicName).join("\n"),
-  ["Sleep", "mattress", "comfort", "materials", "return"],
+  ["睡眠", "寝心地", "素材", "返品条件"],
   "mattress EC question areas"
 );
 assertIncludesAny(
   cosmeticsEcDraft.topics.map((topic) => topic.topicName).join("\n"),
-  ["Skin", "ingredient", "subscription", "reviews"],
+  ["肌", "成分", "定期購入", "口コミ"],
   "cosmetics EC question areas"
 );
 assertIncludesAny(
   recruitingSaasDraft.topics.map((topic) => topic.topicName).join("\n"),
-  ["Hiring", "Recruiting", "candidate", "Stakeholder"],
+  ["採用", "候補者", "関係者"],
   "recruiting SaaS question areas"
 );
 assert.ok(
-  !/AI search visibility|Citation and source readiness|SEO/i.test(recruitingSaasDraft.topics.map((topic) => topic.topicName).join("\n")),
+  !/AI search visibility|Citation and source readiness|Hiring workflow fit|Recruiting tool comparison|Child fit and guardian concerns|Product fit and purchase concerns|SEO/i.test(recruitingSaasDraft.topics.map((topic) => topic.topicName).join("\n")),
   "recruiting SaaS question areas must not reuse SEO/AI-search defaults"
 );
 

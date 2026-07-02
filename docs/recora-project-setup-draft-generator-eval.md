@@ -126,4 +126,6 @@ The eval now checks the category/topic inference layer added for service-evidenc
 - `question_area_specificity` confirms that scored question-area candidates are reflected in generated topic names and input completion.
 - A Recora-like brand name is explicitly guarded so the `ec` fragment in `Recora` does not trigger ecommerce/product classification.
 - Recruiting SaaS evidence is checked so hiring/candidate-management topics beat generic SaaS defaults.
+- UTF-8 file-based regression fixtures cover BtoB SEO/AI search, recruiting SaaS, beginner English school, kids English school, beauty clinic, mattress EC, cosmetics EC, local service, and professional service.
+- The regression fixtures assert that customer-facing question areas do not expose English/raw labels, non-branded prompts do not leak brand/alias/domain/competitor signals, and thin BtoC price/cost wording does not trigger `finance_investment`.
 - These checks remain deterministic and local. They do not fetch URL content, crawl pages, call OpenAI/external APIs, write to DB/Supabase, run measurement, save, approve, or materialize.

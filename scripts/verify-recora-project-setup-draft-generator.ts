@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 
 import {
   derivePromptMetricEligibility,
@@ -27,6 +29,17 @@ import {
 const MAX_PROMPTS_PER_TOPIC = 4;
 const MAX_GENERATED_PERSONAS = 5;
 const MAX_GENERATED_PROMPTS = 18;
+
+type RegressionFixture = {
+  id: string;
+  seed: ProjectSetupSeedInput;
+  expectedCategoryProfile: string;
+  expectedBusinessModel: string;
+  requiredQuestionAreaTerms: readonly string[];
+  disallowedQuestionAreaTerms?: readonly string[];
+  b2b: boolean;
+  mustNotBeFinance?: boolean;
+};
 
 type ValidCase = {
   id: string;
@@ -312,6 +325,10 @@ const recruitingDraft = generateProjectSetupDraft(recruitingToolSeed).draft;
 const recruitingPromptText = recruitingDraft.prompts.map((prompt) => prompt.text).join("\n");
 assert.ok(!promptTextContainsKnownCompetitorSignal(recruitingPromptText, recruitingToolSeed));
 
+const regressionFixtures = readRegressionFixtures();
+for (const fixture of regressionFixtures) {
+  assertRegressionFixture(fixture);
+}
 const incompleteResult = generateProjectSetupDraft(incompleteSeed);
 assert.ok(incompleteResult.blockers.includes("seedInput.companyName is required"));
 assert.ok(incompleteResult.blockers.includes("seedInput.brandName is required"));
@@ -346,6 +363,7 @@ console.log(JSON.stringify({
     recoraBrandDoesNotTriggerEc: true,
     recruitingEvidenceBeatsGenericSaas: true,
     questionAreaCandidatesUseServiceEvidence: true,
+    utf8FileBasedRegressionFixtures: regressionFixtures.length,
     personaTopicPromptReferences: true,
     nonBrandedPromptsExcludeBrandSignals: true,
     brandedPromptsExcludedFromVisibilityRankingSov: true,
@@ -371,6 +389,93 @@ console.log(JSON.stringify({
   topicTypes: Object.fromEntries(caseResults.map(({ id, result }) => [id, result.draft.topics.map((topic) => topic.topicType)]))
 }, null, 2));
 
+function readRegressionFixtures(): RegressionFixture[] {
+  const fixturePath = path.join(process.cwd(), "scripts", "fixtures", "project-setup-draft-generator-regression.json");
+  const raw = fs.readFileSync(fixturePath, "utf8");
+  const fixtures = JSON.parse(raw) as RegressionFixture[];
+  assert.ok(Array.isArray(fixtures));
+  assert.equal(fixtures.length, 9, "UTF-8 regression fixture count must stay intentional");
+  return fixtures;
+}
+
+function assertRegressionFixture(fixture: RegressionFixture) {
+  const evidenceTerms = buildServiceEvidenceTerms(fixture.seed);
+  const categoryCandidates = scoreCategoryCandidates(evidenceTerms, fixture.seed);
+  const topCategory = categoryCandidates[0];
+  assert.ok(topCategory, fixture.id);
+  assert.equal(topCategory.profile, fixture.expectedCategoryProfile, `${fixture.id} category profile`);
+  if (fixture.mustNotBeFinance) {
+    assert.notEqual(topCategory.profile, "finance_investment", `${fixture.id} must not be finance/investment from thin BtoC wording`);
+  }
+
+  const result = generateProjectSetupDraft(fixture.seed);
+  assert.deepEqual(result.blockers, [], fixture.id);
+  assert.equal(result.generationSummary.businessModel, fixture.expectedBusinessModel, `${fixture.id} business model`);
+  assertGeneratedDraftQuality(result.draft);
+
+  const topicText = result.draft.topics
+    .map((topic) => `${topic.topicName}\n${topic.diagnosisGoal}\n${topic.expectedSignal}`)
+    .join("\n");
+  const completionQuestionAreas = result.draft.inputCompletion
+    .filter((item) => item.field === "serviceEvidenceQuestionAreas")
+    .flatMap((item) => Array.isArray(item.value) ? item.value.map(String) : [String(item.value ?? "")])
+    .join("\n");
+  const questionAreaText = `${topicText}\n${completionQuestionAreas}`;
+
+  assertIncludesAll(questionAreaText, fixture.requiredQuestionAreaTerms, `${fixture.id} question areas`);
+  assertContainsNone(questionAreaText, fixture.disallowedQuestionAreaTerms ?? [], `${fixture.id} question areas`);
+  assertNoRawQuestionAreaLabels(questionAreaText, fixture.id);
+  assertNoUnnaturalTopicText(topicText, fixture.id);
+
+  const brandIdentity = getBrandIdentityFromDraft(result.draft);
+  const nonBrandedPromptText = result.draft.prompts
+    .filter((prompt) => prompt.brandMentionRule === "brand_excluded")
+    .map((prompt) => prompt.text)
+    .join("\n");
+  assert.equal(promptTextContainsBrandSignal(nonBrandedPromptText, brandIdentity), false, `${fixture.id} brand leak`);
+  assert.equal(promptTextContainsKnownCompetitorSignal(nonBrandedPromptText, fixture.seed), false, `${fixture.id} competitor leak`);
+  if (fixture.b2b) {
+    assertContainsNone(nonBrandedPromptText, ["口コミだけ", "通いやすさ", "近くで", "子どもに合う", "返品条件", "肌に合う"], `${fixture.id} BtoB prompt context`);
+  } else {
+    assertContainsNone(nonBrandedPromptText, ["社内承認", "稟議", "既存ツール連携", "システム連携"], `${fixture.id} BtoC prompt context`);
+  }
+}
+
+function assertIncludesAll(value: string, terms: readonly string[], label: string) {
+  for (const term of terms) {
+    assert.ok(value.includes(term), `${label} must include ${term}`);
+  }
+}
+
+function assertContainsNone(value: string, terms: readonly string[], label: string) {
+  for (const term of terms) {
+    assert.equal(value.includes(term), false, `${label} must not include ${term}`);
+  }
+}
+
+function assertNoRawQuestionAreaLabels(value: string, label: string) {
+  const rawLabels = [
+    "AI search visibility",
+    "candidate discovery",
+    "Candidate discovery",
+    "citation opportunity",
+    "Citation and source readiness",
+    "comparison readiness",
+    "Hiring workflow fit",
+    "Child fit and guardian concerns",
+    "Beginner fit and lesson choice",
+    "Product fit and purchase concerns",
+    "Source and evidence behavior",
+    "Brand perception summary"
+  ];
+  assertContainsNone(value, rawLabels, `${label} customer-facing question areas`);
+}
+
+function assertNoUnnaturalTopicText(value: string, label: string) {
+  assert.equal(/(^|[\s:：])なし([\s。.:：]|$)/.test(value), false, `${label} topic text must not contain unnatural none text`);
+  assert.equal(value.includes("。レポート目的"), false, `${label} topic text must not contain broken report-purpose punctuation`);
+  assert.equal(value.includes("重点論点: なし"), false, `${label} topic text must not contain empty focus-topic marker`);
+}
 function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
   const baseValidation = validateProjectSetupDraft(draft);
   const generatedValidation = validateGeneratedProjectSetupDraft(draft);
