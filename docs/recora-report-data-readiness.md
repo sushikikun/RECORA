@@ -10,6 +10,8 @@ Customer DB overall readiness is tracked in `docs/recora-customer-db-readiness-a
 
 Customer, organization, membership, project, and report visibility boundaries are defined in `docs/recora-customer-org-project-boundary-design.md`. The next RLS readiness audit should use that boundary design as the expected ownership model, while customer-facing UI remains a separate track.
 
+Admin/internal DB current state is audited in `docs/recora-admin-db-current-state-audit.md`. Report data design should use that audit to keep admin-only operation state separate from customer-facing report projections.
+
 Prompt scope backfill remains paused at review-record state because `safe_explicit_candidate = 0` and `apply_candidate = 0`.
 
 ## Overview
