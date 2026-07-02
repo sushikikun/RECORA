@@ -1,0 +1,12 @@
+[
+  {
+    "url": "https://example.com/service",
+    "source_type": "owned_page",
+    "html_fixture_path": "normal.html"
+  },
+  {
+    "url": "https://example.com/private",
+    "source_type": "owned_page",
+    "html_fixture_path": "noindex-nosnippet.html"
+  }
+]
