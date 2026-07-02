@@ -161,6 +161,26 @@ body {
   overflow-x: visible;
 }
 
+[data-recora-visual="data-rich-final"] .recora-data-rich-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+}
+
+[data-recora-visual="data-rich-final"] .recora-data-rich-table-wrap > .overflow-x-auto {
+  min-width: 100%;
+  overflow-x: visible;
+}
+
+[data-recora-visual="data-rich-final"] .recora-data-rich-table-wrap table {
+  min-width: 100%;
+}
+
+[data-recora-visual="data-rich-final"] .recora-data-rich-table-wrap td {
+  overflow-wrap: anywhere;
+}
+
 [data-recora-visual="data-rich-final"] .recora-data-rich-split {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(270px, 28%);
