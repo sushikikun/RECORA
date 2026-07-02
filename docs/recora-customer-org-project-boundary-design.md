@@ -10,6 +10,7 @@ This document defines the target customer, organization, membership, project, an
 It follows `docs/recora-customer-db-readiness-audit.md`, which identified customer/org/project boundary, RLS/customer visibility, report publication state, and measurement prompt snapshot as P0 gaps. This design handles the first of those gaps: what must be treated as the durable tenant and project boundary before RLS audit, report publication migration, prompt snapshot design, or customer-facing UI work can proceed.
 
 This PR is docs-only. It does not create a migration, write to any database, run Supabase db push, apply backfills, implement UI, implement auth, change middleware, or modify LP/Auth/handoff areas.
+`docs/recora-admin-db-current-state-audit.md` records the read-only admin/internal DB state that should feed the later customer-vs-admin DB boundary design.
 
 ## Scope
 
