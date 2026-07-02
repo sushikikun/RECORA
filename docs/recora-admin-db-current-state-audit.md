@@ -12,6 +12,7 @@ The audit follows:
 - `docs/recora-customer-db-readiness-audit.md`
 - `docs/recora-customer-org-project-boundary-design.md`
 - PR #56 merge commit `257233764ba2ea3e3c4f929ab49da9b6a898dffd`
+- `docs/recora-customer-vs-admin-db-boundary-design.md` for the target ownership, projection, and source-of-truth rules that follow this audit.
 
 The core finding is that Recora now has a real `recora_admin` schema for internal operational metadata, but several customer-facing projection boundaries are still not first-class. Admin-owned plan/subscription, measurement job, publication review, prompt-change, and internal note tables exist. Customer-visible report snapshots, report publication state, recommendation workflow state, Page Brief, Action Plan, and measurement prompt snapshots still need separate design or schema work.
 
