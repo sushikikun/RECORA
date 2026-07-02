@@ -43,9 +43,9 @@ import { cn } from "@/lib/utils";
 
 const steps = [
   { title: "ブランド確認", short: "ブランド", icon: Building2 },
-  { title: "サービス理解・市場・顧客層・競合", short: "サービス", icon: Wand2 },
+  { title: "サービス情報と確認条件", short: "サービス条件", icon: Wand2 },
   { title: "見たいこと", short: "見たいこと", icon: Target },
-  { title: "プロンプト例", short: "プロンプト", icon: MessageSquareText },
+  { title: "プロンプト例", short: "質問例", icon: MessageSquareText },
   { title: "最終確認", short: "確認", icon: ClipboardCheck }
 ] as const;
 
@@ -703,8 +703,8 @@ function ServiceStep({
     <WizardCard
       size="wide"
       icon={<Wand2 />}
-      title="サービス理解・市場・顧客層・競合"
-      description="サービスの内容や市場・競合について教えてください。"
+      title="サービス情報と確認条件"
+      description="公式URLの確認結果を踏まえて、サービスカテゴリ・主に見たい相手・競合の扱いを整えます。"
     >
       <SiteInspectionPanel formState={formState} siteInspection={siteInspection} />
 
@@ -712,9 +712,9 @@ function ServiceStep({
         <div className="flex gap-3">
           <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#1B8B65]" />
           <div>
-            <h3 className="text-sm font-bold text-[#075E44]">Recoraからの提案</h3>
+            <h3 className="text-sm font-bold text-[#075E44]">Recoraが補完した候補</h3>
             <p className="mt-0.5 text-xs leading-5 text-[#64736C]">
-              公式URLのページ情報と入力内容をもとに、以下の候補を入れています。必要なら編集してください。
+              公式URLの1ページ確認と入力内容から、初期候補を入れています。実態と違う場合はここで直してください。
             </p>
           </div>
         </div>
@@ -773,13 +773,13 @@ function ServiceStep({
           />
         </div>
         <ChipInput
-          label="ペルソナ"
+          label="主に見たい相手"
           items={formState.audienceTargets}
           inputValue={formState.audienceTargetInput}
           onInputChange={(value) => updateForm("audienceTargetInput", value)}
           onAdd={(value) => updateForm("audienceTargets", addUnique(formState.audienceTargets, value))}
           onRemove={(value) => updateForm("audienceTargets", removeValue(formState.audienceTargets, value))}
-          placeholder="例 マーケティング担当者"
+          placeholder="例 導入を判断する責任者"
           suggestions={audienceSuggestions}
         />
         <section className="rounded-xl border border-[#E1E8E5] bg-white p-3.5">
@@ -787,7 +787,7 @@ function ServiceStep({
             <div>
               <h3 className="text-sm font-bold text-[#0B1F17]">競合</h3>
               <p className="mt-1 text-sm leading-6 text-[#64736C]">
-                比較したい競合があれば入力してください。未定の場合はRecoraで候補抽出する前提で進めます。
+                比較したい競合があれば入力してください。未定の場合は、後続の診断設計で候補抽出する前提にします。
               </p>
             </div>
             <div className="grid min-w-[240px] gap-2 sm:grid-cols-2">
@@ -1034,19 +1034,19 @@ function PromptStep({
     <WizardCard
       icon={<MessageSquareText className="h-9 w-9" />}
       title="プロンプト例"
-      description="入力内容をもとに、診断で使う質問例を確認しやすい形に整理しました。"
+      description="Step1〜Step3の入力から、顧客が確認しやすい質問例に整えています。"
       footer="この画面では質問文の方向性だけを確認します。保存・承認・計測反映は行いません。"
       size="wide"
     >
       {draftPreview ? <DraftPreviewSummary draftPreview={draftPreview} /> : null}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <section className="min-w-0 rounded-xl border border-[#DDE8E5] bg-[#FBFDFC] p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="text-base font-bold text-[#0B1F17]">Recoraからの提案</h3>
+              <h3 className="text-base font-bold text-[#0B1F17]">生成されたプロンプト例</h3>
               <p className="mt-1 text-sm leading-6 text-[#64736C]">
-                Step1〜Step3の入力から作成した下書きです。必要に応じて文章だけ調整できます。
+                サービスカテゴリ、主に見たい相手、質問領域をもとにした確認用の質問例です。
               </p>
             </div>
             <Badge variant="outline" className="border-[#CFE2DA] bg-white text-[#075E44]">
@@ -1074,7 +1074,7 @@ function PromptStep({
           {customPrompts.length > 0 ? (
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <h3 className="text-sm font-bold text-[#0B1F17]">追加したプロンプト</h3>
+                <h3 className="text-sm font-bold text-[#0B1F17]">追加したプロンプト例</h3>
                 <span className="text-xs font-semibold text-[#64736C]">{customPrompts.length}件</span>
               </div>
               <div className="overflow-hidden rounded-xl border border-[#E1E8E5] bg-white">
@@ -1095,8 +1095,12 @@ function PromptStep({
         </section>
 
         <aside className="h-fit rounded-xl border border-[#DDE8E5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          <div className="mb-3">
+            <h3 className="text-sm font-bold text-[#0B1F17]">追加の質問</h3>
+            <p className="mt-1 text-xs leading-5 text-[#64736C]">生成候補に足したい観点だけを入力してください。</p>
+          </div>
           <TextareaInput
-            label="追加したいプロンプト"
+            label="質問文"
             value={newPromptText}
             onChange={setNewPromptText}
             rows={4}
@@ -1128,7 +1132,7 @@ function DraftPreviewSummary({ draftPreview }: { draftPreview: CustomerFacingDra
 function PersonaPreviewSection({ personas }: { personas: readonly CustomerPersona[] }) {
   return (
     <section className="min-w-0 rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-3">
-      <h3 className="text-xs font-bold uppercase tracking-normal text-[#64736C]">ペルソナ</h3>
+      <h3 className="text-xs font-bold uppercase tracking-normal text-[#64736C]">主に見たい相手</h3>
       <div className="mt-2 space-y-2">
         {personas.length > 0 ? (
           personas.map((persona) => (
@@ -1186,7 +1190,7 @@ function ConfirmationStep({
     <WizardCard
       icon={<ClipboardCheck className="h-9 w-9" />}
       title="最終確認"
-      description="確認内容をまとめました。この内容でよろしければ完了してください。"
+      description="測定前に確認しておきたい内容を、要点と詳細に分けてまとめました。"
       size="wide"
     >
       {seedBlockers.length > 0 ? (
@@ -1201,7 +1205,7 @@ function ConfirmationStep({
       <div className="grid gap-3 md:grid-cols-4">
         <SummaryStat label="測定対象" value={formState.brandName || "未入力"} />
         <SummaryStat label="市場" value={formatList(formState.regions)} />
-        <SummaryStat label="顧客層" value={formatAudienceType(formState.audienceType)} />
+        <SummaryStat label="提供形態" value={formatAudienceType(formState.audienceType)} />
         <SummaryStat label="プロンプト例" value={`${promptCount}件`} />
       </div>
 
@@ -1224,7 +1228,7 @@ function ConfirmationStep({
         </p>
       ) : null}
       <p className="mt-3 text-center text-xs leading-5 text-[#7A8982]">
-        この画面では保存・承認・計測反映は行いません。診断は次のステップで実行されます。
+        この画面では保存・承認・計測反映は行いません。診断の実行や反映は次のステップで扱います。
       </p>
     </WizardCard>
   );
@@ -1620,33 +1624,33 @@ function PromptListItem({
   onRemove: () => void;
 }) {
   return (
-    <div className="border-b border-[#E8EFEC] p-3.5 last:border-b-0">
+    <div className="border-b border-[#E8EFEC] p-4 last:border-b-0">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="flex min-w-0 flex-1 gap-3">
-          <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#075E44] text-xs font-bold text-white">
+          <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#075E44] text-xs font-bold text-white">
             {index + 1}
           </span>
           <label className="min-w-0 flex-1">
             <span className="mb-2 flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="border-[#D6E2DD] bg-[#F8FBFA] text-[#64736C]">
+              <Badge variant="outline" className="border-[#D6E2DD] bg-[#F8FBFA] text-[#075E44]">
                 {getPromptGroupLabel(prompt.group)}
               </Badge>
-              <span className="text-xs font-semibold text-[#7A8982]">直接編集できます</span>
+              <span className="text-xs font-semibold text-[#7A8982]">編集できます</span>
             </span>
             <textarea
-              className="min-h-24 w-full resize-y rounded-lg border border-transparent bg-[#F8FBFA] px-3 py-3 text-sm leading-6 text-[#0B1F17] outline-none transition focus:border-[#1B8B65] focus:bg-white focus:ring-2 focus:ring-[#1B8B65]/15"
+              className="min-h-24 w-full resize-y rounded-lg border border-[#E1E8E5] bg-white px-3 py-3 text-sm leading-6 text-[#0B1F17] outline-none transition focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15"
               rows={3}
               value={prompt.text}
               onChange={(event) => onChange({ ...prompt, text: event.target.value })}
-              aria-label={`プロンプト例 ${index + 1}`}
+              aria-label={'プロンプト例 ' + (index + 1)}
             />
           </label>
         </div>
         <button
           type="button"
-          className="w-full shrink-0 rounded-lg border border-[#E1E8E5] px-3 py-2 text-xs font-bold text-[#7A8982] hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 sm:w-auto"
+          className="w-full shrink-0 rounded-lg border border-[#E1E8E5] bg-white px-3 py-2 text-xs font-bold text-[#7A8982] hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 sm:w-auto"
           onClick={onRemove}
-          aria-label={`プロンプト例 ${index + 1}を削除`}
+          aria-label={'プロンプト例 ' + (index + 1) + 'を削除'}
         >
           削除
         </button>
@@ -2548,18 +2552,18 @@ function buildConfirmationSections(formState: WizardState, draftPreview: Custome
       items: [
         { label: "地域", value: formatList(formState.regions) },
         { label: "言語", value: formatLanguage(formState.language) },
-        { label: "顧客層", value: formatAudienceType(formState.audienceType) }
+        { label: "提供形態", value: formatAudienceType(formState.audienceType) }
       ]
     },
     {
-      title: "ペルソナ",
+      title: "主に見たい相手",
       items: [{ label: "確認対象", value: formatPersonaFrames(draftPreview?.audiencePersonas, formState.audienceTargets) }]
     },
     {
       title: "競合",
       items: [
         {
-          label: "扱い",
+          label: "競合の扱い",
           value:
             formState.competitorMode === "competitor_discovery_needed"
               ? "Recoraで候補抽出"
@@ -2570,8 +2574,8 @@ function buildConfirmationSections(formState: WizardState, draftPreview: Custome
     {
       title: "質問領域",
       items: [
-        { label: "重点論点", value: formatList(formState.watchTopics) },
-        { label: "確認領域", value: formatList(draftPreview?.questionAreas ?? formState.watchTopics) },
+        { label: "入力した重点論点", value: formatList(formState.watchTopics) },
+        { label: "生成された質問領域", value: formatList(draftPreview?.questionAreas ?? formState.watchTopics) },
         { label: "レポート目的", value: formatList(formatReportGoalLabels(formState)) }
       ]
     }
@@ -2582,7 +2586,7 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
   return (
     <section className="min-w-0 rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-3">
       <div className="text-xs font-bold uppercase tracking-normal text-[#64736C]">{label}</div>
-      <div className="mt-1 truncate text-sm font-bold text-[#0B1F17]">{value}</div>
+      <div className="mt-1 break-words text-sm font-bold leading-5 text-[#0B1F17]">{value}</div>
     </section>
   );
 }
@@ -2611,27 +2615,25 @@ function ConfirmationSection({
 
 function PromptSummaryList({ prompts }: { prompts: EditablePrompt[] }) {
   const visiblePrompts = prompts.filter((prompt) => prompt.text.trim());
+  const generatedPrompts = visiblePrompts.filter((prompt) => !isCustomPrompt(prompt));
+  const customPrompts = visiblePrompts.filter(isCustomPrompt);
 
   return (
     <section className="h-fit rounded-xl border border-[#DDE8E5] bg-[#FBFDFC] p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-bold text-[#0B1F17]">プロンプト例</h3>
-        <span className="text-xs font-semibold text-[#64736C]">{visiblePrompts.length}件</span>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-bold text-[#0B1F17]">プロンプト例</h3>
+          <p className="mt-1 text-xs leading-5 text-[#64736C]">生成候補と追加した質問を分けて確認できます。</p>
+        </div>
+        <span className="shrink-0 text-xs font-semibold text-[#64736C]">{visiblePrompts.length}件</span>
       </div>
       {visiblePrompts.length > 0 ? (
-        <ol className="mt-3 space-y-2">
-          {visiblePrompts.map((prompt, index) => (
-            <li key={`${prompt.id}-${index}`} className="rounded-lg border border-[#E1E8E5] bg-white p-3">
-              <div className="mb-1 flex items-center gap-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#075E44] text-[11px] font-bold text-white">
-                  {index + 1}
-                </span>
-                <span className="text-xs font-semibold text-[#64736C]">{getPromptGroupLabel(prompt.group)}</span>
-              </div>
-              <p className="break-words text-sm leading-6 text-[#0B1F17]">{prompt.text}</p>
-            </li>
-          ))}
-        </ol>
+        <div className="mt-3 space-y-4">
+          <PromptSummaryGroup title="生成された質問" prompts={generatedPrompts} startIndex={0} />
+          {customPrompts.length > 0 ? (
+            <PromptSummaryGroup title="追加した質問" prompts={customPrompts} startIndex={generatedPrompts.length} />
+          ) : null}
+        </div>
       ) : (
         <p className="mt-3 text-sm leading-6 text-[#64736C]">未入力</p>
       )}
@@ -2639,8 +2641,42 @@ function PromptSummaryList({ prompts }: { prompts: EditablePrompt[] }) {
   );
 }
 
+function PromptSummaryGroup({
+  title,
+  prompts,
+  startIndex
+}: {
+  title: string;
+  prompts: EditablePrompt[];
+  startIndex: number;
+}) {
+  if (prompts.length === 0) return null;
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h4 className="text-xs font-bold text-[#506158]">{title}</h4>
+        <span className="text-xs font-semibold text-[#7A8982]">{prompts.length}件</span>
+      </div>
+      <ol className="space-y-2">
+        {prompts.map((prompt, index) => (
+          <li key={prompt.id + '-' + index} className="rounded-lg border border-[#E1E8E5] bg-white p-3">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#075E44] text-[11px] font-bold text-white">
+                {startIndex + index + 1}
+              </span>
+              <span className="text-xs font-semibold text-[#64736C]">{getPromptGroupLabel(prompt.group)}</span>
+            </div>
+            <p className="break-words text-sm leading-6 text-[#0B1F17]">{prompt.text}</p>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function isCustomPrompt(prompt: EditablePrompt) {
-  return prompt.id.startsWith("custom-");
+  return prompt.id.startsWith("custom-") || prompt.id.startsWith("prompt-custom-");
 }
 
 function getPromptGroupLabel(group: PromptGroup) {
