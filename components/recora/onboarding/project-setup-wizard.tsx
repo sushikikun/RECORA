@@ -131,7 +131,32 @@ type OnboardingPersonaDecisionRole =
   | "quality_checker"
   | "risk_checker";
 
-type CustomerPersonaSource = "selected" | "generator" | "profile_fallback";
+type CustomerPersonaSource = "service_insight" | "selected" | "generator" | "profile_fallback";
+
+type OnboardingServiceInsight = {
+  brandName: string;
+  serviceName: string;
+  serviceSummary: string;
+  categoryHypothesis: string;
+  audienceType: AudienceType;
+  market: string[];
+  language: "ja" | "en";
+  valueProposition: string[];
+  primaryUseCases: string[];
+  buyerContext: string[];
+  decisionComplexity: "low" | "medium" | "high";
+  trustRequirements: string[];
+  likelyObjections: string[];
+  evidenceSignals: string[];
+  sourceEvidence: {
+    fromUrlTitle?: string;
+    fromUrlDescription?: string;
+    fromH1?: string;
+    fromUserServiceDescription?: string;
+    fromSelectedFocus?: string[];
+  };
+  uncertaintyFlags: string[];
+};
 
 type OnboardingPersonaFrame = {
   id: string;
@@ -146,6 +171,7 @@ type OnboardingPersonaFrame = {
   proofNeeded: string[];
   riskConcern: string[];
   promptAngle: string;
+  serviceEvidenceReason: string;
   source: CustomerPersonaSource;
 };
 
@@ -439,7 +465,11 @@ export function ProjectSetupWizard() {
 
     if (stepIndex === 2) {
       if (draftPreview === null || promptExamples === null || promptSeedKey !== seedKey) {
-        const preview = buildCustomerFacingDraftPreview(seedInput, formState);
+        const preview = buildCustomerFacingDraftPreview(
+          seedInput,
+          formState,
+          siteInspection.status === "success" ? siteInspection.result : null
+        );
         setDraftPreview(preview);
         setPromptExamples(preview.prompts);
         setPromptSeedKey(seedKey);
@@ -662,7 +692,11 @@ function ServiceStep({
   siteInspection: SiteInspectionState;
 }) {
   const suggestionProfile = deriveOnboardingSuggestionProfile(formState);
-  const audienceSuggestions = suggestionProfile.audienceTargets;
+  const serviceInsight = buildOnboardingServiceInsight(formState, siteInspection.status === "success" ? siteInspection.result : null);
+  const audienceSuggestions = uniqueStrings([
+    ...proposePersonaLabelsFromServiceInsight(serviceInsight, suggestionProfile),
+    ...suggestionProfile.audienceTargets
+  ]);
   const categorySuggestions = suggestionProfile.serviceCategories;
 
   return (
@@ -1717,10 +1751,15 @@ function applyServiceSuggestions(
   };
 }
 
-function buildCustomerFacingDraftPreview(seedInput: ProjectSetupSeedInput, formState: WizardState): CustomerFacingDraftPreview {
+function buildCustomerFacingDraftPreview(
+  seedInput: ProjectSetupSeedInput,
+  formState: WizardState,
+  inspection: SiteInspectionResult | null = null
+): CustomerFacingDraftPreview {
   const result = generateProjectSetupDraft(seedInput);
   const brandIdentity = buildBrandIdentity(seedInput);
   const profile = deriveOnboardingSuggestionProfile(formState);
+  const serviceInsight = buildOnboardingServiceInsight(formState, inspection);
   const generated = result.draft.prompts.slice(0, 5).map((prompt) => ({
     id: prompt.promptId,
     text: normalizeCustomerPromptExampleText(prompt.text),
@@ -1730,7 +1769,7 @@ function buildCustomerFacingDraftPreview(seedInput: ProjectSetupSeedInput, formS
   const fallback = buildFallbackPrompts(formState);
   const prompts = uniquePrompts(customerReadyGenerated.length > 0 ? customerReadyGenerated : fallback).slice(0, 5);
   const serviceCategories = uniqueStrings([seedInput.industryCategory, formState.serviceCategory, ...profile.serviceCategories]).slice(0, 3);
-  const audiencePersonas = buildCustomerPersonas(formState, result.draft.personas, profile);
+  const audiencePersonas = buildCustomerPersonas(formState, result.draft.personas, profile, serviceInsight);
   const audienceTargets = audiencePersonas.map((persona) => persona.label);
   const generatedQuestionAreas = result.draft.topics.map((topic) => buildCustomerFacingQuestionArea(topic.topicName, topic.diagnosisGoal));
   const questionAreas = uniqueStrings([
@@ -1768,30 +1807,91 @@ function isConsumerSuggestionProfile(profileKey: OnboardingSuggestionProfileKey)
 
 function reconcileAudienceTargetsForProfile(state: WizardState, preserveCompatibleExisting: boolean) {
   const profile = deriveOnboardingSuggestionProfile(state);
+  const serviceInsight = buildOnboardingServiceInsight(state);
+  const serviceBasedTargets = proposePersonaLabelsFromServiceInsight(serviceInsight, profile);
   const existing = preserveCompatibleExisting
     ? state.audienceTargets
         .map((label) => normalizeCustomerPersonaLabel(label, profile))
-        .filter((label) => isCustomerPersonaCompatibleWithProfile(label, profile))
+        .filter((label) => isCustomerPersonaCompatibleWithServiceInsight(label, profile, serviceInsight))
     : [];
-  return uniqueStrings([...existing, ...profile.audienceTargets]).slice(0, existing.length > 0 ? 5 : 3);
+  return uniqueStrings([...existing, ...serviceBasedTargets, ...profile.audienceTargets]).slice(0, existing.length > 0 ? 5 : 3);
+}
+
+function buildOnboardingServiceInsight(
+  formState: WizardState,
+  inspection: SiteInspectionResult | null = null
+): OnboardingServiceInsight {
+  const profile = deriveOnboardingSuggestionProfile(formState);
+  const serviceSummary = formState.serviceDescription.trim() || buildSuggestedServiceDescriptionForStep(formState, inspection);
+  const sourceEvidence = {
+    fromUrlTitle: inspection?.title || undefined,
+    fromUrlDescription: inspection?.description || undefined,
+    fromH1: inspection?.h1 || undefined,
+    fromUserServiceDescription: formState.serviceDescription.trim() || undefined,
+    fromSelectedFocus: uniqueStrings([...formState.watchTopics, ...formatReportGoalLabels(formState)])
+  };
+  const evidenceSignals = uniqueStrings([
+    formState.serviceCategory,
+    serviceSummary,
+    ...formState.audienceTargets,
+    ...formState.watchTopics,
+    ...formatReportGoalLabels(formState),
+    ...formState.competitors,
+    inspection?.title ?? "",
+    inspection?.description ?? "",
+    inspection?.h1 ?? ""
+  ]).slice(0, 10);
+  const uncertaintyFlags = [
+    !formState.serviceDescription.trim() ? "service_description_missing" : "",
+    !inspection ? "url_metadata_unavailable" : "",
+    formState.audienceTargets.length === 0 ? "selected_persona_missing" : ""
+  ].filter(Boolean);
+
+  return {
+    brandName: formState.brandName.trim(),
+    serviceName: formState.brandName.trim(),
+    serviceSummary,
+    categoryHypothesis: formState.serviceCategory.trim() || profile.serviceCategories[0] || "サービス",
+    audienceType: formState.audienceType,
+    market: formState.regions,
+    language: formState.language,
+    valueProposition: deriveServiceInsightValueProposition(formState, serviceSummary),
+    primaryUseCases: deriveServiceInsightUseCases(formState, serviceSummary),
+    buyerContext: uniqueStrings([...formState.audienceTargets, ...formState.watchTopics, ...formatReportGoalLabels(formState)]).slice(0, 8),
+    decisionComplexity: deriveServiceInsightDecisionComplexity(formState, serviceSummary),
+    trustRequirements: deriveServiceInsightTrustRequirements(formState, serviceSummary),
+    likelyObjections: deriveServiceInsightLikelyObjections(formState, serviceSummary),
+    evidenceSignals,
+    sourceEvidence,
+    uncertaintyFlags
+  };
 }
 
 function buildCustomerPersonas(
   formState: WizardState,
   generatedPersonas: readonly PersonaDraft[],
-  profile: OnboardingSuggestionProfile
+  profile: OnboardingSuggestionProfile,
+  serviceInsight = buildOnboardingServiceInsight(formState)
 ): CustomerPersona[] {
-  return renderCustomerPersonas(validateOnboardingPersonaFrames(proposeOnboardingPersonaFrames(formState, generatedPersonas, profile), profile));
+  return renderCustomerPersonas(
+    validateOnboardingPersonaFrames(proposeServiceBasedPersonaFrames(formState, generatedPersonas, profile, serviceInsight), profile, serviceInsight)
+  );
 }
 
-function proposeOnboardingPersonaFrames(
+function proposeServiceBasedPersonaFrames(
   formState: WizardState,
   generatedPersonas: readonly PersonaDraft[],
-  profile: OnboardingSuggestionProfile
+  profile: OnboardingSuggestionProfile,
+  serviceInsight: OnboardingServiceInsight
 ): OnboardingPersonaFrame[] {
   const sourceKey = buildCustomerPersonaSourceKey(formState);
+  const serviceBased = proposePersonaLabelsFromServiceInsight(serviceInsight, profile)
+    .map((label, index) =>
+      buildCustomerPersonaFrame(label, formState, profile, "service_insight", sourceKey + "-insight-" + index, undefined, serviceInsight)
+    )
+    .filter((persona): persona is OnboardingPersonaFrame => persona !== null);
   const selected = formState.audienceTargets
-    .map((label, index) => buildCustomerPersonaFrame(label, formState, profile, "selected", sourceKey + "-selected-" + index))
+    .map((label, index) => buildCustomerPersonaFrame(label, formState, profile, "selected", sourceKey + "-selected-" + index, undefined, serviceInsight))
     .filter((persona): persona is OnboardingPersonaFrame => persona !== null);
   const generated = generatedPersonas
     .map((persona, index) =>
@@ -1801,24 +1901,28 @@ function proposeOnboardingPersonaFrames(
         profile,
         "generator",
         sourceKey + "-generated-" + index,
-        persona
+        persona,
+        serviceInsight
       )
     )
     .filter((persona): persona is OnboardingPersonaFrame => persona !== null);
   const fallback = profile.audienceTargets
-    .map((label, index) => buildCustomerPersonaFrame(label, formState, profile, "profile_fallback", sourceKey + "-fallback-" + index))
+    .map((label, index) =>
+      buildCustomerPersonaFrame(label, formState, profile, "profile_fallback", sourceKey + "-fallback-" + index, undefined, serviceInsight)
+    )
     .filter((persona): persona is OnboardingPersonaFrame => persona !== null);
 
-  return [...selected, ...generated, ...fallback];
+  return [...serviceBased, ...selected, ...generated, ...fallback];
 }
 
 function validateOnboardingPersonaFrames(
   frames: readonly OnboardingPersonaFrame[],
-  profile: OnboardingSuggestionProfile
+  profile: OnboardingSuggestionProfile,
+  serviceInsight: OnboardingServiceInsight
 ): OnboardingPersonaFrame[] {
   const personas: OnboardingPersonaFrame[] = [];
   for (const persona of frames) {
-    if (!isCustomerPersonaCompatibleWithProfile(persona.label, profile)) continue;
+    if (!isCustomerPersonaCompatibleWithServiceInsight(persona.label, profile, serviceInsight)) continue;
     if (personas.some((current) => normalizeText(current.label) === normalizeText(persona.label))) continue;
     personas.push(persona);
   }
@@ -1833,16 +1937,164 @@ function renderCustomerPersonas(frames: readonly OnboardingPersonaFrame[]): Cust
   }));
 }
 
+function deriveServiceInsightValueProposition(formState: WizardState, serviceSummary: string) {
+  const text = buildServiceInsightText(formState, serviceSummary);
+  if (matchesAnyText(text, ["初心者", "初めて", "社会人", "英会話"])) return ["初めてでも始めやすい", "料金や通いやすさを比較できる"];
+  if (matchesAnyText(text, ["子ども", "こども", "キッズ", "保護者"])) return ["子どもに合う学習環境を選べる", "講師や安全性を確認できる"];
+  if (matchesAnyText(text, ["マットレス", "睡眠", "寝具"])) return ["睡眠悩みに合う商品を比較できる", "返品条件や素材を確認できる"];
+  if (matchesAnyText(text, ["化粧品", "コスメ", "スキンケア", "肌"])) return ["肌に合うか確認できる", "成分や口コミを比較できる"];
+  if (matchesAnyText(text, ["採用", "求人", "面接", "候補者", "ATS"])) return ["採用業務を整理できる", "人事と現場の判断材料をそろえられる"];
+  if (matchesAnyText(text, ["SEO", "AI検索", "LLMO", "GEO"])) return ["AI検索での見え方を確認できる", "改善施策の判断材料をそろえられる"];
+  return uniqueStrings([formState.serviceCategory, ...formState.watchTopics, ...formatReportGoalLabels(formState)]).slice(0, 3);
+}
+
+function deriveServiceInsightUseCases(formState: WizardState, serviceSummary: string) {
+  const text = buildServiceInsightText(formState, serviceSummary);
+  if (matchesAnyText(text, ["子ども", "こども", "キッズ", "保護者"])) return ["教室選び", "体験前の確認", "通いやすさの比較"];
+  if (matchesAnyText(text, ["初心者", "初めて", "社会人", "英会話"])) return ["初回申込み前の比較", "料金比較", "口コミ確認"];
+  if (matchesAnyText(text, ["マットレス", "睡眠", "寝具"])) return ["寝心地の比較", "返品条件の確認", "素材の確認"];
+  if (matchesAnyText(text, ["化粧品", "コスメ", "スキンケア", "肌"])) return ["肌との相性確認", "成分確認", "定期購入条件の確認"];
+  if (matchesAnyText(text, ["採用", "求人", "面接", "候補者", "ATS"])) return ["採用管理の比較", "面接連携の確認", "費用対効果の説明"];
+  if (matchesAnyText(text, ["SEO", "AI検索", "LLMO", "GEO"])) return ["AI検索露出の確認", "競合比較", "公式サイト引用の確認"];
+  return uniqueStrings([...formState.watchTopics, ...formatReportGoalLabels(formState)]).slice(0, 3);
+}
+
+function deriveServiceInsightDecisionComplexity(formState: WizardState, serviceSummary: string): OnboardingServiceInsight["decisionComplexity"] {
+  const text = buildServiceInsightText(formState, serviceSummary);
+  if (formState.audienceType === "b2b" || matchesAnyText(text, ["稟議", "承認", "セキュリティ", "採用", "SaaS", "導入"])) return "high";
+  if (matchesAnyText(text, ["医療", "クリニック", "美容", "資格", "リスク", "子ども", "返品", "定期購入"])) return "medium";
+  return "low";
+}
+
+function deriveServiceInsightTrustRequirements(formState: WizardState, serviceSummary: string) {
+  const text = buildServiceInsightText(formState, serviceSummary);
+  if (matchesAnyText(text, ["医療", "クリニック", "美容", "資格", "リスク"])) return ["資格・専門性", "リスク説明", "口コミ"];
+  if (matchesAnyText(text, ["子ども", "保護者", "キッズ"])) return ["講師の質", "安全性", "通いやすさ"];
+  if (matchesAnyText(text, ["化粧品", "コスメ", "肌"])) return ["成分", "口コミ", "返品・定期購入条件"];
+  if (matchesAnyText(text, ["マットレス", "睡眠", "寝具"])) return ["素材", "返品条件", "口コミ"];
+  if (matchesAnyText(text, ["採用", "SaaS", "導入"])) return ["実績", "費用対効果", "現場連携"];
+  return uniqueStrings([...formState.watchTopics, "口コミ", "料金説明"]).slice(0, 4);
+}
+
+function deriveServiceInsightLikelyObjections(formState: WizardState, serviceSummary: string) {
+  const text = buildServiceInsightText(formState, serviceSummary);
+  if (matchesAnyText(text, ["採用", "SaaS", "導入"])) return ["運用に乗るか分からない", "費用対効果を説明しにくい", "現場連携が不安"];
+  if (matchesAnyText(text, ["子ども", "保護者", "キッズ"])) return ["子どもに合うか分からない", "通い続けられるか不安", "講師の質が見えにくい"];
+  if (matchesAnyText(text, ["初心者", "英会話"])) return ["続けられるか分からない", "料金差が分かりにくい", "自分に合うか不安"];
+  if (matchesAnyText(text, ["化粧品", "コスメ", "肌"])) return ["肌に合うか不安", "成分が分かりにくい", "定期購入条件が不安"];
+  if (matchesAnyText(text, ["マットレス", "睡眠", "寝具"])) return ["寝心地が合うか不安", "返品できるか不安", "素材の違いが分かりにくい"];
+  return ["比較軸が分かりにくい", "料金や口コミだけでは判断しにくい"];
+}
+
+function proposePersonaLabelsFromServiceInsight(
+  serviceInsight: OnboardingServiceInsight,
+  profile: OnboardingSuggestionProfile
+): string[] {
+  const text = buildServiceDefinitionTextFromInsight(serviceInsight);
+  if (matchesAnyText(text, ["採用", "求人", "面接", "候補者", "ATS"])) {
+    return ["人事担当者", "採用責任者", "経営者・役員", "現場面接担当者"];
+  }
+  if (matchesAnyText(text, ["SEO", "AI検索", "LLMO", "GEO"])) {
+    return ["SEO担当者", "マーケティング責任者", "導入を判断する責任者"];
+  }
+  if (matchesAnyText(text, ["子ども", "こども", "キッズ", "保護者"])) {
+    return ["子どもに合う教室を探す保護者", "講師やカリキュラムを確認したい保護者", "通いやすさや安全性を重視する人"];
+  }
+  if (matchesAnyText(text, ["初心者", "初めて", "社会人", "英会話"])) {
+    return ["初めて英会話を始める社会人", "料金を比較する人", "口コミを重視する人", "通いやすさを重視する人"];
+  }
+  if (matchesAnyText(text, ["マットレス", "睡眠", "寝具"])) {
+    return ["睡眠悩みを解決したい人", "価格と口コミを比較する人", "返品条件を確認したい人", "品質や素材を確認したい人"];
+  }
+  if (matchesAnyText(text, ["化粧品", "コスメ", "スキンケア", "肌"])) {
+    return ["肌に合うか確認したい人", "成分や口コミを重視する人", "価格と定期購入条件を確認したい人"];
+  }
+  return profile.audienceTargets;
+}
+
+function buildServiceEvidenceReason(label: string, serviceInsight: OnboardingServiceInsight) {
+  const evidence = [
+    serviceInsight.sourceEvidence.fromUserServiceDescription ? "サービス説明" : "",
+    serviceInsight.sourceEvidence.fromUrlTitle ? "公式URLタイトル" : "",
+    serviceInsight.sourceEvidence.fromUrlDescription ? "公式URL説明文" : "",
+    serviceInsight.sourceEvidence.fromSelectedFocus?.length ? "選択した見たいこと" : ""
+  ].filter(Boolean);
+  const source = evidence.length > 0 ? evidence.slice(0, 2).join("・") : "入力内容";
+  return source + "から、" + label + "が確認しそうな判断材料を推定しています。";
+}
+
+function buildServiceInsightText(formState: WizardState, serviceSummary: string) {
+  return [
+    formState.brandName,
+    formState.brandAliases.join(" "),
+    formState.officialUrl,
+    serviceSummary,
+    formState.serviceCategory,
+    formState.audienceType,
+    formState.audienceTargets.join(" "),
+    formState.regions.join(" "),
+    formState.watchTopics.join(" "),
+    formatReportGoalLabels(formState).join(" "),
+    formState.competitors.join(" ")
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildServiceInsightTextFromInsight(serviceInsight: OnboardingServiceInsight) {
+  return [
+    serviceInsight.brandName,
+    serviceInsight.serviceName,
+    serviceInsight.serviceSummary,
+    serviceInsight.categoryHypothesis,
+    serviceInsight.audienceType,
+    serviceInsight.market.join(" "),
+    serviceInsight.valueProposition.join(" "),
+    serviceInsight.primaryUseCases.join(" "),
+    serviceInsight.buyerContext.join(" "),
+    serviceInsight.trustRequirements.join(" "),
+    serviceInsight.likelyObjections.join(" "),
+    serviceInsight.evidenceSignals.join(" "),
+    serviceInsight.sourceEvidence.fromUrlTitle,
+    serviceInsight.sourceEvidence.fromUrlDescription,
+    serviceInsight.sourceEvidence.fromH1
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildServiceDefinitionTextFromInsight(serviceInsight: OnboardingServiceInsight) {
+  return [
+    serviceInsight.brandName,
+    serviceInsight.serviceName,
+    serviceInsight.serviceSummary,
+    serviceInsight.categoryHypothesis,
+    serviceInsight.audienceType,
+    serviceInsight.market.join(" "),
+    serviceInsight.valueProposition.join(" "),
+    serviceInsight.primaryUseCases.join(" "),
+    serviceInsight.trustRequirements.join(" "),
+    serviceInsight.likelyObjections.join(" "),
+    serviceInsight.sourceEvidence.fromUrlTitle,
+    serviceInsight.sourceEvidence.fromUrlDescription,
+    serviceInsight.sourceEvidence.fromH1,
+    serviceInsight.sourceEvidence.fromUserServiceDescription
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function buildCustomerPersonaFrame(
   label: string,
   formState: WizardState,
   profile: OnboardingSuggestionProfile,
   source: CustomerPersonaSource,
   id: string,
-  persona?: PersonaDraft
+  persona?: PersonaDraft,
+  serviceInsight = buildOnboardingServiceInsight(formState)
 ): OnboardingPersonaFrame | null {
   const normalized = normalizeCustomerPersonaLabel(label, profile);
-  if (!isCustomerPersonaCompatibleWithProfile(normalized, profile)) return null;
+  if (!isCustomerPersonaCompatibleWithServiceInsight(normalized, profile, serviceInsight)) return null;
   const personaText = persona
     ? [
         persona.displayName,
@@ -1852,12 +2104,12 @@ function buildCustomerPersonaFrame(
         ...persona.proofNeeded,
         ...persona.comparisonAxis
       ].join(" ")
-    : normalized;
+    : [normalized, serviceInsight.serviceSummary, ...serviceInsight.valueProposition, ...serviceInsight.buyerContext].join(" ");
   const decisionRole = derivePersonaDecisionRole(normalized, profile, personaText);
   return {
     id,
     label: normalized,
-    description: buildCustomerPersonaDescription(normalized, profile, decisionRole),
+    description: buildCustomerPersonaDescription(normalized, profile, decisionRole, serviceInsight),
     audienceType: formState.audienceType,
     categoryProfile: mapSuggestionProfileToCategoryProfile(profile.key),
     decisionRole,
@@ -1866,7 +2118,8 @@ function buildCustomerPersonaFrame(
     evaluationCriteria: derivePersonaEvaluationCriteria(normalized, profile, personaText),
     proofNeeded: derivePersonaProofNeeded(normalized, profile, personaText),
     riskConcern: derivePersonaRiskConcern(normalized, profile, personaText),
-    promptAngle: derivePersonaPromptAngle(normalized, profile, decisionRole, persona?.promptAngle),
+    promptAngle: derivePersonaPromptAngle(normalized, profile, decisionRole, persona?.promptAngle, serviceInsight),
+    serviceEvidenceReason: buildServiceEvidenceReason(normalized, serviceInsight),
     source
   };
 }
@@ -1874,17 +2127,13 @@ function buildCustomerPersonaFrame(
 function buildCustomerPersonaDescription(
   label: string,
   profile: OnboardingSuggestionProfile,
-  decisionRole: OnboardingPersonaDecisionRole
+  decisionRole: OnboardingPersonaDecisionRole,
+  serviceInsight: OnboardingServiceInsight
 ) {
-  const criteria = derivePersonaEvaluationCriteria(label, profile, "").slice(0, 2).join("・");
-  if (profile.key === "b2bSaasOrSeo") return label + "が比較・導入判断で確認しやすい" + criteria + "を見ます。";
-  if (profile.key === "b2bProfessionalService") return label + "が相談前に確認しやすい" + criteria + "を見ます。";
-  if (profile.key === "ecommerceProduct") return label + "が購入前に確認しやすい" + criteria + "を見ます。";
-  if (profile.key === "healthcareClinic") return label + "が初回相談前に確認しやすい" + criteria + "を見ます。";
-  if (profile.key === "b2cSchoolEducation") return label + "が申し込み前に確認しやすい" + criteria + "を見ます。";
-  if (profile.key === "localService") return label + "が来店・予約前に確認しやすい" + criteria + "を見ます。";
-  if (decisionRole === "decision_owner") return label + "が判断前に確認しやすい" + criteria + "を見ます。";
-  return label + "が比較前に確認しやすい" + criteria + "を見ます。";
+  const criteria = derivePersonaEvaluationCriteria(label, profile, serviceInsight.serviceSummary).slice(0, 2).join("・");
+  const service = serviceInsight.categoryHypothesis || "このサービス";
+  if (decisionRole === "decision_owner") return label + "が" + service + "を判断する前に確認したい" + criteria + "を見ます。";
+  return label + "が" + service + "を選ぶ時に重視しやすい" + criteria + "を見ます。";
 }
 
 function mapSuggestionProfileToCategoryProfile(profileKey: OnboardingSuggestionProfileKey): OnboardingCategoryProfile {
@@ -1985,10 +2234,15 @@ function derivePersonaPromptAngle(
   label: string,
   profile: OnboardingSuggestionProfile,
   decisionRole: OnboardingPersonaDecisionRole,
-  generatedPromptAngle?: string
+  generatedPromptAngle?: string,
+  serviceInsight?: OnboardingServiceInsight
 ) {
   const generated = generatedPromptAngle?.trim();
   if (generated && !containsRawPersonaLanguage(generated)) return generated;
+  if (serviceInsight) {
+    const criteria = serviceInsight.trustRequirements.length > 0 ? serviceInsight.trustRequirements.slice(0, 3).join("、") : derivePersonaEvaluationCriteria(label, profile, serviceInsight.serviceSummary).slice(0, 3).join("、");
+    return label + "が" + serviceInsight.categoryHypothesis + "を選ぶ前に確認したい" + criteria + "の論点。";
+  }
   if (profile.key === "b2bSaasOrSeo") return label + "がAI検索・SEOの比較前に確認したい効果指標、競合比較、公式サイト引用の論点。";
   if (profile.key === "healthcareClinic") return label + "が初回相談前に確認したい料金、口コミ、資格、リスク説明の論点。";
   if (profile.key === "ecommerceProduct") return label + "が購入前に確認したい価格、口コミ、品質、返品条件の論点。";
@@ -2024,6 +2278,32 @@ function isCustomerPersonaCompatibleWithProfile(label: string, profile: Onboardi
     return !containsConsumerPersonaLanguage(normalized);
   }
   return true;
+}
+
+function isCustomerPersonaCompatibleWithServiceInsight(
+  label: string,
+  profile: OnboardingSuggestionProfile,
+  serviceInsight: OnboardingServiceInsight
+) {
+  const normalized = normalizeCustomerPersonaLabel(label, profile);
+  const serviceDefinitionText = buildServiceDefinitionTextFromInsight(serviceInsight);
+  if (!isNaturalCustomerPersonaLabel(normalized, profile)) return false;
+  if (containsRawPersonaLanguage(normalized)) return false;
+  if (isConsumerSuggestionProfile(profile.key) && containsB2BPersonaLanguage(normalized)) return false;
+  if (serviceInsight.audienceType === "b2c" && containsB2BPersonaLanguage(normalized)) return false;
+  if (serviceInsight.audienceType === "b2b" && containsConsumerPersonaLanguage(normalized) && !matchesAnyText(normalized, ["担当者", "責任者", "経営者", "役員"])) {
+    return false;
+  }
+  if (profile.key === "ecommerceProduct" && matchesAnyText(serviceDefinitionText, ["マットレス", "睡眠", "寝具"])) {
+    return !matchesAnyText(normalized, ["肌", "成分", "化粧品"]);
+  }
+  if (profile.key === "ecommerceProduct" && matchesAnyText(serviceDefinitionText, ["化粧品", "コスメ", "スキンケア", "肌"])) {
+    return !matchesAnyText(normalized, ["睡眠", "寝具", "マットレス"]);
+  }
+  if (profile.key === "b2cSchoolEducation" && matchesAnyText(serviceDefinitionText, ["子ども", "こども", "キッズ", "保護者"])) {
+    return !matchesAnyText(normalized, ["社会人"]);
+  }
+  return isCustomerPersonaCompatibleWithProfile(normalized, profile);
 }
 
 function containsB2BPersonaLanguage(value: string) {
@@ -2095,7 +2375,11 @@ function normalizeCustomerPromptExampleText(text: string) {
     .replace(/^BtoB。主な検討者: [^。]+。の導入判断者の立場で、/, "導入を判断する立場で、")
     .replace(/^BtoB。主な検討者: [^。]+。の比較評価担当者の立場で、/, "比較検討する立場で、")
     .replace(/^BtoB。主な検討者: [^。]+。の現場利用者の立場で、/, "実際に利用する立場で、")
+    .replace(/^BtoB \/ .+?の導入判断者の立場で、/, "導入を判断する立場で、")
+    .replace(/^BtoB \/ .+?の比較評価担当者の立場で、/, "比較検討する立場で、")
+    .replace(/^BtoB \/ .+?の現場利用者の立場で、/, "実際に利用する立場で、")
     .replace(/^BtoC(?: \/ EC)?。主な検討者: [^。]+。の[^。、]+の立場で、/, "利用者の立場で、")
+    .replace(/^BtoC \/ [^。]+。の[^。、]+の立場で、/, "利用者の立場で、")
     .replace(/BtoB \/ ([^、。\n]+)の導入判断者/g, "$1を導入判断する人")
     .replace(/BtoB \/ ([^、。\n]+)の比較評価担当者/g, "$1を比較検討する人")
     .replace(/BtoB \/ ([^、。\n]+)の現場利用者/g, "$1を実際に利用する人");
@@ -2202,18 +2486,19 @@ function selectConsumerPersonaLabel(text: string, profile: OnboardingSuggestionP
 
 function buildNaturalTargetCustomers(formState: WizardState) {
   const profile = deriveOnboardingSuggestionProfile(formState);
-  const personas = buildCustomerPersonas(formState, [], profile).map((persona) => persona.label).slice(0, 4);
+  const serviceInsight = buildOnboardingServiceInsight(formState);
+  const personas = buildCustomerPersonas(formState, [], profile, serviceInsight).map((persona) => persona.label).slice(0, 4);
   const personaText = personas.length > 0 ? personas.join("、") : "確認したい顧客層";
-  const category = formState.serviceCategory.trim() || profile.serviceCategories[0] || "サービス";
+  const category = serviceInsight.categoryHypothesis || formState.serviceCategory.trim() || profile.serviceCategories[0] || "サービス";
+  const context = serviceInsight.primaryUseCases.length > 0 ? ` 主な確認場面: ${serviceInsight.primaryUseCases.slice(0, 3).join("、")}。` : "";
 
   if (formState.audienceType === "b2c") {
-    if (profile.key === "ecommerceProduct") return `BtoC / EC。主な検討者: ${personaText}。`;
-    return `BtoC。主な検討者: ${personaText}。`;
+    return `BtoC / ${category}。主な検討者: ${personaText}。${context}`;
   }
   if (formState.audienceType === "both_or_confirm") {
-    return `${category}の主な検討者: ${personaText}。BtoB/BtoCは確認中。`;
+    return `${category}の主な検討者: ${personaText}。BtoB/BtoCは確認中。${context}`;
   }
-  return `BtoB。主な検討者: ${personaText}。`;
+  return `BtoB / ${category}。主な検討者: ${personaText}。${context}`;
 }
 
 function buildSeedInput(formState: WizardState): ProjectSetupSeedInput {
@@ -2416,7 +2701,10 @@ function buildSuggestedServiceCategoryForStep(
 }
 
 function inferAudienceTargetsForStep(state: WizardState, serviceCategory: string) {
-  return deriveOnboardingSuggestionProfile({ ...state, serviceCategory }).audienceTargets.slice(0, 3);
+  const nextState = { ...state, serviceCategory };
+  const profile = deriveOnboardingSuggestionProfile(nextState);
+  const serviceInsight = buildOnboardingServiceInsight(nextState);
+  return uniqueStrings([...proposePersonaLabelsFromServiceInsight(serviceInsight, profile), ...profile.audienceTargets]).slice(0, 3);
 }
 
 function inferInterimCategory(
@@ -2442,17 +2730,17 @@ function inferInterimCategory(
 
   if (matchesAnyText(text, ["英会話", "スクール", "学校", "教育", "講座", "school", "lesson", "english"])) return "スクール / 教育";
   if (matchesAnyText(text, ["clinic", "クリニック", "医療", "美容", "病院"])) return "クリニック / 医療";
-  if (matchesAnyText(text, ["EC /", "D2C", "通販", "商品", "shop", "store", "ecommerce", "e-commerce", "返品"])) return "EC / 商品";
   if (matchesAnyText(text, ["AI検索", "LLMO", "GEO", "AIO", "AI search", "SEO", "Mieruca", "ミエルカ"])) {
     return "SEO / AI検索対策";
   }
+  if (matchesEcommerceText(text)) return "EC / 商品";
   if (matchesAnyText(text, ["マーケティング", "広告", "コンテンツ", "集客"])) return "マーケティング / SEO";
   if (matchesAnyText(text, ["採用", "HR", "人事", "recruit", "求人"])) return "採用 / HR";
   if (matchesAnyText(text, ["英会話", "スクール", "学校", "教育", "講座", "school", "lesson", "english"])) {
     return "スクール / 教育";
   }
   if (matchesAnyText(text, ["clinic", "クリニック", "医療", "病院"])) return "クリニック / 医療";
-  if (matchesAnyText(text, ["EC", "通販", "商品", "shop", "store", "ecommerce"])) return "EC / 商品";
+  if (matchesEcommerceText(text)) return "EC / 商品";
   if (matchesAnyText(text, ["地域", "店舗", "予約", "来店", "local", "エリア"])) return "地域サービス";
   if (matchesAnyText(text, ["SaaS", "分析", "analytics", "dashboard", "ツール", "platform"])) return "SaaS / 分析ツール";
   return "その他";
@@ -2468,8 +2756,9 @@ function deriveOnboardingSuggestionProfile(state: Pick<WizardState, "brandName" 
   if (matchesAnyText(text, ["英会話", "スクール", "教育", "学校", "講座", "school", "lesson", "english"])) return suggestionProfiles.b2cSchoolEducation;
   if (matchesAnyText(text, ["クリニック", "医療", "美容", "病院", "clinic", "medical"])) return suggestionProfiles.healthcareClinic;
   if (matchesAnyText(text, ["地域", "店舗", "予約", "来店", "local", "エリア", "近く"])) return suggestionProfiles.localService;
-  if (matchesAnyText(text, ["EC", "通販", "商品", "shop", "store", "ecommerce", "返品"])) return suggestionProfiles.ecommerceProduct;
+  if (matchesEcommerceText(text)) return suggestionProfiles.ecommerceProduct;
   if (matchesAnyText(text, ["士業", "法律", "会計", "コンサル", "専門サービス", "相談", "professional"])) return suggestionProfiles.b2bProfessionalService;
+  if (matchesAnyText(text, ["採用", "HR", "人事", "求人", "候補者", "面接", "ATS", "recruit"])) return suggestionProfiles.genericB2B;
   if (matchesAnyText(text, ["AI検索", "LLMO", "GEO", "AIO", "AI search", "SEO", "Mieruca", "ミエルカ", "マーケティング", "SaaS", "分析ツール"])) return suggestionProfiles.b2bSaasOrSeo;
   if (state.audienceType === "b2c") return suggestionProfiles.genericB2C;
   return suggestionProfiles.genericB2B;
@@ -2642,6 +2931,11 @@ function stableStep1SourceKey(formState: WizardState) {
 function matchesAnyText(text: string, candidates: readonly string[]) {
   const normalizedText = normalizeText(text);
   return candidates.some((candidate) => normalizedText.includes(normalizeText(candidate)));
+}
+
+function matchesEcommerceText(text: string) {
+  const normalizedText = normalizeText(text);
+  return /(^|[^a-z0-9])ec([^a-z0-9]|$)/i.test(normalizedText) || matchesAnyText(normalizedText, ["D2C", "通販", "商品", "shop", "store", "ecommerce", "e-commerce", "返品"]);
 }
 
 function stableSeedKey(seedInput: ProjectSetupSeedInput) {
