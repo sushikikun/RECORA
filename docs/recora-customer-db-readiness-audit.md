@@ -16,6 +16,7 @@ Boundary design update:
 - Customer-facing UI remains out of scope for that boundary design.
 - Admin/internal DB current state is audited in `docs/recora-admin-db-current-state-audit.md`; use it before deciding what stays admin-owned versus what becomes customer-facing projection data.
 - Customer vs admin DB ownership, source-of-truth, and projection rules are defined in `docs/recora-customer-vs-admin-db-boundary-design.md`.
+- Latest framing: Customer DB work should be read as Customer Result DB snapshot readiness; customer/org/membership/project ownership, plans, subscriptions, usage, measurement jobs, publication controls, reviews, and audit logs remain Admin Control DB source-of-truth.
 
 Prompt scope context:
 
@@ -131,7 +132,7 @@ Important limitations:
 | Recommendation workflow | Review status, Page Brief, Action Plan, ownership, action state, and evidence links. | `public.recommendations`, publication metadata, `recora_admin.report_publication_reviews`, report tabs docs for Page Brief / Action Plan. | needs_design | high | `feat/recommendation-workflow-schema-local` | Customer-facing workflow must separate recommendation candidates, reviewed actions, and published actions. |
 | Plan/subscription linkage | Customer/project/subscription/plan_config/usage-limit linkage. | `recora_admin.plan_configs`, `customer_subscriptions`, customer ops read-only RPCs. | partial | medium | `docs/customer-plan-subscription-db-design` | Admin tables exist, but entitlement, quota, and customer-visible plan behavior still need design. |
 | Report publication state | Report-level states such as admin draft, review required, hidden, and customer ready. | Recommendation-level customer-visible predicate; `recora_admin.report_publication_reviews`; `report-eligibility` returns `customer_ready` / `not_ready`. | needs_design | high | `feat/report-publication-state-schema-local` | Recommendation gate exists, but a first-class report publication state is not yet complete. |
-| RLS / customer visibility | Prevent Customer A from reading Customer B data and prevent drafts from leaking. | Public RLS policies, revoked writes, recommendation customer-visible predicate, admin schema revokes. | needs_rls_audit | blocker | `chore/customer-db-rls-readiness-audit` | A read-only live audit of grants, policies, exposed tables, functions, and advisors is required before customer launch. |
+| RLS / customer visibility | Prevent Customer A from reading Customer B data and prevent drafts from leaking. | Public RLS policies, revoked writes, recommendation customer-visible predicate, admin schema revokes. | needs_snapshot_then_rls_audit | blocker | `docs/customer-result-snapshot-readiness-audit`, then `chore/customer-result-db-rls-readiness-audit` | Confirm Customer Result DB snapshot shape before read-only live RLS/grants/advisors audit. |
 | Audit log | Durable history for approvals, publication changes, prompt changes, and measurement/review events. | `recora_admin.operation_events`, `prompt_change_events`, `internal_notes`, publication review tables. | partial | medium | `docs/customer-db-audit-log-design` | The tables exist, but durable write actors, retention, and customer-visible audit boundaries need decisions. |
 | Usage tracking / measurement quota | Track measurement consumption by plan, subscription, project, run, and schedule. | `customer_subscriptions`, `measurement_schedules`, `measurement_batches`, AI conversation `usage`. | needs_design | high | `docs/customer-plan-subscription-db-design` | Usage data exists in pieces, but customer quota enforcement is not first-class. |
 | Sentiment / caveat / narrative labels | Separate qualitative labels from visibility/ranking/SOV metrics. | Metric contract docs keep sentiment and brand perception separate from non-branded visibility metrics. | future | medium | Later narrative-label design PR | Useful for reports, but should not block P0 customer DB readiness. |
@@ -199,8 +200,8 @@ This PR does not change RLS or grants.
    - No UI.
    - No migration.
 
-3. `chore/customer-db-rls-readiness-audit`
-   - Read-only audit of RLS, policies, grants, exposed tables, functions, and advisors.
+3. `docs/customer-result-snapshot-readiness-audit`
+   - Read-only/docs-only audit of Customer Result DB snapshot readiness before RLS policy work.
    - No DB write.
 
 4. `docs/measurement-prompt-snapshot-design`

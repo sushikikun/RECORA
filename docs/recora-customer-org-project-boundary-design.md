@@ -12,6 +12,7 @@ It follows `docs/recora-customer-db-readiness-audit.md`, which identified custom
 This PR is docs-only. It does not create a migration, write to any database, run Supabase db push, apply backfills, implement UI, implement auth, change middleware, or modify LP/Auth/handoff areas.
 `docs/recora-admin-db-current-state-audit.md` records the read-only admin/internal DB state that should feed the later customer-vs-admin DB boundary design.
 The customer vs admin DB ownership, source-of-truth, and projection rules are defined in `docs/recora-customer-vs-admin-db-boundary-design.md`.
+Latest framing: customer, organization, membership, and project ownership are Admin Control DB source-of-truth; Customer Result DB stores only result/report snapshot scope references needed for authorized display.
 
 ## Scope
 
@@ -302,7 +303,7 @@ Membership design rules:
 
 ## RLS boundary expectations
 
-The next `chore/customer-db-rls-readiness-audit` PR should verify that:
+After `docs/customer-result-snapshot-readiness-audit`, the `chore/customer-result-db-rls-readiness-audit` PR should verify that:
 
 - authenticated users can read only projects belonging to organizations where they are members
 - organization membership is required for project-owned prompts, measurement runs, conversations, citations, metrics, recommendations, and reports
@@ -373,8 +374,8 @@ Migration constraints:
    - This PR.
    - Docs-only.
 
-2. `chore/customer-db-rls-readiness-audit`
-   - Read-only audit of RLS, grants, policies, exposed tables, functions, views, and advisors.
+2. `docs/customer-result-snapshot-readiness-audit`
+   - Read-only/docs-only audit of Customer Result DB published result/report snapshot readiness before RLS policy work.
    - No DB write.
 
 3. `docs/measurement-prompt-snapshot-design`

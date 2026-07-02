@@ -1,11 +1,11 @@
-﻿# Recora Customer Vs Admin DB Boundary Design
+# Recora Customer Result DB Vs Admin Control DB Boundary Design
 
 Status: Docs-only boundary design
 Last updated: 2026-07-02
 
 ## Overview
 
-This document defines the target split between Recora customer-facing data and Recora admin/internal operations data.
+This document defines the target responsibility boundary between the Recora Customer Result DB and the Recora Admin Control DB.
 
 It follows:
 
@@ -16,7 +16,7 @@ It follows:
 - `docs/recora-prompt-scope-db-migration-plan.md`
 - `docs/recora-prompt-scope-backfill-review-record.md`
 
-The main rule is simple: customer-facing screens should read approved, customer-visible snapshots. Admin/internal screens should own mutable workflow, contract, execution, review, and publication-control state. Data may refer to the same organization, project, prompt, run, or report, but the source of truth is different depending on whether the data is customer-visible evidence or internal operational state.
+The main rule is simple: customer-facing screens should read approved, customer-visible result snapshots. Admin/internal screens should own mutable workflow, contract, project ownership, measurement execution, review, audit, and publication-control state. Data may refer to the same customer, organization, membership, project, prompt, run, or report, but the source of truth is different depending on whether the data is customer-visible measured evidence or admin-owned control state.
 
 This PR is docs-only. It does not create migrations, write to any database, run Supabase db push, apply backfill, change RLS/policies/grants, implement customer UI, implement admin UI, change Auth/middleware/LP/handoff files, or change `package-lock.json`.
 
@@ -24,7 +24,7 @@ This PR is docs-only. It does not create migrations, write to any database, run 
 
 This document covers:
 
-- the four-way split between customer-facing UI, customer DB, admin UI, and admin DB
+- the four-way split between customer-facing UI, Customer Result DB, admin UI, and Admin Control DB
 - which entities belong to customer-visible result snapshots
 - which entities belong to admin/internal operations
 - source-of-truth rules for contracts, jobs, publication, recommendations, prompts, and reports
@@ -57,11 +57,11 @@ Recora should treat the product boundary as four cooperating surfaces.
 | Surface | Japanese label | Primary role | Owns mutable workflow? | Owns customer-visible evidence? |
 | --- | --- | --- | --- | --- |
 | Customer-facing UI | 顧客用画面 | Shows approved reports, AI answers, citations, metrics, and recommendations to authorized customers. | No | Reads customer DB snapshots only. |
-| Customer DB | 顧客用DB | Stores durable customer-visible measurement/report snapshots and approved artifacts. | No, except publication-safe snapshot lifecycle. | Yes |
+| Customer Result DB | 顧客用DB | Stores durable customer-visible measurement/report snapshots and approved artifacts. It is not the source of truth for contracts, membership, project ownership, or operations. | No, except publication-safe snapshot lifecycle. | Yes |
 | Admin UI | 管理用画面 | Lets internal operators manage contracts, measurement execution, publication decisions, and review queues. | Yes | No direct customer display. |
-| Admin DB | 管理用DB | Stores internal operations, contract, execution, review, publication-control, logs, and drafts. | Yes | Projects approved outputs to customer DB. |
+| Admin Control DB | 管理用DB | Stores contracts, customer/org/membership source-of-truth, project ownership, measurement buttons/jobs/execution, publication control, reviews, audit logs, and drafts. | Yes | Projects approved outputs to Customer Result DB. |
 
-The current repository already has public measurement tables and a `recora_admin` schema. This design does not require an immediate schema split by physical database. It defines ownership boundaries first. Later PRs can decide whether the customer/admin separation stays as schemas and RLS boundaries inside one Supabase project or becomes a stronger physical split.
+The current repository already has public measurement tables and a `recora_admin` schema. This design does not decide a physical database split now. It defines responsibility boundaries, source-of-truth rules, and projection/snapshot rules first. Later PRs can decide whether the customer/admin separation stays as schemas and RLS boundaries inside one Supabase project or becomes a stronger physical split.
 
 ## Customer-facing UI responsibilities
 
@@ -87,11 +87,11 @@ Customer-facing UI must not:
 
 Customer-facing UI is out of scope for this PR.
 
-## Customer DB responsibilities
+## Customer Result DB responsibilities
 
-Customer DB owns the customer-visible truth for reports and measurements after review/publication. It should store immutable or append-only snapshots of what the customer is allowed to see.
+Customer Result DB owns the customer-visible truth for measured results and published reports after review/publication. It should store immutable or append-only snapshots of what the customer is allowed to see. It does not own the contract account, organization membership, project ownership, plan/subscription, measurement button, execution queue, publication workflow, or audit log source-of-truth.
 
-Customer DB should own:
+Customer Result DB should own:
 
 - published customer report snapshots
 - customer-visible measurement result snapshots
@@ -114,9 +114,11 @@ Customer DB should own:
 - approved customer-facing Page Brief
 - approved customer-facing Action Plan
 
-Customer DB should not own:
+Customer Result DB should not own:
 
 - `plan_configs`
+- customer, organization, or membership source-of-truth
+- project ownership source-of-truth
 - subscriptions or billing operations
 - usage-limit enforcement logic
 - measurement button state
@@ -153,12 +155,12 @@ Admin UI must not be treated as a customer display boundary. If an operator appr
 
 Admin UI is out of scope for this PR.
 
-## Admin DB responsibilities
+## Admin Control DB responsibilities
 
-Admin DB owns internal mutable operations and workflow state. It should be the source of truth for:
+Admin Control DB owns internal mutable operations and workflow state. It should be the source of truth for:
 
 - customers and contract accounts
-- organizations and memberships when used for internal/customer access control
+- organizations and memberships used for internal/customer access control
 - project ownership and project configuration
 - `plan_configs`
 - customer subscriptions
@@ -181,29 +183,31 @@ Admin DB owns internal mutable operations and workflow state. It should be the s
 - cost/debug traces
 - service-role operational data
 
-Admin DB should project only approved, customer-safe outputs into Customer DB. It must not rely on customer-facing snapshots to reconstruct the complete internal workflow history.
+Admin Control DB should project only approved, customer-safe outputs into Customer Result DB. It must not rely on customer-facing snapshots to reconstruct the complete internal workflow history.
 
 ## Source-of-truth rules
 
 | Area | Source of truth | Customer-visible output |
 | --- | --- | --- |
-| Contracts and plan limits | Admin DB | Optional customer-safe entitlement summary only. |
-| Subscription/billing operations | Admin DB | Optional read-only plan/entitlement projection, no billing internals. |
-| Usage-limit enforcement | Admin DB | Optional consumed/remaining display projection after design approval. |
-| Measurement job and execution state | Admin DB | Completed customer measurement snapshot. |
-| Publication decision | Admin DB | Published customer report snapshot. |
-| Recommendation review state | Admin DB | Approved customer recommendation snapshot. |
-| Page Brief / Action Plan review | Admin DB | Approved customer Page Brief / Action Plan snapshot. |
-| Prompt draft/generator/materialization | Admin DB | Measurement-time prompt snapshot. |
-| Customer-visible AI answers/citations/metrics | Customer DB snapshot | Customer-facing UI reads these snapshots. |
-| Historical reports | Customer DB snapshot | Reproducible customer view, independent of later admin edits. |
+| Contracts and plan limits | Admin Control DB | Optional customer-safe entitlement summary only. |
+| Subscription/billing operations | Admin Control DB | Optional read-only plan/entitlement projection, no billing internals. |
+| Usage-limit enforcement | Admin Control DB | Optional consumed/remaining display projection after design approval. |
+| Measurement job, button, queue, retry, error, and cost state | Admin Control DB | Completed customer measurement result snapshot. |
+| Publication decision and publication control | Admin Control DB | Published customer report snapshot. |
+| Recommendation review and approval workflow | Admin Control DB | Approved customer-facing recommendation snapshot. |
+| Page Brief / Action Plan draft and review | Admin Control DB | Approved customer Page Brief / Action Plan snapshot. |
+| Prompt draft/generator/materialization | Admin Control DB | Measurement-time prompt snapshot. |
+| Customer-visible AI answers/citations/metrics | Customer Result DB snapshot | Customer-facing UI reads these snapshots. |
+| Historical reports | Customer Result DB snapshot | Reproducible customer view, independent of later admin edits. |
+| Customer / organization / membership | Admin Control DB | Customer Result DB stores only snapshot scope/reference needed for authorized display. |
+| Project ownership and configuration | Admin Control DB | Customer Result DB stores only result/report snapshot scope reference. |
 
 Rules:
 
-- Contracts, limits, jobs, execution state, publication decisions, and recommendation review state are Admin DB concerns.
-- Customer-visible measurement results, AI answers, citations, source metadata, and metrics are Customer DB snapshot concerns.
-- Approved recommendations, Page Brief, and Action Plan are approved in Admin DB, then projected to Customer DB as published snapshots.
-- Historical reports should remain reproducible from Customer DB snapshots.
+- Customer, organization, membership, project ownership, contracts, limits, measurement buttons/jobs/execution state, publication decisions, recommendation review state, plan/subscription/usage, cost, and audit logs are Admin Control DB concerns.
+- Customer-visible measurement results, published report snapshots, AI answers, citations, source metadata, metrics, approved recommendations, Page Brief, and Action Plan are Customer Result DB snapshot concerns.
+- Approved recommendations, Page Brief, and Action Plan are approved in Admin Control DB, then projected to Customer Result DB as published snapshots.
+- Historical reports should remain reproducible from Customer Result DB snapshots.
 - Admin drafts and internal workflow state must not be exposed directly to customers.
 - Candidate generation is not a publication decision.
 - A report is not customer-visible until a publication workflow explicitly projects a customer-ready snapshot.
@@ -212,9 +216,9 @@ Rules:
 
 Projection turns approved admin/internal state into customer-visible snapshot state. The projection should be explicit, auditable, and conservative.
 
-| Flow | Admin-owned state | Customer-owned projection |
+| Flow | Admin Control DB state | Customer Result DB projection |
 | --- | --- | --- |
-| Measurement | Job, queue, worker, retry, run lifecycle, error state. | Completed result, prompt, answer, citation, source, and metric snapshots. |
+| Measurement | Button, job, queue, worker, retry, run lifecycle, error, and cost state. | Completed result, prompt, answer, citation, source, and metric snapshots. |
 | Report | Publication workflow, review history, internal notes, blockers. | Published report snapshot with stable display content. |
 | Recommendation | Candidate, quality gate, admin review, internal note. | Approved recommendation, Page Brief, and Action Plan snapshots. |
 | Prompt | Draft, generator output, approval/materialization controls. | Prompt snapshot used for measurement/report. |
@@ -231,13 +235,13 @@ Snapshot rules:
 
 ## Data ownership matrix
 
-| Data area | Customer DB ownership | Admin DB ownership | Projection rule |
+| Data area | Customer Result DB ownership | Admin Control DB ownership | Projection rule |
 | --- | --- | --- | --- |
-| Customer / contract account | Customer-safe display identifiers only if needed. | Contract account, plan assignment, billing/ops metadata. | Project only sanitized customer identity/entitlement fields when required. |
-| Organization / membership | Tenant boundary for customer reads. | Internal access-control and operator workflow context when needed. | Customer reads require membership/project boundary; admin internals stay hidden. |
-| Project | Report/result scope reference and customer-visible project metadata. | Project setup, operational config, internal status, draft setup. | Customer snapshots reference project but do not expose internal config. |
+| Customer / contract account | Customer-safe display identifiers only if needed; no contract source-of-truth. | Contract account, plan assignment, billing/ops metadata. | Project only sanitized customer identity/entitlement fields when required. |
+| Organization / membership | Snapshot scope/reference fields for authorized result/report reads only; no membership source-of-truth. | Organization and membership source-of-truth for internal/customer access control. | Customer Result DB enforces display scope from approved references; admin internals stay hidden. |
+| Project | Report/result snapshot scope reference and customer-visible project label only. | Project ownership, setup, operational config, internal status, and draft setup. | Customer snapshots reference project scope but do not own project configuration. |
 | Plan / subscription | Optional customer-safe entitlement summary. | Plan configs, subscriptions, limits, quota enforcement. | No customer DB row unless display/entitlement requires it. |
-| Measurement job | No. | Trigger, queue, worker, retry, error, run lifecycle. | Completed result snapshot only after success/review. |
+| Measurement job | No. | Button, trigger, queue, worker, retry, error, cost, and run lifecycle. | Completed result snapshot only after success/review. |
 | Measurement result | Customer-visible result snapshot. | Execution trace and internal operational state. | Snapshot AI answers, mentions, citations, metrics, and scope at report time. |
 | Prompt draft / generator output | No. | Drafts, raw generator output, materialization controls. | Only approved prompt snapshot reaches Customer DB. |
 | Measurement prompt snapshot | Prompt text and scope metadata at measurement time. | Prompt approval/materialization source and change history. | Snapshot from approved/materialized prompt used for the run. |
@@ -251,9 +255,9 @@ Snapshot rules:
 | Report publication control | Published report snapshot and visible state. | Publication review history, blockers, operator decisions. | Admin decision creates customer-ready snapshot; internal rows stay hidden. |
 | Audit log | Usually no; only customer-safe history if later designed. | Operation events, internal notes, prompt change events, audit logs. | Do not expose raw admin audit logs to customers. |
 
-## Customer DB data model direction
+## Customer Result DB data model direction
 
-Potential Customer DB entities include:
+Potential Customer Result DB entities include:
 
 - `customer_report_snapshots`
 - `customer_measurement_snapshots`
@@ -288,9 +292,9 @@ Design constraints:
 - Preserve source IDs for traceability without making admin IDs part of the customer contract.
 - Keep customer snapshots stable after publication.
 
-## Admin DB data model direction
+## Admin Control DB data model direction
 
-Potential Admin DB entities include:
+Potential Admin Control DB entities include:
 
 - `admin_customers` or `customers`
 - `organizations`
@@ -324,7 +328,7 @@ Priority order:
 
 Design constraints:
 
-- Admin DB should preserve review history and rejected/held candidates.
+- Admin Control DB should preserve review history and rejected/held candidates.
 - Admin workflow state should be mutable only through approved server/internal paths.
 - Customer roles should not read admin DB tables directly.
 - Service-role usage should stay server/internal only and should be audited separately.
@@ -332,7 +336,7 @@ Design constraints:
 
 ## Shared identifiers and references
 
-Customer snapshots should retain source references for traceability, but customer-facing displays should prefer snapshot contents over live admin/internal rows.
+Customer Result DB snapshots should retain source references for traceability, but customer-facing displays should prefer snapshot contents over live admin/internal rows.
 
 Recommended source reference fields:
 
@@ -349,33 +353,33 @@ Recommended source reference fields:
 
 Rules:
 
-- Customer-facing UI should not expose raw Admin DB IDs as the primary display contract.
+- Customer-facing UI should not expose raw Admin Control DB IDs as the primary display contract.
 - Consider stable public display IDs for reports and snapshots.
 - Keep enough source references to audit how a published customer snapshot was produced.
 - Deletion, retention, archival, and customer data export policy require a later design.
 
 ## RLS implications
 
-Customer DB RLS expectations:
+Customer Result DB RLS expectations:
 
-- Authenticated users can read only snapshots for organizations/projects where they are members.
+- Authenticated users can read only published result/report snapshots for organizations/projects where Admin Control DB membership/project ownership allows access.
 - `anon` should not read production customer data unless a later explicit public-share design exists.
-- Customer reads require both tenant boundary and publication/snapshot state.
+- Customer reads require tenant boundary, project scope reference, and publication/snapshot state; Customer Result DB does not own membership or project ownership source-of-truth.
 - Customer roles must not see admin drafts, internal notes, debug payloads, review queues, hidden reports, or review-required artifacts.
 - Views, if used, should be tenant-safe and preferably security-invoker unless a later RLS audit approves another shape.
 - SECURITY DEFINER helpers must be intentionally scoped and audited.
 
-Admin DB RLS expectations:
+Admin Control DB RLS expectations:
 
-- Admin/internal tables are for internal operators and server-side operations only.
+- Admin/internal control tables are for internal operators and server-side operations only.
 - Customer roles should not have direct table grants for admin/internal data.
 - Service-role operations must stay server/internal only.
 - Admin write actors, operator identity, retention, and audit taxonomy need a later design.
 
-Separate read-only RLS audits should be done before customer launch:
+Separate read-only RLS audits should be done after the customer result snapshot readiness audit:
 
-- `chore/customer-db-rls-readiness-audit`
-- `chore/admin-db-rls-readiness-audit`
+- `chore/customer-result-db-rls-readiness-audit`
+- `chore/admin-control-db-rls-readiness-audit`
 
 This PR does not change RLS, policies, grants, helper functions, views, or Data API exposure.
 
@@ -383,7 +387,7 @@ This PR does not change RLS, policies, grants, helper functions, views, or Data 
 
 This document implies later migration/design PRs, but it does not create migrations.
 
-Customer DB migration candidates:
+Customer Result DB migration candidates:
 
 - customer report snapshot
 - measurement prompt snapshot
@@ -393,7 +397,7 @@ Customer DB migration candidates:
 - customer-visible recommendations
 - customer-visible Page Brief and Action Plan
 
-Admin DB migration candidates:
+Admin Control DB migration candidates:
 
 - report publication control
 - measurement job/run operation state
@@ -424,65 +428,70 @@ Migration constraints:
    - This PR.
    - Docs-only.
 
-2. `chore/customer-db-rls-readiness-audit`
-   - Read-only audit of customer-facing snapshot/table RLS, grants, policies, exposed functions, helpers, views, and advisors.
+2. `docs/customer-result-snapshot-readiness-audit`
+   - Read-only/docs-only audit for Customer Result DB snapshot readiness before RLS policy work.
+   - Confirm published report snapshots, completed measurement result snapshots, prompt snapshots, AI answers, citations, sources, metrics, approved recommendations, Page Brief, and Action Plan boundaries.
+   - No DB write.
 
-3. `chore/admin-db-rls-readiness-audit`
-   - Read-only audit of admin/internal schema grants, policies, service-role RPC exposure, and advisor output.
+3. `chore/customer-result-db-rls-readiness-audit`
+   - Read-only audit of Customer Result DB snapshot/table RLS, grants, policies, exposed functions, helpers, views, and advisors.
+   - Verify snapshot reads are scoped by Admin Control DB-owned customer/org/membership/project ownership without making Customer Result DB the ownership source-of-truth.
 
-4. `docs/measurement-result-projection-design`
-   - Define how admin measurement job lifecycle projects into customer measurement result snapshots.
+4. `chore/admin-control-db-rls-readiness-audit`
+   - Read-only audit of Admin Control DB schema grants, policies, service-role RPC exposure, and advisor output.
 
-5. `docs/report-publication-projection-design`
-   - Define report publication state, internal review history, and customer-facing report snapshots.
+5. `docs/measurement-result-projection-design`
+   - Define how admin measurement button/job/execution lifecycle projects into Customer Result DB measurement result snapshots.
 
-6. `feat/customer-report-snapshot-schema-local`
-   - Local-only migration for customer report snapshots.
+6. `docs/report-publication-projection-design`
+   - Define report publication control, internal review history, and Customer Result DB report snapshots.
+
+7. `feat/customer-report-snapshot-schema-local`
+   - Local-only migration for Customer Result DB report snapshots.
    - No remote apply.
 
-7. `feat/measurement-prompt-snapshot-schema-local`
+8. `feat/measurement-prompt-snapshot-schema-local`
    - Local-only migration for measurement-time prompt snapshots.
    - No remote apply.
 
-8. `feat/customer-source-snapshot-schema-local`
-   - Local-only migration for customer source/citation snapshots, owner type, freshness, and source-to-claim display metadata.
+9. `feat/customer-source-snapshot-schema-local`
+   - Local-only migration for Customer Result DB source/citation snapshots, owner type, freshness, and source-to-claim display metadata.
    - No remote apply.
 
-9. `feat/customer-visible-recommendation-schema-local`
-   - Local-only migration for approved customer-visible recommendations, Page Brief, and Action Plan snapshots.
-   - No remote apply.
-
-10. `feat/admin-report-publication-control-schema-local`
-    - Local-only migration for internal report publication controls.
+10. `feat/customer-visible-recommendation-schema-local`
+    - Local-only migration for approved customer-visible recommendations, Page Brief, and Action Plan snapshots.
     - No remote apply.
 
-11. `feat/admin-measurement-job-schema-local`
-    - Local-only migration for internal measurement job/run operation state.
+11. `feat/admin-report-publication-control-schema-local`
+    - Local-only migration for Admin Control DB report publication controls.
     - No remote apply.
 
-12. `feat/admin-recommendation-review-schema-local`
-    - Local-only migration for recommendation review workflow.
+12. `feat/admin-measurement-job-schema-local`
+    - Local-only migration for Admin Control DB measurement button/job/run operation state.
     - No remote apply.
 
-13. `docs/plan-subscription-usage-boundary-design`
+13. `feat/admin-recommendation-review-schema-local`
+    - Local-only migration for Admin Control DB recommendation review workflow.
+    - No remote apply.
+
+14. `docs/plan-subscription-usage-boundary-design`
     - Docs-only contract/usage/quota boundary and customer-safe entitlement projection design.
 
-14. Remote apply PRs
+15. Remote apply PRs
     - One explicit remote-apply checkpoint per approved migration.
     - Stop before `supabase db push` until human approval.
 
-15. Projection/backfill dry-run/apply PRs
+16. Projection/backfill dry-run/apply PRs
     - Separate dry-run and apply checkpoints per field group.
     - Prompt scope backfill remains on hold until a human review explicitly approves concrete rows.
-
 ## Open decisions
 
-- Should customer-facing snapshots live in `public`, a dedicated customer schema, or a future separate customer DB?
+- Should customer-facing snapshots live in `public`, a dedicated Customer Result DB schema, or a future separate Customer Result DB?
 - Should report publication state be represented as a customer report snapshot table, a read-model table, or a projection from admin publication controls?
 - Which fields are required in the first customer report snapshot MVP?
 - Should source owner/freshness live in source snapshot rows, source domain rows, or a derived read model?
 - How should Page Brief and Action Plan versions relate to recommendation review events?
 - What is the durable admin operator identity model for future writes?
-- What customer-safe entitlement data, if any, should be projected from plan/subscription state?
+- What customer-safe entitlement data, if any, should be projected from Admin Control DB plan/subscription state?
 - What are the retention, archive, and deletion rules for raw evidence, customer snapshots, and admin audit logs?
-- Which customer RLS policies and helper functions are safe enough for launch after the dedicated audit?
+- Which Customer Result DB RLS policies and helper functions are safe enough for launch after the dedicated audits?

@@ -13,6 +13,7 @@ The audit follows:
 - `docs/recora-customer-org-project-boundary-design.md`
 - PR #56 merge commit `257233764ba2ea3e3c4f929ab49da9b6a898dffd`
 - `docs/recora-customer-vs-admin-db-boundary-design.md` for the target ownership, projection, and source-of-truth rules that follow this audit.
+- Latest framing: this audit feeds the Admin Control DB side; Customer Result DB work should focus on published measurement/report snapshots rather than contract, ownership, execution, review, or audit state.
 
 The core finding is that Recora now has a real `recora_admin` schema for internal operational metadata, but several customer-facing projection boundaries are still not first-class. Admin-owned plan/subscription, measurement job, publication review, prompt-change, and internal note tables exist. Customer-visible report snapshots, report publication state, recommendation workflow state, Page Brief, Action Plan, and measurement prompt snapshots still need separate design or schema work.
 
@@ -131,7 +132,7 @@ Current state:
 Gaps:
 
 - Project setup draft data, raw generator output, review status, and materialization controls are not a durable admin DB workflow yet.
-- Customer DB should receive only approved/materialized project setup data, not raw generator output.
+- Customer Result DB should receive only approved/materialized project setup data, not raw generator output.
 
 ## Report publication and visibility control
 
@@ -197,9 +198,9 @@ Interpretation:
 - The admin DB exposure shape is good for a read-only internal control plane: admin tables are not broadly granted to customer roles, and admin RPCs are service-role only.
 - Customer-facing public tables still need the separate RLS readiness audit planned in previous docs, because SELECT grants exist and safety depends on policy correctness and helper functions.
 
-## Customer DB projection candidates
+## Customer Result DB projection candidates
 
-Customer DB should own or project:
+Customer Result DB should own or project:
 
 - published customer report snapshots
 - completed measurement result snapshots
@@ -213,7 +214,7 @@ Customer DB should own or project:
 - approved customer-facing Page Brief and Action Plan artifacts
 - customer-safe entitlement/visibility summaries derived from admin plan/subscription state
 
-Customer DB should not own:
+Customer Result DB should not own:
 
 - plan authoring config
 - subscription/billing operational state beyond customer-safe entitlement projection
@@ -222,9 +223,9 @@ Customer DB should not own:
 - report review history, operator notes, internal blockers, or audit details
 - pre-quality-gate recommendation candidates
 
-## Admin DB ownership candidates
+## Admin Control DB ownership candidates
 
-Admin DB should own:
+Admin Control DB should own:
 
 - `plan_configs`
 - `customer_profiles`
@@ -287,9 +288,9 @@ Information gaps:
    - Use this audit to formally define customer DB vs admin DB ownership and projection rules.
    - Docs-only.
 
-2. `chore/customer-db-rls-readiness-audit`
-   - Read-only audit of customer-facing public table RLS, grants, policies, exposed functions, helper functions, views, and advisors.
-   - Keep it separate from admin DB readiness.
+2. `docs/customer-result-snapshot-readiness-audit`
+   - Read-only/docs-only audit of Customer Result DB published result/report snapshot readiness before RLS policy work.
+   - Keep it separate from Admin Control DB readiness.
 
 3. `docs/measurement-result-projection-design`
    - Define how admin measurement job lifecycle projects into immutable customer measurement result snapshots.
