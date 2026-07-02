@@ -60,6 +60,60 @@ type BusinessModelKind =
   | "recruiting_hr"
   | "unknown";
 
+export type ServiceEvidenceTerm = {
+  term: string;
+  normalized: string;
+  source:
+    | "brand"
+    | "url_metadata"
+    | "service_description"
+    | "category"
+    | "audience"
+    | "goal"
+    | "competitor"
+    | "region";
+  weight: number;
+};
+
+export type CategoryCandidateProfile =
+  | "seo_ai_search"
+  | "marketing_seo"
+  | "b2b_saas_tool"
+  | "recruiting_hr"
+  | "professional_service"
+  | "healthcare_clinic"
+  | "school_education"
+  | "local_service"
+  | "ecommerce_product"
+  | "real_estate"
+  | "finance_investment"
+  | "other";
+
+export type CategoryCandidate = {
+  label: string;
+  profile: CategoryCandidateProfile;
+  score: number;
+  reasons: readonly string[];
+};
+
+export type QuestionAreaMetricHint =
+  | "visibility"
+  | "comparison"
+  | "evidence"
+  | "risk"
+  | "reputation"
+  | "local"
+  | "sentiment";
+
+export type QuestionAreaCandidate = {
+  label: string;
+  description: string;
+  sourceTopicType?: TopicType;
+  score: number;
+  reasons: readonly string[];
+  metricHint: QuestionAreaMetricHint;
+};
+
 type GeneratedTopicKey =
   | "category-discovery"
   | "problem-solution"
@@ -81,6 +135,10 @@ type GenerationContext = {
   businessModel: BusinessModelKind;
   industryAdapter: string;
   categoryLabel: string;
+  serviceEvidenceTerms: readonly ServiceEvidenceTerm[];
+  categoryCandidate: CategoryCandidate;
+  categoryCandidates: readonly CategoryCandidate[];
+  questionAreaCandidates: readonly QuestionAreaCandidate[];
   targetCustomerLabel: string;
   regionLabel: string;
   warnings: string[];
@@ -122,6 +180,261 @@ type PromptSpec = {
 
 type PromptVariantSpec = PromptSpec & {
   variantKey: string;
+};
+
+type CategoryScoringRule = {
+  label: string;
+  profile: CategoryCandidateProfile;
+  businessModel: BusinessModelKind;
+  industryAdapter: string;
+  weightedTerms: readonly { term: string; weight: number }[];
+  audienceTerms?: readonly { term: string; weight: number }[];
+};
+
+const CATEGORY_SCORING_RULES: readonly CategoryScoringRule[] = [
+  {
+    label: "AI search / GEO support",
+    profile: "seo_ai_search",
+    businessModel: "b2b_software",
+    industryAdapter: "b2b_saas",
+    weightedTerms: [
+      { term: "ai search", weight: 5 },
+      { term: "ai visibility", weight: 5 },
+      { term: "ai answer", weight: 4 },
+      { term: "geo", weight: 4 },
+      { term: "llmo", weight: 4 },
+      { term: "aio", weight: 3 },
+      { term: "citation", weight: 3 },
+      { term: "chatgpt", weight: 3 },
+      { term: "perplexity", weight: 3 },
+      { term: "ai検索", weight: 6 },
+      { term: "ai回答", weight: 5 },
+      { term: "ai露出", weight: 5 },
+      { term: "生成ai", weight: 4 },
+      { term: "引用", weight: 3 },
+      { term: "llm", weight: 2 },
+      { term: "seo", weight: 2 }
+    ],
+    audienceTerms: [
+      { term: "marketing", weight: 2 },
+      { term: "seo", weight: 2 },
+      { term: "マーケティング", weight: 2 },
+      { term: "seo担当", weight: 2 }
+    ]
+  },
+  {
+    label: "SEO / marketing support",
+    profile: "marketing_seo",
+    businessModel: "b2b_service",
+    industryAdapter: "b2b_service",
+    weightedTerms: [
+      { term: "seo", weight: 4 },
+      { term: "content marketing", weight: 4 },
+      { term: "marketing", weight: 3 },
+      { term: "traffic", weight: 2 },
+      { term: "conversion", weight: 2 },
+      { term: "検索順位", weight: 4 },
+      { term: "コンテンツ", weight: 3 },
+      { term: "マーケティング", weight: 3 },
+      { term: "流入", weight: 2 },
+      { term: "広告", weight: 2 }
+    ]
+  },
+  {
+    label: "BtoB SaaS / business tool",
+    profile: "b2b_saas_tool",
+    businessModel: "b2b_software",
+    industryAdapter: "b2b_saas",
+    weightedTerms: [
+      { term: "saas", weight: 5 },
+      { term: "software", weight: 4 },
+      { term: "platform", weight: 4 },
+      { term: "workflow", weight: 3 },
+      { term: "crm", weight: 3 },
+      { term: "automation", weight: 3 },
+      { term: "system", weight: 2 },
+      { term: "tool", weight: 2 },
+      { term: "クラウド", weight: 4 },
+      { term: "システム", weight: 4 },
+      { term: "ツール", weight: 3 },
+      { term: "業務", weight: 3 },
+      { term: "管理", weight: 2 },
+      { term: "導入", weight: 2 }
+    ],
+    audienceTerms: [
+      { term: "b2b", weight: 3 },
+      { term: "btob", weight: 3 },
+      { term: "法人", weight: 3 },
+      { term: "企業", weight: 2 }
+    ]
+  },
+  {
+    label: "Recruiting / HR support",
+    profile: "recruiting_hr",
+    businessModel: "recruiting_hr",
+    industryAdapter: "recruiting_hr",
+    weightedTerms: [
+      { term: "recruiting", weight: 5 },
+      { term: "recruitment", weight: 5 },
+      { term: "ats", weight: 5 },
+      { term: "hr", weight: 4 },
+      { term: "hiring", weight: 4 },
+      { term: "staffing", weight: 3 },
+      { term: "採用", weight: 6 },
+      { term: "人事", weight: 4 },
+      { term: "候補者", weight: 4 },
+      { term: "求人", weight: 3 },
+      { term: "面接", weight: 3 },
+      { term: "hr", weight: 3 }
+    ]
+  },
+  {
+    label: "Professional service / consulting",
+    profile: "professional_service",
+    businessModel: "professional_service",
+    industryAdapter: "professional_services",
+    weightedTerms: [
+      { term: "consulting", weight: 5 },
+      { term: "agency", weight: 4 },
+      { term: "advisory", weight: 4 },
+      { term: "professional service", weight: 4 },
+      { term: "law firm", weight: 3 },
+      { term: "accounting", weight: 3 },
+      { term: "consultant", weight: 3 },
+      { term: "コンサル", weight: 5 },
+      { term: "支援", weight: 3 },
+      { term: "代行", weight: 3 },
+      { term: "士業", weight: 4 },
+      { term: "専門", weight: 2 }
+    ]
+  },
+  {
+    label: "Clinic / healthcare",
+    profile: "healthcare_clinic",
+    businessModel: "healthcare",
+    industryAdapter: "clinic_healthcare",
+    weightedTerms: [
+      { term: "clinic", weight: 5 },
+      { term: "hospital", weight: 5 },
+      { term: "healthcare", weight: 4 },
+      { term: "medical", weight: 4 },
+      { term: "dental", weight: 4 },
+      { term: "treatment", weight: 3 },
+      { term: "クリニック", weight: 6 },
+      { term: "病院", weight: 5 },
+      { term: "医療", weight: 5 },
+      { term: "歯科", weight: 4 },
+      { term: "美容医療", weight: 4 },
+      { term: "治療", weight: 3 }
+    ]
+  },
+  {
+    label: "School / education",
+    profile: "school_education",
+    businessModel: "education",
+    industryAdapter: "education_school",
+    weightedTerms: [
+      { term: "school", weight: 5 },
+      { term: "course", weight: 4 },
+      { term: "lesson", weight: 4 },
+      { term: "education", weight: 4 },
+      { term: "english conversation", weight: 4 },
+      { term: "スクール", weight: 6 },
+      { term: "教室", weight: 5 },
+      { term: "講座", weight: 4 },
+      { term: "教育", weight: 4 },
+      { term: "英会話", weight: 4 },
+      { term: "学習", weight: 3 },
+      { term: "塾", weight: 3 },
+      { term: "講師", weight: 2 }
+    ]
+  },
+  {
+    label: "Local service",
+    profile: "local_service",
+    businessModel: "local_service",
+    industryAdapter: "local_service",
+    weightedTerms: [
+      { term: "local", weight: 4 },
+      { term: "nearby", weight: 4 },
+      { term: "restaurant", weight: 3 },
+      { term: "salon", weight: 3 },
+      { term: "booking", weight: 3 },
+      { term: "area", weight: 2 },
+      { term: "地域", weight: 5 },
+      { term: "近く", weight: 4 },
+      { term: "店舗", weight: 4 },
+      { term: "予約", weight: 3 },
+      { term: "整体", weight: 3 },
+      { term: "サロン", weight: 3 },
+      { term: "飲食", weight: 3 }
+    ]
+  },
+  {
+    label: "EC / product purchase",
+    profile: "ecommerce_product",
+    businessModel: "ecommerce",
+    industryAdapter: "ecommerce_product",
+    weightedTerms: [
+      { term: "ecommerce", weight: 5 },
+      { term: "online shop", weight: 5 },
+      { term: "d2c", weight: 5 },
+      { term: "product", weight: 2 },
+      { term: "cart", weight: 2 },
+      { term: "shop", weight: 2 },
+      { term: "通販", weight: 5 },
+      { term: "ecサイト", weight: 5 },
+      { term: "ec", weight: 4 },
+      { term: "d2c", weight: 4 },
+      { term: "商品", weight: 3 },
+      { term: "購入", weight: 3 },
+      { term: "返品", weight: 3 },
+      { term: "定期購入", weight: 3 },
+      { term: "マットレス", weight: 3 },
+      { term: "化粧品", weight: 3 },
+      { term: "スキンケア", weight: 3 }
+    ]
+  },
+  {
+    label: "Real estate",
+    profile: "real_estate",
+    businessModel: "real_estate",
+    industryAdapter: "real_estate",
+    weightedTerms: [
+      { term: "real estate", weight: 5 },
+      { term: "property", weight: 4 },
+      { term: "rent", weight: 3 },
+      { term: "mortgage", weight: 3 },
+      { term: "不動産", weight: 6 },
+      { term: "賃貸", weight: 4 },
+      { term: "売買", weight: 4 },
+      { term: "住宅", weight: 3 },
+      { term: "物件", weight: 3 }
+    ]
+  },
+  {
+    label: "Finance / investment",
+    profile: "finance_investment",
+    businessModel: "b2c_service",
+    industryAdapter: "minimum_input_generic",
+    weightedTerms: [
+      { term: "finance", weight: 5 },
+      { term: "investment", weight: 5 },
+      { term: "insurance", weight: 4 },
+      { term: "loan", weight: 3 },
+      { term: "金融", weight: 6 },
+      { term: "投資", weight: 5 },
+      { term: "保険", weight: 4 },
+      { term: "ローン", weight: 3 }
+    ]
+  }
+] as const;
+
+const OTHER_CATEGORY_CANDIDATE: CategoryCandidate = {
+  label: "Other service",
+  profile: "other",
+  score: 1,
+  reasons: ["fallback:no_strong_service_evidence"]
 };
 
 export type ProjectSetupDraftGenerationOptions = {
@@ -441,12 +754,16 @@ function buildProjectSetupDraft(input: {
 function buildGenerationContext(seed: ProjectSetupSeedInput): GenerationContext {
   const seedHash = stableHash(stableSeedString(seed));
   const isJapanese = isJapaneseLanguage(seed.language);
-  const businessModel = classifyBusinessModel(seed);
+  const serviceEvidenceTerms = buildServiceEvidenceTerms(seed);
+  const categoryCandidates = scoreCategoryCandidates(serviceEvidenceTerms, seed);
+  const categoryCandidate = categoryCandidates[0] ?? OTHER_CATEGORY_CANDIDATE;
+  const businessModel = mapCategoryCandidateToBusinessModel(categoryCandidate, seed);
   const isB2B = isB2BBusinessModel(seed, businessModel);
   const isLocal = businessModel === "local_service" || isLocalIntent(seed);
   const isRegulatedOrHighTrust = isRegulatedOrHighTrustIndustry(seed);
-  const industryAdapter = getIndustryAdapter(businessModel);
-  const categoryLabel = buildCategoryLabel(seed, isJapanese);
+  const industryAdapter = mapCategoryCandidateToIndustryAdapter(categoryCandidate, businessModel);
+  const categoryLabel = buildCategoryLabel(seed, isJapanese, categoryCandidate);
+  const questionAreaCandidates = scoreQuestionAreaCandidates(categoryCandidate, serviceEvidenceTerms, seed);
   const targetCustomerLabel = sanitizeForPrompt(seed.targetCustomers, seed) || (isJapanese ? "対象顧客" : "target customers");
   const normalizedTargetCustomerLabel = hasText(seed.targetCustomers)
     ? targetCustomerLabel
@@ -477,6 +794,10 @@ function buildGenerationContext(seed: ProjectSetupSeedInput): GenerationContext 
     businessModel,
     industryAdapter,
     categoryLabel,
+    serviceEvidenceTerms,
+    categoryCandidate,
+    categoryCandidates,
+    questionAreaCandidates,
     targetCustomerLabel: normalizedTargetCustomerLabel,
     regionLabel,
     warnings,
@@ -911,16 +1232,17 @@ function createPersonaDraft(
 
 function createTopicDraft(context: GenerationContext, key: GeneratedTopicKey, persona: PersonaDraft): TopicDraft {
   const topic = getTopicSpec(context, key);
+  const questionArea = getQuestionAreaForGeneratedTopic(context, key);
   return {
     topicId: buildScopedId("topic", context.seedHash, key),
-    topicName: topic.topicName,
+    topicName: questionArea?.label ?? topic.topicName,
     topicType: topic.topicType,
-    diagnosisGoal: topic.diagnosisGoal,
+    diagnosisGoal: questionArea?.description ?? topic.diagnosisGoal,
     targetPersonaId: persona.personaId,
     buyerStage: topic.buyerStage,
     metricTarget: topic.metricTarget,
     brandMentionPolicy: topic.brandMentionPolicy,
-    expectedSignal: topic.expectedSignal,
+    expectedSignal: questionArea?.description ?? topic.expectedSignal,
     minimumPromptCount: getMinimumPromptCountForTopic(topic.topicType),
     riskOrBias: topic.riskOrBias,
     handoffSkill: topic.handoffSkill,
@@ -937,6 +1259,22 @@ function getMinimumPromptCountForTopic(topicType: TopicType) {
   if (topicType === "citation_evidence_topic") return 1;
   if (topicType === "branded_sentiment_topic") return 1;
   return 2;
+}
+
+function getQuestionAreaForGeneratedTopic(context: GenerationContext, key: GeneratedTopicKey) {
+  const topicTypeByKey: Record<GeneratedTopicKey, TopicType> = {
+    "category-discovery": "category_discovery_topic",
+    "problem-solution": "problem_solution_topic",
+    "selection-criteria": "persona_specific_topic",
+    "alternative-search": "alternative_search_topic",
+    "pricing-reputation": "pricing_reputation_topic",
+    "regulated-risk": "regulated_risk_topic",
+    "citation-check": "citation_evidence_topic",
+    "branded-sentiment": "branded_sentiment_topic",
+    "local-regional": "local_regional_topic"
+  };
+  const topicType = topicTypeByKey[key];
+  return context.questionAreaCandidates.find((candidate) => candidate.sourceTopicType === topicType);
 }
 
 function getTopicSpec(context: GenerationContext, key: GeneratedTopicKey): {
@@ -1591,7 +1929,7 @@ function buildPersonaPromptLead(context: GenerationContext, persona: PersonaDraf
 }
 
 function getPromptSpecForTopic(context: GenerationContext, topic: TopicDraft): PromptSpec {
-  const category = context.categoryLabel;
+  const category = sanitizeForPrompt(topic.topicName, context.seed) || context.categoryLabel;
   const region = context.regionLabel;
   const brand = context.seed.brandName;
   const decisionChecks = buildDecisionCheckItems(context);
@@ -1980,6 +2318,18 @@ function buildInputCompletion(seed: ProjectSetupSeedInput, context: GenerationCo
       note: "Used only to shape draft personas, topics, and prompts; not treated as verified customer evidence."
     },
     {
+      field: "serviceEvidenceCategory",
+      status: "inferred",
+      value: context.categoryCandidate.label,
+      note: `Deterministic service-evidence category candidate. Reasons: ${context.categoryCandidate.reasons.slice(0, 4).join(", ")}.`
+    },
+    {
+      field: "serviceEvidenceQuestionAreas",
+      status: "inferred",
+      value: context.questionAreaCandidates.map((candidate) => candidate.label).slice(0, 6),
+      note: "Deterministic question-area candidates derived from service evidence; internal IDs are not customer-facing."
+    },
+    {
       field: "generationMode",
       status: "inferred",
       value: "deterministic_rule_based_draft",
@@ -2094,6 +2444,436 @@ function isHighConsiderationB2BContext(context: GenerationContext) {
     "導入負荷",
     "dx投資"
   ]);
+}
+
+export function buildServiceEvidenceTerms(seed: ProjectSetupSeedInput): ServiceEvidenceTerm[] {
+  const terms: ServiceEvidenceTerm[] = [];
+  const pushTerm = (
+    term: string | null | undefined,
+    source: ServiceEvidenceTerm["source"],
+    weight: number
+  ) => {
+    const normalized = normalizeEvidenceTerm(term);
+    if (!hasText(normalized)) return;
+    terms.push({
+      term: normalizeText(term ?? ""),
+      normalized,
+      source,
+      weight
+    });
+  };
+  const pushTerms = (
+    values: readonly (string | null | undefined)[],
+    source: ServiceEvidenceTerm["source"],
+    weight: number
+  ) => values.forEach((value) => pushTerm(value, source, weight));
+
+  pushTerms([seed.productOrServiceDescription], "service_description", 5);
+  pushTerms(splitEvidenceText(seed.productOrServiceDescription), "service_description", 2);
+  pushTerms([seed.industryCategory], "category", 4);
+  pushTerms(splitEvidenceText(seed.industryCategory), "category", 2);
+  pushTerms([seed.targetCustomers], "audience", 3);
+  pushTerms(splitEvidenceText(seed.targetCustomers), "audience", 1.5);
+  pushTerms(seed.regions, "region", 1.2);
+  pushTerms(seed.knownCompetitors ?? [], "competitor", 1.2);
+  pushTerms(seed.avoidCompetitors ?? [], "competitor", 1.2);
+  pushTerms(seed.strengths ?? [], "service_description", 3);
+  pushTerms(seed.knownRisks ?? [], "goal", 2);
+  pushTerms((seed.diagnosisGoals ?? []).map((goal) => goal.replace(/_/g, " ")), "goal", 2);
+  pushTerms([seed.companyName, seed.brandName, seed.serviceName, ...(seed.brandAliases ?? [])], "brand", 0.7);
+  pushTerm(extractSeedHostname(seed.officialSiteUrl), "url_metadata", 1.4);
+  pushTerms(splitHostnameEvidence(extractSeedHostname(seed.officialSiteUrl)), "url_metadata", 0.8);
+
+  return uniqueBy(terms, (term) => `${term.source}:${term.normalized}`)
+    .filter((term) => !isLowSignalEvidenceTerm(term));
+}
+
+export function scoreCategoryCandidates(
+  evidenceTerms: readonly ServiceEvidenceTerm[],
+  seed: ProjectSetupSeedInput
+): CategoryCandidate[] {
+  const seedAudienceText = normalizeEvidenceTerm(`${seed.targetCustomers} ${seed.industryCategory}`);
+  const legacyBusinessModel = classifyBusinessModel(seed);
+  const allowLegacyEcommerce = hasExplicitEcommerceEvidence(evidenceTerms);
+  const scored = CATEGORY_SCORING_RULES.map((rule) => {
+    const reasons: string[] = [];
+    let score = 0;
+
+    for (const evidence of evidenceTerms) {
+      for (const weighted of rule.weightedTerms) {
+        if (!evidenceMatchesTerm(evidence.normalized, weighted.term)) continue;
+        const sourceMultiplier = getEvidenceSourceMultiplier(evidence.source);
+        score += evidence.weight * weighted.weight * sourceMultiplier;
+        reasons.push(`${evidence.source}:${weighted.term}`);
+      }
+      for (const weighted of rule.audienceTerms ?? []) {
+        if (evidence.source !== "audience" && evidence.source !== "category") continue;
+        if (!evidenceMatchesTerm(evidence.normalized, weighted.term)) continue;
+        score += evidence.weight * weighted.weight * 1.2;
+        reasons.push(`${evidence.source}:${weighted.term}`);
+      }
+    }
+
+    if (isB2BAudience(seedAudienceText) && isB2BCategoryProfile(rule.profile)) {
+      score += 8;
+      reasons.push("audience:b2b_hint");
+    }
+    if (isB2CAudience(seedAudienceText) && isConsumerCategoryProfile(rule.profile)) {
+      score += 8;
+      reasons.push("audience:b2c_hint");
+    }
+    if (rule.profile === "ecommerce_product" && hasExplicitEcommerceEvidence(evidenceTerms)) {
+      score += 8;
+      reasons.push("category:explicit_ecommerce_signal");
+    }
+    if (rule.profile === "local_service" && seed.regions.length > 0 && !isNationalRegionOnly(seed.regions)) {
+      score += 5;
+      reasons.push("region:local_region_hint");
+    }
+    if (rule.profile === "seo_ai_search" && score > 0 && scoreCategoryKeyword(evidenceTerms, "seo") > 0) {
+      score += 3;
+      reasons.push("service_description:seo_supporting_signal");
+    }
+    if (rule.businessModel === legacyBusinessModel && (legacyBusinessModel !== "ecommerce" || allowLegacyEcommerce)) {
+      score += 14;
+      reasons.push(`legacy_classifier:${legacyBusinessModel}`);
+    }
+
+    return {
+      label: rule.label,
+      profile: rule.profile,
+      score: Math.round(score),
+      reasons: uniqueStrings(reasons)
+    };
+  })
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label));
+
+  const candidates = scored.length > 0 ? scored : [OTHER_CATEGORY_CANDIDATE];
+  return uniqueBy(candidates, (candidate) => candidate.profile).slice(0, 5);
+}
+
+export function scoreQuestionAreaCandidates(
+  category: CategoryCandidate,
+  evidenceTerms: readonly ServiceEvidenceTerm[],
+  seed: ProjectSetupSeedInput
+): QuestionAreaCandidate[] {
+  const serviceText = evidenceTerms
+    .filter((term) => term.source !== "brand" && term.source !== "competitor")
+    .map((term) => term.normalized)
+    .join(" ");
+  const isKidsEducation = evidenceMatchesTerm(serviceText, "子ども") ||
+    evidenceMatchesTerm(serviceText, "こども") ||
+    evidenceMatchesTerm(serviceText, "保護者") ||
+    evidenceMatchesTerm(serviceText, "kids");
+  const isEnglishSchool = evidenceMatchesTerm(serviceText, "英会話") ||
+    evidenceMatchesTerm(serviceText, "english conversation");
+  const isMattress = evidenceMatchesTerm(serviceText, "マットレス") ||
+    evidenceMatchesTerm(serviceText, "睡眠") ||
+    evidenceMatchesTerm(serviceText, "mattress");
+  const isCosmetics = evidenceMatchesTerm(serviceText, "化粧品") ||
+    evidenceMatchesTerm(serviceText, "スキンケア") ||
+    evidenceMatchesTerm(serviceText, "肌") ||
+    evidenceMatchesTerm(serviceText, "cosmetics");
+
+  const baseReasons = uniqueStrings([
+    `category:${category.profile}`,
+    ...category.reasons.slice(0, 3)
+  ]);
+  const makeCandidate = (
+    label: string,
+    description: string,
+    sourceTopicType: TopicType | undefined,
+    metricHint: QuestionAreaMetricHint,
+    score: number,
+    reasons: readonly string[] = []
+  ): QuestionAreaCandidate => ({
+    label,
+    description,
+    sourceTopicType,
+    metricHint,
+    score,
+    reasons: uniqueStrings([...baseReasons, ...reasons])
+  });
+
+  const commonCitation = makeCandidate(
+    "Source and evidence behavior",
+    "Check which sources, proof points, and verification gaps appear in AI answers.",
+    "citation_evidence_topic",
+    "evidence",
+    64
+  );
+  const commonSentiment = makeCandidate(
+    "Brand perception summary",
+    "Check how the brand is described when the customer asks directly about it.",
+    "branded_sentiment_topic",
+    "sentiment",
+    60
+  );
+
+  if (category.profile === "seo_ai_search") {
+    return [
+      makeCandidate("AI search visibility", "Check whether the service category appears naturally in AI search answers.", "category_discovery_topic", "visibility", 92),
+      makeCandidate("Comparison with alternatives", "Check how AI answers compare candidate services and evaluation axes without naming the brand.", "alternative_search_topic", "comparison", 88),
+      makeCandidate("Citation and source readiness", "Check whether official pages and third-party evidence are likely to support the answer.", "citation_evidence_topic", "evidence", 84),
+      makeCandidate("Pre-adoption concerns", "Check what proof, scope, and operational concerns appear before inquiry.", "persona_specific_topic", "risk", 76),
+      commonSentiment
+    ];
+  }
+
+  if (category.profile === "recruiting_hr") {
+    return [
+      makeCandidate("Hiring workflow fit", "Check whether candidate management, interview coordination, and hiring workflow needs appear.", "category_discovery_topic", "visibility", 91),
+      makeCandidate("Recruiting tool comparison", "Check how AI answers compare ATS, recruiting tools, outsourcing, and current workflows.", "alternative_search_topic", "comparison", 88),
+      makeCandidate("Stakeholder concerns", "Check concerns for HR owners, hiring managers, executives, and interviewers before adoption.", "persona_specific_topic", "risk", 84),
+      makeCandidate("Evidence and trust checks", "Check what proof, implementation cautions, and data handling points appear.", "regulated_risk_topic", "risk", 78),
+      commonCitation,
+      commonSentiment
+    ];
+  }
+
+  if (category.profile === "school_education") {
+    return [
+      makeCandidate(
+        isKidsEducation ? "Child fit and guardian concerns" : isEnglishSchool ? "Beginner fit and lesson choice" : "Course fit and learning needs",
+        isKidsEducation
+          ? "Check whether guardian concerns about teachers, curriculum, safety, and fit for the child appear."
+          : "Check whether level fit, trial lessons, price, reviews, and learning continuity appear.",
+        "category_discovery_topic",
+        "visibility",
+        90,
+        isKidsEducation ? ["service_description:kids_education"] : ["service_description:adult_or_general_education"]
+      ),
+      makeCandidate(
+        isKidsEducation ? "Teacher, curriculum, and safety comparison" : "Price, reviews, and trial lesson comparison",
+        isKidsEducation
+          ? "Check how AI answers compare teachers, curriculum, commute, safety, and trial lessons."
+          : "Check how AI answers compare price, reviews, access, trial lessons, and lesson style.",
+        "alternative_search_topic",
+        "comparison",
+        86
+      ),
+      makeCandidate("Before-enrollment checks", "Check what customers should confirm before applying or taking a trial lesson.", "persona_specific_topic", "risk", 80),
+      makeCandidate("Reviews and reputation", "Check how reviews, outcomes, price, and support are handled without unsupported claims.", "pricing_reputation_topic", "reputation", 75),
+      commonCitation,
+      commonSentiment
+    ];
+  }
+
+  if (category.profile === "ecommerce_product") {
+    return [
+      makeCandidate(
+        isMattress ? "Sleep concern and mattress fit" : isCosmetics ? "Skin fit and ingredient concerns" : "Product fit and purchase concerns",
+        isMattress
+          ? "Check whether sleep concerns, comfort, materials, price, reviews, and return conditions appear."
+          : isCosmetics
+            ? "Check whether skin fit, ingredients, reviews, price, and subscription conditions appear."
+            : "Check whether product fit, quality, price, reviews, and return conditions appear.",
+        "category_discovery_topic",
+        "visibility",
+        90,
+        isMattress ? ["service_description:mattress"] : isCosmetics ? ["service_description:cosmetics"] : []
+      ),
+      makeCandidate(
+        isMattress ? "Comfort, materials, and return comparison" : isCosmetics ? "Ingredients, reviews, and subscription comparison" : "Price, quality, and return comparison",
+        isMattress
+          ? "Check how AI answers compare comfort, material, body fit, warranty, price, and return policy."
+          : isCosmetics
+            ? "Check how AI answers compare ingredients, skin concerns, reviews, price, and subscription terms."
+            : "Check how AI answers compare products, brands, quality, price, reviews, and return policy.",
+        "alternative_search_topic",
+        "comparison",
+        86
+      ),
+      makeCandidate("Purchase risk checks", "Check what customers should confirm before purchasing rather than relying only on reviews.", "persona_specific_topic", "risk", 80),
+      makeCandidate("Price, reviews, and trust", "Check how price, reviews, proof, delivery, and returns are organized.", "pricing_reputation_topic", "reputation", 77),
+      commonCitation,
+      commonSentiment
+    ];
+  }
+
+  if (category.profile === "healthcare_clinic") {
+    return [
+      makeCandidate("First consultation concerns", "Check whether fees, doctor information, risks, and consultation flow appear.", "category_discovery_topic", "visibility", 90),
+      makeCandidate("Clinic comparison cautions", "Check how AI answers compare clinics without making treatment guarantees.", "alternative_search_topic", "comparison", 86),
+      makeCandidate("Pre-consultation checks", "Check what customers should confirm about fit, fees, scope, and risks before consulting.", "persona_specific_topic", "risk", 84),
+      makeCandidate("Safety and qualification checks", "Check qualifications, fees, scope, risks, and pre-consultation questions.", "regulated_risk_topic", "risk", 88),
+      makeCandidate("Reviews and fee checks", "Check how reviews, fees, and trust points are handled cautiously.", "pricing_reputation_topic", "reputation", 78),
+      commonCitation,
+      commonSentiment
+    ];
+  }
+
+  if (category.profile === "local_service") {
+    return [
+      makeCandidate("Nearby provider discovery", "Check whether nearby options, access, booking, price, and reviews appear.", "category_discovery_topic", "local", 88),
+      makeCandidate("Area and booking comparison", "Check how AI answers compare area, booking ease, availability, and substitutes.", "local_regional_topic", "local", 86),
+      makeCandidate("Pre-booking checks", "Check what customers should confirm about fit, price, booking flow, and cautions before booking.", "persona_specific_topic", "risk", 80),
+      makeCandidate("Price and review trust", "Check how price, reviews, staff, and pre-booking cautions appear.", "pricing_reputation_topic", "reputation", 78),
+      commonCitation,
+      commonSentiment
+    ];
+  }
+
+  if (category.profile === "professional_service" || category.profile === "marketing_seo") {
+    return [
+      makeCandidate("Consultation need discovery", "Check whether customer problems, scope, and expected support paths appear.", "category_discovery_topic", "visibility", 88),
+      makeCandidate("Provider and in-house comparison", "Check how AI answers compare agencies, experts, tools, and in-house work.", "alternative_search_topic", "comparison", 86),
+      makeCandidate("Before-consultation checks", "Check proof, scope, fees, project fit, and risks before inquiry.", "persona_specific_topic", "risk", 82),
+      commonCitation,
+      commonSentiment
+    ];
+  }
+
+  return [
+    makeCandidate("Category discovery", "Check how AI answers describe the customer problem and candidate category.", "category_discovery_topic", "visibility", 72),
+    makeCandidate("Alternative comparison", "Check which comparable options and evaluation axes appear.", "alternative_search_topic", "comparison", 68),
+    makeCandidate("Selection criteria", "Check what customers should verify before choosing.", "persona_specific_topic", "risk", 64),
+    commonCitation,
+    commonSentiment
+  ];
+}
+
+function mapCategoryCandidateToBusinessModel(
+  category: CategoryCandidate,
+  seed: ProjectSetupSeedInput
+): BusinessModelKind {
+  const rule = CATEGORY_SCORING_RULES.find((candidate) => candidate.profile === category.profile);
+  if (!rule) return "b2c_service";
+  if (
+    category.profile === "seo_ai_search" &&
+    evidenceMatchesTerm(normalizeEvidenceTerm(seed.productOrServiceDescription), "consulting")
+  ) {
+    return "professional_service";
+  }
+  if (
+    category.profile === "marketing_seo" &&
+    isB2BAudience(normalizeEvidenceTerm(`${seed.targetCustomers} ${seed.industryCategory}`))
+  ) {
+    return "b2b_service";
+  }
+  return rule.businessModel;
+}
+
+function mapCategoryCandidateToIndustryAdapter(category: CategoryCandidate, businessModel: BusinessModelKind) {
+  const rule = CATEGORY_SCORING_RULES.find((candidate) => candidate.profile === category.profile);
+  return rule?.industryAdapter ?? getIndustryAdapter(businessModel);
+}
+
+function normalizeEvidenceTerm(value: string | null | undefined) {
+  return normalizeText(value ?? "")
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[、。・／/|()[\]{}"'`]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitEvidenceText(value: string | null | undefined) {
+  const normalized = normalizeText(value ?? "");
+  if (!hasText(normalized)) return [];
+  return normalized
+    .split(/[\s、。・／/|()[\]{}"'`,:;]+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 2 && term.length <= 48)
+    .slice(0, 32);
+}
+
+function extractSeedHostname(value: string | null | undefined) {
+  if (!hasText(value)) return "";
+  try {
+    return new URL(value ?? "").hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function splitHostnameEvidence(hostname: string) {
+  if (!hasText(hostname)) return [];
+  return hostname
+    .split(/[.\-_]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3 && part.length <= 32);
+}
+
+function isLowSignalEvidenceTerm(term: ServiceEvidenceTerm) {
+  if (term.source === "brand" || term.source === "competitor") return false;
+  if (term.normalized.length <= 1) return true;
+  if (/^[a-z]{1,2}$/.test(term.normalized) && term.normalized !== "hr") return true;
+  return false;
+}
+
+function evidenceMatchesTerm(value: string, needle: string) {
+  const normalizedNeedle = normalizeEvidenceTerm(needle);
+  if (!hasText(value) || !hasText(normalizedNeedle)) return false;
+  if (/^[a-z0-9]{1,3}$/.test(normalizedNeedle)) {
+    return new RegExp(`(^|[^a-z0-9])${escapeEvidenceRegExp(normalizedNeedle)}([^a-z0-9]|$)`, "i").test(value);
+  }
+  return value.includes(normalizedNeedle);
+}
+
+function escapeEvidenceRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getEvidenceSourceMultiplier(source: ServiceEvidenceTerm["source"]) {
+  if (source === "service_description") return 1.25;
+  if (source === "category") return 1.15;
+  if (source === "audience") return 1;
+  if (source === "goal") return 0.75;
+  if (source === "url_metadata") return 0.65;
+  if (source === "region") return 0.55;
+  if (source === "competitor") return 0.45;
+  return 0.25;
+}
+
+function isB2BAudience(value: string) {
+  return ["b2b", "btob", "法人", "企業", "会社", "事業者", "マーケティング担当", "人事担当", "経営者"]
+    .some((term) => evidenceMatchesTerm(value, term));
+}
+
+function isB2CAudience(value: string) {
+  return ["b2c", "btoc", "個人", "一般消費者", "保護者", "家族", "購入", "料金を比較", "口コミ"]
+    .some((term) => evidenceMatchesTerm(value, term));
+}
+
+function isB2BCategoryProfile(profile: CategoryCandidateProfile) {
+  return profile === "seo_ai_search" ||
+    profile === "marketing_seo" ||
+    profile === "b2b_saas_tool" ||
+    profile === "recruiting_hr" ||
+    profile === "professional_service";
+}
+
+function isConsumerCategoryProfile(profile: CategoryCandidateProfile) {
+  return profile === "school_education" ||
+    profile === "local_service" ||
+    profile === "ecommerce_product" ||
+    profile === "healthcare_clinic" ||
+    profile === "real_estate" ||
+    profile === "finance_investment";
+}
+
+function hasExplicitEcommerceEvidence(evidenceTerms: readonly ServiceEvidenceTerm[]) {
+  return evidenceTerms.some((term) =>
+    (term.source === "service_description" || term.source === "category" || term.source === "audience") &&
+    ["ecommerce", "online shop", "d2c", "通販", "ecサイト", "ec", "商品", "購入", "返品", "定期購入"]
+      .some((needle) => evidenceMatchesTerm(term.normalized, needle))
+  );
+}
+
+function scoreCategoryKeyword(evidenceTerms: readonly ServiceEvidenceTerm[], keyword: string) {
+  return evidenceTerms.reduce((score, term) => {
+    return score + (evidenceMatchesTerm(term.normalized, keyword) ? term.weight : 0);
+  }, 0);
+}
+
+function isNationalRegionOnly(regions: readonly string[]) {
+  if (regions.length === 0) return true;
+  return regions.every((region) => {
+    const normalized = normalizeEvidenceTerm(region);
+    return ["japan", "日本", "全国", "国内", "national"].some((term) => evidenceMatchesTerm(normalized, term));
+  });
 }
 
 function getIndustryAdapter(businessModel: BusinessModelKind) {
@@ -2213,7 +2993,54 @@ function isRegulatedOrHighTrustIndustry(seed: ProjectSetupSeedInput) {
   ]);
 }
 
-function buildCategoryLabel(seed: ProjectSetupSeedInput, isJapanese: boolean) {
+function buildCustomerFacingCategoryLabel(
+  seed: ProjectSetupSeedInput,
+  isJapanese: boolean,
+  categoryCandidate: CategoryCandidate
+) {
+  const industry = sanitizeForPrompt(seed.industryCategory, seed);
+  if (industry.length > 0 && industry.length <= 40) return industry;
+
+  const jaLabels: Record<CategoryCandidateProfile, string> = {
+    seo_ai_search: "AI検索・SEO支援サービス",
+    marketing_seo: "マーケティング・SEO支援サービス",
+    b2b_saas_tool: "BtoB SaaS・業務支援ツール",
+    recruiting_hr: "採用・HR支援サービス",
+    professional_service: "専門サービス・コンサルティング",
+    healthcare_clinic: "クリニック・医療サービス",
+    school_education: "スクール・教育サービス",
+    local_service: "地域サービス",
+    ecommerce_product: "EC・商品購入サービス",
+    real_estate: "不動産サービス",
+    finance_investment: "金融・投資サービス",
+    other: ""
+  };
+  const enLabels: Record<CategoryCandidateProfile, string> = {
+    seo_ai_search: "AI search / SEO support",
+    marketing_seo: "marketing / SEO support",
+    b2b_saas_tool: "B2B SaaS / business tool",
+    recruiting_hr: "recruiting / HR support",
+    professional_service: "professional service / consulting",
+    healthcare_clinic: "clinic / healthcare service",
+    school_education: "school / education service",
+    local_service: "local service",
+    ecommerce_product: "EC / product purchase",
+    real_estate: "real estate service",
+    finance_investment: "finance / investment service",
+    other: ""
+  };
+
+  return isJapanese ? jaLabels[categoryCandidate.profile] : enLabels[categoryCandidate.profile];
+}
+
+function buildCategoryLabel(
+  seed: ProjectSetupSeedInput,
+  isJapanese: boolean,
+  categoryCandidate: CategoryCandidate = OTHER_CATEGORY_CANDIDATE
+) {
+  const inferredCategory = buildCustomerFacingCategoryLabel(seed, isJapanese, categoryCandidate);
+  if (hasText(inferredCategory)) return inferredCategory;
+
   const sanitizedDescription = sanitizeForPrompt(seed.productOrServiceDescription, seed);
   if (sanitizedDescription.length >= 8 && sanitizedDescription.length <= 72) return sanitizedDescription;
   if (sanitizedDescription.length > 72) return `${sanitizedDescription.slice(0, 72).trim()}...`;

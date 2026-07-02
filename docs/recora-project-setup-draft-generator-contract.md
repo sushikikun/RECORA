@@ -253,3 +253,14 @@ Step4 and Step5 are customer-facing confirmation screens, not raw generator mana
 - Step5 starts with a compact summary, then shows customer-readable confirmation sections for brand, service, market/language, viewers, competitors, and question areas.
 - Step5 summarizes generated prompt examples and customer-added prompt examples without exposing internal prompt IDs or generator internals.
 - Step4 and Step5 must keep the no-save/no-approval/no-measurement boundary clear.
+
+### Service Evidence Category And Topic Inference
+
+The generator now builds deterministic service evidence before choosing the draft category, question areas, and prompt angles.
+
+- `buildServiceEvidenceTerms(seed)` extracts weighted terms from brand, URL metadata already present in the seed, service description, category, audience, diagnosis goals, competitors, region, strengths, and known risks.
+- `scoreCategoryCandidates(evidenceTerms, seed)` scores customer-facing category candidates by weighted evidence. It is inspired by TF-IDF style term weighting, but does not import OSS code, add dependencies, fetch pages, crawl, call APIs, or run measurement.
+- `scoreQuestionAreaCandidates(category, evidenceTerms, seed)` derives question-area candidates from the winning category and service evidence. The resulting labels are reflected in `TopicDraft.topicName`, `TopicDraft.diagnosisGoal`, and prompt examples without changing the public draft schema.
+- Short ASCII fragments such as `ec` only match with token boundaries. A brand name such as `Recora` must not trigger ecommerce/product classification.
+- Brand and competitor terms may be used as inference evidence, but must not leak into non-branded prompt text.
+- Internal scoring fields stay internal. Customer UI should continue to show service category, main viewers, question areas, and prompt examples rather than raw `businessModel`, `industryAdapter`, `topicType`, `roleType`, `promptId`, `personaId`, or `topicId`.

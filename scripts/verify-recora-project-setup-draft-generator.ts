@@ -16,8 +16,11 @@ import type {
   TopicType
 } from "../lib/recora/project-setup-draft";
 import {
+  buildServiceEvidenceTerms,
   deduplicateProjectSetupDraft,
   generateProjectSetupDraft,
+  scoreCategoryCandidates,
+  scoreQuestionAreaCandidates,
   validateGeneratedProjectSetupDraft
 } from "../lib/recora/project-setup-draft-generator";
 
@@ -162,6 +165,38 @@ const b2cComparisonSeed: ProjectSetupSeedInput = {
   diagnosisGoals: ["non_branded", "buyer_intent", "comparison", "sentiment"]
 };
 
+const recoraSeoSeed: ProjectSetupSeedInput = {
+  companyName: "Recora Inc.",
+  brandName: "Recora",
+  officialSiteUrl: "https://recora.example",
+  productOrServiceDescription: "BtoB AI search visibility and citation analysis service for marketing and SEO teams.",
+  industryCategory: "AI search / GEO / SEO support",
+  targetCustomers: "BtoB marketing leaders, SEO owners, and content teams.",
+  regions: ["Japan"],
+  language: "en",
+  serviceName: "Recora",
+  knownCompetitors: ["AnswerScope"],
+  strengths: ["AI search visibility checks", "citation source analysis"],
+  knownRisks: ["No crawl or measurement has been run from this setup draft."],
+  diagnosisGoals: ["non_branded", "comparison", "citation_check"]
+};
+
+const recruitingToolSeed: ProjectSetupSeedInput = {
+  companyName: "HireFlow Labs",
+  brandName: "HireFlow",
+  officialSiteUrl: "https://hireflow.example",
+  productOrServiceDescription: "Recruiting SaaS for ATS workflows, candidate management, interview coordination, and hiring manager collaboration.",
+  industryCategory: "Recruiting / HR SaaS",
+  targetCustomers: "BtoB HR teams, recruiting managers, executives, and interviewers.",
+  regions: ["Japan"],
+  language: "en",
+  serviceName: "HireFlow",
+  knownCompetitors: ["Greenhouse", "Lever"],
+  strengths: ["Candidate pipeline management", "Interview coordination"],
+  knownRisks: ["Integration and data handling need review."],
+  diagnosisGoals: ["non_branded", "comparison", "buyer_intent"]
+};
+
 const incompleteSeed: ProjectSetupSeedInput = {
   companyName: "",
   brandName: "",
@@ -243,6 +278,40 @@ for (const testCase of validCases) {
   assertCaseSpecificQuality(testCase, result.draft);
 }
 
+const recoraEvidenceTerms = buildServiceEvidenceTerms(recoraSeoSeed);
+const recoraCategoryCandidates = scoreCategoryCandidates(recoraEvidenceTerms, recoraSeoSeed);
+assert.notEqual(
+  recoraCategoryCandidates[0]?.profile,
+  "ecommerce_product",
+  "Recora brand name must not trigger EC/product classification"
+);
+assert.equal(
+  recoraCategoryCandidates[0]?.profile,
+  "seo_ai_search",
+  "AI search and citation service evidence must win over generic BtoB defaults"
+);
+assert.ok(
+  scoreQuestionAreaCandidates(recoraCategoryCandidates[0], recoraEvidenceTerms, recoraSeoSeed)
+    .some((candidate) => candidate.sourceTopicType === "citation_evidence_topic"),
+  "AI search evidence should create a citation/evidence question area"
+);
+
+const recruitingEvidenceTerms = buildServiceEvidenceTerms(recruitingToolSeed);
+const recruitingCategoryCandidates = scoreCategoryCandidates(recruitingEvidenceTerms, recruitingToolSeed);
+assert.equal(
+  recruitingCategoryCandidates[0]?.profile,
+  "recruiting_hr",
+  "recruiting service evidence must beat generic SaaS defaults"
+);
+assert.ok(
+  scoreQuestionAreaCandidates(recruitingCategoryCandidates[0], recruitingEvidenceTerms, recruitingToolSeed)
+    .some((candidate) => /candidate|hiring|recruiting/i.test(candidate.description)),
+  "recruiting question areas should mention hiring/candidate concerns"
+);
+const recruitingDraft = generateProjectSetupDraft(recruitingToolSeed).draft;
+const recruitingPromptText = recruitingDraft.prompts.map((prompt) => prompt.text).join("\n");
+assert.ok(!promptTextContainsKnownCompetitorSignal(recruitingPromptText, recruitingToolSeed));
+
 const incompleteResult = generateProjectSetupDraft(incompleteSeed);
 assert.ok(incompleteResult.blockers.includes("seedInput.companyName is required"));
 assert.ok(incompleteResult.blockers.includes("seedInput.brandName is required"));
@@ -273,6 +342,10 @@ console.log(JSON.stringify({
     localServiceRegionalIntent: true,
     highTicketB2BBudgetApprovalRole: true,
     b2cComparisonProductAdapter: true,
+    serviceEvidenceCategoryScoring: true,
+    recoraBrandDoesNotTriggerEc: true,
+    recruitingEvidenceBeatsGenericSaas: true,
+    questionAreaCandidatesUseServiceEvidence: true,
     personaTopicPromptReferences: true,
     nonBrandedPromptsExcludeBrandSignals: true,
     brandedPromptsExcludedFromVisibilityRankingSov: true,

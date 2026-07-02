@@ -242,6 +242,35 @@ assert.notDeepEqual(
   clinicDraft.topics.map((topic) => topic.topicName),
   "school and clinic seeds must create different question areas"
 );
+assertIncludesAny(
+  beginnerEnglishDraft.topics.map((topic) => topic.topicName).join("\n"),
+  ["Beginner", "lesson", "trial", "level"],
+  "beginner English question areas"
+);
+assertIncludesAny(
+  kidsEnglishDraft.topics.map((topic) => topic.topicName).join("\n"),
+  ["Child", "guardian", "teacher", "curriculum", "safety"],
+  "kids English question areas"
+);
+assertIncludesAny(
+  mattressEcDraft.topics.map((topic) => topic.topicName).join("\n"),
+  ["Sleep", "mattress", "comfort", "materials", "return"],
+  "mattress EC question areas"
+);
+assertIncludesAny(
+  cosmeticsEcDraft.topics.map((topic) => topic.topicName).join("\n"),
+  ["Skin", "ingredient", "subscription", "reviews"],
+  "cosmetics EC question areas"
+);
+assertIncludesAny(
+  recruitingSaasDraft.topics.map((topic) => topic.topicName).join("\n"),
+  ["Hiring", "Recruiting", "candidate", "Stakeholder"],
+  "recruiting SaaS question areas"
+);
+assert.ok(
+  !/AI search visibility|Citation and source readiness|SEO/i.test(recruitingSaasDraft.topics.map((topic) => topic.topicName).join("\n")),
+  "recruiting SaaS question areas must not reuse SEO/AI-search defaults"
+);
 
 assertNoMechanicalSeedTarget(seoSeed.targetCustomers, "seoSeed");
 assertNoMechanicalSeedTarget(schoolSeed.targetCustomers, "schoolSeed");
@@ -369,4 +398,8 @@ function assertIncludesAll(value: string, expected: readonly string[], label: st
   for (const item of expected) {
     assert.ok(value.includes(item), `${label} must include ${item}`);
   }
+}
+
+function assertIncludesAny(value: string, expected: readonly string[], label: string) {
+  assert.ok(expected.some((item) => value.includes(item)), `${label} must include at least one of: ${expected.join(", ")}`);
 }
