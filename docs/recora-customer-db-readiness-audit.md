@@ -15,6 +15,7 @@ Boundary design update:
 - The next RLS readiness audit should use that boundary design as the expected ownership model.
 - Customer-facing UI remains out of scope for that boundary design.
 - Admin/internal DB current state is audited in `docs/recora-admin-db-current-state-audit.md`; use it before deciding what stays admin-owned versus what becomes customer-facing projection data.
+- Customer vs admin DB ownership, source-of-truth, and projection rules are defined in `docs/recora-customer-vs-admin-db-boundary-design.md`.
 
 Prompt scope context:
 

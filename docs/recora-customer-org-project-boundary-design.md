@@ -11,6 +11,7 @@ It follows `docs/recora-customer-db-readiness-audit.md`, which identified custom
 
 This PR is docs-only. It does not create a migration, write to any database, run Supabase db push, apply backfills, implement UI, implement auth, change middleware, or modify LP/Auth/handoff areas.
 `docs/recora-admin-db-current-state-audit.md` records the read-only admin/internal DB state that should feed the later customer-vs-admin DB boundary design.
+The customer vs admin DB ownership, source-of-truth, and projection rules are defined in `docs/recora-customer-vs-admin-db-boundary-design.md`.
 
 ## Scope
 
