@@ -8,7 +8,63 @@
 
 会社名、ブランド名、公式URL、サービス説明、業種、対象顧客、地域、言語などの `ProjectSetupSeedInput` から、内部レビュー用の `PersonaDraft`、`TopicDraft`、`PromptDraft` を作る。
 
-生成結果は計測対象ではなく、未承認の下書きとして扱う。DB保存、Supabase migration、UI、OpenAI/API呼び出し、Webクロール、計測実行、自動承認、自動公開は行わない。
+生成結果は計測対象ではなく、未承認の下書きとして扱う。DB保存、Supabase migration、OpenAI/API呼び出し、Webクロール、計測実行、自動承認、自動公開は行わない。
+
+## 無料診断後の初期設定ウィザード
+
+`app/onboarding/project-setup/page.tsx` は、無料診断 / 新規登録後に続くAPI前の測定条件確認画面として `generateProjectSetupDraft` を画面内で利用する。顧客が詳細な persona / topic / prompt / category を作成する画面ではなく、Recoraが測定設計に入る前提を確認する画面である。
+
+画面は5ステップ構成とする:
+
+1. ブランド確認
+2. サービス理解・市場・顧客層・競合
+3. 見たいこと
+4. プロンプト例
+5. 最終確認
+
+画面で顧客に確認する項目:
+
+- 正式なブランド名 / サービス名、表記ゆれ・別名、公式URL
+- サービス説明、サービスカテゴリ、対象市場・地域、測定する言語、BtoB / BtoC、ペルソナ
+- 比較したい競合、競合未定 / Recoraで候補抽出
+- 特に見たいこと、今回知りたいこと
+- Recoraが生成したプロンプト例、顧客が追加したいプロンプト
+- 最終確認としてブランド情報、サービス理解、市場・言語、ペルソナ、競合、見たいこと、プロンプト例
+
+画面の役割:
+
+- 入力値は React state のみで保持し、ページ reload で消えてよい。
+- Step1の次へ進行時に、ユーザーが入力した公式URLだけを対象に単一ページ確認を行ってよい。確認対象は title、meta description、og:site_name、h1、canonical、hostname に限定する。
+- 公式URL確認はサービス説明・カテゴリの候補作成とブランド名 / 別名がページ情報に含まれるかの確認にだけ使う。確認できない場合も、Step2の手入力をブロックしない。
+- Step2では公式URL確認結果としてページタイトル、説明文、ブランド確認結果を表示し、「公式URLを開いて確認」リンクを置いてよい。
+- Step2に競合入力を統合し、除外系 / NG系の顧客入力は置かない。
+- Step3は「見たいこと」だけに絞り、除外・NG系の入力を置かない。
+- Step4で、画面内の同期処理として `generateProjectSetupDraft` を呼び、Recoraが生成した質問領域とプロンプト例を表示する。
+- Step1からStep3までの入力から `ProjectSetupSeedInput` を作り、`generateProjectSetupDraft` が作るカテゴリ / persona / topic / prompt 下書きを顧客向け表示へ変換する。
+- 顧客向け表示では、カテゴリは「サービスカテゴリ」、personaは「ペルソナ」、topicは「質問領域」、promptは「プロンプト例」として扱う。
+- Step4ではプロンプト例を直接編集・削除でき、追加したプロンプトはStep5の最終確認に反映する。
+- Step5は最終確認のみとし、計測設計、計測量、利用モデル、頻度、費用感を顧客が決める項目として扱わない。
+- 顧客には詳細personaや細かいtopicの作成を要求しない。内部の persona / topic / prompt は raw generator output としてそのまま表示しない。
+- UIには `businessModel`、`industryAdapter`、`topicType`、`roleType`、blocker ID、warning ID などの内部IDや生の内部分類を出さない。
+- 顧客向けUIではStep4/Step5のラベルとして「プロンプト例」を使うが、内部IDや `promptId` は表示しない。
+- 競合が未定でも進行できる。`knownCompetitors` は空配列、画面状態は `competitor_discovery_needed` とする。
+- 競合未定時、AI表示率、自社サイト引用率、AI回答、参照元、ブランド認知は確認対象にできる。Share of Voice は制限付き、ブランド比較、競合に取られている質問、競合に取られている参照元は自動検出候補扱いとする。正式な比較には後続の承認が必要。
+- 新しい永続fieldやDB schemaは追加しない。
+- 公開用サンプルJSONは追加しない。
+
+画面が行わないこと:
+
+- DB write、Supabase write、OpenAI API呼び出し、検索、AI計測、計測実行
+- ユーザー入力URL以外への確認、複数ページ取得、サイトマップ取得、リンク探索、ページ内URLのクロール、大量HTML解析
+- 保存、承認、materialize、レポート確定、認証本実装、middleware変更、`package-lock.json` 変更
+
+公式URL単一ページ確認の安全境界:
+
+- 入力URLは http / https のみ許可し、認証情報と fragment は使用しない。
+- localhost、`.localhost`、127.0.0.0/8、10.0.0.0/8、172.16.0.0/12、192.168.0.0/16、link-local、loopback、private、documentation、multicast などのローカル / 非公開IPは拒否する。
+- ホスト名はDNS解決後の全IPを検査し、非公開IPが含まれる場合は拒否する。
+- リダイレクトは少数回だけ追跡し、各転送先URLも同じ条件で再検証する。
+- レスポンスはHTML本文の先頭だけを上限付きで読み、title、meta description、og:site_name、h1、canonical 以外のページ解析に広げない。
 
 ## 主な関数
 
@@ -121,7 +177,7 @@ warningは主に次を示す。
 - buyer intentのnon-branded promptがmarket metric対象になり得る
 - 高単価BtoBで `economic_buyer`、費用対効果、移行負荷、セキュリティ確認が出る
 - BtoC/EC比較で `repeat_user`、raw-search-like/anxious/comparison-shortcutの文体、口コミ/返品条件/素材などの確認軸が出る
-- 未承認promptがmeasurement readyにならない
+- 未承認promptが計測可能扱いにならない
 - 重複persona/topic/promptがない
 - 入力不足時にblockerが返る
 - 未承認draftをmaterialize判定が拒否する
@@ -132,3 +188,68 @@ warningは主に次を示す。
 ```powershell
 npm run recora:project-setup-draft-generator:check
 ```
+
+
+## Onboarding UI suggestion profiles
+
+`/onboarding/project-setup` builds `ProjectSetupSeedInput` from Step1 through Step3 customer inputs, then calls `generateProjectSetupDraft` before Step4. The generator output is converted into customer-facing labels instead of showing raw internal names.
+
+- category -> service category support
+- `PersonaDraft` -> customer-readable persona labels
+- `TopicDraft` -> question areas
+- `PromptDraft` -> prompt examples
+
+The onboarding UI uses a screen-side suggestion profile helper equivalent to `deriveOnboardingSuggestionProfile`. It switches candidate chips and fallback examples based on service category, service description, BtoB/BtoC selection, and audience targets. It must not always show SaaS-first candidates.
+
+Supported profile keys:
+
+- b2bSaasOrSeo
+- b2bProfessionalService
+- b2cSchoolEducation
+- healthcareClinic
+- localService
+- ecommerceProduct
+- genericB2C
+- genericB2B
+
+Step2 and Step3 candidate chips, plus Step4 fallback prompt examples, should follow this profile. Step4 prioritizes generator output when it is available. For consumer-facing profiles such as school, clinic, local service, ecommerce, and generic B2C, obviously BtoB adoption terms such as internal approval, security review, ROI, operational burden, existing-tool integration, or SaaS procurement should be filtered from customer-facing prompt examples. If that leaves no suitable generated prompt, use the profile-specific fallback examples.
+
+Step5 final confirmation reflects generated persona labels, question areas, prompt examples, and any prompt examples added by the customer in Step4. Customer-facing UI must not expose raw generator output or internal fields/IDs such as `businessModel`, `industryAdapter`, `topicType`, `roleType`, `promptId`, `personaId`, or `topicId`.
+
+### Customer-facing persona display
+
+The onboarding UI must not show `PersonaDraft` raw fields directly.
+
+- The onboarding persona model borrows the SPASM-style separation of schema sampling, plausibility validation, and natural-language persona crafting, but it does not add an external dependency or copy external OSS code.
+- Recora adapts that idea into a UI-only service evidence -> service insight -> persona frame -> validation -> render flow.
+- The primary persona source is `OnboardingServiceInsight`, built from official URL single-page metadata when available, user service description, category, BtoB/BtoC selection, selected chips, focus topics, report goals, market/language, and competitor input.
+- Category profiles are validation and fallback aids, not the main persona source. The same profile can produce different personas when the service description differs.
+- `OnboardingPersonaFrame` uses service-insight evidence first, then selected chips, `PersonaDraft`, and profile fallback only when needed.
+- `OnboardingPersonaFrame` is not a database schema and does not change `ProjectSetupDraft`; it exists only to make customer-facing onboarding personas more stable and useful for Step4/Step5 confirmation.
+- Persona frames may use `PersonaDraft.displayName`, `promptAngle`, `painPoints`, `proofNeeded`, `comparisonAxis`, and `buyerStage` as material, but must not show raw `personaId`, `roleType`, `detailedDecisionRole`, `sourceStatus`, `confidenceScore`, `needsVerification`, `decision_maker`, `evaluator`, or `end_user`.
+- Service insight validation must remove personas unrelated to the service description: BtoC flows should remove BtoB/SaaS role labels, BtoB flows should remove stale consumer-only labels, EC should vary by product type, school should vary by learner/guardian context, and recruiting SaaS should not reuse SEO-tool viewers.
+- `targetCustomers` should be generated from service-insight persona frames as natural context for the generator, not as raw chip concatenation or mechanically joined BtoB/BtoC role suffixes.
+- Show customer-facing labels under `ペルソナ`, not `主に見たい相手`.
+- Normalize `PersonaDraft.displayName` into short customer-readable persona labels.
+- Do not mechanically combine BtoB/BtoC, audience chip text, and role suffixes into persona names.
+- Do not expose `roleType`, `personaId`, `decision_maker`, `evaluator`, `end_user`, `sourceStatus`, confidence scores, or raw role mappings.
+- Build `ProjectSetupSeedInput.targetCustomers` as natural context, not as a raw joined UI label list.
+- Regenerate the customer-facing persona display when the persona source context changes: brand name, service description, service category, BtoB/BtoC selection, selected audience chips, regions, language, watch topics, report goals, competitor mode, or known competitors.
+- Treat selected audience chips, generated `PersonaDraft`, and profile fallbacks as display candidates after service-insight candidates, then filter out candidates that do not match the current service insight.
+- For BtoC school, clinic, local-service, ecommerce, and generic BtoC flows, do not keep stale BtoB/SaaS persona labels such as SEO担当者, マーケティング責任者, 導入を判断する責任者, Web担当者, or 事業責任者.
+- For BtoB flows, do not replace the intended business viewers with stale consumer-only labels such as 初めて選ぶ人, 料金を比較する人, 口コミを重視する人, 価格を比較する人, or 返品条件を確認したい人.
+- For BtoB SEO / AI-search support, labels such as `SEO担当者`, `マーケティング責任者`, and `導入を判断する責任者` are acceptable.
+- For recruiting SaaS, labels should shift to service-specific viewers such as `人事担当者`, `採用責任者`, `経営者・役員`, and `現場面接担当者`.
+- For beginner English school, labels should include context such as `初めて英会話を始める社会人`, not only generic school templates.
+- For kids English school, labels should shift to guardian-oriented viewers such as `子どもに合う教室を探す保護者` and `講師やカリキュラムを確認したい保護者`.
+- For mattress EC and cosmetics EC, labels should vary by product evidence: mattress can include sleep, material, and return-condition viewers; cosmetics can include skin-fit, ingredient, review, and subscription-condition viewers.
+
+### Step4 and Step5 confirmation display
+
+Step4 and Step5 are customer-facing confirmation screens, not raw generator management screens.
+
+- Step4 shows prompt examples as a readable review list, grouped into generated prompt examples and customer-added prompt examples.
+- Step4 allows editing, deleting, and adding prompt examples, and those changes must be reflected in Step5.
+- Step5 starts with a compact summary, then shows customer-readable confirmation sections for brand, service, market/language, viewers, competitors, and question areas.
+- Step5 summarizes generated prompt examples and customer-added prompt examples without exposing internal prompt IDs or generator internals.
+- Step4 and Step5 must keep the no-save/no-approval/no-measurement boundary clear.
