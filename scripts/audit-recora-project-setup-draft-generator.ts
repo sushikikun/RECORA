@@ -11,7 +11,12 @@ import type {
   ProjectSetupSeedInput,
   TopicType
 } from "../lib/recora/project-setup-draft";
-import { generateProjectSetupDraft } from "../lib/recora/project-setup-draft-generator";
+import {
+  buildServiceEvidenceTerms,
+  generateProjectSetupDraft,
+  scoreCategoryCandidates,
+  scoreQuestionAreaCandidates
+} from "../lib/recora/project-setup-draft-generator";
 
 const MAX_PROMPTS_PER_TOPIC = 4;
 const MAX_GENERATED_PERSONAS = 5;
@@ -259,6 +264,8 @@ function evaluateCase(testCase: EvalCase) {
     check("brand_nonbrand_separation", 12, promptsKeepBrandSeparated(draft)),
     check("known_competitors_excluded_from_nonbranded", 6, knownCompetitorsExcludedFromNonBrandedPrompts(draft)),
     check("nonbranded_prompt_naturalness", 8, nonBrandedPromptsAvoidAbstractOrKeywordListWording(draft)),
+    check("service_evidence_category_scoring", 8, serviceEvidenceScoringCheck(testCase.seed, draft)),
+    check("question_area_specificity", 8, questionAreaSpecificityCheck(testCase.seed, draft)),
     check("b2b_b2c_prompt_context_separation", 10, promptsMatchBusinessModelContext(draft, testCase)),
     check("market_metric_derivation", 10, promptsDeriveMarketMetricsCorrectly(draft)),
     check("unsupported_sections_empty", 6, draft.competitors.length === 0 && draft.citationAngles.length === 0 && draft.pageImprovementAngles.length === 0),
@@ -383,6 +390,27 @@ function nonBrandedPromptsAvoidAbstractOrKeywordListWording(draft: ProjectSetupD
     if (prompt.brandMentionRule !== "brand_excluded") return true;
     return !isOverlyAbstractRecommendationPrompt(prompt.text) && !looksLikeKeywordListPrompt(prompt.text);
   });
+}
+
+function serviceEvidenceScoringCheck(seed: ProjectSetupSeedInput, draft: ProjectSetupDraft) {
+  const evidenceTerms = buildServiceEvidenceTerms(seed);
+  const categoryCandidates = scoreCategoryCandidates(evidenceTerms, seed);
+  const serviceEvidenceCategory = draft.inputCompletion.find((item) => item.field === "serviceEvidenceCategory");
+  if (!serviceEvidenceCategory || typeof serviceEvidenceCategory.value !== "string") return false;
+  if (categoryCandidates.length === 0) return false;
+  if (categoryCandidates[0].profile === "ecommerce_product" && /recora/i.test(seed.brandName)) return false;
+  return serviceEvidenceCategory.value === categoryCandidates[0].label;
+}
+
+function questionAreaSpecificityCheck(seed: ProjectSetupSeedInput, draft: ProjectSetupDraft) {
+  const evidenceTerms = buildServiceEvidenceTerms(seed);
+  const categoryCandidates = scoreCategoryCandidates(evidenceTerms, seed);
+  const questionAreas = scoreQuestionAreaCandidates(categoryCandidates[0], evidenceTerms, seed);
+  const questionAreaCompletion = draft.inputCompletion.find((item) => item.field === "serviceEvidenceQuestionAreas");
+  if (!questionAreaCompletion || !Array.isArray(questionAreaCompletion.value)) return false;
+  const draftTopicNames = new Set(draft.topics.map((topic) => topic.topicName));
+  return questionAreas.some((candidate) => draftTopicNames.has(candidate.label)) &&
+    questionAreaCompletion.value.some((value) => typeof value === "string" && draftTopicNames.has(value));
 }
 
 function promptsMatchBusinessModelContext(draft: ProjectSetupDraft, testCase: EvalCase) {

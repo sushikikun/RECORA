@@ -1,0 +1,446 @@
+[
+  {
+    "id": "b2b-seo-ai-search",
+    "seed": {
+      "companyName": "ミエルカSEO株式会社",
+      "brandName": "ミエルカSEO",
+      "officialSiteUrl": "https://mieru-ca.example/",
+      "productOrServiceDescription": "SEOとAI検索対策を支援するBtoB向け分析サービス。マーケティング担当者がAI検索での露出、引用、競合比較を確認するためのサービス。",
+      "industryCategory": "SEO / AI検索対策",
+      "targetCustomers": "BtoB。主な検討者: SEO担当者、マーケティング責任者、導入を判断する責任者。",
+      "regions": [
+        "日本"
+      ],
+      "language": "ja",
+      "serviceName": "ミエルカSEO",
+      "brandAliases": [
+        "ミエルカ",
+        "Mieruca"
+      ],
+      "knownCompetitors": [
+        "Ahrefs",
+        "Semrush"
+      ],
+      "avoidCompetitors": [],
+      "strengths": [
+        "AI検索での露出確認",
+        "引用される公式ページの確認"
+      ],
+      "knownRisks": [
+        "計測前のため順位や引用結果は未確認"
+      ],
+      "diagnosisGoals": [
+        "non_branded",
+        "comparison",
+        "citation_check",
+        "brand_perception"
+      ]
+    },
+    "expectedCategoryProfile": "seo_ai_search",
+    "expectedBusinessModel": "b2b_software",
+    "requiredQuestionAreaTerms": [
+      "AI検索",
+      "競合",
+      "公式サイト"
+    ],
+    "disallowedQuestionAreaTerms": [
+      "通いやすさ",
+      "返品条件",
+      "肌に合う"
+    ],
+    "b2b": true
+  },
+  {
+    "id": "recruiting-saas",
+    "seed": {
+      "companyName": "採用管理クラウド株式会社",
+      "brandName": "採用管理クラウド",
+      "officialSiteUrl": "https://recruiting-cloud.example/",
+      "productOrServiceDescription": "採用管理SaaS。人事担当者、採用責任者、経営者、現場面接担当者が候補者管理、面接調整、現場連携、費用対効果を確認するサービス。",
+      "industryCategory": "採用管理SaaS / HR",
+      "targetCustomers": "BtoB / 採用 / HR。主な検討者: 人事担当者、採用責任者、経営者・役員、現場面接担当者。",
+      "regions": [
+        "日本"
+      ],
+      "language": "ja",
+      "serviceName": "採用管理クラウド",
+      "brandAliases": [
+        "採用クラウド"
+      ],
+      "knownCompetitors": [
+        "HERP",
+        "HRMOS"
+      ],
+      "avoidCompetitors": [],
+      "strengths": [
+        "候補者管理",
+        "面接調整"
+      ],
+      "knownRisks": [
+        "導入効果は計測前"
+      ],
+      "diagnosisGoals": [
+        "non_branded",
+        "comparison",
+        "buyer_intent",
+        "brand_perception"
+      ]
+    },
+    "expectedCategoryProfile": "recruiting_hr",
+    "expectedBusinessModel": "recruiting_hr",
+    "requiredQuestionAreaTerms": [
+      "採用",
+      "候補者",
+      "関係者"
+    ],
+    "disallowedQuestionAreaTerms": [
+      "SEO",
+      "AI検索",
+      "口コミだけ",
+      "通いやすさ"
+    ],
+    "b2b": true
+  },
+  {
+    "id": "beginner-english-school",
+    "seed": {
+      "companyName": "はじめて英会話株式会社",
+      "brandName": "はじめて英会話",
+      "officialSiteUrl": "https://beginner-english.example/",
+      "productOrServiceDescription": "初心者向けの英会話スクール。初めて英会話を始める社会人が料金、口コミ、通いやすさ、体験しやすさを比較するサービス。",
+      "industryCategory": "スクール / 教育",
+      "targetCustomers": "BtoC / スクール / 教育。主な検討者: 初めて英会話を始める社会人、料金を比較する人、口コミを重視する人、通いやすさを重視する人。",
+      "regions": [
+        "日本"
+      ],
+      "language": "ja",
+      "serviceName": "はじめて英会話",
+      "brandAliases": [],
+      "knownCompetitors": [
+        "駅前英会話",
+        "オンライン英会話A"
+      ],
+      "avoidCompetitors": [],
+      "strengths": [
+        "初心者向け",
+        "体験レッスン"
+      ],
+      "knownRisks": [],
+      "diagnosisGoals": [
+        "non_branded",
+        "brand_perception",
+        "problem_aware"
+      ]
+    },
+    "expectedCategoryProfile": "school_education",
+    "expectedBusinessModel": "education",
+    "requiredQuestionAreaTerms": [
+      "初めて",
+      "料金",
+      "体験レッスン"
+    ],
+    "disallowedQuestionAreaTerms": [
+      "社内承認",
+      "稟議",
+      "既存ツール",
+      "システム連携"
+    ],
+    "b2b": false,
+    "mustNotBeFinance": true
+  },
+  {
+    "id": "kids-english-school",
+    "seed": {
+      "companyName": "こども英会話ラボ株式会社",
+      "brandName": "こども英会話ラボ",
+      "officialSiteUrl": "https://kids-english.example/",
+      "productOrServiceDescription": "子ども向け英会話スクール。保護者が子どもに合う教室、講師、カリキュラム、通いやすさ、安全性を比較するサービス。",
+      "industryCategory": "スクール / 教育",
+      "targetCustomers": "BtoC / スクール / 教育。主な検討者: 子どもに合う教室を探す保護者、講師やカリキュラムを確認したい保護者、通いやすさや安全性を重視する人。",
+      "regions": [
+        "日本"
+      ],
+      "language": "ja",
+      "serviceName": "こども英会話ラボ",
+      "brandAliases": [],
+      "knownCompetitors": [
+        "キッズ英語A"
+      ],
+      "avoidCompetitors": [],
+      "strengths": [
+        "講師",
+        "カリキュラム"
+      ],
+      "knownRisks": [],
+      "diagnosisGoals": [
+        "non_branded",
+        "brand_perception",
+        "problem_aware"
+      ]
+    },
+    "expectedCategoryProfile": "school_education",
+    "expectedBusinessModel": "education",
+    "requiredQuestionAreaTerms": [
+      "子ども",
+      "保護者",
+      "講師",
+      "カリキュラム"
+    ],
+    "disallowedQuestionAreaTerms": [
+      "社内承認",
+      "稟議",
+      "既存ツール",
+      "システム連携"
+    ],
+    "b2b": false,
+    "mustNotBeFinance": true
+  },
+  {
+    "id": "beauty-clinic",
+    "seed": {
+      "companyName": "さくら美容クリニック",
+      "brandName": "さくら美容クリニック",
+      "officialSiteUrl": "https://sakura-clinic.example/",
+      "productOrServiceDescription": "美容クリニック。初めて相談する人が料金、口コミ、医師の資格、施術リスク、相談前の説明を確認するサービス。",
+      "industryCategory": "美容クリニック / 医療",
+      "targetCustomers": "BtoC。主な検討者: 初めて相談する人、料金を確認したい人、口コミを重視する人。",
+      "regions": [
+        "日本"
+      ],
+      "language": "ja",
+      "serviceName": "さくら美容クリニック",
+      "brandAliases": [
+        "さくら美容"
+      ],
+      "knownCompetitors": [
+        "青葉美容クリニック"
+      ],
+      "avoidCompetitors": [],
+      "strengths": [
+        "医師情報",
+        "相談前説明"
+      ],
+      "knownRisks": [
+        "効果や安全性を断定しない"
+      ],
+      "diagnosisGoals": [
+        "non_branded",
+        "brand_perception",
+        "problem_aware"
+      ]
+    },
+    "expectedCategoryProfile": "healthcare_clinic",
+    "expectedBusinessModel": "healthcare",
+    "requiredQuestionAreaTerms": [
+      "相談",
+      "料金",
+      "資格",
+      "リスク"
+    ],
+    "disallowedQuestionAreaTerms": [
+      "社内承認",
+      "稟議",
+      "既存ツール",
+      "システム連携"
+    ],
+    "b2b": false,
+    "mustNotBeFinance": true
+  },
+  {
+    "id": "mattress-ec",
+    "seed": {
+      "companyName": "Nemuri Mattress株式会社",
+      "brandName": "Nemuri Mattress",
+      "officialSiteUrl": "https://nemuri-mattress.example/",
+      "productOrServiceDescription": "マットレスEC。睡眠悩みを解決したい人が寝心地、素材、価格、口コミ、返品条件を比較して購入するサービス。",
+      "industryCategory": "EC / 商品",
+      "targetCustomers": "BtoC / EC / 商品。主な検討者: 睡眠悩みを解決したい人、価格と口コミを比較する人、返品条件を確認したい人、品質や素材を確認したい人。",
+      "regions": [
+        "日本"
+      ],
+      "language": "ja",
+      "serviceName": "Nemuri Mattress",
+      "brandAliases": [
+        "ネムリマットレス"
+      ],
+      "knownCompetitors": [
+        "SleepMate"
+      ],
+      "avoidCompetitors": [],
+      "strengths": [
+        "素材情報",
+        "返品条件"
+      ],
+      "knownRisks": [],
+      "diagnosisGoals": [
+        "non_branded",
+        "comparison",
+        "problem_aware",
+        "brand_perception"
+      ]
+    },
+    "expectedCategoryProfile": "ecommerce_product",
+    "expectedBusinessModel": "ecommerce",
+    "requiredQuestionAreaTerms": [
+      "睡眠",
+      "寝心地",
+      "素材",
+      "返品条件"
+    ],
+    "disallowedQuestionAreaTerms": [
+      "社内承認",
+      "稟議",
+      "既存ツール",
+      "システム連携"
+    ],
+    "b2b": false,
+    "mustNotBeFinance": true
+  },
+  {
+    "id": "cosmetics-ec",
+    "seed": {
+      "companyName": "Hikari Skin株式会社",
+      "brandName": "Hikari Skin",
+      "officialSiteUrl": "https://hikari-skin.example/",
+      "productOrServiceDescription": "化粧品EC。肌に合うか確認したい人が成分、口コミ、価格、定期購入条件を比較して購入するサービス。",
+      "industryCategory": "EC / 商品",
+      "targetCustomers": "BtoC / EC / 商品。主な検討者: 肌に合うか確認したい人、成分や口コミを重視する人、価格と定期購入条件を確認したい人。",
+      "regions": [
+        "日本"
+      ],
+      "language": "ja",
+      "serviceName": "Hikari Skin",
+      "brandAliases": [
+        "ヒカリスキン"
+      ],
+      "knownCompetitors": [
+        "SkinCare A"
+      ],
+      "avoidCompetitors": [],
+      "strengths": [
+        "成分表示",
+        "定期購入条件"
+      ],
+      "knownRisks": [],
+      "diagnosisGoals": [
+        "non_branded",
+        "comparison",
+        "problem_aware",
+        "brand_perception"
+      ]
+    },
+    "expectedCategoryProfile": "ecommerce_product",
+    "expectedBusinessModel": "ecommerce",
+    "requiredQuestionAreaTerms": [
+      "肌",
+      "成分",
+      "定期購入",
+      "口コミ"
+    ],
+    "disallowedQuestionAreaTerms": [
+      "社内承認",
+      "稟議",
+      "既存ツール",
+      "システム連携"
+    ],
+    "b2b": false,
+    "mustNotBeFinance": true
+  },
+  {
+    "id": "local-service",
+    "seed": {
+      "companyName": "まちの整体予約株式会社",
+      "brandName": "まちの整体予約",
+      "officialSiteUrl": "https://local-care.example/",
+      "productOrServiceDescription": "地域の整体予約サービス。近くで探す人が予約しやすさ、料金、口コミ、対応エリアを確認するサービス。",
+      "industryCategory": "地域サービス",
+      "targetCustomers": "BtoC / 地域サービス。主な検討者: 近くで探している人、予約しやすさを重視する人、口コミを重視する人。",
+      "regions": [
+        "神奈川県"
+      ],
+      "language": "ja",
+      "serviceName": "まちの整体予約",
+      "brandAliases": [
+        "まち整体"
+      ],
+      "knownCompetitors": [
+        "Local Mate"
+      ],
+      "avoidCompetitors": [],
+      "strengths": [
+        "予約しやすさ",
+        "地域対応"
+      ],
+      "knownRisks": [],
+      "diagnosisGoals": [
+        "non_branded",
+        "brand_perception",
+        "problem_aware"
+      ]
+    },
+    "expectedCategoryProfile": "local_service",
+    "expectedBusinessModel": "local_service",
+    "requiredQuestionAreaTerms": [
+      "近く",
+      "予約",
+      "エリア"
+    ],
+    "disallowedQuestionAreaTerms": [
+      "社内承認",
+      "稟議",
+      "既存ツール",
+      "システム連携"
+    ],
+    "b2b": false,
+    "mustNotBeFinance": true
+  },
+  {
+    "id": "professional-service",
+    "seed": {
+      "companyName": "青山相続相談事務所",
+      "brandName": "青山相続相談",
+      "officialSiteUrl": "https://aoyama-souzoku.example/",
+      "productOrServiceDescription": "相続や事業承継の専門サービス。初回相談前に費用、実績、相談範囲、専門家との相性を確認したい人向けの相談サービス。",
+      "industryCategory": "専門サービス / 士業",
+      "targetCustomers": "BtoC / 専門サービス。主な検討者: 初回相談を検討する人、費用を確認したい人、実績や相談範囲を確認したい人。",
+      "regions": [
+        "日本"
+      ],
+      "language": "ja",
+      "serviceName": "青山相続相談",
+      "brandAliases": [
+        "青山相続"
+      ],
+      "knownCompetitors": [
+        "相続相談A"
+      ],
+      "avoidCompetitors": [],
+      "strengths": [
+        "専門家対応",
+        "相談前説明"
+      ],
+      "knownRisks": [],
+      "diagnosisGoals": [
+        "non_branded",
+        "comparison",
+        "problem_aware",
+        "brand_perception"
+      ]
+    },
+    "expectedCategoryProfile": "professional_service",
+    "expectedBusinessModel": "professional_service",
+    "requiredQuestionAreaTerms": [
+      "相談",
+      "費用",
+      "実績"
+    ],
+    "disallowedQuestionAreaTerms": [
+      "社内承認",
+      "稟議",
+      "既存ツール",
+      "システム連携"
+    ],
+    "b2b": false,
+    "mustNotBeFinance": true
+  }
+]

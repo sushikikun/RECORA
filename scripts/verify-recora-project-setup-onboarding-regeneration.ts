@@ -242,6 +242,35 @@ assert.notDeepEqual(
   clinicDraft.topics.map((topic) => topic.topicName),
   "school and clinic seeds must create different question areas"
 );
+assertIncludesAny(
+  beginnerEnglishDraft.topics.map((topic) => topic.topicName).join("\n"),
+  ["初めて", "料金", "体験レッスン", "レベル"],
+  "beginner English question areas"
+);
+assertIncludesAny(
+  kidsEnglishDraft.topics.map((topic) => topic.topicName).join("\n"),
+  ["子ども", "保護者", "講師", "カリキュラム", "安全"],
+  "kids English question areas"
+);
+assertIncludesAny(
+  mattressEcDraft.topics.map((topic) => topic.topicName).join("\n"),
+  ["睡眠", "寝心地", "素材", "返品条件"],
+  "mattress EC question areas"
+);
+assertIncludesAny(
+  cosmeticsEcDraft.topics.map((topic) => topic.topicName).join("\n"),
+  ["肌", "成分", "定期購入", "口コミ"],
+  "cosmetics EC question areas"
+);
+assertIncludesAny(
+  recruitingSaasDraft.topics.map((topic) => topic.topicName).join("\n"),
+  ["採用", "候補者", "関係者"],
+  "recruiting SaaS question areas"
+);
+assert.ok(
+  !/AI search visibility|Citation and source readiness|Hiring workflow fit|Recruiting tool comparison|Child fit and guardian concerns|Product fit and purchase concerns|SEO/i.test(recruitingSaasDraft.topics.map((topic) => topic.topicName).join("\n")),
+  "recruiting SaaS question areas must not reuse SEO/AI-search defaults"
+);
 
 assertNoMechanicalSeedTarget(seoSeed.targetCustomers, "seoSeed");
 assertNoMechanicalSeedTarget(schoolSeed.targetCustomers, "schoolSeed");
@@ -369,4 +398,8 @@ function assertIncludesAll(value: string, expected: readonly string[], label: st
   for (const item of expected) {
     assert.ok(value.includes(item), `${label} must include ${item}`);
   }
+}
+
+function assertIncludesAny(value: string, expected: readonly string[], label: string) {
+  assert.ok(expected.some((item) => value.includes(item)), `${label} must include at least one of: ${expected.join(", ")}`);
 }

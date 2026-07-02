@@ -117,3 +117,15 @@ npm run recora:project-setup-draft-generator:eval
 - seed に `knownCompetitors` がある場合だけ competitor comparison prompt を安全に分離する。
 - site text / customer evidence を受け取れるようになった後、persona confidence と sourceStatus を段階的に上げる。
 - `recora-ai-citation-analysis` 向けの source observation placeholder を、生成ではなく handoff plan として設計する。
+
+## Service Evidence Scoring Evaluation
+
+The eval now checks the category/topic inference layer added for service-evidence based setup drafts.
+
+- `service_evidence_category_scoring` confirms that the generated draft records the same winning category as `scoreCategoryCandidates`.
+- `question_area_specificity` confirms that scored question-area candidates are reflected in generated topic names and input completion.
+- A Recora-like brand name is explicitly guarded so the `ec` fragment in `Recora` does not trigger ecommerce/product classification.
+- Recruiting SaaS evidence is checked so hiring/candidate-management topics beat generic SaaS defaults.
+- UTF-8 file-based regression fixtures cover BtoB SEO/AI search, recruiting SaaS, beginner English school, kids English school, beauty clinic, mattress EC, cosmetics EC, local service, and professional service.
+- The regression fixtures assert that customer-facing question areas do not expose English/raw labels, non-branded prompts do not leak brand/alias/domain/competitor signals, and thin BtoC price/cost wording does not trigger `finance_investment`.
+- These checks remain deterministic and local. They do not fetch URL content, crawl pages, call OpenAI/external APIs, write to DB/Supabase, run measurement, save, approve, or materialize.
