@@ -12,7 +12,7 @@ It follows `docs/recora-customer-db-readiness-audit.md`, which identified custom
 This PR is docs-only. It does not create a migration, write to any database, run Supabase db push, apply backfills, implement UI, implement auth, change middleware, or modify LP/Auth/handoff areas.
 `docs/recora-admin-db-current-state-audit.md` records the read-only admin/internal DB state that should feed the later customer-vs-admin DB boundary design.
 The customer vs admin DB ownership, source-of-truth, and projection rules are defined in `docs/recora-customer-vs-admin-db-boundary-design.md`.
-Latest framing: customer, organization, membership, and project ownership are Admin Control DB source-of-truth; Customer Result DB stores only result/report snapshot scope references needed for authorized display.
+Latest framing: customer, organization, membership, and project ownership are Admin Control DB source-of-truth. Customer Measurement DB stores measured result scope references, and Customer Published Read Model stores published result/report snapshot scope references needed for authorized display.
 
 ## Scope
 
@@ -303,10 +303,10 @@ Membership design rules:
 
 ## RLS boundary expectations
 
-After `docs/customer-result-snapshot-readiness-audit`, the `chore/customer-result-db-rls-readiness-audit` PR should verify that:
+After `docs/customer-measurement-db-readiness-audit` and `docs/customer-published-read-model-readiness-audit`, dedicated read-only RLS readiness PRs should verify that:
 
 - authenticated users can read only projects belonging to organizations where they are members
-- organization membership is required for project-owned prompts, measurement runs, conversations, citations, metrics, recommendations, and reports
+- organization membership is required for project-owned prompts, measurement runs, conversations, citations, metrics, recommendations, and published reports
 - `anon` cannot read production customer data
 - internal/admin-only tables remain unavailable to customer roles
 - service-role operations remain server/internal only
@@ -314,9 +314,9 @@ After `docs/customer-result-snapshot-readiness-audit`, the `chore/customer-resul
 - public SELECT grants are constrained by tenant-safe policies
 - views, if used, are security-invoker or otherwise tenant-safe
 - SECURITY DEFINER functions are not publicly callable beyond intended helpers
-- report publication state prevents non-`customer_ready` reports from appearing in customer reads
+- report publication state prevents non-`customer_ready` reports from appearing in Customer Published Read Model reads
 - demo/internal/local data does not leak into production customer reports
-- Customer A cannot read Customer B data through direct table access, joins, report URLs, or derived read models
+- Customer A cannot read Customer B data through direct table access, joins, report URLs, Customer Measurement DB reads, or Customer Published Read Model reads
 
 This PR does not change RLS, grants, policies, functions, or views.
 
@@ -374,39 +374,43 @@ Migration constraints:
    - This PR.
    - Docs-only.
 
-2. `docs/customer-result-snapshot-readiness-audit`
-   - Read-only/docs-only audit of Customer Result DB published result/report snapshot readiness before RLS policy work.
+2. `docs/customer-measurement-db-readiness-audit`
+   - Read-only/docs-only audit of Customer Measurement DB source result readiness.
    - No DB write.
 
-3. `docs/measurement-prompt-snapshot-design`
+3. `docs/customer-published-read-model-readiness-audit`
+   - Read-only/docs-only audit of Customer Published Read Model published result/report snapshot readiness before customer-facing RLS policy work.
+   - No DB write.
+
+4. `docs/measurement-prompt-snapshot-design`
    - Define prompt definition to measurement-time snapshot ownership.
    - No migration.
 
-4. `feat/report-publication-state-schema-local`
+5. `feat/report-publication-state-schema-local`
    - Add local migration for report publication state after the design is approved.
    - No remote apply.
 
-5. `feat/customer-prompt-metadata-schema-local`
+6. `feat/customer-prompt-metadata-schema-local`
    - Add local migration for persona/use_case/funnel_stage/topic/category and prompt readiness metadata.
    - No remote apply.
 
-6. `feat/source-owner-freshness-schema-local`
+7. `feat/source-owner-freshness-schema-local`
    - Add local migration for source owner/freshness metadata.
    - No remote apply.
 
-7. `feat/recommendation-workflow-schema-local`
+8. `feat/recommendation-workflow-schema-local`
    - Add local migration for recommendation review, Page Brief, and Action Plan workflow.
    - No remote apply.
 
-8. `docs/customer-plan-subscription-db-design`
+9. `docs/customer-plan-subscription-db-design`
    - Design plan, subscription, usage, quota, and entitlement linkage.
    - No Stripe implementation.
 
-9. Remote apply PRs
+10. Remote apply PRs
    - One explicit remote-apply checkpoint per migration.
    - Stop before `supabase db push` until approved.
 
-10. Backfill dry-run / apply PRs
+11. Backfill dry-run / apply PRs
    - One dry-run and one apply checkpoint per field group.
    - Prompt scope backfill remains paused until human review yields `approve_explicit_backfill`.
 

@@ -12,7 +12,7 @@ Customer, organization, membership, project, and report visibility boundaries ar
 
 Admin/internal DB current state is audited in `docs/recora-admin-db-current-state-audit.md`. Report data design should use that audit to keep admin-only operation state separate from customer-facing report projections.
 Customer vs admin DB ownership, source-of-truth, and projection rules are defined in `docs/recora-customer-vs-admin-db-boundary-design.md`.
-Latest framing: report data readiness should prioritize Customer Result DB published snapshot readiness before RLS policy work; Admin Control DB owns contracts, ownership, measurement execution, publication control, reviews, and audit logs.
+Latest framing: report data readiness should split Customer Measurement DB source result readiness from Customer Published Read Model snapshot readiness before RLS policy work. Admin Control DB owns contracts, ownership, measurement execution, publication control, reviews, and audit logs.
 
 Prompt scope backfill remains paused at review-record state because `safe_explicit_candidate = 0` and `apply_candidate = 0`.
 
