@@ -290,3 +290,5 @@ The rubric is inspired by topic-modeling and keyphrase-extraction ideas, but imp
 - `metric_separation`: branded sentiment, citation, regulated risk, and market visibility/ranking targets must stay separated.
 
 Coverage and evidence-alignment issues are warnings in generator validation because they are useful review signals, while raw labels, BtoB/BtoC mixing, duplicate labels, incomplete text, and metric-target mismatch are blockers. The audit/verify scripts fail on blocker issues and require topic quality scores to stay above the deterministic threshold.
+
+The verify script also includes local negative cases that intentionally corrupt otherwise valid `TopicDraft` objects. These cases assert that broken empty text, raw internal labels, BtoB/BtoC context mixing, duplicate labels, incomplete topic text, and metric-target mismatch produce blockers, while missing coverage and weak evidence alignment remain warnings. The negative cases do not call external APIs, fetch pages, write to DB/Supabase, run measurement, save, approve, or materialize anything.

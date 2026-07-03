@@ -15,6 +15,8 @@ import type {
   ProjectSetupDraft,
   ProjectSetupSeedInput,
   PromptDraft,
+  TopicDraft,
+  TopicQualityDimension,
   TopicType
 } from "../lib/recora/project-setup-draft";
 import {
@@ -330,6 +332,9 @@ const regressionFixtures = readRegressionFixtures();
 for (const fixture of regressionFixtures) {
   assertRegressionFixture(fixture);
 }
+const b2cComparisonDraft = caseResults.find((caseResult) => caseResult.id === "b2cComparison")?.result.draft;
+assert.ok(b2cComparisonDraft, "b2cComparison draft for topic quality negative cases");
+const topicQualityNegativeCases = assertTopicQualityNegativeCases(b2bFirst.draft, b2cComparisonDraft);
 const incompleteResult = generateProjectSetupDraft(incompleteSeed);
 assert.ok(incompleteResult.blockers.includes("seedInput.companyName is required"));
 assert.ok(incompleteResult.blockers.includes("seedInput.brandName is required"));
@@ -365,6 +370,7 @@ console.log(JSON.stringify({
     recruitingEvidenceBeatsGenericSaas: true,
     questionAreaCandidatesUseServiceEvidence: true,
     topicQualityRubric: true,
+    topicQualityNegativeCases,
     utf8FileBasedRegressionFixtures: regressionFixtures.length,
     personaTopicPromptReferences: true,
     nonBrandedPromptsExcludeBrandSignals: true,
@@ -598,6 +604,152 @@ function assertTopicQualityRubric(draft: ProjectSetupDraft) {
     assert.ok(signal.score >= 80, `${signal.topicId} topic quality score too low: ${signal.score}`);
     assert.deepEqual(signal.issues.filter((issue) => issue.severity === "blocker"), [], `${signal.topicId} topic quality blockers`);
   }
+}
+
+type TopicQualityIssueExpectation = {
+  dimension: TopicQualityDimension;
+  code?: string;
+  codePrefix?: string;
+  severity: "warning" | "blocker";
+};
+
+function assertTopicQualityNegativeCases(b2bDraft: ProjectSetupDraft, b2cDraft: ProjectSetupDraft) {
+  const checkedCases: string[] = [];
+
+  expectTopicQualityIssue(
+    "unnatural-none-topic-name",
+    patchTopic(b2bDraft, 0, { topicName: "重点論点: なし" }),
+    { dimension: "phraseness", code: "unnatural_empty_or_broken_text", severity: "blocker" }
+  );
+  checkedCases.push("unnatural-none-topic-name");
+
+  expectTopicQualityIssue(
+    "broken-report-purpose-marker",
+    patchTopic(b2bDraft, 0, { diagnosisGoal: "。レポート目的" }),
+    { dimension: "phraseness", code: "unnatural_empty_or_broken_text", severity: "blocker" }
+  );
+  checkedCases.push("broken-report-purpose-marker");
+
+  expectTopicQualityIssue(
+    "raw-topic-type-label",
+    patchTopic(b2bDraft, 0, { topicName: "category_discovery_topic" }),
+    { dimension: "phraseness", code: "raw_internal_label", severity: "blocker" }
+  );
+  checkedCases.push("raw-topic-type-label");
+
+  expectTopicQualityIssue(
+    "raw-english-question-area-label",
+    patchTopic(b2bDraft, 0, { topicName: "AI search visibility" }),
+    { dimension: "phraseness", code: "raw_internal_label", severity: "blocker" }
+  );
+  checkedCases.push("raw-english-question-area-label");
+
+  expectTopicQualityIssue(
+    "b2c-flow-with-b2b-procurement-wording",
+    patchTopic(b2cDraft, 0, { topicName: "SaaS ROI security approval review" }),
+    { dimension: "purity", code: "b2b_b2c_context_mismatch", severity: "blocker" }
+  );
+  checkedCases.push("b2c-flow-with-b2b-procurement-wording");
+
+  expectTopicQualityIssue(
+    "b2b-flow-with-consumer-local-wording",
+    patchTopic(b2bDraft, 0, { topicName: "近くで家族が口コミを見て通いやすいか" }),
+    { dimension: "purity", code: "b2b_b2c_context_mismatch", severity: "blocker" }
+  );
+  checkedCases.push("b2b-flow-with-consumer-local-wording");
+
+  expectTopicQualityIssue(
+    "duplicate-topic-name",
+    cloneDraftWithTopics(b2bDraft, b2bDraft.topics.map((topic, index) =>
+      index === 1 ? { ...topic, topicName: b2bDraft.topics[0]?.topicName ?? topic.topicName } : topic
+    )),
+    { dimension: "distinctiveness", code: "duplicate_topic_name", severity: "blocker" }
+  );
+  checkedCases.push("duplicate-topic-name");
+
+  expectTopicQualityIssue(
+    "incomplete-topic-text",
+    patchTopic(b2bDraft, 0, { topicName: "AI", diagnosisGoal: "", expectedSignal: "" }),
+    { dimension: "completeness", code: "missing_required_topic_text", severity: "blocker" }
+  );
+  checkedCases.push("incomplete-topic-text");
+
+  const citationTopicIndex = findTopicIndex(b2bDraft, "citation_evidence_topic");
+  expectTopicQualityIssue(
+    "citation-topic-metric-mismatch",
+    patchTopic(b2bDraft, citationTopicIndex, {
+      metricTarget: {
+        ...b2bDraft.topics[citationTopicIndex].metricTarget,
+        visibilityRate: "eligible",
+        ranking: "eligible",
+        citationCheck: "excluded"
+      }
+    }),
+    { dimension: "metric_separation", code: "metric_target_mismatch", severity: "blocker" }
+  );
+  checkedCases.push("citation-topic-metric-mismatch");
+
+  expectTopicQualityIssue(
+    "weak-question-area-alignment-warning",
+    patchTopic(b2bDraft, 0, { topicName: "Evidence from an unrelated customer concern" }),
+    { dimension: "evidence_alignment", code: "weak_question_area_alignment", severity: "warning" }
+  );
+  checkedCases.push("weak-question-area-alignment-warning");
+
+  expectTopicQualityIssue(
+    "missing-topic-coverage-warning",
+    cloneDraftWithTopics(b2bDraft, b2bDraft.topics.filter((topic) => topic.topicType !== "citation_evidence_topic")),
+    { dimension: "coverage", codePrefix: "missing_", severity: "warning" }
+  );
+  checkedCases.push("missing-topic-coverage-warning");
+
+  return checkedCases;
+}
+
+function expectTopicQualityIssue(
+  caseName: string,
+  draft: ProjectSetupDraft,
+  expected: TopicQualityIssueExpectation
+) {
+  const signals = evaluateTopicQuality(draft);
+  assert.equal(signals.length, draft.topics.length, `${caseName} must evaluate every topic`);
+  const matchingIssues = signals.flatMap((signal) =>
+    signal.issues
+      .filter((issue) =>
+        issue.dimension === expected.dimension &&
+        issue.severity === expected.severity &&
+        (expected.code ? issue.code === expected.code : true) &&
+        (expected.codePrefix ? issue.code.startsWith(expected.codePrefix) : true)
+      )
+      .map((issue) => ({ issue, signal }))
+  );
+  assert.ok(matchingIssues.length > 0, `${caseName} expected ${expected.severity} ${expected.dimension}:${expected.code ?? `${expected.codePrefix}*`}`);
+  assert.ok(
+    matchingIssues.some(({ signal }) => signal.score < 100),
+    `${caseName} expected the detected issue to reduce topic quality score`
+  );
+}
+
+function cloneDraftWithTopics(draft: ProjectSetupDraft, topics: readonly TopicDraft[]) {
+  return {
+    ...draft,
+    topics: topics.map((topic) => ({ ...topic, metricTarget: { ...topic.metricTarget } }))
+  } satisfies ProjectSetupDraft;
+}
+
+function patchTopic(draft: ProjectSetupDraft, topicIndex: number, patch: Partial<TopicDraft>) {
+  assert.ok(topicIndex >= 0 && topicIndex < draft.topics.length, `topic index ${topicIndex} exists`);
+  return cloneDraftWithTopics(draft, draft.topics.map((topic, index) =>
+    index === topicIndex
+      ? { ...topic, ...patch, metricTarget: patch.metricTarget ? { ...patch.metricTarget } : { ...topic.metricTarget } }
+      : topic
+  ));
+}
+
+function findTopicIndex(draft: ProjectSetupDraft, topicType: TopicType) {
+  const index = draft.topics.findIndex((topic) => topic.topicType === topicType);
+  assert.notEqual(index, -1, `topic ${topicType} exists`);
+  return index;
 }
 function assertPromptVariantCoverage(draft: ProjectSetupDraft) {
   const brandIdentity = getBrandIdentityFromDraft(draft);
