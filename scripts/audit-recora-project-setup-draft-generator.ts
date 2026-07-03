@@ -13,6 +13,7 @@ import type {
 } from "../lib/recora/project-setup-draft";
 import {
   buildServiceEvidenceTerms,
+  evaluateTopicQuality,
   generateProjectSetupDraft,
   scoreCategoryCandidates,
   scoreQuestionAreaCandidates
@@ -231,7 +232,7 @@ for (const evaluation of evaluations) {
 
 console.log(JSON.stringify({
   status: "ok",
-  rubric: "Recora persona discovery, prompt/topic designer, and quality-gate minimum-input criteria",
+  rubric: "Recora persona discovery, prompt/topic designer, topic quality rubric, and quality-gate minimum-input criteria",
   scoreUnit: "0-100 deterministic heuristic score",
   evaluations,
   insufficientInput: {
@@ -257,6 +258,7 @@ function evaluateCase(testCase: EvalCase) {
     check("persona_prompt_readiness_cautious", 8, draft.personas.every((persona) => persona.promptReadiness === "usable_with_caution" && persona.needsVerification && persona.sourceStatus === "inferred")),
     check("topic_coverage", 12, includesAll(draft.topics.map((topic) => topic.topicType), testCase.requiredTopics)),
     check("topic_metric_separation", 10, topicsKeepMetricsSeparated(draft)),
+    check("topic_quality_rubric", 12, topicQualityRubricCheck(draft), topicQualityRubricDetail(draft)),
     check("prompt_variant_depth", 10, promptVariantDepthCheck(draft)),
     check("prompt_count_bounded", 6, draft.prompts.length <= MAX_GENERATED_PROMPTS),
     check("prompt_text_deduplicated", 5, promptTextsAreUnique(draft)),
@@ -299,6 +301,14 @@ function check(label: string, maxPoints: number, passed: boolean, detail?: strin
   };
 }
 
+function topicQualityRubricCheck(draft: ProjectSetupDraft) {
+  return evaluateTopicQuality(draft).every((signal) => signal.score >= 80 && signal.issues.every((issue) => issue.severity !== "blocker"));
+}
+
+function topicQualityRubricDetail(draft: ProjectSetupDraft) {
+  const failing = evaluateTopicQuality(draft).filter((signal) => signal.score < 80 || signal.issues.some((issue) => issue.severity === "blocker"));
+  return failing.map((signal) => `${signal.topicId}:${signal.score}:${signal.issues.map((issue) => `${issue.dimension}/${issue.code}`).join("|")}`).join(", ");
+}
 function promptVariantDepthCheck(draft: ProjectSetupDraft) {
   const promptsByTopic = groupPromptsByTopic(draft);
   return draft.topics.every((topic) => {

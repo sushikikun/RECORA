@@ -20,6 +20,7 @@ import type {
 import {
   buildServiceEvidenceTerms,
   deduplicateProjectSetupDraft,
+  evaluateTopicQuality,
   generateProjectSetupDraft,
   scoreCategoryCandidates,
   scoreQuestionAreaCandidates,
@@ -363,6 +364,7 @@ console.log(JSON.stringify({
     recoraBrandDoesNotTriggerEc: true,
     recruitingEvidenceBeatsGenericSaas: true,
     questionAreaCandidatesUseServiceEvidence: true,
+    topicQualityRubric: true,
     utf8FileBasedRegressionFixtures: regressionFixtures.length,
     personaTopicPromptReferences: true,
     nonBrandedPromptsExcludeBrandSignals: true,
@@ -498,6 +500,7 @@ function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
   assertNoDuplicateValues(draft.prompts.map((prompt) => prompt.promptId), "promptId");
   assertNoDuplicateValues(draft.prompts.map((prompt) => normalize(prompt.text)), "prompt text");
   assertPromptVariantCoverage(draft);
+  assertTopicQualityRubric(draft);
 
   for (const item of draft.inputCompletion) {
     assert.ok(item.status === "provided" || item.status === "inferred" || item.status === "missing" || item.status === "needs_confirmation");
@@ -588,6 +591,14 @@ function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
   assert.ok(materializationDecision.blockers.includes("draft_review_status_not_approved"));
 }
 
+function assertTopicQualityRubric(draft: ProjectSetupDraft) {
+  const signals = evaluateTopicQuality(draft);
+  assert.equal(signals.length, draft.topics.length, "topic quality rubric must evaluate every generated topic");
+  for (const signal of signals) {
+    assert.ok(signal.score >= 80, `${signal.topicId} topic quality score too low: ${signal.score}`);
+    assert.deepEqual(signal.issues.filter((issue) => issue.severity === "blocker"), [], `${signal.topicId} topic quality blockers`);
+  }
+}
 function assertPromptVariantCoverage(draft: ProjectSetupDraft) {
   const brandIdentity = getBrandIdentityFromDraft(draft);
   const promptsByTopic = new Map<string, PromptDraft[]>();

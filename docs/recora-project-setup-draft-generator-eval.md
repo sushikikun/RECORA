@@ -129,3 +129,19 @@ The eval now checks the category/topic inference layer added for service-evidenc
 - UTF-8 file-based regression fixtures cover BtoB SEO/AI search, recruiting SaaS, beginner English school, kids English school, beauty clinic, mattress EC, cosmetics EC, local service, and professional service.
 - The regression fixtures assert that customer-facing question areas do not expose English/raw labels, non-branded prompts do not leak brand/alias/domain/competitor signals, and thin BtoC price/cost wording does not trigger `finance_investment`.
 - These checks remain deterministic and local. They do not fetch URL content, crawl pages, call OpenAI/external APIs, write to DB/Supabase, run measurement, save, approve, or materialize.
+
+## Topic Quality Rubric Evaluation
+
+The eval now includes `topic_quality_rubric` in addition to service-evidence category scoring and question-area specificity.
+
+The rubric evaluates `coverage`, `purity`, `phraseness`, `completeness`, `distinctiveness`, `evidence_alignment`, and `metric_separation` for every generated `TopicDraft`.
+
+Validation coverage:
+
+- Detects unnatural `topicName`, broken empty markers, duplicate topics, and raw internal labels such as `topicType`, `roleType`, `businessModel`, `industryAdapter`, `promptId`, `personaId`, or `topicId`.
+- Checks BtoB/BtoC topic purity so school, clinic, EC, local, and other consumer flows do not inherit procurement-heavy wording, while BtoB SEO/recruiting/professional-service flows do not collapse into consumer-only wording.
+- Keeps branded sentiment, citation, regulated risk, and visibility/ranking metrics separated at the topic level before prompt-level metric eligibility is derived.
+- Confirms category/question-area inference remains service-evidence based across BtoB SEO/AI search, recruiting SaaS, beginner English school, kids English school, beauty clinic, mattress EC, cosmetics EC, local service, and professional service fixtures.
+- Keeps brand, alias, domain, and competitor signals usable for category inference but unavailable to non-branded prompt text.
+
+The checks remain local and deterministic. They do not fetch URL content, crawl, call OpenAI or external APIs, write to DB/Supabase, run measurement, save, approve, or materialize anything.

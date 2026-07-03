@@ -267,3 +267,26 @@ The generator now builds deterministic service evidence before choosing the draf
 - Short ASCII fragments such as `ec` only match with token boundaries. A brand name such as `Recora` must not trigger ecommerce/product classification.
 - Brand and competitor terms may be used as inference evidence, but must not leak into non-branded prompt text.
 - Internal scoring fields stay internal. Customer UI should continue to show service category, main viewers, question areas, and prompt examples rather than raw `businessModel`, `industryAdapter`, `topicType`, `roleType`, `promptId`, `personaId`, or `topicId`.
+
+## Topic Quality Rubric
+
+The generator keeps the current deterministic flow: `ProjectSetupSeedInput` -> service evidence terms -> category scoring -> question-area candidates -> `TopicDraft` -> `PromptDraft`. This PR adds a topic-quality audit layer without changing the prompt-generation engine or adding external calls.
+
+The rubric is inspired by topic-modeling and keyphrase-extraction ideas, but implemented as local deterministic checks rather than new dependencies:
+
+- TF-IDF: service evidence terms from the service description, category, audience, goal, region, URL metadata, brand, and competitor inputs are weighted by source quality before category/question-area scoring.
+- BERTopic: category candidates and question-area candidates behave like a small, controlled topic map, where the selected topic label must align with the service evidence cluster.
+- KERT: topic labels should be natural phrases, not raw keywords, empty markers, or mechanical internal labels.
+- MultipartiteRank: distinct service evidence sources contribute to candidate ranking, while low-signal short tokens such as the `ec` fragment in `Recora` are guarded.
+
+`evaluateTopicQuality(draft)` returns one `TopicQualitySignal` per generated topic. The dimensions are:
+
+- `coverage`: required question-area coverage for the inferred category, such as category discovery, alternatives, pricing/reputation, local/regional, regulated risk, citation, or branded sentiment where appropriate.
+- `purity`: BtoB/BtoC context separation so consumer topics do not inherit adoption/procurement terms and BtoB topics do not drift into local consumer wording.
+- `phraseness`: customer-facing topic labels must not be raw internal labels, snake_case, broken empty text, or overly generic one-word labels.
+- `completeness`: topic name, diagnosis goal, expected signal, and prompt-count requirements must be present.
+- `distinctiveness`: duplicate topic labels are detected even if prompt generation later deduplicates prompt text.
+- `evidence_alignment`: generated topic labels should match a scored question-area candidate for the inferred category.
+- `metric_separation`: branded sentiment, citation, regulated risk, and market visibility/ranking targets must stay separated.
+
+Coverage and evidence-alignment issues are warnings in generator validation because they are useful review signals, while raw labels, BtoB/BtoC mixing, duplicate labels, incomplete text, and metric-target mismatch are blockers. The audit/verify scripts fail on blocker issues and require topic quality scores to stay above the deterministic threshold.

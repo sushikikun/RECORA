@@ -145,6 +145,29 @@ export type TopicQualityDecision =
 
 export type TopicCoverageStatus = "covered" | "undercovered" | "overcovered" | "mismatched" | "rejected";
 
+export type TopicQualityDimension =
+  | "coverage"
+  | "purity"
+  | "phraseness"
+  | "completeness"
+  | "distinctiveness"
+  | "evidence_alignment"
+  | "metric_separation";
+
+export type TopicQualityIssue = {
+  dimension: TopicQualityDimension;
+  code: string;
+  severity: "warning" | "blocker";
+};
+
+export type TopicQualitySignal = {
+  topicId: string;
+  topicName: string;
+  topicType: TopicType;
+  score: number;
+  issues: readonly TopicQualityIssue[];
+};
+
 export type RecoraHandoffSkill =
   | "recora-persona-discovery"
   | "recora-prompt-topic-designer"
