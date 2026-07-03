@@ -1,7 +1,7 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 
 import type { ProjectSetupSeedInput } from "../lib/recora/project-setup-draft";
-import { generateProjectSetupDraft } from "../lib/recora/project-setup-draft-generator";
+import { evaluateTopicQuality, generateProjectSetupDraft } from "../lib/recora/project-setup-draft-generator";
 
 const seoSeed: ProjectSetupSeedInput = {
   companyName: "ミエルカSEO",
@@ -202,6 +202,25 @@ const kidsEnglishDraft = generateProjectSetupDraft(kidsEnglishSeed).draft;
 const mattressEcDraft = generateProjectSetupDraft(mattressEcSeed).draft;
 const cosmeticsEcDraft = generateProjectSetupDraft(cosmeticsEcSeed).draft;
 const recruitingSaasDraft = generateProjectSetupDraft(recruitingSaasSeed).draft;
+for (const [label, draft] of [
+  ["seo", seoDraft],
+  ["school", schoolDraft],
+  ["ec", ecDraft],
+  ["clinic", clinicDraft],
+  ["local", localDraft],
+  ["beginnerEnglish", beginnerEnglishDraft],
+  ["kidsEnglish", kidsEnglishDraft],
+  ["mattressEc", mattressEcDraft],
+  ["cosmeticsEc", cosmeticsEcDraft],
+  ["recruitingSaas", recruitingSaasDraft]
+] as const) {
+  const topicQualitySignals = evaluateTopicQuality(draft);
+  assert.equal(topicQualitySignals.length, draft.topics.length, `${label} topic quality coverage`);
+  for (const signal of topicQualitySignals) {
+    assert.ok(signal.score >= 80, `${label} ${signal.topicId} topic quality score too low: ${signal.score}`);
+    assert.deepEqual(signal.issues.filter((issue) => issue.severity === "blocker"), [], `${label} ${signal.topicId} topic quality blockers`);
+  }
+}
 
 const seoPromptText = seoDraft.prompts.map((prompt) => prompt.text).join("\n");
 const schoolPromptText = schoolDraft.prompts.map((prompt) => prompt.text).join("\n");
@@ -350,7 +369,8 @@ console.log(
         ecPersonaLabels: true,
         clinicPersonaLabels: true,
         localServicePersonaLabels: true,
-        consumerPersonaLabelsAvoidB2BRoles: true
+        consumerPersonaLabelsAvoidB2BRoles: true,
+        topicQualityRubric: true
       }
     },
     null,

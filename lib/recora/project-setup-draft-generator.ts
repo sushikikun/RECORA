@@ -35,6 +35,8 @@ import type {
   SourceStatus,
   TopicDraft,
   TopicMetricTarget,
+  TopicQualityIssue,
+  TopicQualitySignal,
   TopicType
 } from "./project-setup-draft";
 
@@ -669,6 +671,16 @@ export function validateGeneratedProjectSetupDraft(draft: ProjectSetupDraft): Pr
       blockers.push(`topic ${topic.topicId} generated_topic_over_prompt_count_cap`);
     }
   }
+  for (const signal of evaluateTopicQuality(draft)) {
+    for (const issue of signal.issues) {
+      const message = `topic ${signal.topicId} topic_quality_${issue.dimension}_${issue.code}`;
+      if (issue.severity === "blocker") {
+        blockers.push(message);
+      } else {
+        warnings.push(message);
+      }
+    }
+  }
   if (draft.prompts.length > MAX_GENERATED_PROMPTS) {
     blockers.push("generated_prompt_count_exceeds_cap");
   }
@@ -680,6 +692,167 @@ export function validateGeneratedProjectSetupDraft(draft: ProjectSetupDraft): Pr
   };
 }
 
+export function evaluateTopicQuality(draft: ProjectSetupDraft): TopicQualitySignal[] {
+  const context = buildGenerationContext(draft.seedInput);
+  const duplicateTopicNames = findDuplicateTopicNames(draft.topics);
+  const topicTypes = new Set(draft.topics.map((topic) => topic.topicType));
+  const missingCoverage = getMissingTopicCoverage(context.categoryCandidate.profile, topicTypes);
+  const firstTopicId = draft.topics[0]?.topicId ?? null;
+
+  return draft.topics.map((topic) => {
+    const issues: TopicQualityIssue[] = [];
+    const topicText = `${topic.topicName} ${topic.diagnosisGoal} ${topic.expectedSignal}`;
+    const normalizedTopicText = normalizeForMatch(topicText);
+    const normalizedTopicName = normalizeForDedupe(topic.topicName);
+
+    if (topic.topicId === firstTopicId && missingCoverage.length > 0) {
+      issues.push({ dimension: "coverage", code: `missing_${missingCoverage.join("_")}`, severity: "warning" });
+    }
+    if (!hasText(topic.topicName) || !hasText(topic.diagnosisGoal) || !hasText(topic.expectedSignal)) {
+      issues.push({ dimension: "completeness", code: "missing_required_topic_text", severity: "blocker" });
+    }
+    if (topic.topicName.length > 72) {
+      issues.push({ dimension: "phraseness", code: "topic_name_too_long", severity: "warning" });
+    }
+    if (topic.topicName.length < 4 || GENERIC_TOPIC_NAMES.has(normalizedTopicName)) {
+      issues.push({ dimension: "phraseness", code: "topic_name_too_generic", severity: "blocker" });
+    }
+    if (containsAny(normalizedTopicText, UNNATURAL_TOPIC_TEXT_MARKERS)) {
+      issues.push({ dimension: "phraseness", code: "unnatural_empty_or_broken_text", severity: "blocker" });
+    }
+    if (looksLikeRawInternalTopicText(topic.topicName) || looksLikeRawInternalTopicText(topic.diagnosisGoal)) {
+      issues.push({ dimension: "phraseness", code: "raw_internal_label", severity: "blocker" });
+    }
+    if (duplicateTopicNames.has(normalizedTopicName)) {
+      issues.push({ dimension: "distinctiveness", code: "duplicate_topic_name", severity: "blocker" });
+    }
+    if (!topicMatchesQuestionAreaCandidate(context.questionAreaCandidates, topic)) {
+      issues.push({ dimension: "evidence_alignment", code: "weak_question_area_alignment", severity: "warning" });
+    }
+    if (topicHasContextMismatch(context, normalizedTopicText)) {
+      issues.push({ dimension: "purity", code: "b2b_b2c_context_mismatch", severity: "blocker" });
+    }
+    if (!topicKeepsMetricsSeparated(topic)) {
+      issues.push({ dimension: "metric_separation", code: "metric_target_mismatch", severity: "blocker" });
+    }
+
+    return {
+      topicId: topic.topicId,
+      topicName: topic.topicName,
+      topicType: topic.topicType,
+      score: calculateTopicQualityScore(issues),
+      issues: uniqueTopicQualityIssues(issues)
+    };
+  });
+}
+
+function calculateTopicQualityScore(issues: readonly TopicQualityIssue[]) {
+  const penalty = issues.reduce((sum, issue) => {
+    if (issue.dimension === "metric_separation") return sum + 25;
+    if (issue.dimension === "coverage") return sum + 20;
+    if (issue.dimension === "purity") return sum + 18;
+    if (issue.dimension === "evidence_alignment") return sum + 14;
+    if (issue.dimension === "phraseness") return sum + 12;
+    if (issue.dimension === "distinctiveness") return sum + 12;
+    if (issue.dimension === "completeness") return sum + 20;
+    return sum + 10;
+  }, 0);
+  return clampScore(100 - penalty);
+}
+
+function uniqueTopicQualityIssues(issues: readonly TopicQualityIssue[]) {
+  return uniqueBy(issues, (issue) => `${issue.dimension}:${issue.code}:${issue.severity}`);
+}
+
+function findDuplicateTopicNames(topics: readonly TopicDraft[]) {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const topic of topics) {
+    const normalized = normalizeForDedupe(topic.topicName);
+    if (!hasText(normalized)) continue;
+    if (seen.has(normalized)) duplicates.add(normalized);
+    seen.add(normalized);
+  }
+  return duplicates;
+}
+
+function getMissingTopicCoverage(profile: CategoryCandidateProfile, topicTypes: ReadonlySet<TopicType>) {
+  const requiredByProfile: Partial<Record<CategoryCandidateProfile, readonly TopicType[]>> = {
+    seo_ai_search: ["category_discovery_topic", "alternative_search_topic", "citation_evidence_topic", "branded_sentiment_topic"],
+    marketing_seo: ["category_discovery_topic", "alternative_search_topic", "citation_evidence_topic", "branded_sentiment_topic"],
+    b2b_saas_tool: ["category_discovery_topic", "alternative_search_topic", "persona_specific_topic", "branded_sentiment_topic"],
+    recruiting_hr: ["alternative_search_topic", "persona_specific_topic", "regulated_risk_topic", "branded_sentiment_topic"],
+    school_education: ["category_discovery_topic", "alternative_search_topic", "persona_specific_topic", "pricing_reputation_topic"],
+    healthcare_clinic: ["category_discovery_topic", "alternative_search_topic", "regulated_risk_topic", "pricing_reputation_topic"],
+    ecommerce_product: ["category_discovery_topic", "alternative_search_topic", "persona_specific_topic", "pricing_reputation_topic"],
+    local_service: ["category_discovery_topic", "local_regional_topic", "persona_specific_topic", "pricing_reputation_topic"],
+    professional_service: ["category_discovery_topic", "alternative_search_topic", "persona_specific_topic", "branded_sentiment_topic"]
+  };
+  return (requiredByProfile[profile] ?? ["category_discovery_topic", "alternative_search_topic", "persona_specific_topic"])
+    .filter((topicType) => !topicTypes.has(topicType));
+}
+
+function topicMatchesQuestionAreaCandidate(candidates: readonly QuestionAreaCandidate[], topic: TopicDraft) {
+  return candidates.some((candidate) =>
+    candidate.sourceTopicType === topic.topicType &&
+    normalizeForDedupe(candidate.label) === normalizeForDedupe(topic.topicName) &&
+    hasText(candidate.description)
+  );
+}
+
+function topicHasContextMismatch(context: GenerationContext, normalizedTopicText: string) {
+  if (context.isB2B) {
+    return context.categoryCandidate.profile !== "local_service" && containsAny(normalizedTopicText, B2C_HEAVY_PROMPT_TERMS);
+  }
+  return containsAny(normalizedTopicText, B2B_HEAVY_PROMPT_TERMS);
+}
+
+function topicKeepsMetricsSeparated(topic: TopicDraft) {
+  if (topic.topicType === "branded_sentiment_topic") {
+    return topic.metricTarget.visibilityRate === "excluded" &&
+      topic.metricTarget.ranking === "excluded" &&
+      topic.metricTarget.sentiment === "eligible";
+  }
+  if (topic.topicType === "citation_evidence_topic") {
+    return topic.metricTarget.visibilityRate === "excluded" &&
+      topic.metricTarget.ranking === "excluded" &&
+      topic.metricTarget.citationCheck === "eligible";
+  }
+  if (topic.topicType === "regulated_risk_topic") {
+    return topic.metricTarget.visibilityRate === "excluded" &&
+      topic.metricTarget.ranking === "excluded" &&
+      topic.metricTarget.riskCheck === "eligible";
+  }
+  if (topic.brandMentionPolicy === "brand_included") {
+    return topic.metricTarget.visibilityRate === "excluded" && topic.metricTarget.ranking === "excluded";
+  }
+  return true;
+}
+
+function looksLikeRawInternalTopicText(value: string) {
+  const normalized = normalizeForMatch(value);
+  return RAW_INTERNAL_TOPIC_TEXT_MARKERS.some((marker) => normalized.includes(marker)) || /\b[a-z]+_[a-z_]+\b/.test(normalized);
+}
+
+const GENERIC_TOPIC_NAMES = new Set(["price", "reviews", "comparison", "category", "risk", "source", "evidence"]);
+const UNNATURAL_TOPIC_TEXT_MARKERS = ["none", "report purpose", "focus topic: none", "重点論点: なし", "。レポート目的"] as const;
+const RAW_INTERNAL_TOPIC_TEXT_MARKERS = [
+  "topicid",
+  "personaid",
+  "promptid",
+  "topictype",
+  "roletype",
+  "businessmodel",
+  "industryadapter",
+  "ai search visibility",
+  "citation and source readiness",
+  "hiring workflow fit",
+  "recruiting tool comparison",
+  "child fit and guardian concerns",
+  "product fit and purchase concerns",
+  "source and evidence behavior",
+  "brand perception summary"
+] as const;
 function buildGenerationResult(input: {
   context: GenerationContext;
   draft: ProjectSetupDraft;
