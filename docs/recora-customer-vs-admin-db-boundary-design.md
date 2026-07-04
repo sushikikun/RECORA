@@ -21,6 +21,7 @@ It follows:
 - `docs/recora-report-data-readiness.md`
 - `docs/recora-prompt-scope-db-migration-plan.md`
 - `docs/recora-prompt-scope-backfill-review-record.md`
+- `docs/recora-customer-measurement-db-readiness-audit.md` records the read-only readiness audit for the Customer Measurement DB measured-result source-of-truth layer.
 
 The main rule is simple: Admin Control DB owns mutable internal workflow and operational control; Customer Measurement DB owns official measured result data; Customer Published Read Model owns the stable, approved, customer-facing snapshots read by customer screens.
 
