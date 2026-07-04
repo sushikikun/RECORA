@@ -143,5 +143,7 @@ Validation coverage:
 - Keeps branded sentiment, citation, regulated risk, and visibility/ranking metrics separated at the topic level before prompt-level metric eligibility is derived.
 - Confirms category/question-area inference remains service-evidence based across BtoB SEO/AI search, recruiting SaaS, beginner English school, kids English school, beauty clinic, mattress EC, cosmetics EC, local service, and professional service fixtures.
 - Keeps brand, alias, domain, and competitor signals usable for category inference but unavailable to non-branded prompt text.
+- Runs local negative tests against intentionally broken `TopicDraft` variants so `none`/empty markers, raw `topicType`-style labels, raw English question-area labels, BtoB/BtoC context mixing, duplicate topics, incomplete topic text, and metric-target mismatch are detected as blockers.
+- Confirms warning-level behavior stays review-oriented: missing category coverage and weak question-area alignment lower the topic quality score without becoming blockers.
 
 The checks remain local and deterministic. They do not fetch URL content, crawl, call OpenAI or external APIs, write to DB/Supabase, run measurement, save, approve, or materialize anything.
