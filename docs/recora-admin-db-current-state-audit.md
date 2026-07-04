@@ -12,8 +12,10 @@ The audit follows:
 - `docs/recora-customer-db-readiness-audit.md`
 - `docs/recora-customer-org-project-boundary-design.md`
 - PR #56 merge commit `257233764ba2ea3e3c4f929ab49da9b6a898dffd`
+- `docs/recora-customer-vs-admin-db-boundary-design.md` for the target ownership, projection, and source-of-truth rules that follow this audit.
+- Latest framing: this audit feeds the Admin Control DB side of the three-layer model. Customer Measurement DB work should focus on official measured results, while Customer Published Read Model work should focus on approved customer-facing report/read-model snapshots. Contract, ownership, execution, review, publication control, and audit state remain Admin Control DB source-of-truth.
 
-The core finding is that Recora now has a real `recora_admin` schema for internal operational metadata, but several customer-facing projection boundaries are still not first-class. Admin-owned plan/subscription, measurement job, publication review, prompt-change, and internal note tables exist. Customer-visible report snapshots, report publication state, recommendation workflow state, Page Brief, Action Plan, and measurement prompt snapshots still need separate design or schema work.
+The core finding is that Recora now has a real `recora_admin` schema for internal operational metadata, but several measurement and published read-model boundaries are still not first-class. Admin-owned plan/subscription, measurement job, publication review, prompt-change, and internal note tables exist. Customer Measurement DB source result boundaries and Customer Published Read Model snapshots for reports, recommendations, Page Brief, Action Plan, and measurement prompts still need separate design or schema work.
 
 This PR is a read-only audit and docs update. It does not create a migration, write to any database, run Supabase db push, apply backfill, seed data, repair/reset migration history, run OpenAI/external APIs, crawl the web, implement UI, implement auth, change middleware, or modify LP/Auth/handoff areas.
 
@@ -25,7 +27,7 @@ This audit covers:
 - RLS flags, table grants, policy counts, row estimates, relevant constraints, views, and helper function exposure
 - Supabase Advisors security/performance output
 - repository docs, migrations, scripts, `/internal` pages, and admin read models related to internal operations
-- current candidates for admin DB ownership and customer DB projection
+- current candidates for Admin Control DB ownership, Customer Measurement DB result ownership, and Customer Published Read Model projection
 
 This audit does not inspect customer row bodies, prompt text, AI answer text, citation URL inventories, raw recommendation bodies, secrets, DB URLs, tokens, passwords, cookies, or `.env` values.
 
@@ -63,24 +65,24 @@ Important execution note:
 
 ## Current admin/internal DB candidates
 
-| Area | Existing table / artifact | Evidence | Current role | Likely owner DB | Customer DB projection needed? | Status | Risk | Notes |
+| Area | Existing table / artifact | Evidence | Current role | Likely owner layer | Projection/read-model needed? | Status | Risk | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| plan configs | `recora_admin.plan_configs` | live table, RLS enabled, estimated rows 5, service_role SELECT only | internal plan definitions and mutable entitlement config | admin_db | yes, only derived entitlement/visibility summary | exists | medium | Pricing/limits remain config-driven and not a customer contract yet. |
-| subscriptions | `recora_admin.customer_subscriptions` | live table, estimated rows 1 | customer plan assignment and contract state | admin_db | yes, only customer-safe entitlement state | exists | medium | No Stripe/billing integration in scope. |
-| usage limits / quota | `plan_configs.config`, `customer_subscriptions.entitlement_config`; no live `usage_events` or `monthly_usage` table | docs/migration search and live schema | intended quota/usage source but not a durable usage ledger | admin_db | yes, only consumed/remaining customer-safe projection | partial | high | Needs separate usage boundary design before customer launch. |
-| measurement jobs / run controls | `recora_admin.measurement_schedules`, `measurement_batches`, `measurement_batch_items`; `lib/recora/phase1-admin-plan.ts` | live tables, all estimated rows 0; code is plan-only | scheduling, queue, retry, and per-item run linkage | admin_db | yes, completed-result status only | partial | high | Schema exists, but no durable worker/write flow is active in this audit. |
-| measurement runs | `public.measurement_runs`, `public.run_items`, `public.ai_conversations` | live row estimates: runs 6, run_items 26, ai_conversations 26 | measured evidence source and run lifecycle | both_with_projection | yes, immutable result/report snapshot | exists | high | Execution lifecycle and customer-visible result snapshot are still coupled through public run data. |
-| project setup drafts | `lib/recora/project-setup-draft.ts`, `lib/recora/project-setup-draft-generator.ts`, verification scripts | repository code/docs only | draft generation/review before materialization | admin_db | yes, only approved materialized prompts/personas/topics | partial | high | No dedicated live admin table for project setup drafts was found. |
-| generator outputs | project setup generator code and tests | repository code/docs only | pre-approval generated draft data | admin_db | only after approval/materialization | needs_design | high | Raw generator output must not become customer-visible by default. |
-| materialization controls | project setup readiness functions and verification scripts | repository code/docs only | gate draft approval before prompt/result use | admin_db | yes, materialized safe entities only | partial | high | DB workflow state is not first-class. |
-| report publication controls | `recora_admin.report_publication_reviews`; `recora_admin_customer_ops_readonly` RPC | live table, estimated rows 0, service_role SELECT/EXECUTE only | internal report-level review/publication history | both_with_projection | yes, customer-safe report publication state/snapshot | exists_empty | blocker | Table exists, but no customer-facing report publication projection is first-class. |
-| recommendations | `public.recommendations`; customer-visible predicate | live row estimate 6, RLS policy exists | recommendation candidates and customer-visible filtered rows | both_with_projection | yes, approved/published recommendation snapshot | partial | high | Publication metadata exists, but review workflow is not durable enough. |
-| recommendation review | planned `recora_admin.recommendation_review_events`; report read model review queue future state | docs/code references only | human/quality-gate workflow | admin_db | approved recommendation only | needs_design | high | No live admin review-events table was found. |
-| Page Brief / Action Plan drafts | report tabs/readiness docs | docs/read-model future state only | reviewed implementation guidance drafts | admin_db | approved customer-facing versions only | missing | medium | Needs a later workflow/schema decision. |
-| admin audit logs | `recora_admin.operation_events` | live table, estimated rows 0, service_role SELECT only | append-only internal operation log | admin_db | no, except summarized customer-safe status if needed | exists_empty | medium | Write actor, retention, and event taxonomy remain later work. |
-| internal operation logs / notes | `recora_admin.internal_notes`, `prompt_change_events` | live tables, estimated rows 0 | internal notes and prompt change history | admin_db | no, except approved prompt snapshots | exists_empty | medium | Notes must not store secrets, raw AI answers, aggregate values, prompt bodies, or recommendation bodies. |
-| customer-facing report snapshots | no first-class report snapshot table confirmed | docs and live schema | desired immutable customer report boundary | customer_db | n/a | missing | blocker | Needed to decouple report display from internal review/workflow rows. |
-| customer-facing measurement snapshots | `public.measurement_runs`, `run_items`, `ai_conversations`, `metric_snapshots`, `brand_mentions`, `citations` | live row estimates and public RLS policies | measured evidence shown to customer | customer_db | n/a | partial | high | Prompt snapshot and publication-state boundary remain incomplete. |
+| plan configs | `recora_admin.plan_configs` | live table, RLS enabled, estimated rows 5, service_role SELECT only | internal plan definitions and mutable entitlement config | Admin Control DB | yes, only derived entitlement/visibility summary if needed | exists | medium | Pricing/limits remain config-driven and not a customer contract yet. |
+| subscriptions | `recora_admin.customer_subscriptions` | live table, estimated rows 1 | customer plan assignment and contract state | Admin Control DB | yes, only customer-safe entitlement state if needed | exists | medium | No Stripe/billing integration in scope. |
+| usage limits / quota | `plan_configs.config`, `customer_subscriptions.entitlement_config`; no live `usage_events` or `monthly_usage` table | docs/migration search and live schema | intended quota/usage source but not a durable usage ledger | Admin Control DB | yes, only consumed/remaining customer-safe projection if designed | partial | high | Needs separate usage boundary design before customer launch. |
+| measurement jobs / run controls | `recora_admin.measurement_schedules`, `measurement_batches`, `measurement_batch_items`; `lib/recora/phase1-admin-plan.ts` | live tables, all estimated rows 0; code is plan-only | scheduling, queue, retry, and per-item run linkage | Admin Control DB | yes, completed result status only after measurement/publication gates | partial | high | Schema exists, but no durable worker/write flow is active in this audit. |
+| measurement runs | `public.measurement_runs`, `public.run_items`, `public.ai_conversations` | live row estimates: runs 6, run_items 26, ai_conversations 26 | measured evidence source and run lifecycle | Layered with projection | yes, official result data and published result/report snapshots | exists | high | Execution lifecycle, measured source data, and published snapshots are still coupled through public run data. |
+| project setup drafts | `lib/recora/project-setup-draft.ts`, `lib/recora/project-setup-draft-generator.ts`, verification scripts | repository code/docs only | draft generation/review before materialization | Admin Control DB | yes, only approved materialized prompts/personas/topics | partial | high | No dedicated live admin table for project setup drafts was found. |
+| generator outputs | project setup generator code and tests | repository code/docs only | pre-approval generated draft data | Admin Control DB | only after approval/materialization | needs_design | high | Raw generator output must not become customer-visible by default. |
+| materialization controls | project setup readiness functions and verification scripts | repository code/docs only | gate draft approval before prompt/result use | Admin Control DB | yes, materialized safe entities only | partial | high | DB workflow state is not first-class. |
+| report publication controls | `recora_admin.report_publication_reviews`; `recora_admin_customer_ops_readonly` RPC | live table, estimated rows 0, service_role SELECT/EXECUTE only | internal report-level review/publication history | Layered with projection | yes, Customer Published Read Model report snapshot | exists_empty | blocker | Table exists, but no customer-facing report publication projection is first-class. |
+| recommendations | `public.recommendations`; customer-visible predicate | live row estimate 6, RLS policy exists | recommendation candidates and customer-visible filtered rows | Layered with projection | yes, approved/published recommendation snapshot | partial | high | Publication metadata exists, but review workflow is not durable enough. |
+| recommendation review | planned `recora_admin.recommendation_review_events`; report read model review queue future state | docs/code references only | human/quality-gate workflow | Admin Control DB | approved recommendation only | needs_design | high | No live admin review-events table was found. |
+| Page Brief / Action Plan drafts | report tabs/readiness docs | docs/read-model future state only | reviewed implementation guidance drafts | Admin Control DB | approved customer-facing versions only | missing | medium | Needs a later workflow/schema decision. |
+| admin audit logs | `recora_admin.operation_events` | live table, estimated rows 0, service_role SELECT only | append-only internal operation log | Admin Control DB | no, except summarized customer-safe status if needed | exists_empty | medium | Write actor, retention, and event taxonomy remain later work. |
+| internal operation logs / notes | `recora_admin.internal_notes`, `prompt_change_events` | live tables, estimated rows 0 | internal notes and prompt change history | Admin Control DB | no, except approved prompt snapshots | exists_empty | medium | Notes must not store secrets, raw AI answers, aggregate values, prompt bodies, or recommendation bodies. |
+| customer-facing report snapshots | no first-class report snapshot table confirmed | docs and live schema | desired immutable customer report boundary | Customer Published Read Model | n/a | missing | blocker | Needed to decouple report display from internal review/workflow rows. |
+| customer-facing measurement snapshots | `public.measurement_runs`, `run_items`, `ai_conversations`, `metric_snapshots`, `brand_mentions`, `citations` | live row estimates and public RLS policies | measured evidence shown to customer | Customer Measurement DB with Published Read Model projection | yes, published snapshot boundary still needed | partial | high | Prompt snapshot and publication-state boundary remain incomplete. |
 
 ## Plan and subscription state
 
@@ -117,7 +119,7 @@ Gaps:
 
 - The admin job tables are schema-ready but empty in the live estimate.
 - No approved worker/write path is active in this PR.
-- Measurement job lifecycle and completed customer result snapshots are not yet separated into distinct admin-owned and customer-owned records.
+- Measurement job lifecycle, completed measured result data, and published customer snapshots are not yet separated into distinct admin-control, measurement-source, and published-read-model records.
 
 ## Project setup draft and materialization state
 
@@ -130,7 +132,7 @@ Current state:
 Gaps:
 
 - Project setup draft data, raw generator output, review status, and materialization controls are not a durable admin DB workflow yet.
-- Customer DB should receive only approved/materialized project setup data, not raw generator output.
+- Customer Measurement DB should receive only approved/materialized measurement setup data, not raw generator output. Customer Published Read Model should receive only display-safe published snapshots.
 
 ## Report publication and visibility control
 
@@ -196,11 +198,10 @@ Interpretation:
 - The admin DB exposure shape is good for a read-only internal control plane: admin tables are not broadly granted to customer roles, and admin RPCs are service-role only.
 - Customer-facing public tables still need the separate RLS readiness audit planned in previous docs, because SELECT grants exist and safety depends on policy correctness and helper functions.
 
-## Customer DB projection candidates
+## Customer Measurement DB and Published Read Model candidates
 
-Customer DB should own or project:
+Customer Measurement DB should own official measured result data such as:
 
-- published customer report snapshots
 - completed measurement result snapshots
 - prompt snapshots at measurement time
 - AI answers shown to customers
@@ -208,11 +209,21 @@ Customer DB should own or project:
 - citations and source metadata shown to customers
 - metric snapshots shown to customers
 - source owner/freshness fields shown to customers
+- source-to-claim, sentiment, caveat, and narrative labels when approved for result storage
+
+Customer Published Read Model should own published customer-facing snapshots such as:
+
+- published customer report snapshots
+- published measurement snapshots
+- published prompt snapshots
+- published AI answer snapshots
+- published citation/source snapshots
+- published metric snapshots
 - approved customer-facing recommendations
 - approved customer-facing Page Brief and Action Plan artifacts
 - customer-safe entitlement/visibility summaries derived from admin plan/subscription state
 
-Customer DB should not own:
+Customer Measurement DB and Customer Published Read Model should not own:
 
 - plan authoring config
 - subscription/billing operational state beyond customer-safe entitlement projection
@@ -221,9 +232,9 @@ Customer DB should not own:
 - report review history, operator notes, internal blockers, or audit details
 - pre-quality-gate recommendation candidates
 
-## Admin DB ownership candidates
+## Admin Control DB ownership candidates
 
-Admin DB should own:
+Admin Control DB should own:
 
 - `plan_configs`
 - `customer_profiles`
@@ -240,19 +251,19 @@ Admin DB should own:
 - internal audit logs and operation events
 - internal notes and operator-only context
 
-Both with projection:
+Layered with projection:
 
-- `measurement_runs`: admin DB owns execution/job lifecycle; customer DB owns completed result snapshot.
-- `recommendations`: admin DB owns review workflow; customer DB owns approved/published recommendation artifacts.
-- `reports`: admin DB owns publication control; customer DB owns published report snapshot.
-- `projects`: admin DB owns configuration/operations context; customer DB owns report/result scope reference.
+- `measurement_runs`: Admin Control DB owns execution/job lifecycle; Customer Measurement DB owns completed measured result data; Customer Published Read Model owns customer-visible published snapshots.
+- `recommendations`: Admin Control DB owns review workflow; Customer Measurement DB owns evidence references; Customer Published Read Model owns approved/published recommendation artifacts.
+- `reports`: Admin Control DB owns publication control; Customer Measurement DB owns source measured results; Customer Published Read Model owns published report snapshots.
+- `projects`: Admin Control DB owns configuration/operations context; Customer Measurement DB and Customer Published Read Model own only report/result scope references.
 
 ## Findings
 
 Blocker:
 
-- Report-level customer publication is not first-class in the customer DB surface. `recora_admin.report_publication_reviews` exists, but it is internal control history, not a complete customer-visible report snapshot boundary.
-- Measurement execution lifecycle and customer measurement result snapshots are not cleanly separated yet. `public.measurement_runs` currently carries both run status and customer-visible evidence lineage.
+- Report-level customer publication is not first-class in the published read-model surface. `recora_admin.report_publication_reviews` exists, but it is internal control history, not a complete customer-visible report snapshot boundary.
+- Measurement execution lifecycle, official measured result data, and published customer snapshots are not cleanly separated yet. `public.measurement_runs` currently carries both run status and customer-visible evidence lineage.
 - Project setup drafts and generator outputs are not durable admin DB workflow records. Raw generated drafts must not become customer DB data without approval/materialization.
 
 High:
@@ -286,32 +297,36 @@ Information gaps:
    - Use this audit to formally define customer DB vs admin DB ownership and projection rules.
    - Docs-only.
 
-2. `chore/customer-db-rls-readiness-audit`
-   - Read-only audit of customer-facing public table RLS, grants, policies, exposed functions, helper functions, views, and advisors.
-   - Keep it separate from admin DB readiness.
+2. `docs/customer-measurement-db-readiness-audit`
+   - Read-only/docs-only audit of Customer Measurement DB source result readiness.
+   - Confirm measurement runs, prompt snapshots, AI answers, citations, metrics, and source metadata.
 
-3. `docs/measurement-result-projection-design`
+3. `docs/customer-published-read-model-readiness-audit`
+   - Read-only/docs-only audit of Customer Published Read Model published snapshot readiness before customer-facing RLS policy work.
+   - Keep it separate from Admin Control DB readiness.
+
+4. `docs/measurement-result-projection-design`
    - Define how admin measurement job lifecycle projects into immutable customer measurement result snapshots.
 
-4. `docs/report-publication-projection-design`
+5. `docs/report-publication-projection-design`
    - Define report publication state, internal review history, and customer-facing report snapshot ownership.
 
-5. `docs/recommendation-workflow-boundary-design`
+6. `docs/recommendation-workflow-boundary-design`
    - Define candidate generation, human review, quality-gate decisions, Page Brief, Action Plan, and customer publication boundaries.
 
-6. `docs/plan-subscription-usage-boundary-design`
+7. `docs/plan-subscription-usage-boundary-design`
    - Define plan, subscription, usage, quota, and entitlement projection rules. No Stripe implementation.
-
-7. `feat/customer-report-snapshot-schema-local`
-   - Local-only migration for customer report snapshots. Stop before remote apply.
 
 8. `feat/measurement-prompt-snapshot-schema-local`
    - Local-only migration for measured prompt snapshots. Stop before remote apply.
 
-9. `feat/admin-recommendation-review-schema-local`
+9. `feat/customer-published-report-snapshot-schema-local`
+   - Local-only migration for published customer report snapshots. Stop before remote apply.
+
+10. `feat/admin-recommendation-review-schema-local`
    - Local-only admin DB schema for recommendation review events. Stop before remote apply.
 
-10. `feat/admin-usage-ledger-schema-local`
+11. `feat/admin-usage-ledger-schema-local`
    - Local-only admin DB usage/quota ledger. Stop before remote apply.
 
 RLS/policy/grant changes, migrations, and remote apply must remain separate PRs with explicit checkpoints.

@@ -15,6 +15,8 @@ Boundary design update:
 - The next RLS readiness audit should use that boundary design as the expected ownership model.
 - Customer-facing UI remains out of scope for that boundary design.
 - Admin/internal DB current state is audited in `docs/recora-admin-db-current-state-audit.md`; use it before deciding what stays admin-owned versus what becomes customer-facing projection data.
+- Customer vs admin DB ownership, source-of-truth, and projection rules are defined in `docs/recora-customer-vs-admin-db-boundary-design.md`.
+- Latest framing: Customer DB work should be split into Customer Measurement DB readiness and Customer Published Read Model readiness. Customer Measurement DB owns official measured result data; Customer Published Read Model owns approved customer-facing snapshots. Customer/org/membership/project ownership, plans, subscriptions, usage, measurement jobs, publication controls, reviews, and audit logs remain Admin Control DB source-of-truth.
 
 Prompt scope context:
 
@@ -130,7 +132,7 @@ Important limitations:
 | Recommendation workflow | Review status, Page Brief, Action Plan, ownership, action state, and evidence links. | `public.recommendations`, publication metadata, `recora_admin.report_publication_reviews`, report tabs docs for Page Brief / Action Plan. | needs_design | high | `feat/recommendation-workflow-schema-local` | Customer-facing workflow must separate recommendation candidates, reviewed actions, and published actions. |
 | Plan/subscription linkage | Customer/project/subscription/plan_config/usage-limit linkage. | `recora_admin.plan_configs`, `customer_subscriptions`, customer ops read-only RPCs. | partial | medium | `docs/customer-plan-subscription-db-design` | Admin tables exist, but entitlement, quota, and customer-visible plan behavior still need design. |
 | Report publication state | Report-level states such as admin draft, review required, hidden, and customer ready. | Recommendation-level customer-visible predicate; `recora_admin.report_publication_reviews`; `report-eligibility` returns `customer_ready` / `not_ready`. | needs_design | high | `feat/report-publication-state-schema-local` | Recommendation gate exists, but a first-class report publication state is not yet complete. |
-| RLS / customer visibility | Prevent Customer A from reading Customer B data and prevent drafts from leaking. | Public RLS policies, revoked writes, recommendation customer-visible predicate, admin schema revokes. | needs_rls_audit | blocker | `chore/customer-db-rls-readiness-audit` | A read-only live audit of grants, policies, exposed tables, functions, and advisors is required before customer launch. |
+| RLS / customer visibility | Prevent Customer A from reading Customer B data and prevent drafts from leaking. | Public RLS policies, revoked writes, recommendation customer-visible predicate, admin schema revokes. | needs_snapshot_then_rls_audit | blocker | `docs/customer-measurement-db-readiness-audit`, `docs/customer-published-read-model-readiness-audit`, then dedicated RLS audits | Confirm Customer Measurement DB and Customer Published Read Model shapes before read-only live RLS/grants/advisors audits. |
 | Audit log | Durable history for approvals, publication changes, prompt changes, and measurement/review events. | `recora_admin.operation_events`, `prompt_change_events`, `internal_notes`, publication review tables. | partial | medium | `docs/customer-db-audit-log-design` | The tables exist, but durable write actors, retention, and customer-visible audit boundaries need decisions. |
 | Usage tracking / measurement quota | Track measurement consumption by plan, subscription, project, run, and schedule. | `customer_subscriptions`, `measurement_schedules`, `measurement_batches`, AI conversation `usage`. | needs_design | high | `docs/customer-plan-subscription-db-design` | Usage data exists in pieces, but customer quota enforcement is not first-class. |
 | Sentiment / caveat / narrative labels | Separate qualitative labels from visibility/ranking/SOV metrics. | Metric contract docs keep sentiment and brand perception separate from non-branded visibility metrics. | future | medium | Later narrative-label design PR | Useful for reports, but should not block P0 customer DB readiness. |
@@ -198,39 +200,45 @@ This PR does not change RLS or grants.
    - No UI.
    - No migration.
 
-3. `chore/customer-db-rls-readiness-audit`
-   - Read-only audit of RLS, policies, grants, exposed tables, functions, and advisors.
+3. `docs/customer-measurement-db-readiness-audit`
+   - Read-only/docs-only audit of Customer Measurement DB source result readiness.
+   - Confirm measurement result, prompt snapshot, AI answer, citation, source metadata, and metric ownership.
    - No DB write.
 
-4. `docs/measurement-prompt-snapshot-design`
+4. `docs/customer-published-read-model-readiness-audit`
+   - Read-only/docs-only audit of Customer Published Read Model snapshot readiness before customer-facing RLS policy work.
+   - Confirm published report snapshots, published answers/citations/metrics, approved recommendations, Page Brief, and Action Plan boundaries.
+   - No DB write.
+
+5. `docs/measurement-prompt-snapshot-design`
    - Define the relationship between prompt definitions and immutable measured prompt snapshots.
    - No migration.
 
-5. `feat/customer-prompt-metadata-schema-local`
+6. `feat/customer-prompt-metadata-schema-local`
    - Add local migration for persona/use_case/funnel_stage/topic/category and prompt readiness metadata.
    - No remote apply.
 
-6. `feat/report-publication-state-schema-local`
+7. `feat/report-publication-state-schema-local`
    - Add local migration for report publication state.
    - No remote apply.
 
-7. `feat/source-owner-freshness-schema-local`
+8. `feat/source-owner-freshness-schema-local`
    - Add local migration for source owner/freshness metadata.
    - No remote apply.
 
-8. `feat/recommendation-workflow-schema-local`
+9. `feat/recommendation-workflow-schema-local`
    - Add local migration for recommendation review, Page Brief, and Action Plan workflow.
    - No remote apply.
 
-9. `docs/customer-plan-subscription-db-design`
+10. `docs/customer-plan-subscription-db-design`
    - Design plan_config, subscription, usage, quota, and entitlement linkage.
    - No Stripe implementation.
 
-10. Remote apply PRs
+11. Remote apply PRs
    - One explicit remote-apply checkpoint per migration.
    - Stop before `supabase db push` until approved.
 
-11. Backfill dry-run / apply PRs
+12. Backfill dry-run / apply PRs
    - One dry-run and one apply checkpoint per field group.
    - Prompt scope backfill apply only after human review yields `approve_explicit_backfill`.
 
