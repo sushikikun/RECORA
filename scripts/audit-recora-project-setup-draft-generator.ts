@@ -13,7 +13,7 @@ import type {
 } from "../lib/recora/project-setup-draft";
 import {
   buildServiceEvidenceTerms,
-  evaluateTopicQuality,
+  evaluateProjectSetupTopicQuality,
   generateProjectSetupDraft,
   scoreCategoryCandidates,
   scoreQuestionAreaCandidates
@@ -302,12 +302,17 @@ function check(label: string, maxPoints: number, passed: boolean, detail?: strin
 }
 
 function topicQualityRubricCheck(draft: ProjectSetupDraft) {
-  return evaluateTopicQuality(draft).every((signal) => signal.score >= 80 && signal.issues.every((issue) => issue.severity !== "blocker"));
+  const evaluation = evaluateProjectSetupTopicQuality(draft);
+  return evaluation.blockers.length === 0 &&
+    evaluation.topicSignals.every((signal) => signal.score >= 80 && signal.issues.every((issue) => issue.severity !== "blocker"));
 }
 
 function topicQualityRubricDetail(draft: ProjectSetupDraft) {
-  const failing = evaluateTopicQuality(draft).filter((signal) => signal.score < 80 || signal.issues.some((issue) => issue.severity === "blocker"));
-  return failing.map((signal) => `${signal.topicId}:${signal.score}:${signal.issues.map((issue) => `${issue.dimension}/${issue.code}`).join("|")}`).join(", ");
+  const evaluation = evaluateProjectSetupTopicQuality(draft);
+  const failing = evaluation.topicSignals.filter((signal) => signal.score < 80 || signal.issues.some((issue) => issue.severity === "blocker"));
+  const topicDetails = failing.map((signal) => `${signal.topicId}:${signal.score}:${signal.issues.map((issue) => `${issue.dimension}/${issue.code}`).join("|")}`);
+  const draftDetails = evaluation.draftSignals.map((signal) => `draft:${signal.dimension}:${signal.issues.map((issue) => issue.code).join("|")}`);
+  return [...topicDetails, ...draftDetails].join(", ");
 }
 function promptVariantDepthCheck(draft: ProjectSetupDraft) {
   const promptsByTopic = groupPromptsByTopic(draft);

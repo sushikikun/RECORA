@@ -11,6 +11,7 @@ import {
 import type {
   BrandIdentityForDraft,
   BuyerStage,
+  DraftTopicQualitySignal,
   DraftReviewStatus,
   InputCompletionItem,
   MetricEligiblePromptIds,
@@ -35,6 +36,7 @@ import type {
   SourceStatus,
   TopicDraft,
   TopicMetricTarget,
+  TopicQualityEvaluation,
   TopicQualityIssue,
   TopicQualitySignal,
   TopicType
@@ -693,21 +695,21 @@ export function validateGeneratedProjectSetupDraft(draft: ProjectSetupDraft): Pr
 }
 
 export function evaluateTopicQuality(draft: ProjectSetupDraft): TopicQualitySignal[] {
+  return [...evaluateProjectSetupTopicQuality(draft).topicSignals];
+}
+
+export function evaluateProjectSetupTopicQuality(draft: ProjectSetupDraft): TopicQualityEvaluation {
   const context = buildGenerationContext(draft.seedInput);
   const duplicateTopicNames = findDuplicateTopicNames(draft.topics);
   const topicTypes = new Set(draft.topics.map((topic) => topic.topicType));
   const missingCoverage = getMissingTopicCoverage(context.categoryCandidate.profile, topicTypes);
-  const firstTopicId = draft.topics[0]?.topicId ?? null;
 
-  return draft.topics.map((topic) => {
+  const topicSignals = draft.topics.map((topic) => {
     const issues: TopicQualityIssue[] = [];
     const topicText = `${topic.topicName} ${topic.diagnosisGoal} ${topic.expectedSignal}`;
     const normalizedTopicText = normalizeForMatch(topicText);
     const normalizedTopicName = normalizeForDedupe(topic.topicName);
 
-    if (topic.topicId === firstTopicId && missingCoverage.length > 0) {
-      issues.push({ dimension: "coverage", code: `missing_${missingCoverage.join("_")}`, severity: "warning" });
-    }
     if (!hasText(topic.topicName) || !hasText(topic.diagnosisGoal) || !hasText(topic.expectedSignal)) {
       issues.push({ dimension: "completeness", code: "missing_required_topic_text", severity: "blocker" });
     }
@@ -726,9 +728,6 @@ export function evaluateTopicQuality(draft: ProjectSetupDraft): TopicQualitySign
     if (duplicateTopicNames.has(normalizedTopicName)) {
       issues.push({ dimension: "distinctiveness", code: "duplicate_topic_name", severity: "blocker" });
     }
-    if (!topicMatchesQuestionAreaCandidate(context.questionAreaCandidates, topic)) {
-      issues.push({ dimension: "evidence_alignment", code: "weak_question_area_alignment", severity: "warning" });
-    }
     if (topicHasContextMismatch(context, normalizedTopicText)) {
       issues.push({ dimension: "purity", code: "b2b_b2c_context_mismatch", severity: "blocker" });
     }
@@ -744,6 +743,20 @@ export function evaluateTopicQuality(draft: ProjectSetupDraft): TopicQualitySign
       issues: uniqueTopicQualityIssues(issues)
     };
   });
+
+  const draftSignals = buildDraftTopicQualitySignals(draft, context, missingCoverage);
+  const issues = [
+    ...topicSignals.flatMap((signal) => signal.issues),
+    ...draftSignals.flatMap((signal) => signal.issues)
+  ];
+
+  return {
+    topicSignals,
+    draftSignals,
+    score: calculateTopicQualityScore(issues),
+    blockers: uniqueTopicQualityIssues(issues.filter((issue) => issue.severity === "blocker")),
+    warnings: uniqueTopicQualityIssues(issues.filter((issue) => issue.severity === "warning"))
+  };
 }
 
 function calculateTopicQualityScore(issues: readonly TopicQualityIssue[]) {
@@ -790,6 +803,44 @@ function getMissingTopicCoverage(profile: CategoryCandidateProfile, topicTypes: 
   };
   return (requiredByProfile[profile] ?? ["category_discovery_topic", "alternative_search_topic", "persona_specific_topic"])
     .filter((topicType) => !topicTypes.has(topicType));
+}
+
+function buildDraftTopicQualitySignals(
+  draft: ProjectSetupDraft,
+  context: GenerationContext,
+  missingCoverage: readonly TopicType[]
+): TopicQualityEvaluation["draftSignals"] {
+  const signals: DraftTopicQualitySignal[] = [];
+  if (missingCoverage.length > 0) {
+    const issue: TopicQualityIssue = {
+      dimension: "coverage",
+      code: `missing_${missingCoverage.join("_")}`,
+      severity: "warning"
+    };
+    signals.push({
+      dimension: "coverage",
+      severity: "warning",
+      message: `Missing expected topic coverage for ${context.categoryCandidate.profile}: ${missingCoverage.join(", ")}`,
+      issues: [issue]
+    });
+  }
+
+  const weaklyAlignedTopics = draft.topics.filter((topic) => !topicMatchesQuestionAreaCandidate(context.questionAreaCandidates, topic));
+  if (weaklyAlignedTopics.length > 0) {
+    const issue: TopicQualityIssue = {
+      dimension: "evidence_alignment",
+      code: "weak_question_area_alignment",
+      severity: "warning"
+    };
+    signals.push({
+      dimension: "evidence_alignment",
+      severity: "warning",
+      message: `${weaklyAlignedTopics.length}/${draft.topics.length} topics do not match scored question-area candidates for ${context.categoryCandidate.profile}`,
+      issues: [issue]
+    });
+  }
+
+  return signals;
 }
 
 function topicMatchesQuestionAreaCandidate(candidates: readonly QuestionAreaCandidate[], topic: TopicDraft) {

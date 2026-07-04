@@ -22,6 +22,7 @@ import type {
 import {
   buildServiceEvidenceTerms,
   deduplicateProjectSetupDraft,
+  evaluateProjectSetupTopicQuality,
   evaluateTopicQuality,
   generateProjectSetupDraft,
   scoreCategoryCandidates,
@@ -224,6 +225,17 @@ const incompleteSeed: ProjectSetupSeedInput = {
   language: ""
 };
 
+const thinMinimumSeed: ProjectSetupSeedInput = {
+  companyName: "Minato Service Lab",
+  brandName: "Minato Support",
+  officialSiteUrl: "https://minato-support.example",
+  productOrServiceDescription: "地域の事業者向けに、相談前の情報整理を支援するサービス。",
+  industryCategory: "地域サービス",
+  targetCustomers: "地域でサービスを比較検討する利用者",
+  regions: ["Japan"],
+  language: "ja"
+};
+
 const validCases: readonly ValidCase[] = [
   {
     id: "b2bSoftware",
@@ -335,6 +347,7 @@ for (const fixture of regressionFixtures) {
 const b2cComparisonDraft = caseResults.find((caseResult) => caseResult.id === "b2cComparison")?.result.draft;
 assert.ok(b2cComparisonDraft, "b2cComparison draft for topic quality negative cases");
 const topicQualityNegativeCases = assertTopicQualityNegativeCases(b2bFirst.draft, b2cComparisonDraft);
+const topicQualityDraftSignalCases = assertTopicQualityDraftSignalCases(recruitingDraft, b2cComparisonDraft);
 const incompleteResult = generateProjectSetupDraft(incompleteSeed);
 assert.ok(incompleteResult.blockers.includes("seedInput.companyName is required"));
 assert.ok(incompleteResult.blockers.includes("seedInput.brandName is required"));
@@ -371,6 +384,7 @@ console.log(JSON.stringify({
     questionAreaCandidatesUseServiceEvidence: true,
     topicQualityRubric: true,
     topicQualityNegativeCases,
+    topicQualityDraftSignalCases,
     utf8FileBasedRegressionFixtures: regressionFixtures.length,
     personaTopicPromptReferences: true,
     nonBrandedPromptsExcludeBrandSignals: true,
@@ -598,12 +612,14 @@ function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
 }
 
 function assertTopicQualityRubric(draft: ProjectSetupDraft) {
-  const signals = evaluateTopicQuality(draft);
+  const evaluation = evaluateProjectSetupTopicQuality(draft);
+  const signals = evaluation.topicSignals;
   assert.equal(signals.length, draft.topics.length, "topic quality rubric must evaluate every generated topic");
   for (const signal of signals) {
     assert.ok(signal.score >= 80, `${signal.topicId} topic quality score too low: ${signal.score}`);
     assert.deepEqual(signal.issues.filter((issue) => issue.severity === "blocker"), [], `${signal.topicId} topic quality blockers`);
   }
+  assert.deepEqual(evaluation.blockers, [], "topic quality evaluation blockers");
 }
 
 type TopicQualityIssueExpectation = {
@@ -615,6 +631,13 @@ type TopicQualityIssueExpectation = {
 
 function assertTopicQualityNegativeCases(b2bDraft: ProjectSetupDraft, b2cDraft: ProjectSetupDraft) {
   const checkedCases: string[] = [];
+
+  expectTopicQualityIssue(
+    "standalone-none-label",
+    patchTopic(b2bDraft, 0, { topicName: "なし" }),
+    { dimension: "phraseness", code: "topic_name_too_generic", severity: "blocker" }
+  );
+  checkedCases.push("standalone-none-label");
 
   expectTopicQualityIssue(
     "unnatural-none-topic-name",
@@ -689,19 +712,34 @@ function assertTopicQualityNegativeCases(b2bDraft: ProjectSetupDraft, b2cDraft: 
   );
   checkedCases.push("citation-topic-metric-mismatch");
 
-  expectTopicQualityIssue(
-    "weak-question-area-alignment-warning",
-    patchTopic(b2bDraft, 0, { topicName: "Evidence from an unrelated customer concern" }),
+  return checkedCases;
+}
+
+function assertTopicQualityDraftSignalCases(b2bDraft: ProjectSetupDraft, b2cDraft: ProjectSetupDraft) {
+  const checkedCases: string[] = [];
+
+  expectDraftTopicQualityIssue(
+    "off-category-topics",
+    cloneDraftWithTopics(b2bDraft, b2bDraft.topics.map((topic, index) => ({
+      ...topic,
+      topicName: `AI検索での候補表示確認 ${index + 1}`
+    }))),
     { dimension: "evidence_alignment", code: "weak_question_area_alignment", severity: "warning" }
   );
-  checkedCases.push("weak-question-area-alignment-warning");
+  checkedCases.push("off-category-topics");
 
-  expectTopicQualityIssue(
-    "missing-topic-coverage-warning",
-    cloneDraftWithTopics(b2bDraft, b2bDraft.topics.filter((topic) => topic.topicType !== "citation_evidence_topic")),
+  expectDraftTopicQualityIssue(
+    "missing-essential-question-area",
+    cloneDraftWithTopics(b2cDraft, b2cDraft.topics.filter((topic) => topic.topicType !== "pricing_reputation_topic")),
     { dimension: "coverage", codePrefix: "missing_", severity: "warning" }
   );
-  checkedCases.push("missing-topic-coverage-warning");
+  checkedCases.push("missing-essential-question-area");
+
+  const thinInputResult = generateProjectSetupDraft(thinMinimumSeed);
+  assert.deepEqual(thinInputResult.blockers, [], "thin input should remain a reviewable draft");
+  const thinInputEvaluation = evaluateProjectSetupTopicQuality(thinInputResult.draft);
+  assert.deepEqual(thinInputEvaluation.blockers, [], "thin input topic quality should not become a blocker");
+  checkedCases.push("thin-input-not-blocked");
 
   return checkedCases;
 }
@@ -728,6 +766,26 @@ function expectTopicQualityIssue(
     matchingIssues.some(({ signal }) => signal.score < 100),
     `${caseName} expected the detected issue to reduce topic quality score`
   );
+}
+
+function expectDraftTopicQualityIssue(
+  caseName: string,
+  draft: ProjectSetupDraft,
+  expected: TopicQualityIssueExpectation
+) {
+  const evaluation = evaluateProjectSetupTopicQuality(draft);
+  assert.equal(evaluation.topicSignals.length, draft.topics.length, `${caseName} must evaluate every topic`);
+  assert.deepEqual(evaluation.blockers, [], `${caseName} should not create topic-level blockers`);
+  const matchingIssues = evaluation.draftSignals.flatMap((signal) =>
+    signal.issues.filter((issue) =>
+      issue.dimension === expected.dimension &&
+      issue.severity === expected.severity &&
+      (expected.code ? issue.code === expected.code : true) &&
+      (expected.codePrefix ? issue.code.startsWith(expected.codePrefix) : true)
+    )
+  );
+  assert.ok(matchingIssues.length > 0, `${caseName} expected draft-level ${expected.severity} ${expected.dimension}:${expected.code ?? `${expected.codePrefix}*`}`);
+  assert.ok(evaluation.score < 100, `${caseName} expected draft-level issue to reduce topic quality score`);
 }
 
 function cloneDraftWithTopics(draft: ProjectSetupDraft, topics: readonly TopicDraft[]) {
