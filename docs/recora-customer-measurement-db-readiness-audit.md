@@ -18,6 +18,7 @@ It follows:
 - `docs/recora-report-metric-contracts.md`
 - `docs/recora-prompt-scope-db-migration-plan.md`
 - `docs/recora-prompt-scope-backfill-review-record.md`
+- `docs/recora-operational-db-completion-plan.md` records daily batch measurement, plan/model limits, publication, rerun, answer visibility, and recommendation publishing decisions for later DB work.
 
 The audit finding is that Recora already has a useful measured-result table set in `public`, but it is not yet a complete Customer Measurement DB contract. Core evidence tables exist for projects, brands, prompts, runs, run items, AI answers, mentions, citations, source domains, metrics, and recommendations. The main gaps are measurement-time prompt snapshots, first-class prompt/persona/topic metadata snapshots, clear separation from Admin Control DB execution state, and projection readiness into a Customer Published Read Model.
 
