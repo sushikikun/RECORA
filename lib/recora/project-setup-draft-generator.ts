@@ -673,7 +673,8 @@ export function validateGeneratedProjectSetupDraft(draft: ProjectSetupDraft): Pr
       blockers.push(`topic ${topic.topicId} generated_topic_over_prompt_count_cap`);
     }
   }
-  for (const signal of evaluateTopicQuality(draft)) {
+  const topicQualityEvaluation = evaluateProjectSetupTopicQuality(draft);
+  for (const signal of topicQualityEvaluation.topicSignals) {
     for (const issue of signal.issues) {
       const message = `topic ${signal.topicId} topic_quality_${issue.dimension}_${issue.code}`;
       if (issue.severity === "blocker") {
@@ -682,6 +683,9 @@ export function validateGeneratedProjectSetupDraft(draft: ProjectSetupDraft): Pr
         warnings.push(message);
       }
     }
+  }
+  for (const warning of buildDraftTopicQualityReviewWarnings(topicQualityEvaluation.draftSignals)) {
+    warnings.push(warning);
   }
   if (draft.prompts.length > MAX_GENERATED_PROMPTS) {
     blockers.push("generated_prompt_count_exceeds_cap");
@@ -826,7 +830,8 @@ function buildDraftTopicQualitySignals(
   }
 
   const weaklyAlignedTopics = draft.topics.filter((topic) => !topicMatchesQuestionAreaCandidate(context.questionAreaCandidates, topic));
-  if (weaklyAlignedTopics.length > 0) {
+  const alignedTopicCount = draft.topics.length - weaklyAlignedTopics.length;
+  if (draft.topics.length > 0 && alignedTopicCount === 0) {
     const issue: TopicQualityIssue = {
       dimension: "evidence_alignment",
       code: "weak_question_area_alignment",
@@ -841,6 +846,16 @@ function buildDraftTopicQualitySignals(
   }
 
   return signals;
+}
+
+function buildDraftTopicQualityReviewWarnings(signals: readonly DraftTopicQualitySignal[]) {
+  return uniqueStrings(signals.flatMap((signal) =>
+    signal.issues.map((issue) => {
+      if (issue.dimension === "coverage") return "topic_quality_coverage_gap_review";
+      if (issue.dimension === "evidence_alignment") return "topic_quality_weak_evidence_alignment_review";
+      return `topic_quality_${issue.dimension}_${issue.code}_review`;
+    })
+  ));
 }
 
 function topicMatchesQuestionAreaCandidate(candidates: readonly QuestionAreaCandidate[], topic: TopicDraft) {
@@ -3361,11 +3376,25 @@ function buildContextWarnings(
   if (seed.productOrServiceDescription.length < 16) {
     warnings.push("service_description_thin_prompt_angles_need_review");
   }
+  if (isThinTopicQualityInput(seed)) {
+    warnings.push("topic_quality_thin_input_review");
+  }
   if (context.categoryLabel === (isJapaneseLanguage(seed.language) ? "このカテゴリのサービス" : "services in this category")) {
     warnings.push("category_label_fallback_used");
   }
 
   return uniqueStrings(warnings);
+}
+
+function isThinTopicQualityInput(seed: ProjectSetupSeedInput) {
+  const optionalEvidenceCount =
+    (seed.knownCompetitors ?? []).length +
+    (seed.avoidCompetitors ?? []).length +
+    (seed.strengths ?? []).length +
+    (seed.knownRisks ?? []).length +
+    (seed.diagnosisGoals ?? []).length;
+  const combinedInputLength = `${seed.productOrServiceDescription} ${seed.targetCustomers}`.normalize("NFKC").trim().length;
+  return optionalEvidenceCount === 0 && combinedInputLength < 120;
 }
 
 function shouldGenerateCitationCheck(seed: ProjectSetupSeedInput) {

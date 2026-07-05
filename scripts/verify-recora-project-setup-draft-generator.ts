@@ -302,6 +302,10 @@ for (const testCase of validCases) {
   assert.ok(result, testCase.id);
   assert.deepEqual(result.blockers, [], testCase.id);
   assert.equal(result.generationSummary.businessModel, testCase.expectedBusinessModel, testCase.id);
+  assert.ok(
+    !result.warnings.includes("topic_quality_weak_evidence_alignment_review"),
+    `${testCase.id} should not emit weak evidence alignment review warning for a normal generated draft`
+  );
   assertGeneratedDraftQuality(result.draft);
   assertCaseSpecificQuality(testCase, result.draft);
 }
@@ -737,6 +741,10 @@ function assertTopicQualityDraftSignalCases(b2bDraft: ProjectSetupDraft, b2cDraf
 
   const thinInputResult = generateProjectSetupDraft(thinMinimumSeed);
   assert.deepEqual(thinInputResult.blockers, [], "thin input should remain a reviewable draft");
+  assert.ok(
+    thinInputResult.warnings.includes("topic_quality_thin_input_review"),
+    "thin input should surface a review warning without becoming a blocker"
+  );
   const thinInputEvaluation = evaluateProjectSetupTopicQuality(thinInputResult.draft);
   assert.deepEqual(thinInputEvaluation.blockers, [], "thin input topic quality should not become a blocker");
   checkedCases.push("thin-input-not-blocked");
@@ -786,6 +794,18 @@ function expectDraftTopicQualityIssue(
   );
   assert.ok(matchingIssues.length > 0, `${caseName} expected draft-level ${expected.severity} ${expected.dimension}:${expected.code ?? `${expected.codePrefix}*`}`);
   assert.ok(evaluation.score < 100, `${caseName} expected draft-level issue to reduce topic quality score`);
+  const validation = validateGeneratedProjectSetupDraft(draft);
+  assert.deepEqual(validation.blockers.filter((blocker) => blocker.includes("topic_quality")), [], `${caseName} should keep draft-level issue out of blockers`);
+  assert.ok(
+    validation.warnings.includes(expectedDraftWarningCode(expected.dimension)),
+    `${caseName} expected generation warnings to include ${expectedDraftWarningCode(expected.dimension)}`
+  );
+}
+
+function expectedDraftWarningCode(dimension: TopicQualityDimension) {
+  if (dimension === "coverage") return "topic_quality_coverage_gap_review";
+  if (dimension === "evidence_alignment") return "topic_quality_weak_evidence_alignment_review";
+  return `topic_quality_${dimension}_review`;
 }
 
 function cloneDraftWithTopics(draft: ProjectSetupDraft, topics: readonly TopicDraft[]) {

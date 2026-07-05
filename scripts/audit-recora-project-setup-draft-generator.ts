@@ -250,6 +250,7 @@ console.log(JSON.stringify({
 function evaluateCase(testCase: EvalCase) {
   const result = generateProjectSetupDraft(testCase.seed);
   const draft = result.draft;
+  const topicQualityEvaluation = evaluateProjectSetupTopicQuality(draft);
   const checks: CheckResult[] = [
     check("no_blockers", 8, result.blockers.length === 0, result.blockers.join(", ")),
     check("generated_counts_within_contract", 8, draft.personas.length >= 2 && draft.personas.length <= MAX_GENERATED_PERSONAS && draft.topics.length >= 3 && draft.topics.length <= 6 && draft.prompts.length >= draft.topics.length + 3 && draft.prompts.length <= MAX_GENERATED_PROMPTS),
@@ -285,6 +286,13 @@ function evaluateCase(testCase: EvalCase) {
     minScore: testCase.minScore,
     businessModel: result.generationSummary.businessModel,
     generatedCounts: result.generationSummary.generatedCounts,
+    draftTopicQualityWarningCount: topicQualityEvaluation.draftSignals.length,
+    draftTopicQualityWarnings: topicQualityEvaluation.draftSignals.map((signal) => ({
+      dimension: signal.dimension,
+      severity: signal.severity,
+      issueCodes: signal.issues.map((issue) => issue.code)
+    })),
+    generationTopicQualityWarnings: result.warnings.filter((warning) => warning.startsWith("topic_quality_")),
     checks,
     failures
   };

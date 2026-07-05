@@ -145,5 +145,7 @@ Validation coverage:
 - Keeps brand, alias, domain, and competitor signals usable for category inference but unavailable to non-branded prompt text.
 - Runs local topic-level negative tests against intentionally broken `TopicDraft` variants so standalone `なし`, broken empty markers, raw `topicType`-style labels, raw English question-area labels, BtoB/BtoC context mixing, duplicate topics, incomplete topic text, and metric-target mismatch are detected as blockers.
 - Runs local draft-level negative tests so all-topics-off-category and missing-essential-question-area drafts lower the topic quality score as warnings, while thin/minimum input remains reviewable and blocker-free.
+- Confirms draft-level signals surface in `ProjectSetupDraftGenerationResult.warnings` as review-only `topic_quality_coverage_gap_review`, `topic_quality_weak_evidence_alignment_review`, and `topic_quality_thin_input_review` codes.
+- Confirms normal generated fixtures do not emit excessive weak-evidence draft warnings, while audit output reports draft-level warning counts separately from topic-level blockers.
 
 The checks remain local and deterministic. They do not fetch URL content, crawl, call OpenAI or external APIs, write to DB/Supabase, run measurement, save, approve, or materialize anything.

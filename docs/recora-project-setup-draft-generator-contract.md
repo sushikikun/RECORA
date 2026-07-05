@@ -289,6 +289,14 @@ The rubric is inspired by topic-modeling and keyphrase-extraction ideas, but imp
 - `coverage`: required question-area coverage for the inferred category, such as category discovery, alternatives, pricing/reputation, local/regional, regulated risk, citation, or branded sentiment where appropriate.
 - `evidence_alignment`: generated topic labels should match a scored question-area candidate for the inferred category.
 
+Draft-level topic quality signals are surfaced in `ProjectSetupDraftGenerationResult.warnings` as review-only warning codes:
+
+- `topic_quality_coverage_gap_review`: the generated draft may be missing an expected question-area family for the inferred category.
+- `topic_quality_weak_evidence_alignment_review`: the draft-wide topic set does not align with the scored service-evidence question-area candidates.
+- `topic_quality_thin_input_review`: the seed has enough information to create a reviewable draft, but the service evidence is thin and should be confirmed by an operator.
+
+These warnings do not approve, save, materialize, or make the draft measurement-ready. They are operator review signals only; topic-level blockers still remain blockers.
+
 Coverage and evidence-alignment issues are draft-level warnings because they describe overall draft fit rather than corruption in a single `TopicDraft`. Raw labels, standalone `なし`, `。レポート目的`, `重点論点: なし`, BtoB/BtoC mixing, duplicate labels, incomplete text, raw `topicType`/English question-area labels, and metric-target mismatch remain topic-level blockers. The audit/verify scripts fail on blocker issues and require topic quality scores to stay above the deterministic threshold.
 
 The verify script also includes local negative cases that intentionally corrupt otherwise valid `TopicDraft` objects. Topic-level cases assert that broken empty text, raw internal labels, standalone `なし`, BtoB/BtoC context mixing, duplicate labels, incomplete topic text, and metric-target mismatch produce blockers. Draft-level cases assert that all-topics-off-category and missing-essential-question-area drafts produce review warnings, while thin/minimum input remains reviewable and does not become a blocker. The negative cases do not call external APIs, fetch pages, write to DB/Supabase, run measurement, save, approve, or materialize anything.
