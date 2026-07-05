@@ -16,6 +16,7 @@ Boundary design update:
 - Customer-facing UI remains out of scope for that boundary design.
 - Admin/internal DB current state is audited in `docs/recora-admin-db-current-state-audit.md`; use it before deciding what stays admin-owned versus what becomes customer-facing projection data.
 - Customer vs admin DB ownership, source-of-truth, and projection rules are defined in `docs/recora-customer-vs-admin-db-boundary-design.md`.
+- Customer Measurement DB measured-result source readiness is audited in `docs/recora-customer-measurement-db-readiness-audit.md`.
 - Latest framing: Customer DB work should be split into Customer Measurement DB readiness and Customer Published Read Model readiness. Customer Measurement DB owns official measured result data; Customer Published Read Model owns approved customer-facing snapshots. Customer/org/membership/project ownership, plans, subscriptions, usage, measurement jobs, publication controls, reviews, and audit logs remain Admin Control DB source-of-truth.
 
 Prompt scope context:
