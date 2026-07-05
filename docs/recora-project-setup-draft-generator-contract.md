@@ -254,6 +254,18 @@ Step4 and Step5 are customer-facing confirmation screens, not raw generator mana
 - Step5 summarizes generated prompt examples and customer-added prompt examples without exposing internal prompt IDs or generator internals.
 - Step4 and Step5 must keep the no-save/no-approval/no-measurement boundary clear.
 
+### Customer-facing missing-info recovery
+
+Onboarding must not show internal blocker or warning names directly to customers. Internal signals such as thin input, missing question-area coverage, weak evidence alignment, raw label detection, or prompt readiness must be converted into short customer-facing follow-up questions.
+
+- The UI should ask only for information Recora cannot safely infer: whether the official URL or brand name is correct, which category is closest, which customer/viewer should be prioritized, and what the customer most wants to check.
+- Information Recora can infer from the official URL single-page result, service description, selected category, selected viewers, or selected watch topics should be filled automatically before asking the customer.
+- Follow-up copy should use phrases such as `もう少し確認したいこと`, `サービス内容をもう少し教えてください`, `このサービスに近いカテゴリを選んでください`, `どの人に向けた診断にしたいですか？`, and `特に見たいことを追加してください`.
+- Customer-facing UI must not expose `warning`, `blocker`, `draft-level`, `topic-level`, `measurement ready`, `topic_quality_coverage_gap_review`, `topic_quality_weak_evidence_alignment_review`, `topic_quality_thin_input_review`, raw internal labels, or raw generator IDs.
+- When the customer answers a follow-up question, the onboarding flow can rebuild the customer-facing category support, persona labels, question areas, and generated prompt examples from the current `ProjectSetupSeedInput`.
+- Regeneration may replace generator-derived prompt examples, but customer-added prompt examples must remain separate and must not be silently removed.
+- This recovery flow replaces the assumption that an internal human reviews every weak draft before customer confirmation. It still does not save, approve, materialize, execute measurement, write to DB/Supabase, call external APIs, or crawl additional pages.
+
 ### Service Evidence Category And Topic Inference
 
 The generator now builds deterministic service evidence before choosing the draft category, question areas, and prompt angles.
