@@ -168,6 +168,21 @@ export type TopicQualitySignal = {
   issues: readonly TopicQualityIssue[];
 };
 
+export type DraftTopicQualitySignal = {
+  dimension: Extract<TopicQualityDimension, "coverage" | "evidence_alignment">;
+  severity: "warning" | "blocker";
+  message: string;
+  issues: readonly TopicQualityIssue[];
+};
+
+export type TopicQualityEvaluation = {
+  topicSignals: readonly TopicQualitySignal[];
+  draftSignals: readonly DraftTopicQualitySignal[];
+  score: number;
+  blockers: readonly TopicQualityIssue[];
+  warnings: readonly TopicQualityIssue[];
+};
+
 export type RecoraHandoffSkill =
   | "recora-persona-discovery"
   | "recora-prompt-topic-designer"

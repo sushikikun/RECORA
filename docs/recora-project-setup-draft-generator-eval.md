@@ -134,7 +134,7 @@ The eval now checks the category/topic inference layer added for service-evidenc
 
 The eval now includes `topic_quality_rubric` in addition to service-evidence category scoring and question-area specificity.
 
-The rubric evaluates `coverage`, `purity`, `phraseness`, `completeness`, `distinctiveness`, `evidence_alignment`, and `metric_separation` for every generated `TopicDraft`.
+The rubric evaluates topic-level `purity`, `phraseness`, `completeness`, `distinctiveness`, and `metric_separation` for every generated `TopicDraft`. Draft-level `coverage` and `evidence_alignment` signals are evaluated separately so review-oriented gaps do not look like corruption in a single topic.
 
 Validation coverage:
 
@@ -143,7 +143,7 @@ Validation coverage:
 - Keeps branded sentiment, citation, regulated risk, and visibility/ranking metrics separated at the topic level before prompt-level metric eligibility is derived.
 - Confirms category/question-area inference remains service-evidence based across BtoB SEO/AI search, recruiting SaaS, beginner English school, kids English school, beauty clinic, mattress EC, cosmetics EC, local service, and professional service fixtures.
 - Keeps brand, alias, domain, and competitor signals usable for category inference but unavailable to non-branded prompt text.
-- Runs local negative tests against intentionally broken `TopicDraft` variants so `none`/empty markers, raw `topicType`-style labels, raw English question-area labels, BtoB/BtoC context mixing, duplicate topics, incomplete topic text, and metric-target mismatch are detected as blockers.
-- Confirms warning-level behavior stays review-oriented: missing category coverage and weak question-area alignment lower the topic quality score without becoming blockers.
+- Runs local topic-level negative tests against intentionally broken `TopicDraft` variants so standalone `なし`, broken empty markers, raw `topicType`-style labels, raw English question-area labels, BtoB/BtoC context mixing, duplicate topics, incomplete topic text, and metric-target mismatch are detected as blockers.
+- Runs local draft-level negative tests so all-topics-off-category and missing-essential-question-area drafts lower the topic quality score as warnings, while thin/minimum input remains reviewable and blocker-free.
 
 The checks remain local and deterministic. They do not fetch URL content, crawl, call OpenAI or external APIs, write to DB/Supabase, run measurement, save, approve, or materialize anything.

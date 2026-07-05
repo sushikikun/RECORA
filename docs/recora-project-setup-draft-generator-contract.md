@@ -279,16 +279,16 @@ The rubric is inspired by topic-modeling and keyphrase-extraction ideas, but imp
 - KERT: topic labels should be natural phrases, not raw keywords, empty markers, or mechanical internal labels.
 - MultipartiteRank: distinct service evidence sources contribute to candidate ranking, while low-signal short tokens such as the `ec` fragment in `Recora` are guarded.
 
-`evaluateTopicQuality(draft)` returns one `TopicQualitySignal` per generated topic. The dimensions are:
+`evaluateTopicQuality(draft)` remains the topic-level compatibility API and returns one `TopicQualitySignal` per generated topic. `evaluateProjectSetupTopicQuality(draft)` returns the full evaluation with topic-level signals and draft-level signals separated. The dimensions are:
 
-- `coverage`: required question-area coverage for the inferred category, such as category discovery, alternatives, pricing/reputation, local/regional, regulated risk, citation, or branded sentiment where appropriate.
 - `purity`: BtoB/BtoC context separation so consumer topics do not inherit adoption/procurement terms and BtoB topics do not drift into local consumer wording.
 - `phraseness`: customer-facing topic labels must not be raw internal labels, snake_case, broken empty text, or overly generic one-word labels.
 - `completeness`: topic name, diagnosis goal, expected signal, and prompt-count requirements must be present.
 - `distinctiveness`: duplicate topic labels are detected even if prompt generation later deduplicates prompt text.
-- `evidence_alignment`: generated topic labels should match a scored question-area candidate for the inferred category.
 - `metric_separation`: branded sentiment, citation, regulated risk, and market visibility/ranking targets must stay separated.
+- `coverage`: required question-area coverage for the inferred category, such as category discovery, alternatives, pricing/reputation, local/regional, regulated risk, citation, or branded sentiment where appropriate.
+- `evidence_alignment`: generated topic labels should match a scored question-area candidate for the inferred category.
 
-Coverage and evidence-alignment issues are warnings in generator validation because they are useful review signals, while raw labels, BtoB/BtoC mixing, duplicate labels, incomplete text, and metric-target mismatch are blockers. The audit/verify scripts fail on blocker issues and require topic quality scores to stay above the deterministic threshold.
+Coverage and evidence-alignment issues are draft-level warnings because they describe overall draft fit rather than corruption in a single `TopicDraft`. Raw labels, standalone `なし`, `。レポート目的`, `重点論点: なし`, BtoB/BtoC mixing, duplicate labels, incomplete text, raw `topicType`/English question-area labels, and metric-target mismatch remain topic-level blockers. The audit/verify scripts fail on blocker issues and require topic quality scores to stay above the deterministic threshold.
 
-The verify script also includes local negative cases that intentionally corrupt otherwise valid `TopicDraft` objects. These cases assert that broken empty text, raw internal labels, BtoB/BtoC context mixing, duplicate labels, incomplete topic text, and metric-target mismatch produce blockers, while missing coverage and weak evidence alignment remain warnings. The negative cases do not call external APIs, fetch pages, write to DB/Supabase, run measurement, save, approve, or materialize anything.
+The verify script also includes local negative cases that intentionally corrupt otherwise valid `TopicDraft` objects. Topic-level cases assert that broken empty text, raw internal labels, standalone `なし`, BtoB/BtoC context mixing, duplicate labels, incomplete topic text, and metric-target mismatch produce blockers. Draft-level cases assert that all-topics-off-category and missing-essential-question-area drafts produce review warnings, while thin/minimum input remains reviewable and does not become a blocker. The negative cases do not call external APIs, fetch pages, write to DB/Supabase, run measurement, save, approve, or materialize anything.

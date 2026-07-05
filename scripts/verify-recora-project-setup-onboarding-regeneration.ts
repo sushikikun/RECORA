@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import type { ProjectSetupSeedInput } from "../lib/recora/project-setup-draft";
-import { evaluateTopicQuality, generateProjectSetupDraft } from "../lib/recora/project-setup-draft-generator";
+import { evaluateProjectSetupTopicQuality, generateProjectSetupDraft } from "../lib/recora/project-setup-draft-generator";
 
 const seoSeed: ProjectSetupSeedInput = {
   companyName: "ミエルカSEO",
@@ -214,12 +214,14 @@ for (const [label, draft] of [
   ["cosmeticsEc", cosmeticsEcDraft],
   ["recruitingSaas", recruitingSaasDraft]
 ] as const) {
-  const topicQualitySignals = evaluateTopicQuality(draft);
+  const topicQualityEvaluation = evaluateProjectSetupTopicQuality(draft);
+  const topicQualitySignals = topicQualityEvaluation.topicSignals;
   assert.equal(topicQualitySignals.length, draft.topics.length, `${label} topic quality coverage`);
   for (const signal of topicQualitySignals) {
     assert.ok(signal.score >= 80, `${label} ${signal.topicId} topic quality score too low: ${signal.score}`);
     assert.deepEqual(signal.issues.filter((issue) => issue.severity === "blocker"), [], `${label} ${signal.topicId} topic quality blockers`);
   }
+  assert.deepEqual(topicQualityEvaluation.blockers, [], `${label} topic quality blockers`);
 }
 
 const seoPromptText = seoDraft.prompts.map((prompt) => prompt.text).join("\n");
