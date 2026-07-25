@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 
-import { RecoraLandingPage } from "@/components/recora/lp/recora-landing-page";
-import { recoraLandingFaqs } from "@/components/recora/lp/recora-landing-data";
+import { RecoraMarketingHome, recoraMarketingFaqs } from "@/components/recora/marketing/home-page";
 
 function getPublicBaseUrl() {
   const rawUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim() ?? process.env.NEXT_PUBLIC_APP_URL?.trim();
@@ -19,21 +18,21 @@ const publicBaseUrl = getPublicBaseUrl();
 
 export const metadata: Metadata = {
   metadataBase: publicBaseUrl,
-  title: "Recora｜AIは、御社を候補に挙げていますか？無料AI検索診断",
+  title: "Recora｜AIは、御社をどう見て、誰と比べているか。",
   description:
-    "見込み客がAIに尋ねる質問を実際に調査し、自社が候補に入る質問、競合だけが挙がる質問、回答内の参照元、次に見直す情報を整理する無料AI検索診断です。",
+    "Recoraは、AI回答での自社と競合の見え方、説明、参照情報を毎日確認するGEO・LLMOモニタリングサービスです。専門知識がなくても、比較される質問から次に見直すページまで整理できます。",
   alternates: publicBaseUrl ? { canonical: "/" } : undefined,
   openGraph: {
-    title: "Recora｜AIは、御社を候補に挙げていますか？",
-    description: "候補に入る質問、競合だけが挙がる質問、回答内の参照元、次に見直す情報を質問ごとに診断します。",
+    title: "Recora｜AIは、御社をどう見て、誰と比べているか。",
+    description: "AI回答での自社と競合の見え方、説明、参照情報を毎日確認し、次に見直すページまで整理します。",
     images: [{ url: "/og/recora-lp.png", width: 1200, height: 630, alt: "Recora" }],
     locale: "ja_JP",
     type: "website"
   },
   twitter: {
     card: "summary_large_image",
-    title: "Recora｜AIは、御社を候補に挙げていますか？",
-    description: "候補に入る質問、競合だけが挙がる質問、回答内の参照元、次に見直す情報を質問ごとに診断します。",
+    title: "Recora｜AIは、御社をどう見て、誰と比べているか。",
+    description: "AI回答での自社と競合の見え方、説明、参照情報を毎日確認し、次に見直すページまで整理します。",
     images: ["/og/recora-lp.png"]
   },
   icons: {
@@ -55,7 +54,7 @@ export default function HomePage() {
             name: "Recora",
             ...(publicBaseUrl ? { url: publicBaseUrl.toString() } : {}),
             description:
-              "見込み客がAIに尋ねる質問を実際に調査し、自社・競合の候補入り、回答内の参照元、次に見直す情報を整理するAI検索診断サービス"
+              "AI回答での自社と競合の見え方、説明、参照情報を毎日確認し、次に見直すページを整理するGEO・LLMOモニタリングサービス"
           })
         }}
       />
@@ -66,7 +65,7 @@ export default function HomePage() {
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "FAQPage",
-            mainEntity: recoraLandingFaqs.map((item) => ({
+            mainEntity: recoraMarketingFaqs.map((item) => ({
               "@type": "Question",
               name: item.question,
               acceptedAnswer: {
@@ -77,7 +76,7 @@ export default function HomePage() {
           })
         }}
       />
-      <RecoraLandingPage />
+      <RecoraMarketingHome />
     </>
   );
 }
