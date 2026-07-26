@@ -1,6 +1,8 @@
 # Recora Codex Operating Rules
 
-This repository is the Recora product repository. Read `docs/recora-dev-workflow.md` and `.agents/skills/RECORA-SKILL-STACK.md` before changing code.
+This repository is the Recora product repository. Read `docs/README.md`, `docs/recora-dev-workflow.md`, and `.agents/skills/RECORA-SKILL-STACK.md` before changing code.
+
+For customer reporting, measurement operations, publication, admin operations, contracts, queues, or post-launch data architecture, also read `docs/recora-post-launch-operations-architecture.md`. It is the canonical post-launch operations architecture and takes precedence over Phase 1 runbooks when they conflict.
 
 ## Scope and ownership
 
@@ -39,6 +41,24 @@ This repository is the Recora product repository. Read `docs/recora-dev-workflow
 - Production or non-local writes, migrations, measurement execution, and external API jobs require an explicit task scope and a separate checkpoint before execution.
 - Do not combine a migration with unrelated UI or application work.
 - Keep Recora metrics traceable to raw observations and never invent measurements, citations, sources, or provider results.
+
+## Post-launch operations architecture
+
+- Treat `docs/recora-post-launch-operations-architecture.md` as the source of truth for customer publication, measurement evidence, operational control, admin actions, queues, and auditability.
+- Phase 1 admin-demo runbooks are transitional operating instructions, not the target post-launch architecture.
+- Customer-facing routes must read the current published report version, not the latest measurement or aggregate run.
+- Do not let customer-facing code read raw `measurement`, internal `control`, or `audit` data directly.
+- Preserve the previously published healthy report when a newer measurement, aggregate, validation, or publication cycle fails.
+- Keep `ready`, `approved`, and `published` as distinct states.
+- Treat published report versions as immutable. Corrections require a new version and an explicit pointer switch.
+- Do not add new publication, approval, or quality states only inside metadata. Use formal columns and keep legacy metadata as migration compatibility only.
+- New measurement architecture must be provider-neutral. Do not extend OpenAI-only readiness logic as the long-term model.
+- A report must not pass completeness or metric-validity gates merely because one valid observation or one metric snapshot exists.
+- Preserve prompt-type eligibility: branded prompts do not feed visibility, ranking, Share of Voice, average position, or competitor-gap metrics.
+- Cron should enqueue work; long-running provider measurement belongs in queue workers with retry and idempotency controls.
+- Important admin actions, reruns, approvals, publication changes, permission changes, and subscription changes require audit events.
+- Never expose a Supabase service role or secret key to customer or admin browser code.
+- Start schema migration additively and keep legacy read paths until the publication-based customer path is verified.
 
 ## Validation
 
