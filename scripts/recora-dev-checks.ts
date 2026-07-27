@@ -51,9 +51,16 @@ type Context = {
   gitStatus: GitStatusSummary | null;
   packageInfo: PackageInfo;
   npmVersion: string | null;
+  githubActionsIdentity: GitHubActionsIdentity;
 };
 
-type RecoraRepoLocation = "main-checkout" | "worktree" | "invalid";
+type GitHubActionsIdentity = {
+  detected: boolean;
+  valid: boolean;
+  invalidReasons: string[];
+};
+
+type RecoraRepoLocation = "main-checkout" | "worktree" | "github-actions" | "invalid";
 
 type Row = {
   level: Level;
@@ -83,6 +90,8 @@ type DashboardCodeAnalysis = {
 };
 
 const LOCK_FILES = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
+
+const OFFICIAL_GITHUB_REPOSITORY = "sushikikun/RECORA";
 
 const RECORA_SIGNAL_PATHS = [
   "package.json",
@@ -246,7 +255,16 @@ function collectContext(): Context {
       : null;
   const branch = repoRoot ? commandStdout("git", ["branch", "--show-current"], commandRoot) : null;
   const latestCommit = repoRoot ? commandStdout("git", ["rev-parse", "--short", "HEAD"], commandRoot) : null;
+  const fullCommit = repoRoot ? commandStdout("git", ["rev-parse", "HEAD"], commandRoot) : null;
+  const fullCommitParents = repoRoot ? readGitCommitParents(commandRoot) : [];
   const status = repoRoot ? runCommand("git", ["status", "--short"], commandRoot) : null;
+  const originRemote = repoRoot ? runCommand("git", ["remote", "get-url", "origin"], commandRoot) : null;
+  const githubActionsIdentity = evaluateGitHubActionsIdentity({
+    repoRoot,
+    fullCommit,
+    fullCommitParents,
+    originRemote
+  });
 
   return {
     currentDir,
@@ -259,7 +277,8 @@ function collectContext(): Context {
     latestCommit,
     gitStatus: status && status.ok ? parseGitStatus(status.stdout) : null,
     packageInfo: readPackageInfo(commandRoot),
-    npmVersion: readNpmVersion(commandRoot)
+    npmVersion: readNpmVersion(commandRoot),
+    githubActionsIdentity
   };
 }
 
@@ -352,7 +371,13 @@ function buildDashboardReadModelCheckReport(report: Report, context: Context) {
 
 function addExpectedRootChecks(report: Report, context: Context) {
   if (!context.expectedRoot) {
-    report.add("WARN", "expected Recora main root", "USERPROFILE is not set, so expected path cannot be built.");
+    report.add(
+      context.githubActionsIdentity.valid ? "INFO" : "WARN",
+      "expected Recora main root",
+      context.githubActionsIdentity.valid
+        ? "not required for a verified GitHub Actions checkout"
+        : "USERPROFILE is not set, so expected path cannot be built."
+    );
   } else {
     report.add("INFO", "expected Recora main root", context.expectedRoot);
   }
@@ -379,7 +404,9 @@ function addExpectedRootChecks(report: Report, context: Context) {
       ? "inside the official Recora main checkout"
       : repoLocation === "worktree"
         ? "inside an official Recora worktree linked to the main checkout"
-        : "not inside the official Recora main checkout or one of its worktrees"
+        : repoLocation === "github-actions"
+          ? "inside the verified GitHub Actions checkout"
+          : "not inside the official Recora main checkout or one of its worktrees"
   );
   report.add(
     repoLocation === "invalid" ? "FAIL" : "PASS",
@@ -388,7 +415,9 @@ function addExpectedRootChecks(report: Report, context: Context) {
       ? "official main checkout: $env:USERPROFILE\\work\\recora-main"
       : repoLocation === "worktree"
         ? "official worktree: git common dir belongs to $env:USERPROFILE\\work\\recora-main"
-        : formatInvalidRepoReason(context, missingSignals)
+        : repoLocation === "github-actions"
+          ? "official GitHub Actions checkout: repository, workspace, origin, commit, and event verified"
+          : formatInvalidRepoReason(context, missingSignals)
   );
 }
 
@@ -403,22 +432,31 @@ function addOneDriveCheck(report: Report, context: Context) {
 }
 
 function classifyRecoraRepo(context: Context, missingSignals?: string[]): RecoraRepoLocation {
-  if (!context.expectedRoot || !context.repoRoot || !context.gitCommonDir) return "invalid";
+  if (!context.repoRoot) return "invalid";
+
+  const signals = missingSignals ?? getMissingRecoraRepoSignals(context.repoRoot, context.packageInfo);
+  if (context.githubActionsIdentity.detected) {
+    return context.githubActionsIdentity.valid && signals.length === 0 ? "github-actions" : "invalid";
+  }
+
+  if (!context.expectedRoot || !context.gitCommonDir) return "invalid";
 
   const expectedGitCommonDir = path.join(context.expectedRoot, ".git");
-  const signals = missingSignals ?? getMissingRecoraRepoSignals(context.repoRoot, context.packageInfo);
   if (!samePath(context.gitCommonDir, expectedGitCommonDir) || signals.length > 0) return "invalid";
-
   return samePath(context.repoRoot, context.expectedRoot) ? "main-checkout" : "worktree";
 }
 
 function formatInvalidRepoReason(context: Context, missingSignals: string[]) {
   const reasons: string[] = [];
 
-  if (!context.expectedRoot) {
-    reasons.push("USERPROFILE unavailable");
-  } else if (!context.gitCommonDir || !samePath(context.gitCommonDir, path.join(context.expectedRoot, ".git"))) {
-    reasons.push("git common dir does not belong to the official Recora main checkout");
+  if (context.githubActionsIdentity.detected) {
+    reasons.push(...context.githubActionsIdentity.invalidReasons);
+  } else {
+    if (!context.expectedRoot) {
+      reasons.push("USERPROFILE unavailable");
+    } else if (!context.gitCommonDir || !samePath(context.gitCommonDir, path.join(context.expectedRoot, ".git"))) {
+      reasons.push("git common dir does not belong to the official Recora main checkout");
+    }
   }
 
   if (missingSignals.length > 0) {
@@ -426,6 +464,169 @@ function formatInvalidRepoReason(context: Context, missingSignals: string[]) {
   }
 
   return reasons.join("; ") || "repository identity could not be verified";
+}
+
+function evaluateGitHubActionsIdentity({
+  repoRoot,
+  fullCommit,
+  fullCommitParents,
+  originRemote
+}: {
+  repoRoot: string | null;
+  fullCommit: string | null;
+  fullCommitParents: string[];
+  originRemote: CommandResult | null;
+}): GitHubActionsIdentity {
+  const relevantEnvironmentNames = [
+    "GITHUB_ACTIONS",
+    "GITHUB_REPOSITORY",
+    "GITHUB_WORKSPACE",
+    "GITHUB_SERVER_URL",
+    "GITHUB_SHA",
+    "GITHUB_EVENT_NAME",
+    "GITHUB_EVENT_PATH"
+  ];
+  const detected = relevantEnvironmentNames.some((name) =>
+    Object.prototype.hasOwnProperty.call(process.env, name)
+  );
+  if (!detected) return { detected: false, valid: false, invalidReasons: [] };
+
+  const invalidReasons: string[] = [];
+  const githubActions = process.env.GITHUB_ACTIONS?.trim();
+  const githubRepository = process.env.GITHUB_REPOSITORY?.trim();
+  const githubWorkspace = process.env.GITHUB_WORKSPACE?.trim();
+  const githubServerUrl = process.env.GITHUB_SERVER_URL?.trim();
+  const githubSha = process.env.GITHUB_SHA?.trim();
+  const githubEventName = process.env.GITHUB_EVENT_NAME?.trim();
+  const githubEventPath = process.env.GITHUB_EVENT_PATH?.trim();
+
+  if (githubActions !== "true") {
+    invalidReasons.push("GITHUB_ACTIONS is not exactly true");
+  }
+  if (githubRepository !== OFFICIAL_GITHUB_REPOSITORY) {
+    invalidReasons.push("GITHUB_REPOSITORY is not the official Recora repository");
+  }
+  if (githubServerUrl !== "https://github.com") {
+    invalidReasons.push("GITHUB_SERVER_URL is not the official GitHub host");
+  }
+  if (!repoRoot) {
+    invalidReasons.push("git repo root is unavailable");
+  } else if (!githubWorkspace) {
+    invalidReasons.push("GITHUB_WORKSPACE is unavailable");
+  } else if (!samePath(githubWorkspace, repoRoot)) {
+    invalidReasons.push("GITHUB_WORKSPACE does not match the git repo root");
+  }
+  if (!originRemote?.ok || !originRemote.stdout.trim()) {
+    invalidReasons.push("origin remote is unavailable");
+  } else if (!isOfficialGitHubRemote(originRemote.stdout.trim())) {
+    invalidReasons.push("origin remote is not the official Recora repository");
+  }
+  if (!githubSha || !fullCommit || githubSha.toLowerCase() !== fullCommit.toLowerCase()) {
+    invalidReasons.push("GITHUB_SHA does not match HEAD");
+  }
+
+  invalidReasons.push(...validateGitHubEvent(githubEventName, githubEventPath, githubSha, fullCommitParents));
+  return { detected: true, valid: invalidReasons.length === 0, invalidReasons };
+}
+
+function validateGitHubEvent(
+  eventName: string | undefined,
+  eventPath: string | undefined,
+  githubSha: string | undefined,
+  fullCommitParents: string[]
+) {
+  if (eventName !== "pull_request" && eventName !== "push") {
+    return ["GITHUB_EVENT_NAME is not an allowed Recora CI event"];
+  }
+  if (!eventPath) return ["GITHUB_EVENT_PATH is unavailable"];
+
+  try {
+    const eventStats = fs.statSync(eventPath);
+    if (!eventStats.isFile() || eventStats.size > 5 * 1024 * 1024) {
+      return ["GitHub event payload is not a valid file"];
+    }
+
+    const payload = JSON.parse(fs.readFileSync(eventPath, "utf8")) as Record<string, unknown>;
+    const repository = readObject(payload.repository);
+    const repositoryName = readString(repository?.full_name);
+    const repositoryIsFork = readBoolean(repository?.fork);
+    const reasons: string[] = [];
+
+    if (repositoryName !== OFFICIAL_GITHUB_REPOSITORY || repositoryIsFork !== false) {
+      reasons.push("GitHub event repository is not the official non-fork Recora repository");
+    }
+
+    if (eventName === "pull_request") {
+      const pullRequest = readObject(payload.pull_request);
+      const mergeCommitSha = readString(pullRequest?.merge_commit_sha);
+      const base = readObject(pullRequest?.base);
+      const baseRepository = readObject(base?.repo);
+      const baseRepositoryName = readString(baseRepository?.full_name);
+      const baseRepositoryIsFork = readBoolean(baseRepository?.fork);
+      const baseRef = readString(base?.ref);
+      const baseSha = readString(base?.sha);
+      const head = readObject(pullRequest?.head);
+      const headRepository = readObject(head?.repo);
+      const headRepositoryName = readString(headRepository?.full_name);
+      const headRepositoryIsFork = readBoolean(headRepository?.fork);
+      const headSha = readString(head?.sha);
+
+      if (baseRepositoryName !== OFFICIAL_GITHUB_REPOSITORY || baseRepositoryIsFork !== false) {
+        reasons.push("pull request base repository is not the official non-fork Recora repository");
+      }
+      if (headRepositoryName !== OFFICIAL_GITHUB_REPOSITORY || headRepositoryIsFork !== false) {
+        reasons.push("pull request head repository is not the official non-fork Recora repository");
+      }
+      if (baseRef !== "master") {
+        reasons.push("pull request base branch is not master");
+      }
+      if (!githubSha || !mergeCommitSha || mergeCommitSha.toLowerCase() !== githubSha.toLowerCase()) {
+        reasons.push("pull request merge commit does not match GITHUB_SHA");
+      }
+      if (
+        fullCommitParents.length !== 2 ||
+        !baseSha ||
+        !headSha ||
+        fullCommitParents[0]?.toLowerCase() !== baseSha.toLowerCase() ||
+        fullCommitParents[1]?.toLowerCase() !== headSha.toLowerCase()
+      ) {
+        reasons.push("pull request base/head commits do not match the checked-out merge commit");
+      }
+    } else {
+      const after = readString(payload.after);
+      const ref = readString(payload.ref);
+      if (!githubSha || !after || after.toLowerCase() !== githubSha.toLowerCase()) {
+        reasons.push("push event commit does not match GITHUB_SHA");
+      }
+      if (ref !== "refs/heads/master") {
+        reasons.push("push event ref is not refs/heads/master");
+      }
+    }
+
+    return reasons;
+  } catch {
+    return ["GitHub event payload is unavailable or invalid"];
+  }
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function readBoolean(value: unknown) {
+  return typeof value === "boolean" ? value : null;
+}
+
+function isOfficialGitHubRemote(value: string) {
+  return /^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)sushikikun\/RECORA(?:\.git)?\/?$/i.test(
+    value
+  );
 }
 
 function addPackageCheck(report: Report, packageInfo: PackageInfo) {
@@ -1209,6 +1410,16 @@ function commandStdout(command: string, args: string[], cwd: string) {
   return result.ok ? result.stdout.trim() : null;
 }
 
+function readGitCommitParents(cwd: string) {
+  const commitObject = runCommand("git", ["cat-file", "-p", "HEAD"], cwd);
+  if (!commitObject.ok) return [];
+
+  return commitObject.stdout
+    .split(/\r?\n/)
+    .map((line) => line.match(/^parent ([0-9a-f]{40,64})$/i)?.[1] ?? null)
+    .filter((value): value is string => value !== null);
+}
+
 function formatCommandFailure(result: CommandResult) {
   return result.stderr.trim() || result.error || result.stdout.trim() || `exit code ${result.status ?? "unknown"}`;
 }
@@ -1334,7 +1545,11 @@ function existsRelative(root: string, relativePath: string) {
 
 
 function samePath(left: string, right: string) {
-  return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
+  const resolvedLeft = path.resolve(left);
+  const resolvedRight = path.resolve(right);
+  return process.platform === "win32"
+    ? resolvedLeft.toLowerCase() === resolvedRight.toLowerCase()
+    : resolvedLeft === resolvedRight;
 }
 
 function isOneDrivePath(value: string) {
