@@ -44,12 +44,16 @@ type Context = {
   expectedRoot: string | null;
   repoRoot: string | null;
   gitRootError: string | null;
+  gitCommonDir: string | null;
+  gitCommonDirError: string | null;
   branch: string | null;
   latestCommit: string | null;
   gitStatus: GitStatusSummary | null;
   packageInfo: PackageInfo;
   npmVersion: string | null;
 };
+
+type RecoraRepoLocation = "main-checkout" | "worktree" | "invalid";
 
 type Row = {
   level: Level;
@@ -229,10 +233,17 @@ function titleForMode(mode: Mode) {
 function collectContext(): Context {
   const currentDir = path.resolve(process.cwd());
   const userProfile = process.env.USERPROFILE?.trim() || null;
-  const expectedRoot = userProfile ? path.resolve(userProfile, "work", "recora") : null;
+  const expectedRoot = userProfile ? path.resolve(userProfile, "work", "recora-main") : null;
   const gitRoot = runCommand("git", ["rev-parse", "--show-toplevel"], currentDir);
   const repoRoot = gitRoot.ok && gitRoot.stdout.trim() ? path.resolve(gitRoot.stdout.trim()) : null;
   const commandRoot = repoRoot ?? currentDir;
+  const gitCommonDirResult = repoRoot
+    ? runCommand("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], commandRoot)
+    : null;
+  const gitCommonDir =
+    gitCommonDirResult?.ok && gitCommonDirResult.stdout.trim()
+      ? path.resolve(commandRoot, gitCommonDirResult.stdout.trim())
+      : null;
   const branch = repoRoot ? commandStdout("git", ["branch", "--show-current"], commandRoot) : null;
   const latestCommit = repoRoot ? commandStdout("git", ["rev-parse", "--short", "HEAD"], commandRoot) : null;
   const status = repoRoot ? runCommand("git", ["status", "--short"], commandRoot) : null;
@@ -242,6 +253,8 @@ function collectContext(): Context {
     expectedRoot,
     repoRoot,
     gitRootError: gitRoot.ok ? null : formatCommandFailure(gitRoot),
+    gitCommonDir,
+    gitCommonDirError: gitCommonDirResult && !gitCommonDirResult.ok ? formatCommandFailure(gitCommonDirResult) : null,
     branch: branch || (repoRoot ? "detached or unknown" : null),
     latestCommit,
     gitStatus: status && status.ok ? parseGitStatus(status.stdout) : null,
@@ -280,7 +293,7 @@ function buildHumanCheckReport(report: Report, context: Context) {
   report.add(
     "INFO",
     "next step",
-    "\u3053\u306e\u51fa\u529b\u3092ChatGPT/Codex\u306b\u8cbc\u3063\u3066\u304f\u3060\u3055\u3044"
+    "Review this snapshot without sharing env or secret values."
   );
 }
 
@@ -339,18 +352,10 @@ function buildDashboardReadModelCheckReport(report: Report, context: Context) {
 
 function addExpectedRootChecks(report: Report, context: Context) {
   if (!context.expectedRoot) {
-    report.add("WARN", "expected Recora root", "USERPROFILE is not set, so expected path cannot be built.");
-    return;
+    report.add("WARN", "expected Recora main root", "USERPROFILE is not set, so expected path cannot be built.");
+  } else {
+    report.add("INFO", "expected Recora main root", context.expectedRoot);
   }
-
-  report.add("INFO", "expected Recora root", context.expectedRoot);
-
-  const currentInsideExpected = isInsideOrSamePath(context.currentDir, context.expectedRoot);
-  report.add(
-    currentInsideExpected ? "PASS" : "WARN",
-    "current path check",
-    currentInsideExpected ? "inside expected Recora workspace" : "outside $env:USERPROFILE\\work\\recora"
-  );
 
   if (!context.repoRoot) {
     report.add("FAIL", "git repo root", context.gitRootError ?? "not a git repository");
@@ -359,28 +364,68 @@ function addExpectedRootChecks(report: Report, context: Context) {
 
   report.add("INFO", "git repo root", context.repoRoot);
 
-  const rootMatchesExpected = samePath(context.repoRoot, context.expectedRoot);
+  if (!context.gitCommonDir) {
+    report.add("FAIL", "git common dir", context.gitCommonDirError ?? "unavailable");
+  } else {
+    report.add("INFO", "git common dir", context.gitCommonDir);
+  }
+
   const missingSignals = getMissingRecoraRepoSignals(context.repoRoot, context.packageInfo);
-  const validRecoraWorktree = missingSignals.length === 0;
+  const repoLocation = classifyRecoraRepo(context, missingSignals);
   report.add(
-    rootMatchesExpected || validRecoraWorktree ? "PASS" : "FAIL",
+    repoLocation === "invalid" ? "FAIL" : "PASS",
+    "current path check",
+    repoLocation === "main-checkout"
+      ? "inside the official Recora main checkout"
+      : repoLocation === "worktree"
+        ? "inside an official Recora worktree linked to the main checkout"
+        : "not inside the official Recora main checkout or one of its worktrees"
+  );
+  report.add(
+    repoLocation === "invalid" ? "FAIL" : "PASS",
     "repo root check",
-    rootMatchesExpected
-      ? "matches $env:USERPROFILE\\work\\recora"
-      : validRecoraWorktree
-        ? "allowed Recora git worktree outside $env:USERPROFILE\\work\\recora"
-        : `outside expected root and missing Recora signals: ${missingSignals.join(", ")}`
+    repoLocation === "main-checkout"
+      ? "official main checkout: $env:USERPROFILE\\work\\recora-main"
+      : repoLocation === "worktree"
+        ? "official worktree: git common dir belongs to $env:USERPROFILE\\work\\recora-main"
+        : formatInvalidRepoReason(context, missingSignals)
   );
 }
 
 function addOneDriveCheck(report: Report, context: Context) {
-  const paths = [context.currentDir, context.repoRoot ?? ""].filter(Boolean);
+  const paths = [context.currentDir, context.repoRoot ?? "", context.gitCommonDir ?? ""].filter(Boolean);
   const inOneDrive = paths.some(isOneDrivePath);
   report.add(
-    inOneDrive ? "WARN" : "PASS",
+    inOneDrive ? "FAIL" : "PASS",
     "OneDrive path check",
-    inOneDrive ? "working under OneDrive can cause sync/lock surprises" : "not under OneDrive"
+    inOneDrive ? "stop: current path, repo root, or git common dir is under OneDrive" : "not under OneDrive"
   );
+}
+
+function classifyRecoraRepo(context: Context, missingSignals?: string[]): RecoraRepoLocation {
+  if (!context.expectedRoot || !context.repoRoot || !context.gitCommonDir) return "invalid";
+
+  const expectedGitCommonDir = path.join(context.expectedRoot, ".git");
+  const signals = missingSignals ?? getMissingRecoraRepoSignals(context.repoRoot, context.packageInfo);
+  if (!samePath(context.gitCommonDir, expectedGitCommonDir) || signals.length > 0) return "invalid";
+
+  return samePath(context.repoRoot, context.expectedRoot) ? "main-checkout" : "worktree";
+}
+
+function formatInvalidRepoReason(context: Context, missingSignals: string[]) {
+  const reasons: string[] = [];
+
+  if (!context.expectedRoot) {
+    reasons.push("USERPROFILE unavailable");
+  } else if (!context.gitCommonDir || !samePath(context.gitCommonDir, path.join(context.expectedRoot, ".git"))) {
+    reasons.push("git common dir does not belong to the official Recora main checkout");
+  }
+
+  if (missingSignals.length > 0) {
+    reasons.push(`missing Recora signals: ${missingSignals.join(", ")}`);
+  }
+
+  return reasons.join("; ") || "repository identity could not be verified";
 }
 
 function addPackageCheck(report: Report, packageInfo: PackageInfo) {
@@ -661,11 +706,12 @@ function addImportantChangeOverview(report: Report, status: GitStatusSummary | n
 function addRecommendedActions(report: Report, context: Context) {
   const actions: string[] = [];
   const status = context.gitStatus;
-  const validRecoraWorktree =
-    context.repoRoot !== null && getMissingRecoraRepoSignals(context.repoRoot, context.packageInfo).length === 0;
+  const repoLocation = classifyRecoraRepo(context);
 
-  if (!context.repoRoot || (context.expectedRoot && !samePath(context.repoRoot, context.expectedRoot) && !validRecoraWorktree)) {
-    actions.push("Move to $env:USERPROFILE\\work\\recora before giving Codex a task.");
+  if (repoLocation === "invalid") {
+    actions.push(
+      "Move to $env:USERPROFILE\\work\\recora-main or create a worktree from that checkout before giving Codex a task."
+    );
   }
   if (status && status.total > 0) {
     actions.push("Review or commit/stash existing changes, or tell Codex exactly which files it may edit.");
@@ -1286,10 +1332,6 @@ function existsRelative(root: string, relativePath: string) {
   return fs.existsSync(path.join(root, relativePath));
 }
 
-function isInsideOrSamePath(candidate: string, parent: string) {
-  const relative = path.relative(path.resolve(parent), path.resolve(candidate));
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
 
 function samePath(left: string, right: string) {
   return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
