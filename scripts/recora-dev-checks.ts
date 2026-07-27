@@ -483,6 +483,9 @@ function evaluateGitHubActionsIdentity({
     "GITHUB_WORKSPACE",
     "GITHUB_SERVER_URL",
     "GITHUB_SHA",
+    "GITHUB_REF",
+    "GITHUB_BASE_REF",
+    "GITHUB_HEAD_REF",
     "GITHUB_EVENT_NAME",
     "GITHUB_EVENT_PATH"
   ];
@@ -497,6 +500,9 @@ function evaluateGitHubActionsIdentity({
   const githubWorkspace = process.env.GITHUB_WORKSPACE?.trim();
   const githubServerUrl = process.env.GITHUB_SERVER_URL?.trim();
   const githubSha = process.env.GITHUB_SHA?.trim();
+  const githubRef = process.env.GITHUB_REF?.trim();
+  const githubBaseRef = process.env.GITHUB_BASE_REF?.trim();
+  const githubHeadRef = process.env.GITHUB_HEAD_REF?.trim();
   const githubEventName = process.env.GITHUB_EVENT_NAME?.trim();
   const githubEventPath = process.env.GITHUB_EVENT_PATH?.trim();
 
@@ -525,14 +531,26 @@ function evaluateGitHubActionsIdentity({
     invalidReasons.push("GITHUB_SHA does not match HEAD");
   }
 
-  invalidReasons.push(...validateGitHubEvent(githubEventName, githubEventPath, githubSha, fullCommitParents));
+  invalidReasons.push(
+    ...validateGitHubEvent(
+      githubEventName,
+      githubEventPath,
+      githubSha,
+      githubRef,
+      githubBaseRef,
+      githubHeadRef,
+      fullCommitParents
+    )
+  );
   return { detected: true, valid: invalidReasons.length === 0, invalidReasons };
 }
-
 function validateGitHubEvent(
   eventName: string | undefined,
   eventPath: string | undefined,
   githubSha: string | undefined,
+  githubRef: string | undefined,
+  githubBaseRef: string | undefined,
+  githubHeadRef: string | undefined,
   fullCommitParents: string[]
 ) {
   if (eventName !== "pull_request" && eventName !== "push") {
@@ -557,8 +575,10 @@ function validateGitHubEvent(
     }
 
     if (eventName === "pull_request") {
+      const payloadNumber = payload.number;
+      const pullRequestNumber =
+        typeof payloadNumber === "number" && Number.isSafeInteger(payloadNumber) ? payloadNumber : null;
       const pullRequest = readObject(payload.pull_request);
-      const mergeCommitSha = readString(pullRequest?.merge_commit_sha);
       const base = readObject(pullRequest?.base);
       const baseRepository = readObject(base?.repo);
       const baseRepositoryName = readString(baseRepository?.full_name);
@@ -569,6 +589,7 @@ function validateGitHubEvent(
       const headRepository = readObject(head?.repo);
       const headRepositoryName = readString(headRepository?.full_name);
       const headRepositoryIsFork = readBoolean(headRepository?.fork);
+      const headRef = readString(head?.ref);
       const headSha = readString(head?.sha);
 
       if (baseRepositoryName !== OFFICIAL_GITHUB_REPOSITORY || baseRepositoryIsFork !== false) {
@@ -580,8 +601,16 @@ function validateGitHubEvent(
       if (baseRef !== "master") {
         reasons.push("pull request base branch is not master");
       }
-      if (!githubSha || !mergeCommitSha || mergeCommitSha.toLowerCase() !== githubSha.toLowerCase()) {
-        reasons.push("pull request merge commit does not match GITHUB_SHA");
+      if (githubBaseRef !== "master") {
+        reasons.push("GITHUB_BASE_REF is not master");
+      }
+      if (!headRef || githubHeadRef !== headRef) {
+        reasons.push("GITHUB_HEAD_REF does not match the pull request head branch");
+      }
+      if (pullRequestNumber === null) {
+        reasons.push("pull request number is unavailable or invalid");
+      } else if (githubRef !== `refs/pull/${pullRequestNumber}/merge`) {
+        reasons.push("GITHUB_REF does not match the pull request merge ref");
       }
       if (
         fullCommitParents.length !== 2 ||
@@ -597,6 +626,9 @@ function validateGitHubEvent(
       const ref = readString(payload.ref);
       if (!githubSha || !after || after.toLowerCase() !== githubSha.toLowerCase()) {
         reasons.push("push event commit does not match GITHUB_SHA");
+      }
+      if (githubRef !== "refs/heads/master") {
+        reasons.push("GITHUB_REF is not refs/heads/master");
       }
       if (ref !== "refs/heads/master") {
         reasons.push("push event ref is not refs/heads/master");
