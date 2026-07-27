@@ -1,0 +1,175 @@
+name: "不具合報告"
+description: "再現手順、影響範囲、期待結果、検証方法を含めて不具合を報告します。"
+title: "[不具合] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        再現可能な情報を、秘密情報を除いて記載してください。
+
+        Risk / Execution / Spec level / Approval の選択は申告値です。OWNERまたは承認者が分類とblockerを確認し、Issue本文またはコメントへ正式記録するまで、このFormの入力だけで `Ready` にはなりません。
+
+        秘密情報、`.env`の値、token、API key、DB URL、credentialは記載・添付しないでください。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "発生している問題"
+      description: "何が問題なのかを簡潔に記載してください。"
+      placeholder: "症状と、最初に気付いた状況を記載してください。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "再現手順"
+      description: "第三者が再現できるよう、前提条件から順番に記載してください。"
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_result
+    attributes:
+      label: "期待する結果"
+      description: "本来どのようになるべきか記載してください。"
+      placeholder: "期待していた表示や動作を記載してください。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual_result
+    attributes:
+      label: "実際の結果"
+      description: "実際に起きた表示、動作、エラーを記載してください。"
+      placeholder: "期待との差が分かるように記載してください。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: "影響範囲"
+      description: "影響を受けるユーザー、機能、データ、頻度、回避策の有無を記載してください。"
+      placeholder: "影響対象と重大度を記載してください。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: "発生環境"
+      description: "環境名、OS、ブラウザ、バージョン、対象ページなどを秘密情報なしで記載してください。"
+      placeholder: "例: staging / Windows 11 / Chrome / 対象URLのパス"
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: "対象範囲"
+      description: "修正してよい機能、画面、ファイル、データ、運用などを具体化してください。"
+      placeholder: "対象となる領域を箇条書きで記載してください。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: "対象外"
+      description: "このIssueでは変更しない領域や、別Issueで扱う内容を記載してください。"
+      placeholder: "対象外がなければ「なし」と記載してください。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: "受け入れ条件"
+      description: "修正完了を判定できる、検証可能な条件を記載してください。"
+      placeholder: |
+        - [ ] 再現手順で問題が起きない
+        - [ ] 関連する既存動作が維持される
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: "Risk"
+      description: "失敗時の影響、外部作用、復旧難度、必要権限の最大値から申告してください。"
+      options:
+        - "R0"
+        - "R1"
+        - "R2"
+        - "R3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: execution
+    attributes:
+      label: "Execution"
+      description: "想定する実行レーンを申告してください。Riskを下げるものではありません。"
+      options:
+        - "Cloud Codex"
+        - "Local Codex"
+        - "Human"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: spec_level
+    attributes:
+      label: "Spec level"
+      description: "必要な仕様の重さを申告してください。Noneは独立した詳細仕様書を作らない意味です。"
+      options:
+        - "None（独立した詳細仕様書なし）"
+        - "Light"
+        - "Full"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: approval
+    attributes:
+      label: "Approval"
+      description: "このIssueで必要と考える最も高い承認ゲートを申告してください。"
+      options:
+        - "None（個別承認なし）"
+        - "Plan"
+        - "Execute"
+        - "Production"
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: "依存Issue・blocker"
+      description: "先に完了が必要なIssue、外部判断、未解決事項を記載してください。"
+      placeholder: "なければ「なし」と記載してください。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: "必須検証"
+      description: "再現確認、回帰テスト、コマンド、目視確認、Human review項目を記載してください。"
+      placeholder: "実行する検証と期待結果を記載してください。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: "ログ・画像・参考資料"
+      description: "再現に役立つログ、画像、関連Issueを共有してください。秘密情報や認証情報は除いてください。"
+      placeholder: "必要な箇所だけを記載し、秘密情報はマスクではなく除外してください。"
+    validations:
+      required: false
