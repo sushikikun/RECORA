@@ -10,18 +10,18 @@
 | Risk | `R3` |
 | Spec level | `Full` |
 | Execution | `Human` |
-| Approval | Rollback Human review後のPlan-only調査: [OWNER comment](https://github.com/sushikikun/RECORA/issues/95#issuecomment-5102363862) |
+| Approval | Retry evidence finalizationのPlan-only更新: [OWNER comment](https://github.com/sushikikun/RECORA/issues/95#issuecomment-5103034116) |
 | Owner | `@sushikikun` |
 | Status | `Active` |
 | Updated | `2026-07-28` |
 
-Issue #95本文にはこのplanのpath `docs/exec-plans/active/issue-95-master-ruleset.md`が指定されており、このplanからIssueへリンクしている。現在は最新OWNERコメントのrollback Human reviewを優先し、Projectを`Human review`、Approvalを`Plan`として再Active化を禁止する。
+Issue #95本文にはこのplanのpath `docs/exec-plans/active/issue-95-master-ruleset.md`が指定されており、このplanからIssueへリンクしている。最新OWNERコメントはretry evidenceのread-only確認とこのplanの更新だけを承認している。Projectは作業開始時に`Ready / Plan`、更新と検証後に`Human review / Plan`へ戻し、再Active化とrepository settings writeは新たな個別Execute承認まで禁止する。
 
 ## Objective / expected outcome
 
 `master`への変更をPull Requestと成功したRecora CIの証跡に限定し、force push、branch削除、未解決conversationを伴うmergeを防ぐ。solo-owner運用を停止させず、誤設定時にownerが速やかに無効化して復旧できる契約を、GitHub設定変更前に確定する。
 
-Stage 2ではrulesetを作成して一時Active化した後、検証停止条件によりDisabledへrollbackした。現在の成果物はread-only調査とこのExec Plan更新だけであり、再Active化、ruleset更新・削除、classic branch protectionおよびrepository settings変更は新たな個別Execute承認まで実行しない。
+Stage 2ではrulesetを作成して一時Active化した後、検証停止条件によりDisabledへrollbackした。その後のretryでは、Active PUT、全8回のbounded polling、ruleset detail、branch metadataを含むGitHub control-plane検証は成功したが、全証跡保存後のローカル集約処理エラーを安全側でrollback triggerとして扱い、再びDisabledへ戻した。現在の成果物は保存済み証跡のread-only検証とこのExec Plan更新だけであり、再Active化、ruleset更新・削除、classic branch protectionおよびrepository settings変更は新たな個別Execute承認まで実行しない。
 
 ## Context and constraints
 
@@ -367,6 +367,8 @@ UIを正式実行方法にしない理由は、REST payloadとresponseの方がe
 | M5: Stage 2 settings execution | `Human review` | normalization承認後にActive化し、active rules即時照合不一致で緊急Disabled rollback | Active化・rollback証跡と最終Disabled状態をHuman reviewへ提示 |
 | M6: Smoke test | `Pending` | 次の実PRでmerge gateとintegration impactを確認 | CI、conversation、PR gateが期待どおり |
 | M7: Complete or rollback | `Completed` | active rules検証失敗後に緊急Disabled化 | ruleset detail `disabled`、master active rules `[]`、classic未設定を再取得確認 |
+| M8: Retry control-plane validation | `Completed` | Active PUT、全8 poll、detail、branch metadataを完全保存して意味比較 | GitHub settingsと適用は全件一致。後段tooling failureで安全側rollback |
+| M9: Retry evidence finalization | `Human review` | Node.jsで151 hashを再検証し、failure分類と次回契約を改訂 | Exec Plan 1ファイルと検証結果をHuman reviewへ提示 |
 
 ## Validation plan
 
@@ -473,6 +475,8 @@ Disabled状態を証跡として保持し、通常rollbackではdeleteしない�
 | `2026-07-28` | M5 | OWNERが空配列normalizationだけを限定承認。再GETで他の差分なし・semantic complete matchを確認 | Active化 |
 | `2026-07-28` | M5 / M7 | Active PUTはHTTP 200。直後のmaster active rules照合不一致を検出し、emergency Disabled PUTをHTTP 200で実施 | Human reviewへ停止 |
 | `2026-07-28` | Plan-only follow-up | OWNERがrollbackを承認し再Active化を未承認。ProjectをHuman review / Planへ戻し、history・schema・比較処理をread-only調査 | 改訂planをHuman review |
+| `2026-07-28` | M8 | Active PUT HTTP 200、全8 poll HTTP 200 / exact match、Active時master protected true。最終集約のPowerShell `List[object]` errorで安全側rollback | control-plane成功とreporting failureを分離 |
+| `2026-07-28` | M9 | OWNER Plan承認を確認。Node.jsで両JSON parseと151 hashを再検証し、missing / size / hash mismatch 0 | 改訂planをHuman review |
 
 ## Decision log
 
@@ -491,6 +495,8 @@ Disabled状態を証跡として保持し、通常rollbackではdeleteしない�
 | `2026-07-28` | `required_reviewers: []`だけをserver-side normalizationとして許容 | OWNER comment `#issuecomment-5102029137`。要素数0で追加reviewer要件なし | 他の追加・欠落・値変更は引き続き不許容 |
 | `2026-07-28` | Active化後に緊急Disabled rollback | ruleset detailは承認設定と一致したが、master active rules即時GETが期待4ルールとの照合に失敗 | rulesetを削除せずDisabledへ戻し、active rules空を確認して停止 |
 | `2026-07-28` | 原因を未確定のまま再試行契約を強化 | 当時のactive-rules本文が未保存。PowerShell 5.1の配列ラップ再現は比較処理仮説を支持するが、実responseを復元できない | 全response保存、60秒bounded polling、type-based semantic comparisonを次回必須化 |
+| `2026-07-28` | Retryのruleset設定・適用検証を成功と評価 | 全8 poll、detail、branch metadataが承認値と一致し、raw evidenceと151 hashを再検証できた | Control-planeとEvidence captureの両gate成功をsettings判定とする |
+| `2026-07-28` | 後段reporting failureだけではrollbackしない | 完全証跡とhash検証後の`List[object]`集約エラーはGitHub settingsを変えない | Active維持、追加writeなし、Human reviewへ停止する契約へ改訂 |
 
 ## Stage 2 execution record
 
@@ -537,9 +543,11 @@ UI selectorはWindows ACLエラーで取得できず、OWNER承認に基づき�
 | Repository settings 1 | `POST /repos/sushikikun/RECORA/rulesets` with exact payload | HTTP 201 Created | ruleset ID `19883059`、`disabled` |
 | Repository settings 2 | `PUT .../rulesets/19883059` with `enforcement: active` | HTTP 200 OK | 一時的に`active`、history version `44645383` |
 | Repository settings 3 / emergency rollback | `PUT .../rulesets/19883059` with `enforcement: disabled` | HTTP 200 OK | 最終`disabled`、history version `44645395` |
+| Repository settings 4 / retry activation | `PUT .../rulesets/19883059` with `enforcement: active` | HTTP 200 OK | 全8 poll exact match、history version `44652111` |
+| Repository settings 5 / retry rollback | `PUT .../rulesets/19883059` with `enforcement: disabled` | HTTP 200 OK | 後段tooling failureで安全側rollback、history version `44652249` |
 | Delete | ruleset delete | prohibited / not executed | Disabledのまま保持 |
 
-Repository settings write countは累計`3`（Disabled create、Active update、emergency Disabled rollback）で、今回のPlan-only調査では`0`。Project field writeは累計`4`（Execute開始時2件、今回のHuman review / Plan復帰2件）。最初のローカル検証スクリプトはPowerShell 5.1非対応のJSON optionでwrite前に停止しており、settings writeへ数えない。token、credential、secret、private値はpayload、出力、planへ保存していない。
+Repository settings write countは累計`5`（Disabled create、最初のActive update / rollback、retry Active update / rollback）で、今回のPlan-only evidence finalizationでは`0`。Retryの2 writeはIssueで個別承認され、ruleset deleteは実施していない。token、credential、secret、private値はpayload、出力、planへ保存していない。
 
 ### Disabled read-back comparison
 
@@ -621,9 +629,115 @@ GitHub公式の`Get rules for a branch`はHTTP 200でJSON arrayを返し、各ac
 
 比較方法仮説については、実行環境のWindows PowerShell `5.1.22621.6133`で、4要素JSON arrayを`@($json | ConvertFrom-Json)`へ渡すとouter countが`1`、first object typeが`System.Object[]`になる一方、projected `type`は4件になることを固定sampleで再現した。前回validatorの`$postActive.Count -ne 4`を単独でtrueにし得るため誤判定と整合するが、当時のraw responseがない以上、これを確定原因とはしない。
 
+## Retry evidence finalization record
+
+### Plan-only approval and scope
+
+- OWNER Plan approval: [Issue #95 comment `#issuecomment-5103034116`](https://github.com/sushikikun/RECORA/issues/95#issuecomment-5103034116)
+- Approval scope: local retry evidenceのread-only確認、SHA-256再検証、このExec Plan 1ファイルの更新
+- Execution branch: `issue-95-ruleset-finalization-plan`
+- Execution base: `origin/master` at `1fef10b3961c34969523210bf0db8a6696025126`
+- Project start state: `Ready / Plan / R3 / Human / Full / P1 / Development process`
+- Project final state after validation: `Human review / Plan / R3 / Human / Full / P1 / Development process`
+- Project field writes in this Plan-only task: Statusを`Ready`へ設定し、完了時に`Human review`へ戻した。repository settings writeは`0`。
+- Repository settings write in this Plan-only update: `0`
+- Prohibited in this update: ruleset Active化・更新・削除、classic protection変更、repository settings変更、commit、push、PR、merge、deploy、production操作
+
+### Retry execution result
+
+- Ruleset ID: `19883059`
+- Active PUT: HTTP `200`
+- Active history version: `44652111` at `2026-07-28T19:19:54.617+09:00`
+- Ruleset source: `Repository` / `sushikikun/RECORA`
+- Target: include `refs/heads/master`のみ、exclude `[]`
+- Bypass actors: `0`
+- Active時のmaster protected: `true`
+- Required check: `Recora checks` / integration ID `15368`
+- Strict required status checks: `true`
+- Required approvals: `0`
+- Server-side normalization: `required_reviewers: []`
+
+| Requested offset | Response timestamp | Observed elapsed | HTTP | Semantic result |
+|---:|---|---:|---:|---|
+| `0s` | `2026-07-28T19:19:56.1342049+09:00` | `1.219s` | `200` | exact match |
+| `2s` | `2026-07-28T19:19:58.3128996+09:00` | `3.036s` | `200` | exact match |
+| `5s` | `2026-07-28T19:20:00.9085955+09:00` | `5.637s` | `200` | exact match |
+| `10s` | `2026-07-28T19:20:06.0670882+09:00` | `10.792s` | `200` | exact match |
+| `20s` | `2026-07-28T19:20:16.4678647+09:00` | `21.191s` | `200` | exact match |
+| `30s` | `2026-07-28T19:20:25.9575720+09:00` | `30.682s` | `200` | exact match |
+| `45s` | `2026-07-28T19:20:40.9437810+09:00` | `45.669s` | `200` | exact match |
+| `60s` | `2026-07-28T19:20:55.9857216+09:00` | `60.718s` | `200` | exact match |
+
+全8 responseで、ruleset ID `19883059`、source type `Repository`、source `sushikikun/RECORA`と、次の4 ruleが各1件、未承認ruleなしで一致した。
+
+- `deletion`
+- `non_fast_forward`
+- `pull_request`
+- `required_status_checks`
+
+`pull_request` parametersはapprovals `0`、conversation resolution `true`、merge / squash / rebase、`required_reviewers: []`を含む承認値と一致した。`required_status_checks` parametersは`Recora checks`、integration ID `15368`、strict `true`、do-not-enforce-on-create `false`と一致した。Active ruleset detail、rulesets一覧、master branch metadata、classic protection、default branch、merge methodsも期待値と一致し、GitHub control-planeの不一致または取得不能はなかった。したがって、rulesetの設定・適用検証は成功と評価する。
+
+### Rollback result
+
+- 全8 pollとActive時の最終read-back完了後、Human向け最終証跡を集約するPowerShell 5.1処理で`System.Collections.Generic.List[object]`の変換エラー`Argument types do not match`が発生した。
+- エラーはGitHub設定、active rules、source、target、parametersの不一致ではなく、raw evidence保存後のローカルreporting / aggregation tooling failureである。
+- 当時の契約が後段tooling failureを独立分類していなかったため、安全側判断でDisabled rollbackを実行した。
+- Disabled PUT: HTTP `200`
+- Rollback history version: `44652249` at `2026-07-28T19:20:59.506+09:00`
+- Final enforcement: `disabled`
+- Final master active rules: `[]`
+- Final master protected: `false`
+- Classic branch protection: HTTP `404`、未設定
+- Default branch: `master`
+- Merge / squash / rebase: enabled、変更なし
+- Repository settings write: retryで`2`件、累計`5`件
+- Ruleset delete: 未実施
+
+### Current read-only state after retry rollback
+
+Read-only recheck: `2026-07-28T19:42:33.2495299+09:00`。
+
+- Ruleset ID `19883059`: `disabled`
+- Master active rules: `[]`
+- Master protected: `false`
+- Classic branch protection: HTTP `404`、未設定
+- Default branch: `master`
+- Merge / squash / rebase: すべてenabled
+- Master SHA: `1fef10b3961c34969523210bf0db8a6696025126`
+- Repository settings write in this Plan-only update: `0`
+
+### Evidence manifest
+
+- Evidence directory: `C:/tmp/recora-issue95-ruleset-retry-20260728T191542992+0900`
+- `result.json`: `58,989` bytes、SHA-256 `516eecb9ba932653b5c4c3426ec78d83fbbfb7fe11b95192d29b6afcefc4dbcc`
+- `evidence-sha256.json`: `27,566` bytes、SHA-256 `c8f78487b4fe5795acf09a6ea8078e4ed9af1945614a45d9316ec439ecdee980`
+- Hash inventory entries: `151`
+- Hash re-verification: `2026-07-28T19:42:11.195+09:00`
+- Method: Node.js `v24.18.0`で両JSONをparseし、`fs.readFileSync`で各ファイルのraw bytesを読み、`crypto.createHash("sha256")`で全151 entryのsizeとSHA-256を再計算
+- Result: 両JSON parse成功、missing `0`、size mismatch `0`、hash mismatch `0`、Issue指定の必須evidence全項目が存在
+
+Raw evidenceはローカル監査証跡であり、repositoryの正本ではない。repositoryへコピーせず、Issue #95が完了するまで変更、移動、削除しない。
+
+### Failure classification
+
+1. **Control-plane failure**
+   - GitHub ruleset detail、active rules、source、target、parametersの不一致
+   - 必須ruleの欠落・重複、未承認ruleの追加、bypass actor追加
+   - GitHub API responseの取得不能または非200
+2. **Evidence capture failure**
+   - sanitized raw responseを保存できない、または保存済みresponseを読めない
+   - 必須poll、ruleset detail、branch metadata、PUT responseの証跡欠落
+   - SHA-256 inventoryを生成または再検証できない
+   - 保存ファイルのsizeまたはSHA-256不一致
+3. **Reporting / aggregation failure**
+   - 完全なraw evidenceと検証済みhash inventoryの保存後に発生する要約、表、Human向け最終JSONの生成失敗
+   - PowerShellの配列wrapper、`List[object]`変換、表示処理のエラー
+
+Control-plane failureとEvidence capture failureはsettingsの安全性または監査可能性を損なう。Reporting / aggregation failureは、前二つのgateが完了した後の非破壊工程として扱い、それ単独ではGitHub settingsの成功判定を覆さない。
+
 ## Next activation retry contract
 
-この節はPlan-onlyであり、rulesetの再Active化を許可しない。実行には、Issue #95へ対象ruleset、時刻、操作、evidence保存、bounded polling、rollbackを特定した新たなR3 Execute承認が必要である。
+この節はPlan-onlyであり、rulesetの再Active化を許可しない。実行には、Issue #95へ対象ruleset、時刻、操作、evidence保存、bounded polling、2段階gate、rollback、次の実PRによるsmoke testを特定した新たなR3 Execute承認が必要である。
 
 ### Active化後の証跡保存
 
@@ -635,6 +749,8 @@ Active PUT後、secretやcredentialを除外したうえで、次を実行単位
 - master active rules GETのHTTP statusと完全なsanitized response本文
 
 active-rules responseは要約だけで済ませない。各pollの比較入力となった本文全体を保存し、parse前の本文とparse後のnormalized representationを対応付ける。responseを保存できない場合は成功扱いせずrollbackする。
+
+各raw responseを保存した直後にSHA-256を生成し、ファイル名、size、hashをinventoryへ追加する。60秒pollと最終read-back後にinventoryを別processで再検証し、control-plane gateとevidence capture gateの両方を確定してからreporting工程へ進む。
 
 ### Bounded polling
 
@@ -676,12 +792,27 @@ JSON全体の文字列一致、object property順、配列順、PowerShell wrapp
 7. ruleset detailのconditionがinclude `refs/heads/master`のみ、exclude `[]`であり、master以外へ適用されていないことを別GETで確認する。
 8. ruleset detail、branch metadata、branch-rules responseの3者が整合した場合だけ収束成功とする。
 
-### Next rollback conditions and evidence
+### Two-stage activation gate
+
+1. **Control-plane gate**
+   - ruleset detail、branch metadata、全8 active-rules responseが承認値と意味的一致
+   - ruleset ID、source、target、4 rule types、全parameters、bypassが一致
+   - API取得不能、必須rule欠落、未承認rule追加がない
+2. **Evidence capture gate**
+   - Active PUT、ruleset detail、branch metadata、全8 pollのsanitized raw responseを完全保存
+   - 各raw responseのSHA-256 inventoryを生成
+   - inventory全entryを実ファイルから再計算し、missing、size mismatch、hash mismatchが0
+
+両gateが成功した場合はActive状態を維持する。その後の要約、表、Human向けreporting JSON生成はsettings判定後の非破壊工程として扱う。
+
+### Revised rollback conditions and evidence
 
 次のいずれかでruleset ID `19883059`を直ちにDisabledへ戻す。
 
+- Control-plane gate failure
+- Evidence capture gate failure
 - 60秒以内に承認済み4ルールを確認できない
-- PUTまたはGETのHTTP status / sanitized response本文を保存できない
+- PUTまたはGETのHTTP status / sanitized response本文を保存・読取できない
 - active rules取得不能または非200
 - ruleset ID、source type、sourceが不一致
 - 必須rule欠落または重複
@@ -691,6 +822,18 @@ JSON全体の文字列一致、object property順、配列順、PowerShell wrapp
 - `master`以外へ適用
 - default branchまたはmerge methods変化
 - ruleset detail、branch metadata、branch-rules responseが矛盾
+- raw evidenceまたはSHA-256 inventoryを生成・再検証できない
+- 保存ファイルのmissing、size mismatch、hash mismatch
+
+次をすべて満たした後のReporting / aggregation failureだけではrollbackしない。
+
+- 全8 pollの意味的一致が完了
+- ruleset detailとbranch metadataが期待値
+- sanitized raw responseが完全保存済み
+- SHA-256 inventoryが生成・再検証済み
+- control-plane gateとevidence capture gateがともに成功
+
+後段のreporting / aggregation failureだけの場合は、rulesetをActiveのまま維持し、追加settings writeを行わない。証跡directory、主要ファイルのsize / hash、失敗した非破壊工程を記録し、Projectを`Human review / Plan`へ戻し、Issue #95をOPENのままHuman reviewで停止する。
 
 Rollback後は次のHTTP statusと完全なsanitized responseを必ず保存し、rulesetを削除しない。
 
@@ -700,13 +843,18 @@ Rollback後は次のHTTP statusと完全なsanitized responseを必ず保存し�
 - master branch metadataが`protected: false`
 - classic protectionがHTTP 404 / 未設定
 - default branch `master`、merge / squash / rebase有効、master SHA不変
+
+### Next real-PR smoke test
+
+両activation gate成功後も、Issue #95は次の実PRによるsmoke test完了までOPENを維持する。実PRで`Recora checks`のrequired表示、GitHub Actions source、strict / up-to-date、conversation resolution、PR必須、通常feature branch pushとActions起動を確認し、merge自体は別のR3承認まで実行しない。
+
 ### Not executed and remaining risk
 
-- Active状態の維持と次の実PRでのrequired check / strict / conversation / PR gate smoke testは未実施
-- Active化直後に取得したmaster active rules responseのexact raw bodyは検証スクリプトが保持しておらず、期待4ルールとの照合失敗だけが記録された。rollback後のresponseは`[]`
-- Active rules endpointの不一致原因は未確定。API反映遅延、response shape / PowerShell配列処理、実rule欠落を区別できていない
+- Retry後の最終状態はDisabledであり、Active状態の維持と次の実PRでのrequired check / strict / conversation / PR gate smoke testは未実施
+- Retryの全8 active-rules raw responseは完全保存され、全151 inventory entryのSHA-256再検証も成功した。過去の最初のActive化直後responseだけは保存されておらず、当時の即時照合失敗原因は遡及確定できない
+- Retryでは0秒pollから60秒pollまでGitHub control-planeが一貫してexact matchだったため、GitHubの設定・適用不一致は観測されず、PowerShell 5.1の後段集約処理が今回rollbackのtooling causeである
 - GitHub UI selectorの追加確認はWindows ACL問題が解消するまで未実施
-- 再Active化は未承認。改訂したevidence保存・bounded polling・semantic comparison・rollback契約をHuman reviewし、新たなR3 Execute承認があるまで実施しない
+- 再Active化は未承認。改訂した2段階gate、rollback条件、次回activation / smoke-test契約をHuman reviewし、新たなR3 Execute承認があるまで実施しない
 - lint / buildは製品コード・workflow変更がなくMarkdown 1ファイルだけのため未実施
 
 ## References
@@ -725,7 +873,7 @@ Rollback後は次のHTTP statusと完全なsanitized responseを必ず保存し�
 
 - Stage 1 read-only audit completed.
 - Recommended repository Ruleset and exact Stage 2 contract documented.
-- GitHub repository settings write count remains累計`3`: Disabled create、Active update、emergency Disabled rollback。今回のPlan-only調査ではrepository settings write `0`、最終enforcementは`disabled`。
+- GitHub repository settings write countは累計`5`: Disabled create、最初のActive / rollback、retry Active / rollback。今回のPlan-only evidence finalizationではrepository settings write `0`、最終enforcementは`disabled`。
 
 ### Validation results
 
@@ -735,22 +883,24 @@ Rollback後は次のHTTP statusと完全なsanitized responseを必ず保存し�
 - Stage 2-Aのraw exact matchは`required_reviewers: []`により停止したが、OWNER承認の限定normalization適用後は他の差分なしでsemantic complete matchとなった。Active PUTはHTTP 200、ruleset detailは全承認設定と一致した。master active rules即時照合だけが失敗し、緊急Disabled rollbackをHTTP 200で完了した。
 - Post-rollback local validation passed with existing fnm Node `v24.18.0` / npm `11.16.0`: `npm run recora:preflight:full`、`git diff --check`、`npm run recora:commit-check`、`git diff --name-only`、`git status --short --untracked-files=all`。変更はこのExec Plan 1ファイルだけ、staged 0、package / lockfile変更なし。
 - Plan-only investigation local validation passed with Node `v24.18.0` / npm `11.16.0`: `npm run recora:preflight:full`、`git diff --check`、`npm run recora:commit-check`、`git diff --name-only`、`git status --short --untracked-files=all`。変更はExec Plan 1ファイルのみ、staged 0。lint / buildはMarkdownだけのため未実施。
+- Retry evidence finalization validation passed with Node `v24.18.0` / npm `11.16.0`: 両evidence JSON parse成功、151 hash再検証一致、`npm run recora:preflight:full`、`git diff --check`、`npm run recora:commit-check`、`git diff --name-only`、`git status --short --untracked-files=all`が成功。変更はExec Plan 1ファイルのみ、staged 0。lint / buildはMarkdown 1ファイルのみのため未実施。
 
 ### Deviations from plan
 
 - GitHub REST 2026-03-10のread-backがapproved payloadにない`required_reviewers: []`を追加したため一度停止し、その後OWNER承認でこの空配列だけをnormalizationとして許容した。Active化後、master active rules即時responseが期待4ルールとの照合に失敗したため、rollback contractどおりDisabledへ戻した。
+- Retryでは全8 pollとActive時read-backが成功した後、PowerShell 5.1のHuman向け最終集約で`Argument types do not match`が発生した。当時の契約に従い安全側rollbackしたが、再検証したraw evidenceはcontrol-plane成功を示すため、後段reporting failureを独立分類して次回rollback条件から除外した。
 
 ### Remaining risks
 
 - GitHub UI selectorはWindows ACLエラーで未確認。OWNER承認により今回のpreconditionはAPI evidenceで代替済みだが、UI追加確認は残る。
 - Collaborator availabilityは未確認であり、approvals 0を前提とする。
 - Strict modeの実際の更新頻度とChatGPT / Codex連携への影響は次の実PRまで未確認。
-- Active updateは一時成功したが、master active rules即時照合不一致でrollback済み。当時のraw response未保存により、API反映遅延、response shape / PowerShell配列処理、実rule欠落を区別できない。次回は完全response保存と60秒bounded pollingが必須。
+- Retryでは全8 pollがexact matchだったが、最終状態はrollback済みのDisabledである。Active状態の実PR smoke test、strict modeの更新loop、conversation / PR gate、通常ChatGPT / Codex branch経路への影響は未確認。
 - GitHub API schemaはrequired check契約を維持し、responseへ`required_reviewers: []`を追加した。この空配列だけはOWNER承認に基づきsemantic matchとして扱い、他のnormalizationは行っていない。
 
 ### Completion record
 
 - Final status: `Active`
 - Completed or closed at: not completed
-- Follow-up: 改訂したPlan-only再試行契約のHuman review。再Active化は未承認であり、必要時は新たなR3 Execute approval、その後に次の実PRでsmoke test
+- Follow-up: 改訂した2段階activation gate、rollback条件、次の実PR smoke-test契約のHuman review。再Active化は未承認であり、必要時は新たなR3 Execute approvalが必要
 - Archive path after completion: `docs/exec-plans/completed/issue-95-master-ruleset.md`
