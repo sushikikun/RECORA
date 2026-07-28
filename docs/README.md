@@ -35,6 +35,13 @@
 
 Issueはタスク契約と承認の正本、Exec Planは複数段階の実行計画と実績の正本として相互リンクする。適用基準と更新責任はExec Plan運用を参照する。
 
+## 開発レビューの提出・CI契約
+
+- [PRテンプレート](../.github/pull_request_template.md): Issue、分類、scope、検証証跡、未実施事項、影響範囲、残存リスクをHuman reviewへ渡す標準形式
+- [Recora CI](../.github/workflows/ci.yml): PRと`master` pushでpreflight、lint、buildを実行し、PRではbase / head差分のwhitespace integrityも確認する
+
+PRとCIは検証可能な証跡を揃えるための仕組みであり、Human approvalやmerge、deploy、production操作の承認を代替しない。開発ライフサイクルと承認境界は[`recora-agentic-sdlc.md`](./recora-agentic-sdlc.md)、具体的な作業手順は[`recora-dev-workflow.md`](./recora-dev-workflow.md)を正本とする。branch protectionの実設定は別Issue・別承認で扱う。
+
 ## Phase 1資料の扱い
 
 次の文書は、管理者運用型デモを安全に動かすための暫定runbookである。
