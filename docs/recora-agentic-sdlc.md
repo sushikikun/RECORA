@@ -19,6 +19,7 @@ Recora Agentic SDLC v2は、人間がChatGPTとCodexの間で毎回全文を転�
 |---|---|---|
 | タスクと進行状態 | GitHub Issue / Project | 目的、範囲、受け入れ条件、Risk、Execution、Spec level、Approval、状態、依存関係、PR |
 | 恒久仕様と設計判断 | リポジトリ内docs | 製品仕様、アーキテクチャ、運用方針、必要なExec Plan |
+| 複数段階の実行計画 | [`docs/exec-plans/`](./exec-plans/README.md) | milestone、進捗、判断、検証、rollback、実績、残存リスク |
 | 完了判定 | CI / tests / lint / preflight | 実装が受け入れ条件を満たすことを再現可能に示す検証結果 |
 | 一時的な相談と作業文脈 | ChatGPT / Codex会話 | 調査途中の仮説、相談、進捗。恒久的な正本にはしない |
 
@@ -74,11 +75,13 @@ Spec levelはRiskと変更の曖昧さ、範囲、依存関係に応じて選ぶ
 
 | Spec level | 適用基準 | 必要な記録 |
 |---|---|---|
-| None | 目的と解決方法が明白な極小変更、read-only調査 | Issueに目的、範囲、受け入れ条件、検証、停止条件 |
-| Light | 通常のR0/R1、限定範囲の複数ファイル変更 | Issueに背景、実装内容、許可・禁止範囲、受け入れ条件、検証、承認境界 |
-| Full | R2/R3、複数システム、移行、重要な設計判断、rollbackが必要な変更 | 詳細Issueに加え、必要に応じてrepo内Exec Plan、代替案、データ境界、段階移行、rollback、運用検証 |
+| None | 目的と解決方法が明白な極小変更、read-only調査 | Issueに目的、範囲、受け入れ条件、検証、停止条件を記録し、独立したExec Planは作らない |
+| Light | 通常のR0/R1、限定範囲の複数ファイル変更 | 原則Issue本文で足りる。複数段階、長期、引継ぎ、rollbackが必要な場合はExec Planを追加できる |
+| Full | R2/R3、複数システム、移行、重要な設計判断、rollbackが必要な変更 | 詳細Issueに加えて原則repo内Exec Planを必須とし、代替案、データ境界、段階移行、rollback、運用検証を記録する |
 
-R2相当の変更は原則Fullとする。R3はFullに加え、実際の操作ごとの承認を必要とする。
+R2相当の変更は原則Fullとする。R3はFullに加え、実際の操作ごとの承認を必要とする。R2/R3、移行、複数システム、重要なデータ契約、rollback必須の変更はExec Planの対象とする。
+
+Exec PlanはIssueを置き換えず、Issueからリンクして使う。適用基準、命名、更新、完了後の移動は[`docs/exec-plans/README.md`](./exec-plans/README.md)に従う。
 
 ## 6. Execution lane
 
@@ -101,6 +104,7 @@ Execution laneはRiskを下げない。Cloudで開始した作業がLocal専用�
 - Issueは一つの検証可能な目的を持つ
 - New Worktreeは最新`master`をbaseにする
 - branchはIssueに追跡できる名前にする
+- Full SpecまたはIssueで指定された場合は、原則1 Issueにつき1つのactive Exec PlanをIssueへリンクする
 - 無関係な人間差分や別Issueの差分を混ぜない
 - commit、push、Draft PR作成は、IssueのApprovalに従って別々に確認する
 - 大きすぎるIssueは、独立して検証できる子Issueへ分割する
@@ -119,7 +123,7 @@ Draft → Spec → Ready → In progress → Human review → Done
 | Ready | 開始条件を満たし、指定Execution laneで開始可能 |
 | In progress | Codexまたは人間が許可範囲内で作業中 |
 | Human review | 実装と指定検証が終わり、承認対象の差分が提示済み |
-| Done | 受け入れ条件と必要な公開・記録が完了 |
+| Done | 受け入れ条件と必要な公開・記録が完了し、対象となるExec Planが実績へ更新・保存されている |
 | Blocked | 外部判断、依存関係、権限、環境不整合などにより安全に続行できない |
 
 `Ready`は公開レポート状態の`ready`とは別の、開発タスク状態である。
@@ -133,6 +137,7 @@ Codexは編集前に、少なくとも次を確認する。
 - Risk、Execution、Spec level、Approvalが記録済み
 - 依存Issueとblockerが解消済み、または作業へ影響しない
 - 必要な正本文書と先読み資料が指定済み
+- Full SpecまたはIssue指定のExec Planが作成・リンクされ、実行担当者が内容を確認済み
 - 検証コマンドとHuman reviewへ渡す成果物が明確
 - R2は計画承認が記録済みで、実装前の実行承認を別に確認できる
 - R3は調査、計画、dry-runを超える個別操作がまだ承認されていない限り実行しない
@@ -148,6 +153,8 @@ Codexは編集前に、少なくとも次を確認する。
 - R0/R1: ReadyなIssueと実行依頼を計画の承認根拠にできる
 - R2: 実装前に、変更対象、方式、検証、rollbackを含む計画のHuman承認が必要
 - R3: 調査、計画、read-only確認、承認済みdry-runだけに留め、実操作は個別承認へ分ける
+
+Exec Planの作成・更新だけでは承認は成立しない。承認はIssue本文またはOWNERによるIssueコメントへ正式に記録する。
 
 ### Execute gate
 
@@ -235,6 +242,7 @@ Codexは作業終了時に次を報告する。
 - 実行しなかった検証と理由
 - 未確認事項
 - 残存リスク
+- 対象となるExec Planの実績、判断、検証、未実施事項、残存リスクを更新し、完了・中止・置換時は`completed/`へ移した記録
 - 次に承認が必要な操作
 
 Human reviewが完了するまで、Approvalで許可されていないcommit、push、PR作成、merge、production操作へ進まない。

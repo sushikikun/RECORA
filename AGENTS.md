@@ -7,6 +7,7 @@ For customer reporting, measurement operations, publication, admin operations, c
 ## Task start gate
 
 - Read the task Issue and every source document it designates before editing.
+- For Full Spec work, or when the Issue requires an Exec Plan, read the linked plan before editing and keep it updated through handoff; stop if a required plan is missing.
 - Confirm and report the Issue number, Risk, Execution, Spec level, Approval, and `Ready` state.
 - Do not edit when the task is not `Ready`, a required field is missing, a dependency is blocked, or the local start conditions below are not satisfied.
 - For R2 work, obtain human approval of the plan and a separate explicit approval before implementation or write-capable execution.
