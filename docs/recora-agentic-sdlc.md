@@ -245,4 +245,8 @@ Codexは作業終了時に次を報告する。
 - 対象となるExec Planの実績、判断、検証、未実施事項、残存リスクを更新し、完了・中止・置換時は`completed/`へ移した記録
 - 次に承認が必要な操作
 
+PRを作成する場合は、[`.github/pull_request_template.md`](../.github/pull_request_template.md)をHuman reviewへの標準handoffとして使う。Issueと分類、scope、実行結果、未実施の検証、視覚証跡、影響範囲、残存リスクを実際の状態に合わせて記録し、R2 / R3ではIssueとExec Planの両方をリンクする。
+
+CI成功はHuman reviewへ進むための必要条件だが、Human approvalやmerge、deploy、production操作の承認を代替しない。実行していない検証は理由を記録し、成功扱いにしない。branch protectionの実設定は別Issue・別承認で扱い、既存のGit、secrets、DB、production境界を弱めない。
+
 Human reviewが完了するまで、Approvalで許可されていないcommit、push、PR作成、merge、production操作へ進まない。

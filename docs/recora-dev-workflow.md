@@ -68,6 +68,8 @@ npm run recora:human-check
 8. 指定検証を実行し、`git diff --name-only`と差分内容を確認する。
 9. 受け入れ条件、検証結果、未確認事項、残存リスクを報告し、Approvalで許可されていないcommit、push、PR作成の前でHuman reviewへ渡す。
 
+PR作成が明示承認されている場合は、[`.github/pull_request_template.md`](../.github/pull_request_template.md)を標準handoffとして使い、実行した検証の実結果と証跡、実行しなかった検証と理由を区別して記録する。CI成功は必要条件であり、Human approvalやmerge、deploy、production操作の承認を代替しない。branch protectionの実設定は別Issue・別承認で扱う。
+
 Issueには最低限、次を記録する。
 
 - 編集してよいファイル / ディレクトリ
