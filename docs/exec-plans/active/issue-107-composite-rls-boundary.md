@@ -28,7 +28,8 @@ Deliver the additive 102-3C boundary in which:
 - composite candidate keys and foreign keys reject cross-project combinations
 - authenticated access requires the accepted active membership predicate from
   102-3B and cannot leak another tenant through UUID, slug, list, filter, count,
-  pagination, JOIN, multi-hop, or helper-function calls
+  pagination, JOIN, multi-hop, or helper-function calls; it never inherits the
+  anon demo/local exception
 - anonymous access is limited to `is_demo = true` organizations whose
   `data_environment` is `demo` or `local`
 - customer browser roles have no write access, raw measurement/provider access,
@@ -178,8 +179,10 @@ run-derived project; global AI model scopes remain global.
 
 All exposed public tables retain RLS. Project-owned policies use direct
 `project_id` after composite integrity is established. Organization/project
-helpers derive ownership from stored rows and accepted active membership.
-Membership SELECT is reduced to the authenticated actor's own effective row.
+helpers branch on auth context: anon callers can use only the explicit demo/local
+predicate, while authenticated callers must satisfy stored accepted active
+membership. Membership SELECT is reduced to the authenticated actor's own
+effective row.
 
 `authenticated` receives:
 
@@ -194,7 +197,8 @@ must consume it.
 `anon` keeps the legacy demo read path for the current local/demo dashboard, but
 RLS restricts every tenant row to an organization with both `is_demo = true`
 and `data_environment in ('demo', 'local')`. Anonymous access never reaches
-production/non-demo tenant rows.
+production/non-demo tenant rows. The demo/local exception is not granted to an
+authenticated customer without an accepted active membership.
 
 Neither browser role receives INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES,
 TRIGGER, or sequence privileges, and no browser write policy is created.
@@ -327,6 +331,7 @@ Rollback is roll-forward and additive:
 | 2026-07-30 | Use DB RLS as the Phase 8 authorization contract | Avoids premature route/UI work and prevents service role from becoming actor identity |
 | 2026-07-30 | Reassert the existing admin boundary without adding operator identity | 102-3E owns operator permission and audit foundations |
 | 2026-07-30 | Proceed through the manual migration commit gate | `recora:commit-check` passed preflight and raised its expected migration-only FAIL; the Issue body explicitly approves this exact R3 migration execution and commit |
+| 2026-07-30 | Separate authenticated and anon tenant predicates | Authenticated customer context requires accepted active membership; anon context alone may use demo/local compatibility |
 
 ## Results and remaining risks
 
@@ -351,6 +356,7 @@ Current implementation results:
   the approved three-file set
 - commit-check passes preflight and reports the expected single manual migration
   gate; the Issue body's explicit R3 Execute approval supplies human authority
+- explicit helper assertions for demo allow and production deny
 
 Remaining risks and intentionally deferred work:
 

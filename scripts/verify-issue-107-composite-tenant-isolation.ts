@@ -1008,13 +1008,20 @@ begin
   if (
     select count(*) from public.projects
     where slug like 'issue-107-project-%'
-  ) <> 2 then
-    raise exception 'Issue 107 RLS failed: list/count should contain only A and demo';
+  ) <> 1 or exists (
+    select 1 from public.projects
+    where id = '10720000-0000-4000-8000-000000000003'
+  ) then
+    raise exception 'Issue 107 RLS failed: authenticated active A must see only A';
   end if;
 
   if exists (
     select 1 from public.projects
     where organization_id = '10710000-0000-4000-8000-000000000002'
+  ) or recora_private.can_read_project(
+    '10720000-0000-4000-8000-000000000003'
+  ) or recora_private.can_read_organization(
+    '10710000-0000-4000-8000-000000000003'
   ) then
     raise exception 'Issue 107 RLS failed: organization filter leaks tenant B';
   end if;
@@ -1151,9 +1158,16 @@ begin
     where id = '10720000-0000-4000-8000-000000000002'
   ) <> 1 or exists (
     select 1 from public.projects
-    where id = '10720000-0000-4000-8000-000000000001'
+    where id in (
+      '10720000-0000-4000-8000-000000000001',
+      '10720000-0000-4000-8000-000000000003'
+    )
+  ) or recora_private.can_read_project(
+    '10720000-0000-4000-8000-000000000003'
+  ) or recora_private.can_read_organization(
+    '10710000-0000-4000-8000-000000000003'
   ) then
-    raise exception 'Issue 107 RLS failed: active B boundary is incorrect';
+    raise exception 'Issue 107 RLS failed: authenticated active B must see only B';
   end if;
 end;
 $verify_active_b$;
@@ -1167,7 +1181,14 @@ do $verify_invited$
 begin
   if exists (
     select 1 from public.projects
-    where id = '10720000-0000-4000-8000-000000000001'
+    where id in (
+      '10720000-0000-4000-8000-000000000001',
+      '10720000-0000-4000-8000-000000000003'
+    )
+  ) or recora_private.can_read_project(
+    '10720000-0000-4000-8000-000000000003'
+  ) or recora_private.can_read_organization(
+    '10710000-0000-4000-8000-000000000003'
   ) then
     raise exception 'Issue 107 RLS failed: invited membership was accepted';
   end if;
@@ -1183,7 +1204,14 @@ do $verify_suspended$
 begin
   if exists (
     select 1 from public.projects
-    where id = '10720000-0000-4000-8000-000000000001'
+    where id in (
+      '10720000-0000-4000-8000-000000000001',
+      '10720000-0000-4000-8000-000000000003'
+    )
+  ) or recora_private.can_read_project(
+    '10720000-0000-4000-8000-000000000003'
+  ) or recora_private.can_read_organization(
+    '10710000-0000-4000-8000-000000000003'
   ) then
     raise exception 'Issue 107 RLS failed: suspended membership was accepted';
   end if;
@@ -1199,7 +1227,14 @@ do $verify_revoked$
 begin
   if exists (
     select 1 from public.projects
-    where id = '10720000-0000-4000-8000-000000000001'
+    where id in (
+      '10720000-0000-4000-8000-000000000001',
+      '10720000-0000-4000-8000-000000000003'
+    )
+  ) or recora_private.can_read_project(
+    '10720000-0000-4000-8000-000000000003'
+  ) or recora_private.can_read_organization(
+    '10710000-0000-4000-8000-000000000003'
   ) then
     raise exception 'Issue 107 RLS failed: revoked membership was accepted';
   end if;
@@ -1218,10 +1253,15 @@ begin
     where id in (
       '10720000-0000-4000-8000-000000000001',
       '10720000-0000-4000-8000-000000000002',
+      '10720000-0000-4000-8000-000000000003',
       '10720000-0000-4000-8000-000000000004'
     )
+  ) or recora_private.can_read_project(
+    '10720000-0000-4000-8000-000000000003'
+  ) or recora_private.can_read_organization(
+    '10710000-0000-4000-8000-000000000003'
   ) then
-    raise exception 'Issue 107 RLS failed: actor without membership read production tenant';
+    raise exception 'Issue 107 RLS failed: actor without active membership read a tenant';
   end if;
 end;
 $verify_missing$;
@@ -1238,7 +1278,19 @@ begin
   ) <> 1 or (
     select id from public.projects
     where slug like 'issue-107-project-%'
-  ) <> '10720000-0000-4000-8000-000000000003'::uuid then
+  ) <> '10720000-0000-4000-8000-000000000003'::uuid
+    or not recora_private.can_read_project(
+      '10720000-0000-4000-8000-000000000003'
+    )
+    or not recora_private.can_read_organization(
+      '10710000-0000-4000-8000-000000000003'
+    )
+    or recora_private.can_read_project(
+      '10720000-0000-4000-8000-000000000001'
+    )
+    or recora_private.can_read_organization(
+      '10710000-0000-4000-8000-000000000001'
+    ) then
     raise exception 'Issue 107 anon boundary failed: only local/demo project should be visible';
   end if;
 
