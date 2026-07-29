@@ -1628,7 +1628,11 @@ function OverviewContextStrip({ range }: { range: ReportRange }) {
   const totalObservedPrompts = dashboardQuestionCount * activeModels.length * 30;
 
   return (
-    <section className="min-w-0 border-y border-[#C7D6CF] bg-white" aria-label="レポートの計測条件">
+    <section
+      className="min-w-0 border-y border-[#C7D6CF] bg-white"
+      aria-label="レポートの計測条件"
+      data-overview-context
+    >
       <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-1 border-b border-[#E2E9E6] px-4 py-2.5 text-[12px] font-semibold text-[#52625C] sm:px-6">
         <span>集計期間 <strong className="ml-1 font-bold tabular-nums text-[#17372E]">{range}</strong></span>
         <span>最終計測日 <strong className="ml-1 font-bold tabular-nums text-[#17372E]">2026/07/06</strong></span>
@@ -1679,9 +1683,13 @@ function OverviewPrimarySummary() {
   ];
 
   return (
-    <section className="min-w-0 border-y border-[#BFD2C9] bg-[#F4F8F6]" aria-label="総合スコアと主要KPI">
+    <section
+      className="min-w-0 border-y border-[#BFD2C9] bg-[#F4F8F6]"
+      aria-label="総合スコアと主要KPI"
+      data-overview-summary
+    >
       <div className="grid min-w-0 lg:grid-cols-[minmax(410px,0.95fr)_minmax(0,1.55fr)]">
-        <article className="min-w-0 px-5 py-7 sm:px-7 lg:border-r lg:border-[#CBD8D2] lg:py-8">
+        <article className="min-w-0 px-5 py-7 sm:px-7 lg:border-r lg:border-[#CBD8D2] lg:py-8" data-overview-score-card>
           <div className="flex min-w-0 flex-col items-start gap-6 sm:flex-row sm:items-center lg:flex-col lg:items-start xl:flex-row xl:items-center">
             <div className="relative grid h-[164px] w-[164px] shrink-0 place-items-center" aria-label={`総合スコア ${score}点`}>
               <svg viewBox="0 0 140 140" className="absolute inset-0 h-full w-full -rotate-90 overflow-visible" aria-hidden="true">
@@ -1704,7 +1712,7 @@ function OverviewPrimarySummary() {
           </div>
         </article>
 
-        <article className="min-w-0 border-t border-[#CBD8D2] bg-white px-5 py-7 sm:px-7 lg:border-t-0 lg:py-8">
+        <article className="min-w-0 border-t border-[#CBD8D2] bg-white px-5 py-7 sm:px-7 lg:border-t-0 lg:py-8" data-overview-trend-card>
           <div className="flex items-end justify-between gap-4">
             <div>
               <h2 className="text-[20px] font-bold tracking-[-0.02em] text-[#101828]">総合スコア推移</h2>
@@ -1732,9 +1740,13 @@ function OverviewPrimarySummary() {
         </article>
       </div>
 
-      <div className="grid min-w-0 border-t border-[#CBD8D2] sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid min-w-0 border-t border-[#CBD8D2] sm:grid-cols-2 xl:grid-cols-4" data-overview-metrics>
         {metrics.map((metric, index) => (
-          <article key={metric.label} className={cn("min-w-0 bg-white px-5 py-5 sm:px-6", index > 0 && "border-t border-[#E1E8E5] sm:border-l", index === 1 && "sm:border-t-0", index >= 2 && "xl:border-t-0")}>
+          <article
+            key={metric.label}
+            className={cn("min-w-0 bg-white px-5 py-5 sm:px-6", index > 0 && "border-t border-[#E1E8E5] sm:border-l", index === 1 && "sm:border-t-0", index >= 2 && "xl:border-t-0")}
+            data-overview-metric
+          >
             <div className="flex min-w-0 items-center gap-1.5">
               <h3 className="text-[12px] font-bold leading-5 text-[#52625C] sm:text-[13px]">{metric.label}</h3>
               <ReportHelpTooltip text={metric.definition} label={`${metric.label}の定義`} triggerLabel="定義" />
@@ -1748,66 +1760,112 @@ function OverviewPrimarySummary() {
   );
 }
 
-function OverviewBrandRankingTable() {
-  const self = competitors.find((brand) => brand.isPrimary) ?? competitors[0];
-  const topCompetitors = competitors.filter((brand) => !brand.isPrimary).sort((a, b) => b.aiPresence - a.aiPresence).slice(0, 5);
-  const rows = [self, ...topCompetitors];
-
-  return (
-    <div className="min-w-0">
-      <div className="hidden grid-cols-[64px_minmax(220px,1fr)_minmax(220px,0.9fr)] border-b border-[#DDE5E1] bg-[#F6F9F7] text-[11px] font-bold tracking-[0.04em] text-[#5D6B66] sm:grid">
-        <span className="px-5 py-3 text-center">順位</span>
-        <span className="px-5 py-3">ブランド</span>
-        <span className="px-5 py-3">AI表示率</span>
-      </div>
-      <div className="divide-y divide-[#E2E8E5]">
-        {rows.map((row, index) => (
-          <div key={row.id} className={cn("grid min-w-0 grid-cols-[42px_minmax(0,1fr)] items-center gap-x-3 px-4 py-4 sm:grid-cols-[44px_minmax(220px,1fr)_minmax(220px,0.9fr)] sm:px-5", row.isPrimary ? "bg-[#ECF6F1]" : "bg-white", index === 1 && "border-t-2 border-t-[#B8CCC3]")}>
-            <span className="text-center text-[16px] font-semibold tabular-nums text-[#243A32]">{row.rank}</span>
-            <span className="flex min-w-0 items-center gap-2.5">
-              <EntityIdentity name={row.name} logoUrl={row.logoUrl} compact />
-              {row.isPrimary ? <DataRichBadge tone="green">自社</DataRichBadge> : null}
-            </span>
-            <div className="col-start-2 mt-3 min-w-0 sm:col-start-auto sm:mt-0">
-              <span className="mb-1.5 block text-[10px] font-bold text-[#65736E] sm:hidden">AI表示率</span>
-              <DataRichInlineBar value={row.aiPresence} label={`${row.aiPresence}%`} fillClassName={row.isPrimary ? "bg-[#0B6B57]" : "bg-[#8AA89B]"} />
+function OverviewBrandRankingScale() {
+  const rows = [...competitors].sort((a, b) => a.rank - b.rank).slice(0, 6);
+    return (
+      <div className="min-w-0 bg-white px-5 py-5 sm:px-6">
+        <div className="hidden min-w-0 grid-cols-[44px_minmax(150px,220px)_minmax(0,1fr)_52px] items-end gap-3 border-b border-[#DCE5E1] pb-3 sm:grid">
+          <span className="text-center text-[10px] font-bold tracking-[0.04em] text-[#65736E]">順位</span>
+          <span className="text-[10px] font-bold tracking-[0.04em] text-[#65736E]">ブランド</span>
+          <span className="grid grid-cols-5 text-center text-[10px] font-semibold tabular-nums text-[#8A9792]" aria-hidden="true">
+            {[0, 20, 40, 60, 80].map((value) => <span key={value}>{value}</span>)}
+          </span>
+          <span className="text-right text-[10px] font-bold tracking-[0.04em] text-[#65736E]">表示率</span>
+        </div>
+        <div className="divide-y divide-[#E3E9E6]">
+          {rows.map((row) => (
+            <div
+              key={row.id}
+              className={cn(
+                "grid min-w-0 grid-cols-[38px_minmax(0,1fr)_48px] items-center gap-3 py-4 sm:grid-cols-[44px_minmax(150px,220px)_minmax(0,1fr)_52px]",
+                row.isPrimary && "relative before:absolute before:inset-y-2 before:-left-2 before:w-1 before:rounded-full before:bg-[#0B6B57]"
+              )}
+            >
+              <span className="col-start-1 row-start-1 text-center text-[15px] font-semibold tabular-nums text-[#243A32]">{row.rank}</span>
+              <span className="col-start-2 row-start-1 flex min-w-0 items-center gap-2.5">
+                <EntityIdentity name={row.name} logoUrl={row.logoUrl} compact />
+                {row.isPrimary ? <DataRichBadge tone="green">自社</DataRichBadge> : null}
+              </span>
+              <div className="col-span-2 col-start-2 row-start-2 mt-1 min-w-0 sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:mt-0">
+                <div className="relative h-3 overflow-hidden rounded-sm bg-[#EDF2F0]">
+                  <div
+                    className={cn("h-full rounded-sm", row.isPrimary ? "bg-[#0B6B57]" : "bg-[#9AAEA5]")}
+                    style={{ width: `${Math.min(100, (row.aiPresence / 80) * 100)}%` }}
+                  />
+                  <span className="pointer-events-none absolute inset-0 grid grid-cols-4" aria-hidden="true">
+                    {[1, 2, 3].map((line) => <span key={line} className="border-r border-white/70" />)}
+                    <span />
+                  </span>
+                </div>
+              </div>
+              <span className={cn(
+                "col-start-3 row-start-1 text-right text-[15px] font-semibold tabular-nums sm:col-start-4",
+                row.isPrimary ? "text-[#075E44]" : "text-[#101828]"
+              )}>
+                {row.aiPresence}%
+              </span>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-    </div>
-  );
+    );
 }
 
 function OverviewPage({ context }: { context: PageContext }) {
   return (
-    <DashboardFrame
-      context={context}
-      enableDetailDrawer={false}
-      eyebrow="ダッシュボード概要"
-      title="ダッシュボード概要"
-      description="AI検索上の現在地と、前日からの重要な変化を確認します。"
-      scopeMode="none"
-      primaryContent={(
-        <div className="min-w-0 space-y-7">
-          <OverviewContextStrip range={context.range} />
-          <OverviewPrimarySummary />
+    <div className="min-w-0" data-recora-overview>
+      <DashboardFrame
+        context={context}
+        enableDetailDrawer={false}
+        eyebrow="ダッシュボード概要"
+        title="ダッシュボード概要"
+        description="AI検索上の現在地と、前日からの重要な変化を確認します。"
+        scopeMode="none"
+        primaryContent={(
+          <div className="min-w-0 space-y-7" data-overview-primary>
+            <OverviewContextStrip range={context.range} />
+            <OverviewPrimarySummary />
+          </div>
+        )}
+      >
+        <div className="min-w-0" data-overview-ranking>
+          <DataRichPanel
+            title="ブランドランキング"
+            description="主要6ブランドのAI表示率を比較します。"
+            bodyClassName="p-0"
+            className="overflow-hidden rounded-[6px] border-[#C7D5CF]"
+            variant="evidence"
+          >
+            <OverviewBrandRankingScale />
+          </DataRichPanel>
         </div>
-      )}
-    >
-      <DataRichPanel title="ブランドランキング" bodyClassName="p-0" variant="evidence">
-        <OverviewBrandRankingTable />
-      </DataRichPanel>
 
-      <div className="min-w-0 space-y-7">
-        <DataRichPanel title="AIモデル別比較" bodyClassName="p-0" variant="comparison">
-          <OverviewModelSummaryTable />
-        </DataRichPanel>
-        <DataRichPanel title="重要な前日差" variant="trend">
-          <ChangeLog reportBase={context.reportBase} />
-        </DataRichPanel>
-      </div>
-    </DashboardFrame>
+        <div className="min-w-0 space-y-7">
+          <div className="min-w-0" data-overview-model-comparison>
+            <DataRichPanel
+              title="AIモデル別比較"
+              description="4つのAIモデルを同じ4指標で比較します。"
+              bodyClassName="p-0"
+              className="overflow-hidden rounded-[6px] border-[#C7D5CF]"
+              variant="comparison"
+            >
+              <OverviewModelComparisonLanes />
+            </DataRichPanel>
+          </div>
+          <div className="min-w-0" data-overview-change>
+            <DataRichPanel
+              title="重要な前日差"
+              description="前日と同じ条件で比較できる変化を表示します。"
+              bodyClassName="p-0"
+              className="overflow-hidden rounded-[6px] border-[#C7D5CF]"
+              variant="trend"
+            >
+              <ChangeLog reportBase={context.reportBase} />
+            </DataRichPanel>
+          </div>
+        </div>
+      </DashboardFrame>
+    </div>
   );
 }
 
@@ -9354,64 +9412,101 @@ function HorizontalBars({ rows, metric = "AI表示率" }: { rows: { label: strin
   );
 }
 
-function OverviewModelSummaryTable() {
-  const best = {
-    aiPresence: Math.max(...activeModels.map((model) => model.aiPresence)),
-    sov: Math.max(...activeModels.map((model) => model.sov)),
-    citationRate: Math.max(...activeModels.map((model) => model.citationRate)),
-    averagePosition: Math.min(...activeModels.map((model) => model.averagePosition))
-  };
-  const valueClass = (isBest: boolean) => cn(
-    "mt-1 text-[18px] font-semibold tabular-nums md:mt-0 md:text-[17px]",
-    isBest ? "font-bold text-[#075E44]" : "text-[#101828]"
-  );
+function OverviewModelComparisonLanes() {
+  const metrics = [
+    {
+      id: "ai-presence",
+      label: "AI表示率",
+      helper: "AI回答に自社が表示された割合",
+      read: (model: (typeof activeModels)[number]) => model.aiPresence,
+      format: (value: number) => `${value}%`,
+      width: (value: number) => value,
+      best: Math.max(...activeModels.map((model) => model.aiPresence))
+    },
+    {
+      id: "sov",
+      label: "AI内シェア（SOV）",
+      helper: "比較ブランドの掲載量に占める割合",
+      read: (model: (typeof activeModels)[number]) => model.sov,
+      format: (value: number) => `${value}%`,
+      width: (value: number) => value,
+      best: Math.max(...activeModels.map((model) => model.sov))
+    },
+    {
+      id: "citation-rate",
+      label: "公式サイト引用率",
+      helper: "公式サイトが引用された割合",
+      read: (model: (typeof activeModels)[number]) => model.citationRate,
+      format: (value: number) => `${value}%`,
+      width: (value: number) => value,
+      best: Math.max(...activeModels.map((model) => model.citationRate))
+    },
+    {
+      id: "average-position",
+      label: "平均掲載位置",
+      helper: "1位に近いほどバーが長い",
+      read: (model: (typeof activeModels)[number]) => model.averagePosition,
+      format: (value: number) => `${value}位`,
+      width: (value: number) => Math.max(0, Math.min(100, ((5 - value) / 4) * 100)),
+      best: Math.min(...activeModels.map((model) => model.averagePosition))
+    }
+  ];
 
-  return (
-    <div className="min-w-0 overflow-hidden border-y border-[#DDE5E1] bg-white">
-      <div
-        aria-hidden="true"
-        className="hidden grid-cols-[minmax(210px,1.25fr)_repeat(4,minmax(110px,0.72fr))] border-b border-[#DDE5E1] bg-[#F6F9F7] text-[11px] font-bold tracking-[0.04em] text-[#5D6B66] md:grid"
-      >
-        <span className="px-5 py-3">AIモデル</span>
-        <span className="border-l border-[#DDE5E1] px-4 py-3 text-right">AI表示率</span>
-        <span className="border-l border-[#DDE5E1] px-4 py-3 text-right">AI内シェア（SOV）</span>
-        <span className="border-l border-[#DDE5E1] px-4 py-3 text-right">公式サイト引用率</span>
-        <span className="border-l border-[#DDE5E1] px-4 py-3 text-right">平均掲載位置</span>
-      </div>
-
-      <div className="divide-y divide-[#E5EAE8]">
-        {activeModels.map((model) => (
+    return (
+      <div className="grid min-w-0 bg-white lg:grid-cols-2">
+        {metrics.map((metric, metricIndex) => (
           <section
-            key={model.name}
-            aria-label={model.name + "の指標"}
-            className="min-w-0 px-4 py-4 sm:px-5 md:grid md:min-h-[76px] md:grid-cols-[minmax(210px,1.25fr)_repeat(4,minmax(110px,0.72fr))] md:items-stretch md:p-0"
+            key={metric.id}
+            className={cn(
+              "min-w-0 px-5 py-5 sm:px-6 sm:py-6",
+              metricIndex > 0 && "border-t border-[#DCE5E1]",
+              metricIndex === 1 && "lg:border-l lg:border-t-0",
+              metricIndex === 2 && "lg:border-t",
+              metricIndex === 3 && "lg:border-l"
+            )}
+            aria-labelledby={`overview-model-lane-${metric.id}`}
           >
-            <div className="flex min-w-0 items-center md:px-5">
-              <ModelIdentity name={model.name} />
+            <div className="flex min-w-0 items-start justify-between gap-4 border-b border-[#E3E9E6] pb-4">
+              <div className="min-w-0">
+                <h3 id={`overview-model-lane-${metric.id}`} className="text-[14px] font-bold text-[#101828]">
+                  {metric.label}
+                </h3>
+                <p className="mt-1 text-[11px] font-semibold leading-5 text-[#667085]">{metric.helper}</p>
+              </div>
+              <span className="shrink-0 rounded-md border border-[#C9D9D2] bg-[#F1F7F4] px-2 py-1 text-[10px] font-bold text-[#075E44]">
+                モデル比較
+              </span>
             </div>
-            <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-4 md:contents">
-              <div className="min-w-0 md:flex md:items-center md:justify-end md:border-l md:border-[#E5EAE8] md:px-4">
-                <dt className="text-[10px] font-bold text-[#667085] md:sr-only">AI表示率</dt>
-                <dd className={valueClass(model.aiPresence === best.aiPresence)}>{model.aiPresence}%</dd>
-              </div>
-              <div className="min-w-0 md:flex md:items-center md:justify-end md:border-l md:border-[#E5EAE8] md:px-4">
-                <dt className="text-[10px] font-bold text-[#667085] md:sr-only">AI内シェア（SOV）</dt>
-                <dd className={valueClass(model.sov === best.sov)}>{model.sov}%</dd>
-              </div>
-              <div className="min-w-0 md:flex md:items-center md:justify-end md:border-l md:border-[#E5EAE8] md:px-4">
-                <dt className="text-[10px] font-bold text-[#667085] md:sr-only">公式サイト引用率</dt>
-                <dd className={valueClass(model.citationRate === best.citationRate)}>{model.citationRate}%</dd>
-              </div>
-              <div className="min-w-0 md:flex md:items-center md:justify-end md:border-l md:border-[#E5EAE8] md:px-4">
-                <dt className="text-[10px] font-bold text-[#667085] md:sr-only">平均掲載位置</dt>
-                <dd className={valueClass(model.averagePosition === best.averagePosition)}>{model.averagePosition}位</dd>
-              </div>
-            </dl>
+            <div className="mt-4 space-y-4">
+              {activeModels.map((model) => {
+                const value = metric.read(model);
+                const isBest = value === metric.best;
+
+                return (
+                  <div key={model.name} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(120px,0.85fr)_minmax(0,1fr)_52px] sm:gap-3">
+                    <span className="min-w-0 whitespace-nowrap">
+                      <ModelIdentity name={model.name} compact />
+                    </span>
+                    <span className="relative col-span-2 row-start-2 h-2.5 min-w-0 overflow-hidden rounded-sm bg-[#EDF2F0] sm:col-span-1 sm:col-start-2 sm:row-start-1" aria-hidden="true">
+                      <span
+                        className={cn("block h-full rounded-sm", isBest ? "bg-[#0B6B57]" : "bg-[#9AAEA5]")}
+                        style={{ width: `${metric.width(value)}%` }}
+                      />
+                    </span>
+                    <span className={cn(
+                      "col-start-2 row-start-1 text-right text-[14px] font-semibold tabular-nums sm:col-start-3",
+                      isBest ? "font-bold text-[#075E44]" : "text-[#101828]"
+                    )}>
+                      {metric.format(value)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </section>
         ))}
       </div>
-    </div>
-  );
+    );
 }
 
 function ModelSummaryTable({ highlightedProvider = "全モデル" }: { highlightedProvider?: ReportProvider }) {
@@ -10976,20 +11071,54 @@ function ChangeLog({ reportBase }: { reportBase: string }) {
       detailHref: `${reportBase}/prompts`, detailLabel: "該当プロンプトを全件で確認"
     } }
   ];
-  return (
-    <div className="divide-y divide-[#DDE5E1] border-y border-[#DDE5E1]">
-      {rows.map(({ kind, label, delta }) => (
-        <div key={label} className="grid min-w-0 gap-3 py-4 sm:grid-cols-[80px_minmax(0,1fr)_90px_auto] sm:items-center">
-          <DataRichBadge tone={kind === "上昇" ? "green" : kind === "低下" ? "red" : "amber"}>{kind}</DataRichBadge>
-          <p className="text-[14px] font-semibold leading-6 text-[#0F172A]">{label}</p>
-          <span className="text-lg font-semibold tabular-nums text-[#0F172A] sm:text-right">{delta}</span>
-          <Link href={`${reportBase}/trends`} className="inline-flex min-h-10 items-center justify-center border border-[#D7E0DC] bg-white px-3 text-[12px] font-bold text-[#075E44] transition hover:border-[#8EB4A7] hover:bg-[#F4F8F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B382D] focus-visible:ring-offset-2">
-            変化の内訳
-          </Link>
+    const largestDelta = Math.max(...rows.map((row) => Math.abs(Number.parseInt(row.delta, 10))));
+
+    return (
+      <div className="min-w-0 divide-y divide-[#DCE5E1] bg-white">
+        <div className="hidden grid-cols-[minmax(190px,0.9fr)_minmax(280px,1.5fr)_72px_auto] items-center gap-5 bg-[#F6F9F7] px-5 py-3 text-[10px] font-bold tracking-[0.06em] text-[#667085] sm:grid sm:px-6">
+          <span>変化項目</span>
+          <span className="grid grid-cols-2">
+            <span className="text-right">低下</span>
+            <span className="text-right">上昇</span>
+          </span>
+          <span className="text-right">前日差</span>
+          <span className="sr-only">操作</span>
         </div>
-      ))}
-    </div>
-  );
+        {rows.map(({ kind, label, delta }) => {
+          const numericDelta = Number.parseInt(delta, 10);
+          const width = `${(Math.abs(numericDelta) / largestDelta) * 48}%`;
+
+          return (
+            <div key={label} className="grid min-w-0 gap-3 px-5 py-4 sm:grid-cols-[minmax(190px,0.9fr)_minmax(280px,1.5fr)_72px_auto] sm:items-center sm:gap-5 sm:px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <DataRichBadge tone={kind === "上昇" ? "green" : kind === "低下" ? "red" : "amber"}>{kind}</DataRichBadge>
+                <p className="min-w-0 text-[13px] font-bold leading-5 text-[#101828]">{label}</p>
+              </div>
+              <div className="relative h-8 min-w-0" aria-hidden="true">
+                <span className="absolute inset-y-0 left-1/2 w-px bg-[#AEBDB7]" />
+                <span className="absolute left-0 top-1/2 h-px w-full bg-[#E5EAE8]" />
+                <span
+                  className={cn(
+                    "absolute top-[11px] h-2.5 rounded-sm",
+                    numericDelta > 0 ? "left-1/2 bg-[#0B6B57]" : "right-1/2 bg-[#C66A5C]"
+                  )}
+                  style={{ width }}
+                />
+              </div>
+              <span className={cn(
+                "text-right text-[16px] font-bold tabular-nums",
+                numericDelta > 0 ? "text-[#067647]" : kind === "注意" ? "text-[#A15C00]" : "text-[#B42318]"
+              )}>
+                {delta}
+              </span>
+              <Link href={`${reportBase}/trends`} className="inline-flex min-h-10 items-center justify-center border border-[#D7E0DC] bg-white px-3 text-[12px] font-bold text-[#075E44] transition hover:border-[#8EB4A7] hover:bg-[#F4F8F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B382D] focus-visible:ring-offset-2">
+                内訳
+              </Link>
+            </div>
+          );
+        })}
+      </div>
+    );
 }
 
 function WeaknessCards({ reportBase }: { reportBase: string }) {
