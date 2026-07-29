@@ -34,15 +34,15 @@ It does not create a real owner/operator, hard-code a user ID or email, add cust
 
 `recora_operator.operator_identities` maps a verified immutable `auth.users.id` to status. The migration has no seed or production registration path. `operator_action_grants` contains an action permission and an optional global, organization, or project scope; a project scope is composite-FK-bound to its organization.
 
-The private resolver denies, with a stable reason code, when identity is missing/unregistered, status is not active, action/permission is malformed, reason is blank, the organization/project target does not match authoritative project ownership, the target type is not one of the explicit foundation targets, or no active grant matches.
+The private resolver denies, with a stable reason code, when identity is missing/unregistered, status is not active, action/permission is malformed, reason is blank or unsafe, the organization/project target does not exist or does not match authoritative ownership, the target type is not one of the explicit foundation targets, or no active grant matches. Organization and project existence are checked before grant evaluation; only authoritative tenant/project IDs are copied into denied or failed audit foreign keys.
 
 The public RPC is deliberately explicit and is executable only by `service_role`. The `lib/recora/operator-authorization-audit.ts` caller is server-only, obtains the current identity through `auth.getUser()`, and passes that ID to the command boundary. Browser/customer roles have neither schema/table access nor RPC execute privilege.
 
 ## Audit and atomicity model
 
-`recora_audit.operator_events` retains operator actor (when identity resolution succeeded), tenant/project scope, action, target, permission, reason, before/after safe summaries, request/correlation IDs, time, outcome, and failure reason. Recursive summary validation blocks secret-shaped keys and common credential-shaped values. The event table rejects update and delete through triggers; customer roles have no table privileges, and corrections are separate events. Truncate remains available only to local reset/owner maintenance so fresh seeded replay can rebuild dependent demo tables.
+`recora_audit.operator_events` retains operator actor (when identity resolution succeeded), tenant/project scope, action, target, permission, reason, before/after safe summaries, request/correlation IDs, time, outcome, and failure reason. Database and server-only TypeScript validation use the same bounded allowlist-shaped contract: opaque safe keys, bounded bytes/depth/array size, and rejection of email/phone, cookie/session/auth claims, raw request/response/provider payloads, database URLs, private keys, JWTs, and representative API tokens. Unsafe reason or summary input is denied without retaining the raw value. Active grants use a partial unique index so revoked rows remain history and a new grant can be issued. The event table rejects update and delete through triggers; customer roles have no table privileges, and corrections are separate events. Truncate remains available only to local reset/owner maintenance so fresh seeded replay can rebuild dependent demo tables.
 
-The foundation command writes a success audit event and immutable command receipt in one database function/transaction. Its test failure path rolls back the receipt and initial success event, then records a separate `failed` event. This establishes the primitive for future explicit business commands: each must perform its own business mutation and audit insert in one RPC transaction; generic table-mutation RPCs are not introduced.
+The foundation command writes a success audit event and immutable command receipt in one database function/transaction. The production RPC has no test-only failure parameter; the verifier creates a temporary local trigger inside its rollback transaction to force receipt failure, proving the receipt and initial success event roll back while a separate failed event remains. This establishes the primitive for future explicit business commands: each must perform its own business mutation and audit insert in one RPC transaction; generic table-mutation RPCs are not introduced.
 
 ## Local verification and isolation
 
@@ -54,6 +54,8 @@ Required checks:
 2. migration replay/idempotency, migration list, and advisors;
 3. 102-3E dedicated fixture; 102-3A and 102-3B regressions;
 4. preflight, typecheck, lint, build, diff, commit-check, scope, and lockfile/secret checks.
+
+The correction verifier additionally covers nonexistent organization/project and unregistered-operator denials, safe audit reason/summary rejection across nested arrays and values, active duplicate rejection plus revoke/regrant history, and customer-role RPC privilege denial.
 
 ## Rollback
 

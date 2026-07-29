@@ -62,6 +62,11 @@ assert.match(migrationSql, /create schema if not exists recora_audit/i);
 assert.match(migrationSql, /auth_user_id uuid not null unique references auth\.users\(id\)/i);
 assert.match(migrationSql, /'active',\s*'suspended',\s*'revoked'/i);
 assert.match(migrationSql, /operator_action_grants_project_scope_fkey/i);
+assert.match(migrationSql, /create unique index operator_action_grants_effective_scope_unique[\s\S]*where revoked_at is null/i);
+assert.match(migrationSql, /is_safe_audit_reason/i);
+assert.match(migrationSql, /target_organization_not_found/i);
+assert.match(migrationSql, /target_project_not_found/i);
+assert.doesNotMatch(migrationSql, /p_simulate_failure|simulate_failure|simulated operator command failure/i);
 assert.match(migrationSql, /recora_audit\.operator_events/i);
 assert.match(migrationSql, /before update or delete on recora_audit\.operator_events/i);
 assert.match(migrationSql, /security definer\s+set search_path = ''/i);
@@ -89,13 +94,13 @@ begin
     raise exception 'Issue 109 command boundary is missing or unhardened';
   end if;
 
-  if has_function_privilege('anon', 'public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb, boolean)', 'EXECUTE')
-    or has_function_privilege('authenticated', 'public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb, boolean)', 'EXECUTE')
+  if has_function_privilege('anon', 'public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb)', 'EXECUTE')
+    or has_function_privilege('authenticated', 'public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb)', 'EXECUTE')
   then
     raise exception 'Issue 109 command boundary is reachable by a customer role';
   end if;
 
-  if not has_function_privilege('service_role', 'public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb, boolean)', 'EXECUTE') then
+  if not has_function_privilege('service_role', 'public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb)', 'EXECUTE') then
     raise exception 'Issue 109 service-role command grant is missing';
   end if;
 
@@ -168,12 +173,39 @@ values
 insert into recora_operator.operator_action_grants (operator_id, permission, organization_id, project_id)
 values
   ('10930000-0000-4000-8000-000000000001', 'operator.audit.foundation', '10910000-0000-4000-8000-000000000001', null),
+  ('10930000-0000-4000-8000-000000000001', 'operator.audit.foundation', null, null),
   ('10930000-0000-4000-8000-000000000002', 'operator.audit.foundation', '10910000-0000-4000-8000-000000000001', '10920000-0000-4000-8000-000000000001');
 
 do $verify$
 declare
   result_row record;
+  regrant_id uuid;
 begin
+  insert into recora_operator.operator_action_grants (operator_id, permission, organization_id, project_id)
+  values ('10930000-0000-4000-8000-000000000001', 'operator.audit.regrant', '10910000-0000-4000-8000-000000000001', null)
+  returning id into regrant_id;
+
+  begin
+    insert into recora_operator.operator_action_grants (operator_id, permission, organization_id, project_id)
+    values ('10930000-0000-4000-8000-000000000001', 'operator.audit.regrant', '10910000-0000-4000-8000-000000000001', null);
+    raise exception 'Issue 109 active duplicate grant was accepted';
+  exception
+    when unique_violation then
+      null;
+  end;
+
+  update recora_operator.operator_action_grants
+  set revoked_at = now(), revoked_reason_code = 'issue_109_regrant_test'
+  where id = regrant_id;
+
+  insert into recora_operator.operator_action_grants (operator_id, permission, organization_id, project_id)
+  values ('10930000-0000-4000-8000-000000000001', 'operator.audit.regrant', '10910000-0000-4000-8000-000000000001', null);
+
+  if (select count(*) from recora_operator.operator_action_grants where operator_id = '10930000-0000-4000-8000-000000000001' and permission = 'operator.audit.regrant') <> 2
+    or (select count(*) from recora_operator.operator_action_grants where operator_id = '10930000-0000-4000-8000-000000000001' and permission = 'operator.audit.regrant' and revoked_at is null) <> 1 then
+    raise exception 'Issue 109 revoked grant history or regrant uniqueness is incorrect';
+  end if;
+
   select * into result_row
   from public.recora_operator_execute_authorized_command_receipt(
     '10900000-0000-4000-8000-000000000001',
@@ -225,6 +257,66 @@ begin
   );
   if result_row.outcome <> 'denied' or result_row.failure_reason_code <> 'target_scope_mismatch' then
     raise exception 'Issue 109 wrong tenant/project was not denied';
+  end if;
+
+  select * into result_row
+  from public.recora_operator_execute_authorized_command_receipt(
+    '10900000-0000-4000-8000-000000000001',
+    'operator.audit.foundation',
+    '10910000-0000-4000-8000-000000000099',
+    null,
+    'operator.audit.foundation',
+    'organization',
+    '10910000-0000-4000-8000-000000000099',
+    'verify nonexistent organization with global grant',
+    '10940000-0000-4000-8000-000000000014',
+    '10950000-0000-4000-8000-000000000014'
+  );
+  if result_row.outcome <> 'denied' or result_row.failure_reason_code <> 'target_organization_not_found' then
+    raise exception 'Issue 109 nonexistent organization was not stably denied';
+  end if;
+  if (select count(*) from recora_audit.operator_events where request_id = '10940000-0000-4000-8000-000000000014' and outcome = 'denied' and organization_id is null) <> 1 then
+    raise exception 'Issue 109 nonexistent organization denial was not audited safely';
+  end if;
+
+  select * into result_row
+  from public.recora_operator_execute_authorized_command_receipt(
+    '10900000-0000-4000-8000-000000000005',
+    'operator.audit.foundation',
+    '10910000-0000-4000-8000-000000000099',
+    null,
+    'operator.audit.foundation',
+    'organization',
+    '10910000-0000-4000-8000-000000000099',
+    'verify unregistered operator nonexistent organization',
+    '10940000-0000-4000-8000-000000000015',
+    '10950000-0000-4000-8000-000000000015'
+  );
+  if result_row.outcome <> 'denied' or result_row.failure_reason_code <> 'operator_not_registered' then
+    raise exception 'Issue 109 unregistered operator was not stably denied';
+  end if;
+  if (select count(*) from recora_audit.operator_events where request_id = '10940000-0000-4000-8000-000000000015' and outcome = 'denied' and organization_id is null) <> 1 then
+    raise exception 'Issue 109 unregistered denial was not audited safely';
+  end if;
+
+  select * into result_row
+  from public.recora_operator_execute_authorized_command_receipt(
+    '10900000-0000-4000-8000-000000000001',
+    'operator.audit.foundation',
+    '10910000-0000-4000-8000-000000000001',
+    '10920000-0000-4000-8000-000000000099',
+    'operator.audit.foundation',
+    'project',
+    '10920000-0000-4000-8000-000000000099',
+    'verify nonexistent project',
+    '10940000-0000-4000-8000-000000000016',
+    '10950000-0000-4000-8000-000000000016'
+  );
+  if result_row.outcome <> 'denied' or result_row.failure_reason_code <> 'target_project_not_found' then
+    raise exception 'Issue 109 nonexistent project was not stably denied';
+  end if;
+  if (select count(*) from recora_audit.operator_events where request_id = '10940000-0000-4000-8000-000000000016' and outcome = 'denied' and organization_id = '10910000-0000-4000-8000-000000000001' and project_id is null) <> 1 then
+    raise exception 'Issue 109 nonexistent project denial was not audited with only authoritative org';
   end if;
 
   select * into result_row
@@ -328,6 +420,20 @@ begin
     raise exception 'Issue 109 unverified service capability was not denied';
   end if;
 
+  create or replace function recora_operator.issue_109_verifier_failure()
+  returns trigger
+  language plpgsql
+  set search_path = ''
+  as $failure$
+  begin
+    raise exception 'Issue 109 verifier-triggered command failure';
+  end;
+  $failure$;
+
+  create trigger issue_109_verifier_failure
+  after insert on recora_operator.operator_command_receipts
+  for each row execute function recora_operator.issue_109_verifier_failure();
+
   select * into result_row
   from public.recora_operator_execute_authorized_command_receipt(
     '10900000-0000-4000-8000-000000000001',
@@ -341,8 +447,7 @@ begin
     '10940000-0000-4000-8000-000000000009',
     '10950000-0000-4000-8000-000000000009',
     '{}'::jsonb,
-    '{}'::jsonb,
-    true
+    '{}'::jsonb
   );
   if result_row.outcome <> 'failed' or result_row.failure_reason_code <> 'command_execution_failed' then
     raise exception 'Issue 109 failed command was not audited';
@@ -355,6 +460,9 @@ begin
   if (select count(*) from recora_audit.operator_events where request_id = '10940000-0000-4000-8000-000000000009' and outcome = 'failed') <> 1 then
     raise exception 'Issue 109 failed command audit event is missing';
   end if;
+
+  drop trigger issue_109_verifier_failure on recora_operator.operator_command_receipts;
+  drop function recora_operator.issue_109_verifier_failure();
 
   select * into result_row
   from public.recora_operator_execute_authorized_command_receipt(
@@ -371,8 +479,83 @@ begin
     '{"api_key":"not-allowed"}'::jsonb,
     '{}'::jsonb
   );
-  if result_row.outcome <> 'failed' or result_row.failure_reason_code <> 'command_execution_failed' then
+  if result_row.outcome <> 'denied' or result_row.failure_reason_code <> 'summary_unsafe' then
     raise exception 'Issue 109 unsafe audit summary was not rejected';
+  end if;
+
+  select * into result_row
+  from public.recora_operator_execute_authorized_command_receipt(
+    '10900000-0000-4000-8000-000000000001',
+    'operator.audit.foundation',
+    '10910000-0000-4000-8000-000000000001',
+    null,
+    'operator.audit.foundation',
+    'organization',
+    '10910000-0000-4000-8000-000000000001',
+    'contact email@example.invalid',
+    '10940000-0000-4000-8000-000000000017',
+    '10950000-0000-4000-8000-000000000017'
+  );
+  if result_row.outcome <> 'denied' or result_row.failure_reason_code <> 'reason_unsafe' then
+    raise exception 'Issue 109 PII reason was not rejected';
+  end if;
+  if exists (select 1 from recora_audit.operator_events where request_id = '10940000-0000-4000-8000-000000000017' and reason is not null) then
+    raise exception 'Issue 109 unsafe reason was retained';
+  end if;
+
+  select * into result_row
+  from public.recora_operator_execute_authorized_command_receipt(
+    '10900000-0000-4000-8000-000000000001',
+    'operator.audit.foundation',
+    '10910000-0000-4000-8000-000000000001',
+    null,
+    'operator.audit.foundation',
+    'organization',
+    '10910000-0000-4000-8000-000000000001',
+    'credential sk-1234567890abcdef ghp_1234567890abcdef eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.signature',
+    '10940000-0000-4000-8000-000000000018',
+    '10950000-0000-4000-8000-000000000018'
+  );
+  if result_row.outcome <> 'denied' or result_row.failure_reason_code <> 'reason_unsafe' then
+    raise exception 'Issue 109 representative token reason was not rejected';
+  end if;
+
+  select * into result_row
+  from public.recora_operator_execute_authorized_command_receipt(
+    '10900000-0000-4000-8000-000000000001',
+    'operator.audit.foundation',
+    '10910000-0000-4000-8000-000000000001',
+    null,
+    'operator.audit.foundation',
+    'organization',
+    '10910000-0000-4000-8000-000000000001',
+    'verify nested summary values are blocked',
+    '10940000-0000-4000-8000-000000000019',
+    '10950000-0000-4000-8000-000000000019',
+    '{"safe":{"items":[{"value":"provider payload"}]}}'::jsonb,
+    '{}'::jsonb
+  );
+  if result_row.outcome <> 'denied' or result_row.failure_reason_code <> 'summary_unsafe' then
+    raise exception 'Issue 109 nested summary value was not rejected';
+  end if;
+
+  select * into result_row
+  from public.recora_operator_execute_authorized_command_receipt(
+    '10900000-0000-4000-8000-000000000001',
+    'operator.audit.foundation',
+    '10910000-0000-4000-8000-000000000001',
+    null,
+    'operator.audit.foundation',
+    'organization',
+    '10910000-0000-4000-8000-000000000001',
+    'verify array and bounded summary',
+    '10940000-0000-4000-8000-000000000020',
+    '10950000-0000-4000-8000-000000000020',
+    '{"items":["safe",{"session":"blocked"}]}'::jsonb,
+    jsonb_build_object('status', repeat('x', 513))
+  );
+  if result_row.outcome <> 'denied' or result_row.failure_reason_code <> 'summary_unsafe' then
+    raise exception 'Issue 109 nested array or bounded summary was not rejected';
   end if;
 
   if exists (
@@ -395,7 +578,7 @@ begin
 
   if (select count(*) from recora_audit.operator_events where outcome = 'success') < 2
     or (select count(*) from recora_audit.operator_events where outcome = 'denied') < 6
-    or (select count(*) from recora_audit.operator_events where outcome = 'failed') < 2 then
+    or (select count(*) from recora_audit.operator_events where outcome = 'failed') < 1 then
     raise exception 'Issue 109 did not preserve success, denied, and failed audit evidence';
   end if;
 end;

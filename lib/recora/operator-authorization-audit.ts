@@ -2,9 +2,17 @@ import "server-only";
 
 import { createRecoraSupabaseServerClient, createRecoraSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
-const SENSITIVE_AUDIT_KEY = /(secret|token|password|credential|authorization|cookie|database[_-]?url|api[_-]?key|private[_-]?key)/i;
-const SENSITIVE_AUDIT_VALUE = /(postgres(?:ql)?:\/\/|-----begin [a-z ]*private key-----|\b(?:sk|pk)_[a-z0-9_-]{12,})/i;
-
+const MAX_AUDIT_REASON_BYTES = 2048;
+const MAX_AUDIT_SUMMARY_BYTES = 16_384;
+const MAX_AUDIT_SUMMARY_DEPTH = 5;
+const MAX_AUDIT_SUMMARY_KEYS = 32;
+const MAX_AUDIT_SUMMARY_ARRAY_ITEMS = 64;
+const MAX_AUDIT_SUMMARY_STRING_BYTES = 512;
+const SAFE_AUDIT_KEY = /^[a-z][a-z0-9_.:-]{0,63}$/;
+const SENSITIVE_AUDIT_KEY =
+  /(^|[_.:-])(secret|token|password|credential|authorization|cookie|session|email|phone|jwt|claim|access|refresh|request|response|provider|payload|database|private|api)([_.:-]|$)/i;
+const SENSITIVE_AUDIT_VALUE =
+  /(postgres(?:ql)?:\/\/|-----begin [a-z ]*private key-----|(^|[^a-z0-9])sk-[a-z0-9_-]{12,}([^a-z0-9]|$)|(^|[^a-z0-9])ghp_[a-z0-9]{16,}([^a-z0-9]|$)|(^|[^a-z0-9])github_pat_[a-z0-9_]{16,}([^a-z0-9]|$)|(^|[^a-z0-9])eyj[a-z0-9_-]{4,}\.[a-z0-9_-]{4,}\.[a-z0-9_-]{4,}([^a-z0-9]|$)|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|(^|[^0-9])\+?[0-9][0-9 .()\-]{6,}[0-9]([^0-9]|$)|(^|[^a-z0-9])(cookie|session|authorization|auth[_ -]?claims?|jwt|access[_ -]?token|refresh[_ -]?token|raw[_ -]?(request|response)|provider[_ -]?payload|database[_ -]?url|private[_ -]?key)([^a-z0-9]|$))/i;
 export type OperatorAuditSummary = Record<string, unknown>;
 
 export type OperatorCommandInput = {
@@ -44,6 +52,7 @@ type OperatorCommandRpcRow = {
 export async function executeOperatorCommandReceipt(
   input: OperatorCommandInput,
 ): Promise<OperatorCommandResult> {
+  assertSafeAuditReason(input.reason);
   assertSafeAuditSummary(input.beforeSummary ?? {});
   assertSafeAuditSummary(input.afterSummary ?? {});
 
@@ -90,30 +99,77 @@ export async function executeOperatorCommandReceipt(
   };
 }
 
-function assertSafeAuditSummary(value: unknown): asserts value is OperatorAuditSummary {
-  if (!isSafeAuditValue(value)) {
-    throw new Error("Audit summaries must not contain credentials or raw secret material.");
+function assertSafeAuditReason(value: string): void {
+  if (!isSafeAuditReason(value)) {
+    throw new Error("Audit reasons must be short, opaque, and free of credentials or personal data.");
   }
 }
 
-function isSafeAuditValue(value: unknown): boolean {
+function isSafeAuditReason(value: string): boolean {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    new TextEncoder().encode(value).length <= MAX_AUDIT_REASON_BYTES &&
+    !SENSITIVE_AUDIT_VALUE.test(value)
+  );
+}
+
+function assertSafeAuditSummary(value: unknown): asserts value is OperatorAuditSummary {
+  if (
+    !isSafeAuditValue(value, 0, new WeakSet<object>()) ||
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    throw new Error("Audit summaries must use the bounded safe summary contract.");
+  }
+}
+
+function isSafeAuditValue(value: unknown, depth: number, seen: WeakSet<object>): boolean {
   if (value === null || typeof value === "boolean" || typeof value === "number") {
     return true;
   }
 
   if (typeof value === "string") {
-    return !SENSITIVE_AUDIT_VALUE.test(value);
-  }
-
-  if (Array.isArray(value)) {
-    return value.every(isSafeAuditValue);
-  }
-
-  if (typeof value === "object") {
-    return Object.entries(value).every(
-      ([key, nestedValue]) => !SENSITIVE_AUDIT_KEY.test(key) && isSafeAuditValue(nestedValue),
+    return (
+      new TextEncoder().encode(value).length <= MAX_AUDIT_SUMMARY_STRING_BYTES &&
+      isSafeAuditReason(value)
     );
   }
 
-  return false;
+  if (typeof value !== "object" || depth > MAX_AUDIT_SUMMARY_DEPTH) {
+    return false;
+  }
+
+  if (seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    return (
+      value.length <= MAX_AUDIT_SUMMARY_ARRAY_ITEMS &&
+      value.every((nestedValue) => isSafeAuditValue(nestedValue, depth + 1, seen))
+    );
+  }
+
+  const entries = Object.entries(value);
+  let serializedBytes: number;
+
+  try {
+    serializedBytes = new TextEncoder().encode(JSON.stringify(value)).length;
+  } catch {
+    return false;
+  }
+
+  return (
+    entries.length <= MAX_AUDIT_SUMMARY_KEYS &&
+    serializedBytes <= MAX_AUDIT_SUMMARY_BYTES &&
+    entries.every(
+      ([key, nestedValue]) =>
+        SAFE_AUDIT_KEY.test(key) &&
+        !SENSITIVE_AUDIT_KEY.test(key) &&
+        isSafeAuditValue(nestedValue, depth + 1, seen),
+    )
+  );
 }

@@ -98,13 +98,14 @@ create table if not exists recora_operator.operator_action_grants (
 comment on table recora_operator.operator_action_grants is
   'Scoped action permissions. A NULL organization/project is a deliberately provisioned broader scope, not caller-selected tenant context.';
 
-create unique index if not exists operator_action_grants_effective_scope_unique
+drop index if exists recora_operator.operator_action_grants_effective_scope_unique;
+create unique index operator_action_grants_effective_scope_unique
 on recora_operator.operator_action_grants (
   operator_id,
   permission,
   coalesce(organization_id, '00000000-0000-0000-0000-000000000000'::uuid),
   coalesce(project_id, '00000000-0000-0000-0000-000000000000'::uuid)
-);
+) where revoked_at is null;
 
 create index if not exists operator_action_grants_lookup_idx
 on recora_operator.operator_action_grants (
@@ -115,13 +116,30 @@ on recora_operator.operator_action_grants (
 )
 where revoked_at is null;
 
-create or replace function recora_audit.is_safe_audit_summary(
-  payload jsonb
+create or replace function recora_audit.is_safe_audit_reason(
+  payload text
 )
 returns boolean
 language plpgsql
 immutable
-strict
+set search_path = ''
+as $$
+begin
+  if payload is null or btrim(payload) = '' or octet_length(payload) > 2048 then
+    return false;
+  end if;
+
+  return payload !~* '(postgres(?:ql)?://|-----begin [a-z ]*private key-----|(^|[^a-z0-9])sk-[a-z0-9_-]{12,}([^a-z0-9]|$)|(^|[^a-z0-9])ghp_[a-z0-9]{16,}([^a-z0-9]|$)|(^|[^a-z0-9])github_pat_[a-z0-9_]{16,}([^a-z0-9]|$)|(^|[^a-z0-9])eyj[a-z0-9_-]{4,}\.[a-z0-9_-]{4,}\.[a-z0-9_-]{4,}([^a-z0-9]|$)|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|(^|[^0-9])\+?[0-9][0-9 .()\-]{6,}[0-9]([^0-9]|$)|(^|[^a-z0-9])(cookie|session|authorization|auth[_ -]?claims?|jwt|access[_ -]?token|refresh[_ -]?token|raw[_ -]?(request|response)|provider[_ -]?payload|database[_ -]?url|private[_ -]?key)([^a-z0-9]|$))';
+end;
+$$;
+
+create or replace function recora_audit.is_safe_audit_summary_value(
+  payload jsonb,
+  depth integer default 0
+)
+returns boolean
+language plpgsql
+immutable
 set search_path = ''
 as $$
 declare
@@ -129,15 +147,22 @@ declare
   entry_value jsonb;
   scalar_value text;
 begin
+  if payload is null or depth > 5 or octet_length(payload::text) > 16384 then
+    return false;
+  end if;
+
   if jsonb_typeof(payload) = 'object' then
+    if (select count(*) from jsonb_each(payload)) > 32 then
+      return false;
+    end if;
+
     for entry_key, entry_value in
       select key, value from jsonb_each(payload)
     loop
-      if lower(entry_key) ~ '(secret|token|password|credential|authorization|cookie|database[_-]?url|api[_-]?key|private[_-]?key)' then
-        return false;
-      end if;
-
-      if not recora_audit.is_safe_audit_summary(entry_value) then
+      if octet_length(entry_key) > 64
+        or entry_key !~ '^[a-z][a-z0-9_.:-]{0,63}$'
+        or lower(entry_key) ~ '(^|[_.:-])(secret|token|password|credential|authorization|cookie|session|email|phone|jwt|claim|access|refresh|request|response|provider|payload|database|private|api)([_.:-]|$)'
+        or not recora_audit.is_safe_audit_summary_value(entry_value, depth + 1) then
         return false;
       end if;
     end loop;
@@ -145,9 +170,13 @@ begin
   end if;
 
   if jsonb_typeof(payload) = 'array' then
+    if jsonb_array_length(payload) > 64 then
+      return false;
+    end if;
+
     for entry_value in select value from jsonb_array_elements(payload)
     loop
-      if not recora_audit.is_safe_audit_summary(entry_value) then
+      if not recora_audit.is_safe_audit_summary_value(entry_value, depth + 1) then
         return false;
       end if;
     end loop;
@@ -156,15 +185,29 @@ begin
 
   if jsonb_typeof(payload) = 'string' then
     scalar_value := payload #>> '{}';
-    return scalar_value !~* '(postgres(?:ql)?://|-----begin [a-z ]*private key-----|\b(?:sk|pk)_[a-z0-9_\-]{12,})';
+    return octet_length(scalar_value) <= 512
+      and recora_audit.is_safe_audit_reason(scalar_value);
   end if;
 
   return jsonb_typeof(payload) in ('null', 'boolean', 'number');
 end;
 $$;
 
+create or replace function recora_audit.is_safe_audit_summary(
+  payload jsonb
+)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select recora_audit.is_safe_audit_summary_value(payload, 0);
+$$;
+
+comment on function recora_audit.is_safe_audit_reason(text) is
+  'Rejects raw PII, session/auth material, request/response/provider payloads, database URLs, private keys, and representative token/JWT forms. Reasons are short opaque explanations, not raw evidence.';
 comment on function recora_audit.is_safe_audit_summary(jsonb) is
-  'Rejects credential-shaped keys and values recursively. Audit callers provide only safe summaries or hashes, never raw request, response, session, or credential material.';
+  'Allowlist-shaped recursive audit summary contract: bounded object keys, depth, array length, scalar length, and safe opaque values only. Never store raw request, response, session, provider, PII, or credential material.';
 
 create table if not exists recora_audit.operator_events (
   id uuid primary key default gen_random_uuid(),
@@ -201,6 +244,9 @@ create table if not exists recora_audit.operator_events (
     on delete restrict,
   constraint operator_events_reason_not_blank check (
     reason is null or btrim(reason) <> ''
+  ),
+  constraint operator_events_reason_safe check (
+    reason is null or recora_audit.is_safe_audit_reason(reason)
   ),
   constraint operator_events_outcome_failure_reason check (
     (outcome = 'success' and failure_reason_code is null)
@@ -361,25 +407,55 @@ begin
     return;
   end if;
 
+  if not exists (
+    select 1
+    from public.organizations organization_row
+    where organization_row.id = p_organization_id
+  ) then
+    return query select false, resolved_operator_id, 'target_organization_not_found'::text;
+    return;
+  end if;
+
   if p_target_type = 'organization' then
     if p_project_id is not null or p_target_id is distinct from p_organization_id then
       return query select false, resolved_operator_id, 'target_scope_mismatch'::text;
       return;
     end if;
   elsif p_target_type = 'project' then
-    if p_project_id is null
-      or p_target_id is distinct from p_project_id
-      or not exists (
-        select 1
-        from public.projects project_row
-        where project_row.id = p_project_id
-          and project_row.organization_id = p_organization_id
-      ) then
+    if p_project_id is null or p_target_id is distinct from p_project_id then
+      return query select false, resolved_operator_id, 'target_scope_mismatch'::text;
+      return;
+    end if;
+
+    if not exists (
+      select 1
+      from public.projects project_row
+      where project_row.id = p_project_id
+    ) then
+      return query select false, resolved_operator_id, 'target_project_not_found'::text;
+      return;
+    end if;
+
+    if not exists (
+      select 1
+      from public.projects project_row
+      where project_row.id = p_project_id
+        and project_row.organization_id = p_organization_id
+    ) then
       return query select false, resolved_operator_id, 'target_scope_mismatch'::text;
       return;
     end if;
   else
     return query select false, resolved_operator_id, 'target_type_not_supported'::text;
+    return;
+  end if;
+
+  if not recora_audit.is_safe_audit_reason(p_reason) then
+    if p_reason is null or btrim(p_reason) = '' then
+      return query select false, resolved_operator_id, 'reason_required'::text;
+    else
+      return query select false, resolved_operator_id, 'reason_unsafe'::text;
+    end if;
     return;
   end if;
 
@@ -415,8 +491,7 @@ create or replace function public.recora_operator_execute_authorized_command_rec
   p_request_id uuid,
   p_correlation_id uuid,
   p_before_summary jsonb default '{}'::jsonb,
-  p_after_summary jsonb default '{}'::jsonb,
-  p_simulate_failure boolean default false
+  p_after_summary jsonb default '{}'::jsonb
 )
 returns table (
   audit_event_id uuid,
@@ -430,11 +505,21 @@ as $$
 declare
   authorization_result record;
   created_audit_event_id uuid;
+  audit_organization_id uuid;
   audit_project_id uuid;
+  effective_authorized boolean;
+  effective_operator_id uuid;
+  effective_failure_reason text;
+  safe_reason text;
 begin
   if p_request_id is null or p_correlation_id is null then
     raise exception 'request_id and correlation_id are required';
   end if;
+
+  safe_reason := case
+    when recora_audit.is_safe_audit_reason(p_reason) then nullif(btrim(p_reason), '')
+    else null
+  end;
 
   select *
   into authorization_result
@@ -449,13 +534,31 @@ begin
     p_reason
   );
 
+  effective_authorized := authorization_result.authorized;
+  effective_operator_id := authorization_result.operator_id;
+  effective_failure_reason := authorization_result.failure_reason_code;
+
+  if effective_authorized
+    and (
+      not recora_audit.is_safe_audit_summary(p_before_summary)
+      or not recora_audit.is_safe_audit_summary(p_after_summary)
+    ) then
+    effective_authorized := false;
+    effective_failure_reason := 'summary_unsafe';
+  end if;
+
+  select organization_row.id
+  into audit_organization_id
+  from public.organizations organization_row
+  where organization_row.id = p_organization_id;
+
   select project_row.id
   into audit_project_id
   from public.projects project_row
   where project_row.id = p_project_id
     and project_row.organization_id = p_organization_id;
 
-  if not authorization_result.authorized then
+  if not effective_authorized then
     insert into recora_audit.operator_events (
       actor_operator_id,
       organization_id,
@@ -472,32 +575,27 @@ begin
       outcome,
       failure_reason_code
     ) values (
-      authorization_result.operator_id,
-      p_organization_id,
+      effective_operator_id,
+      audit_organization_id,
       audit_project_id,
       case when p_action ~ '^[a-z][a-z0-9_.:-]{2,127}$' then p_action else 'operator.command.invalid' end,
       case when p_target_type ~ '^[a-z][a-z0-9_.:-]{2,127}$' then p_target_type else 'operator.target.invalid' end,
       coalesce(p_target_id, p_organization_id, gen_random_uuid()),
       case when p_permission ~ '^[a-z][a-z0-9_.:-]{2,127}$' then p_permission else null end,
-      nullif(btrim(coalesce(p_reason, '')), ''),
+      safe_reason,
       '{}'::jsonb,
       '{}'::jsonb,
       p_request_id,
       p_correlation_id,
       'denied'::recora_audit.operator_audit_outcome,
-      authorization_result.failure_reason_code
+      coalesce(effective_failure_reason, 'authorization_denied')
     ) returning id into created_audit_event_id;
 
-    return query select created_audit_event_id, 'denied'::recora_audit.operator_audit_outcome, authorization_result.failure_reason_code;
+    return query select created_audit_event_id, 'denied'::recora_audit.operator_audit_outcome, coalesce(effective_failure_reason, 'authorization_denied');
     return;
   end if;
 
   begin
-    if not recora_audit.is_safe_audit_summary(p_before_summary)
-      or not recora_audit.is_safe_audit_summary(p_after_summary) then
-      raise exception 'unsafe audit summary rejected';
-    end if;
-
     insert into recora_audit.operator_events (
       actor_operator_id,
       organization_id,
@@ -514,14 +612,14 @@ begin
       outcome,
       failure_reason_code
     ) values (
-      authorization_result.operator_id,
+      effective_operator_id,
       p_organization_id,
       p_project_id,
       p_action,
       p_target_type,
       p_target_id,
       p_permission,
-      btrim(p_reason),
+      safe_reason,
       p_before_summary,
       p_after_summary,
       p_request_id,
@@ -542,7 +640,7 @@ begin
       correlation_id
     ) values (
       created_audit_event_id,
-      authorization_result.operator_id,
+      effective_operator_id,
       p_organization_id,
       p_project_id,
       p_action,
@@ -551,10 +649,6 @@ begin
       p_request_id,
       p_correlation_id
     );
-
-    if p_simulate_failure then
-      raise exception 'simulated operator command failure';
-    end if;
 
     return query select created_audit_event_id, 'success'::recora_audit.operator_audit_outcome, null::text;
     return;
@@ -576,14 +670,14 @@ begin
         outcome,
         failure_reason_code
       ) values (
-        authorization_result.operator_id,
-        p_organization_id,
-        p_project_id,
-        p_action,
-        p_target_type,
-        p_target_id,
-        p_permission,
-        btrim(p_reason),
+        effective_operator_id,
+        audit_organization_id,
+        audit_project_id,
+        case when p_action ~ '^[a-z][a-z0-9_.:-]{2,127}$' then p_action else 'operator.command.invalid' end,
+        case when p_target_type ~ '^[a-z][a-z0-9_.:-]{2,127}$' then p_target_type else 'operator.target.invalid' end,
+        coalesce(p_target_id, p_organization_id, gen_random_uuid()),
+        case when p_permission ~ '^[a-z][a-z0-9_.:-]{2,127}$' then p_permission else null end,
+        safe_reason,
         '{"status":"failed"}'::jsonb,
         '{"receipt":"rolled_back"}'::jsonb,
         p_request_id,
@@ -598,12 +692,12 @@ begin
 end;
 $$;
 
-comment on function public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb, boolean) is
+comment on function public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb) is
   'Service-role-only explicit operator foundation command. A server-only caller supplies only an auth.getUser()-verified user id. It emits success, denied, or failed audit evidence and atomically rolls back its immutable command receipt on failure. Future business mutations must use their own explicit command RPC and write their business mutation plus audit event in the same transaction.';
 
 revoke all on function recora_operator.resolve_command_authorization(uuid, text, uuid, uuid, text, text, uuid, text)
 from public, anon, authenticated;
-revoke all on function public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb, boolean)
+revoke all on function public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb)
 from public, anon, authenticated;
-grant execute on function public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb, boolean)
+grant execute on function public.recora_operator_execute_authorized_command_receipt(uuid, text, uuid, uuid, text, text, uuid, text, uuid, uuid, jsonb, jsonb)
 to service_role;
