@@ -15,6 +15,7 @@
     "recora:recommendation-publication-surface:check": "tsx scripts/verify-recommendation-publication-surface.ts",
     "recora:prompt-scope:check": "tsx scripts/verify-prompt-scope.ts",
     "recora:issue-80-local-supabase-bootstrap:check": "tsx scripts/verify-issue-80-local-supabase-bootstrap.ts",
+    "recora:issue-105-tenant-membership:check": "tsx scripts/verify-issue-105-tenant-ownership-membership.ts",
     "recora:prompt-scope-backfill:dry-run": "tsx scripts/inspect-recora-prompt-scope-backfill.ts",
     "recora:project-setup-draft:check": "tsx scripts/verify-recora-project-setup-draft.ts",
     "recora:project-setup-draft-generator:check": "tsx scripts/verify-recora-project-setup-draft-generator.ts",
