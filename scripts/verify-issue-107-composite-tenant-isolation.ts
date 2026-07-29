@@ -1183,6 +1183,7 @@ begin
     select 1 from public.projects
     where id in (
       '10720000-0000-4000-8000-000000000001',
+      '10720000-0000-4000-8000-000000000002',
       '10720000-0000-4000-8000-000000000003'
     )
   ) or recora_private.can_read_project(
@@ -1206,6 +1207,7 @@ begin
     select 1 from public.projects
     where id in (
       '10720000-0000-4000-8000-000000000001',
+      '10720000-0000-4000-8000-000000000002',
       '10720000-0000-4000-8000-000000000003'
     )
   ) or recora_private.can_read_project(
@@ -1229,6 +1231,7 @@ begin
     select 1 from public.projects
     where id in (
       '10720000-0000-4000-8000-000000000001',
+      '10720000-0000-4000-8000-000000000002',
       '10720000-0000-4000-8000-000000000003'
     )
   ) or recora_private.can_read_project(
