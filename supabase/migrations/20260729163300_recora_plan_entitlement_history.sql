@@ -6,23 +6,52 @@ set search_path = public, extensions;
 
 create or replace function recora_private.is_valid_entitlement_document(document jsonb)
 returns boolean
-language sql
+language plpgsql
 immutable
 set search_path = ''
 as $$
-  select document is not null
-    and jsonb_typeof(document) = 'object'
-    and jsonb_typeof(document->'capabilities') = 'object'
-    and jsonb_typeof(document->'limits') = 'object'
-    and not exists (
-      select 1 from jsonb_each(document->'capabilities') capability
-      where jsonb_typeof(capability.value) <> 'boolean'
-    )
-    and not exists (
-      select 1 from jsonb_each(document->'limits') limit_value
-      where jsonb_typeof(limit_value.value) <> 'number'
-        or (limit_value.value #>> '{}')::numeric < 0
-    );
+declare
+  capabilities jsonb;
+  limits jsonb;
+  capability record;
+  limit_entry record;
+  limit_number numeric;
+begin
+  if document is null or jsonb_typeof(document) <> 'object' then
+    return false;
+  end if;
+  if document - array['capabilities', 'limits'] <> '{}'::jsonb then
+    return false;
+  end if;
+
+  capabilities := document->'capabilities';
+  limits := document->'limits';
+  if jsonb_typeof(capabilities) is distinct from 'object'
+    or jsonb_typeof(limits) is distinct from 'object' then
+    return false;
+  end if;
+
+  for capability in select * from jsonb_each(capabilities) loop
+    if capability.key !~ '^[a-z][a-z0-9_.-]*$'
+      or jsonb_typeof(capability.value) <> 'boolean' then
+      return false;
+    end if;
+  end loop;
+
+  for limit_entry in select * from jsonb_each(limits) loop
+    if limit_entry.key !~ '^[a-z][a-z0-9_.-]*$'
+      or jsonb_typeof(limit_entry.value) <> 'number' then
+      return false;
+    end if;
+
+    limit_number := (limit_entry.value #>> '{}')::numeric;
+    if limit_number < 0 or limit_number::text = 'NaN' then
+      return false;
+    end if;
+  end loop;
+
+  return true;
+end;
 $$;
 
 create table if not exists recora_private.plan_policy_versions (
@@ -48,6 +77,13 @@ create table if not exists recora_private.plan_policy_versions (
   constraint plan_policy_versions_supersedes_fkey foreign key (supersedes_policy_version_id)
     references recora_private.plan_policy_versions(id) on delete restrict
 );
+
+create unique index if not exists plan_policy_versions_single_root_per_policy_unique
+on recora_private.plan_policy_versions (policy_key)
+where supersedes_policy_version_id is null;
+create unique index if not exists plan_policy_versions_single_successor_per_policy_unique
+on recora_private.plan_policy_versions (supersedes_policy_version_id)
+where supersedes_policy_version_id is not null;
 
 comment on table recora_private.plan_policy_versions is
   'Append-only versioned plan-policy definitions. A successor is created instead of changing a marketed policy version.';
@@ -93,8 +129,8 @@ begin
   end if;
 
   if predecessor.policy_key <> new.policy_key
-    or predecessor.effective_from > new.effective_from then
-    raise exception 'Plan policy successor must preserve its policy family and move forward in time';
+    or new.effective_from <= predecessor.effective_from then
+    raise exception 'Plan policy successor must preserve its policy family and move strictly forward in time';
   end if;
 
   return new;
@@ -149,12 +185,24 @@ create table if not exists recora_private.entitlement_snapshots (
   constraint entitlement_snapshots_idempotency_key_not_blank check (btrim(idempotency_key) <> ''),
   constraint entitlement_snapshots_scope_key_not_blank check (btrim(scope_key) <> ''),
   constraint entitlement_snapshots_document_hash_format check (document_hash ~ '^[0-9a-f]{64}$'),
-  constraint entitlement_snapshots_source_reference_not_blank check (
-    source_contract_reference is null or btrim(source_contract_reference) <> ''
+  constraint entitlement_snapshots_source_contract_reference_opaque check (
+    source_contract_reference is null or (
+      char_length(source_contract_reference) <= 128
+      and source_contract_reference ~ '^[a-z][a-z0-9_.:-]*$'
+    )
   ),
-  constraint entitlement_snapshots_exception_reference_not_blank check (
-    (exception_source_reference is null or btrim(exception_source_reference) <> '')
-    and (exception_reason_reference is null or btrim(exception_reason_reference) <> '')
+  constraint entitlement_snapshots_exception_reference_pair check (
+    (exception_source_reference is null) = (exception_reason_reference is null)
+  ),
+  constraint entitlement_snapshots_exception_references_opaque check (
+    (exception_source_reference is null or (
+      char_length(exception_source_reference) <= 128
+      and exception_source_reference ~ '^[a-z][a-z0-9_.:-]*$'
+    ))
+    and (exception_reason_reference is null or (
+      char_length(exception_reason_reference) <= 128
+      and exception_reason_reference ~ '^[a-z][a-z0-9_.:-]*$'
+    ))
   )
 );
 
@@ -267,6 +315,17 @@ drop trigger if exists validate_current_entitlement_snapshot_pointer on recora_p
 create trigger validate_current_entitlement_snapshot_pointer
 before insert or update on recora_private.current_entitlement_snapshots
 for each row execute function recora_private.validate_current_entitlement_snapshot_pointer();
+
+revoke all on function recora_private.is_valid_entitlement_document(jsonb)
+from public, anon, authenticated;
+revoke all on function recora_private.reject_entitlement_history_mutation()
+from public, anon, authenticated;
+revoke all on function recora_private.validate_plan_policy_version_insert()
+from public, anon, authenticated;
+revoke all on function recora_private.validate_entitlement_snapshot_insert()
+from public, anon, authenticated;
+revoke all on function recora_private.validate_current_entitlement_snapshot_pointer()
+from public, anon, authenticated;
 
 alter table recora_private.plan_policy_versions enable row level security;
 alter table recora_private.entitlement_snapshots enable row level security;

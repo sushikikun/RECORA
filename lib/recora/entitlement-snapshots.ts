@@ -22,6 +22,11 @@ export type EntitlementSnapshot = {
   effectiveUntil: string | null;
 };
 
+export type EntitlementDocument = {
+  capabilities: Record<string, boolean>;
+  limits: Record<string, number>;
+};
+
 export type EntitlementSnapshotReference = {
   entitlementSnapshotId: string;
   entitlementSchemaVersion: number;
@@ -168,9 +173,11 @@ function normalizeResolution(row: EntitlementSnapshotRpcRow): EntitlementResolut
     return { ok: false, reasonCode: "invalid_reference" };
   }
 
-  const capabilities = asBooleanRecord(row.capabilities);
-  const limits = asLimitRecord(row.limits);
-  if (!capabilities || !limits) return { ok: false, reasonCode: "invalid_reference" };
+  const document = normalizeEntitlementDocument({
+    capabilities: row.capabilities,
+    limits: row.limits
+  });
+  if (!document) return { ok: false, reasonCode: "invalid_reference" };
 
   return {
     ok: true,
@@ -178,8 +185,8 @@ function normalizeResolution(row: EntitlementSnapshotRpcRow): EntitlementResolut
     snapshot: {
       snapshotId: row.snapshot_id,
       schemaVersion,
-      capabilities,
-      limits,
+      capabilities: document.capabilities,
+      limits: document.limits,
       resolverVersion: row.resolver_version,
       hash: row.snapshot_hash,
       effectiveFrom: row.effective_from,
@@ -194,19 +201,40 @@ function readReasonCode(value: unknown): EntitlementReasonCode {
     : "invalid_reference";
 }
 
+export function normalizeEntitlementDocument(document: unknown): EntitlementDocument | null {
+  if (!isRecord(document)) return null;
+
+  const keys = Object.keys(document);
+  if (
+    keys.length !== 2 ||
+    !Object.prototype.hasOwnProperty.call(document, "capabilities") ||
+    !Object.prototype.hasOwnProperty.call(document, "limits")
+  ) {
+    return null;
+  }
+
+  const capabilities = asBooleanRecord(document.capabilities);
+  const limits = asLimitRecord(document.limits);
+  return capabilities && limits ? { capabilities, limits } : null;
+}
+
 function asBooleanRecord(value: unknown): Record<string, boolean> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (!isRecord(value)) return null;
   const entries = Object.entries(value);
-  return entries.every(([, entry]) => typeof entry === "boolean")
+  return entries.every(([name, entry]) => isSafeEntitlementName(name) && typeof entry === "boolean")
     ? (Object.fromEntries(entries) as Record<string, boolean>)
     : null;
 }
 
 function asLimitRecord(value: unknown): Record<string, number> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (!isRecord(value)) return null;
   const entries = Object.entries(value);
   return entries.every(
-    ([, entry]) => typeof entry === "number" && Number.isFinite(entry) && entry >= 0
+    ([name, entry]) =>
+      isSafeEntitlementName(name) &&
+      typeof entry === "number" &&
+      Number.isFinite(entry) &&
+      entry >= 0
   )
     ? (Object.fromEntries(entries) as Record<string, number>)
     : null;
@@ -214,4 +242,8 @@ function asLimitRecord(value: unknown): Record<string, number> | null {
 
 function isSafeEntitlementName(value: string) {
   return /^[a-z][a-z0-9_.-]*$/.test(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

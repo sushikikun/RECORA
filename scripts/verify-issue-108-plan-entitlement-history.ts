@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { normalizeEntitlementDocument } from "../lib/recora/entitlement-snapshots";
+
 const repoRoot = process.cwd();
 const migrationPath = path.join(
   repoRoot,
@@ -77,9 +79,44 @@ assert.match(resolverSource, /import "server-only"/);
 assert.match(resolverSource, /resolveCurrentEntitlementSnapshot/);
 assert.match(resolverSource, /validateEntitlementSnapshotReference/);
 assert.doesNotMatch(resolverSource, /billing|payment|subscription|contract/i);
+assert.match(migrationSql, /return false;/i);
+assert.match(migrationSql, /single_root_per_policy/i);
+assert.match(migrationSql, /single_successor_per_policy/i);
+assert.match(migrationSql, /from public, anon, authenticated/i);
+
+const validDocument = {
+  capabilities: { design: true, "execution.v2": false },
+  limits: { prompts: 1, "projects.max": 0 }
+};
+assert.deepEqual(normalizeEntitlementDocument(validDocument), validDocument);
+for (const invalidDocument of [
+  null,
+  {},
+  { capabilities: {} },
+  { limits: {} },
+  { capabilities: null, limits: {} },
+  { capabilities: {}, limits: null },
+  [],
+  "entitlement",
+  1,
+  { capabilities: { design: "true" }, limits: {} },
+  { capabilities: { "unsafe key": true }, limits: {} },
+  { capabilities: {}, limits: { prompts: "1" } },
+  { capabilities: {}, limits: { prompts: -1 } },
+  { capabilities: {}, limits: { prompts: Number.POSITIVE_INFINITY } },
+  { capabilities: {}, limits: { "unsafe key": 1 } },
+  { capabilities: {}, limits: {}, billing: {} },
+  { capabilities: {}, limits: {}, payment: {} },
+  { capabilities: {}, limits: {}, subscription: {} },
+  { capabilities: {}, limits: {}, contract: {} }
+]) {
+  assert.equal(normalizeEntitlementDocument(invalidDocument), null);
+}
 
 queryLocal(`
 do $verify$
+declare
+  function_signature text;
 begin
   if current_database() <> 'postgres' then
     raise exception 'Issue 108 prerequisite failed: unexpected local database';
@@ -127,6 +164,41 @@ begin
   ) then
     raise exception 'Issue 108 prerequisite failed: browser resolver grant is too broad';
   end if;
+
+  if not has_function_privilege(
+    'service_role',
+    'public.recora_validate_entitlement_snapshot_reference(uuid, uuid, uuid)',
+    'EXECUTE'
+  ) then
+    raise exception 'Issue 108 prerequisite failed: service-role reference validator grant is missing';
+  end if;
+
+  if has_function_privilege(
+    'anon',
+    'public.recora_validate_entitlement_snapshot_reference(uuid, uuid, uuid)',
+    'EXECUTE'
+  ) or has_function_privilege(
+    'authenticated',
+    'public.recora_validate_entitlement_snapshot_reference(uuid, uuid, uuid)',
+    'EXECUTE'
+  ) then
+    raise exception 'Issue 108 prerequisite failed: browser reference-validator grant is too broad';
+  end if;
+
+  for function_signature in
+    select unnest(array[
+      'recora_private.is_valid_entitlement_document(jsonb)',
+      'recora_private.reject_entitlement_history_mutation()',
+      'recora_private.validate_plan_policy_version_insert()',
+      'recora_private.validate_entitlement_snapshot_insert()',
+      'recora_private.validate_current_entitlement_snapshot_pointer()'
+    ])
+  loop
+    if has_function_privilege('anon', function_signature, 'EXECUTE')
+      or has_function_privilege('authenticated', function_signature, 'EXECUTE') then
+      raise exception 'Issue 108 prerequisite failed: private helper grant is too broad for %', function_signature;
+    end if;
+  end loop;
 
   if not exists (
     select 1
@@ -300,6 +372,16 @@ do $verify$
 declare
   a1_hash text;
   a1_hash_after text;
+  v1_hash text;
+  v1_document jsonb;
+  v1_effective_from timestamptz;
+  v2_hash text;
+  v2_document jsonb;
+  v2_effective_from timestamptz;
+  invalid_document jsonb;
+  invalid_label text;
+  invalid_reference text;
+  invalid_reference_label text;
   rpc_json jsonb;
 begin
   select document_hash
@@ -333,10 +415,237 @@ begin
   ) resolver_row;
 
   if rpc_json ?| array[
-    'source_contract_reference', 'plan_policy_version_id', 'policy_document',
-    'billing_mode', 'payment', 'subscription'
+    'source_contract_reference', 'exception_source_reference', 'exception_reason_reference',
+    'plan_policy_version_id', 'policy_document', 'contract', 'billing_mode', 'payment', 'subscription'
   ] then
     raise exception 'Issue 108 resolver exposed a prohibited internal field';
+  end if;
+
+  for invalid_label, invalid_document in
+    select invalid_documents.label, invalid_documents.document
+    from (values
+      ('empty'::text, '{}'::jsonb),
+      ('missing_capabilities', '{"limits":{}}'::jsonb),
+      ('missing_limits', '{"capabilities":{}}'::jsonb),
+      ('null_capabilities', '{"capabilities":null,"limits":{}}'::jsonb),
+      ('null_limits', '{"capabilities":{},"limits":null}'::jsonb),
+      ('array', '[]'::jsonb),
+      ('string', '"entitlement"'::jsonb),
+      ('scalar', '1'::jsonb),
+      ('capability_not_boolean', '{"capabilities":{"design":"true"},"limits":{}}'::jsonb),
+      ('capability_unsafe_key', '{"capabilities":{"unsafe key":true},"limits":{}}'::jsonb),
+      ('limit_not_number', '{"capabilities":{},"limits":{"prompts":"1"}}'::jsonb),
+      ('limit_negative', '{"capabilities":{},"limits":{"prompts":-1}}'::jsonb),
+      ('limit_unsafe_key', '{"capabilities":{},"limits":{"unsafe key":1}}'::jsonb),
+      ('top_level_billing', '{"capabilities":{},"limits":{},"billing":{}}'::jsonb),
+      ('top_level_payment', '{"capabilities":{},"limits":{},"payment":{}}'::jsonb),
+      ('top_level_subscription', '{"capabilities":{},"limits":{},"subscription":{}}'::jsonb),
+      ('top_level_contract', '{"capabilities":{},"limits":{},"contract":{}}'::jsonb)
+    ) as invalid_documents(label, document)
+  loop
+    if recora_private.is_valid_entitlement_document(invalid_document) then
+      raise exception 'Issue 108 invalid entitlement document was accepted by validator: %', invalid_label;
+    end if;
+
+    begin
+      insert into recora_private.plan_policy_versions (
+        id, policy_key, policy_schema_version, effective_from, policy_document
+      ) values (
+        gen_random_uuid(),
+        'issue_108_invalid_' || invalid_label,
+        1,
+        now() + interval '10 days',
+        invalid_document
+      );
+      raise exception 'Issue 108 invalid entitlement document passed a table constraint: %', invalid_label;
+    exception when check_violation then
+      null;
+    end;
+  end loop;
+
+  for invalid_reference_label, invalid_reference in
+    select invalid_references.label, invalid_references.reference
+    from (values
+      ('source_malformed'::text, 'free form reference'::text),
+      ('source_overlong', repeat('a', 129))
+    ) as invalid_references(label, reference)
+  loop
+    begin
+      insert into recora_private.entitlement_snapshots (
+        id, organization_id, source_contract_reference, plan_policy_version_id,
+        entitlement_schema_version, resolved_document, effective_from, resolver_version, idempotency_key
+      ) values (
+        gen_random_uuid(),
+        '10810000-0000-4000-8000-000000000001',
+        invalid_reference,
+        '10830000-0000-4000-8000-000000000001',
+        1,
+        '{"capabilities":{},"limits":{}}'::jsonb,
+        now() + interval '10 days',
+        'issue-108-fixture',
+        'issue-108-' || invalid_reference_label
+      );
+      raise exception 'Issue 108 malformed opaque source reference unexpectedly succeeded: %', invalid_reference_label;
+    exception when check_violation then
+      null;
+    end;
+  end loop;
+
+  begin
+    insert into recora_private.entitlement_snapshots (
+      id, organization_id, source_contract_reference, plan_policy_version_id,
+      entitlement_schema_version, resolved_document, effective_from, resolver_version,
+      exception_source_reference, idempotency_key
+    ) values (
+      gen_random_uuid(), '10810000-0000-4000-8000-000000000001', 'opaque:issue-108:exception',
+      '10830000-0000-4000-8000-000000000001', 1, '{"capabilities":{},"limits":{}}'::jsonb,
+      now() + interval '10 days', 'issue-108-fixture', 'exception:source', 'issue-108-exception-source-only'
+    );
+    raise exception 'Issue 108 exception source without reason unexpectedly succeeded';
+  exception when check_violation then
+    null;
+  end;
+
+  begin
+    insert into recora_private.entitlement_snapshots (
+      id, organization_id, source_contract_reference, plan_policy_version_id,
+      entitlement_schema_version, resolved_document, effective_from, resolver_version,
+      exception_reason_reference, idempotency_key
+    ) values (
+      gen_random_uuid(), '10810000-0000-4000-8000-000000000001', 'opaque:issue-108:exception',
+      '10830000-0000-4000-8000-000000000001', 1, '{"capabilities":{},"limits":{}}'::jsonb,
+      now() + interval '10 days', 'issue-108-fixture', 'exception:reason', 'issue-108-exception-reason-only'
+    );
+    raise exception 'Issue 108 exception reason without source unexpectedly succeeded';
+  exception when check_violation then
+    null;
+  end;
+
+  begin
+    insert into recora_private.entitlement_snapshots (
+      id, organization_id, source_contract_reference, plan_policy_version_id,
+      entitlement_schema_version, resolved_document, effective_from, resolver_version,
+      exception_source_reference, exception_reason_reference, idempotency_key
+    ) values (
+      gen_random_uuid(), '10810000-0000-4000-8000-000000000001', 'opaque:issue-108:exception',
+      '10830000-0000-4000-8000-000000000001', 1, '{"capabilities":{},"limits":{}}'::jsonb,
+      now() + interval '10 days', 'issue-108-fixture', 'free form source', 'exception:reason', 'issue-108-exception-malformed'
+    );
+    raise exception 'Issue 108 malformed opaque exception reference unexpectedly succeeded';
+  exception when check_violation then
+    null;
+  end;
+
+  begin
+    insert into recora_private.entitlement_snapshots (
+      id, organization_id, source_contract_reference, plan_policy_version_id,
+      entitlement_schema_version, resolved_document, effective_from, resolver_version,
+      exception_source_reference, exception_reason_reference, idempotency_key
+    ) values (
+      gen_random_uuid(), '10810000-0000-4000-8000-000000000001', 'opaque:issue-108:exception',
+      '10830000-0000-4000-8000-000000000001', 1, '{"capabilities":{},"limits":{}}'::jsonb,
+      now() + interval '10 days', 'issue-108-fixture', 'exception:source', repeat('r', 129), 'issue-108-exception-overlong'
+    );
+    raise exception 'Issue 108 overlong opaque exception reference unexpectedly succeeded';
+  exception when check_violation then
+    null;
+  end;
+
+  select policy_hash, policy_document, effective_from
+  into v1_hash, v1_document, v1_effective_from
+  from recora_private.plan_policy_versions
+  where id = '10830000-0000-4000-8000-000000000001';
+  select policy_hash, policy_document, effective_from
+  into v2_hash, v2_document, v2_effective_from
+  from recora_private.plan_policy_versions
+  where id = '10830000-0000-4000-8000-000000000002';
+
+  begin
+    insert into recora_private.plan_policy_versions (
+      id, policy_key, policy_schema_version, effective_from, policy_document, supersedes_policy_version_id
+    ) values (
+      '10830000-0000-4000-8000-000000000003', 'issue_108_policy', 1, now() - interval '1 day',
+      '{"capabilities":{"design":true},"limits":{"prompts":3}}'::jsonb,
+      '10830000-0000-4000-8000-000000000002'
+    );
+    raise exception 'Issue 108 same-time successor unexpectedly succeeded';
+  exception when raise_exception then
+    if position('strictly forward' in sqlerrm) = 0 then raise; end if;
+  end;
+
+  begin
+    insert into recora_private.plan_policy_versions (
+      id, policy_key, policy_schema_version, effective_from, policy_document, supersedes_policy_version_id
+    ) values (
+      '10830000-0000-4000-8000-000000000004', 'issue_108_policy', 1, now() - interval '2 days',
+      '{"capabilities":{"design":true},"limits":{"prompts":4}}'::jsonb,
+      '10830000-0000-4000-8000-000000000002'
+    );
+    raise exception 'Issue 108 backward successor unexpectedly succeeded';
+  exception when raise_exception then
+    if position('strictly forward' in sqlerrm) = 0 then raise; end if;
+  end;
+
+  begin
+    insert into recora_private.plan_policy_versions (
+      id, policy_key, policy_schema_version, effective_from, policy_document, supersedes_policy_version_id
+    ) values (
+      '10830000-0000-4000-8000-000000000005', 'issue_108_other_policy', 1, now(),
+      '{"capabilities":{"design":true},"limits":{"prompts":5}}'::jsonb,
+      '10830000-0000-4000-8000-000000000002'
+    );
+    raise exception 'Issue 108 cross-policy successor unexpectedly succeeded';
+  exception when raise_exception then
+    if position('policy family' in sqlerrm) = 0 then raise; end if;
+  end;
+
+  begin
+    insert into recora_private.plan_policy_versions (
+      id, policy_key, policy_schema_version, effective_from, policy_document
+    ) values (
+      '10830000-0000-4000-8000-000000000006', 'issue_108_policy', 1, now(),
+      '{"capabilities":{"design":true},"limits":{"prompts":6}}'::jsonb
+    );
+    raise exception 'Issue 108 second policy root unexpectedly succeeded';
+  exception when unique_violation then
+    null;
+  end;
+
+  insert into recora_private.plan_policy_versions (
+    id, policy_key, policy_schema_version, effective_from, policy_document, supersedes_policy_version_id
+  ) values (
+    '10830000-0000-4000-8000-000000000007', 'issue_108_policy', 1, now(),
+    '{"capabilities":{"design":true},"limits":{"prompts":7}}'::jsonb,
+    '10830000-0000-4000-8000-000000000002'
+  );
+
+  begin
+    insert into recora_private.plan_policy_versions (
+      id, policy_key, policy_schema_version, effective_from, policy_document, supersedes_policy_version_id
+    ) values (
+      '10830000-0000-4000-8000-000000000008', 'issue_108_policy', 1, now() + interval '1 day',
+      '{"capabilities":{"design":true},"limits":{"prompts":8}}'::jsonb,
+      '10830000-0000-4000-8000-000000000002'
+    );
+    raise exception 'Issue 108 second successor unexpectedly succeeded';
+  exception when unique_violation then
+    null;
+  end;
+
+  if not exists (
+    select 1 from recora_private.plan_policy_versions
+    where id = '10830000-0000-4000-8000-000000000001'
+      and policy_hash = v1_hash
+      and policy_document = v1_document
+      and effective_from = v1_effective_from
+  ) or not exists (
+    select 1 from recora_private.plan_policy_versions
+    where id = '10830000-0000-4000-8000-000000000002'
+      and policy_hash = v2_hash
+      and policy_document = v2_document
+      and effective_from = v2_effective_from
+  ) then
+    raise exception 'Issue 108 later successor changed an earlier policy row';
   end if;
 
   begin
