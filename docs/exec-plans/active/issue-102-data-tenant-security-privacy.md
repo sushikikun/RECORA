@@ -230,9 +230,9 @@ implementation belongs to Phases 4–10.
 - [x] Record docs-only lint/build omission reason.
 - [x] Run `npm run recora:commit-check`.
 - [x] Inspect exact changed/staged file lists and staged whitespace.
-- [ ] Commit and push only the three approved documents.
-- [ ] Update PR #103 body while keeping it Draft.
-- [ ] Verify Project `Human review / Approval Plan`.
+- [x] Commit and push only the three approved documents.
+- [x] Update PR #103 body while keeping it Draft.
+- [ ] Verify Project `Human review / Approval Plan` (local `gh` token lacks `project` / `read:project`; no Project mutation was made).
 - [ ] Post completion directly to Issue #102 and stop.
 
 ## Phase 3 child plan
