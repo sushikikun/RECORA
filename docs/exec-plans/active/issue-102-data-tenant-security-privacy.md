@@ -272,8 +272,9 @@ implementation belongs to Phases 4–10.
 The authoritative acceptance criteria are in
 [`docs/recora-data-tenant-security-privacy.md`](../../recora-data-tenant-security-privacy.md#131-phase-3-direct-implementation-children).
 
-1. `102-3A` fresh replay baseline
-2. `102-3B` tenant ownership and accepted membership
+1. `102-3A` fresh replay baseline — completed through Issue #80 / PR #81
+2. `102-3B` tenant ownership and accepted membership — Issue #105 local
+   implementation and validation completed on 2026-07-29; Draft PR handoff in progress
 3. `102-3C` composite integrity, RLS, grants, and customer/operator boundary
 4. `102-3D` plan policy, entitlement snapshot, and historical references
 5. `102-3E` operator identity, authorization, and audit foundation
