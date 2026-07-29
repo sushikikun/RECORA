@@ -262,9 +262,9 @@ implementation belongs to Phases 4–10.
 - [x] Preserve all 10 primary customer-screen areas and major detail views through the
   Phase 3 tenant/RLS/grant/classification boundary.
 - [x] Run the same required validation and inspect exact changed/staged scope.
-- [ ] Commit and push only the approved documents.
-- [ ] Update PR #103 body and verify it remains Draft.
-- [ ] Leave Project unchanged and report it unverified if token scope remains insufficient.
+- [x] Commit and push only the approved documents.
+- [x] Update PR #103 body and verify it remains Draft.
+- [x] Leave Project unchanged and report it unverified if token scope remains insufficient.
 - [ ] Post completion directly to Issue #102 and stop.
 
 ## Phase 3 child plan
