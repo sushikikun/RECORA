@@ -1,632 +1,561 @@
 # Recora data, tenant security, and privacy contract
 
-Status: **Issue #102 Stage 1 design complete / Human review required**
+Status: **Issue #102 Stage 1 revised after OWNER Human review / Human review required**
 
-This document defines the target contract for Recora tenant ownership, contract and
-entitlement enforcement, immutable measurement history, customer and operator data
-boundaries, external AI payloads, retention, and deletion. It is a design contract,
-not a statement that the current implementation already satisfies every requirement.
+This document defines the Phase 3 common data, tenant-security, and privacy foundation.
+It also defines the interfaces that later phases must consume without assigning their
+product or runtime implementation to Issue #102.
 
-The governing sources are:
+## Authority order
 
-- [Issue #102](https://github.com/sushikikun/RECORA/issues/102) and the
-  [latest OWNER approval](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5116752218)
-- [`recora-post-launch-operations-architecture.md`](./recora-post-launch-operations-architecture.md)
-- [`recora-agentic-sdlc.md`](./recora-agentic-sdlc.md)
-- [`exec-plans/active/issue-102-data-tenant-security-privacy.md`](./exec-plans/active/issue-102-data-tenant-security-privacy.md)
+For Issue #102, use the following order. A lower source cannot override a higher one:
 
-When this document conflicts with the post-launch operations architecture on
-publication, measurement operations, control, audit, or customer read paths, the
-post-launch operations architecture takes precedence.
+1. [Issue #102 confirmed principles](https://github.com/sushikikun/RECORA/issues/102)
+2. [OWNER approval 5116752218](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5116752218)
+3. [OWNER parallel-development policy 5117068026](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117068026)
+4. [OWNER Human review 5117210498](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117210498)
+5. Confirmed implementation facts on `master` at `4fcd505`
 
-## 1. Scope and non-goals
+[`recora-agentic-sdlc.md`](./recora-agentic-sdlc.md) controls lifecycle and approval
+mechanics. Existing architecture documents, PRs, and unmerged branches, including
+[`recora-post-launch-operations-architecture.md`](./recora-post-launch-operations-architecture.md)
+and PR #71, are reference material. Their product or operational decisions are not
+automatically inherited unless they agree with the authority order above. PR #71's
+AI-answer information structure is explicitly preserved by Issue #102.
 
-This contract covers:
+## 1. Phase 3 scope and parallel development
 
-- organization, membership, project, and child-row tenant ownership
-- contract, subscription, entitlement, limit, and measurement-design lineage
-- customer, operator, worker, and service-role authorization boundaries
-- immutable measurement evidence, derived data, and published report versions
-- cross-tenant isolation across Data API, RPC, routes, jobs, and exports
-- external AI provider payload allowlists and privacy controls
-- suspension, termination, retention, restoration, and deletion
-- additive migration, backfill, compatibility, rollback, and test requirements
+### 1.1 Issue #102 directly owns
 
-Stage 1 does not implement schema, RLS, API, Auth, measurement, publication, admin,
-retention, or deletion changes. It does not assert live Supabase state. Current-state
-findings below are based on `master` at `4fcd505` and repository migrations and code.
-Live drift, role grants, policy behavior, data classification, advisors, and actual
-tenant assignments remain unverified until separately approved read-only inspection.
+- tenant root and ownership relationships
+- authorization foundation including accepted membership
+- composite tenant integrity
+- RLS, grants, and customer/operator access boundaries
+- common data foundation separating contract data from entitlements and limits
+- versioned plan-policy and immutable entitlement-snapshot foundation
+- reference contract that keeps historical measurement designs and results unchanged
+- operator identity, authorization, and audit foundation
+- configurable post-contract retention and deletion-state foundation
+- common external-AI payload allowlist, denylist, and safety-inspection foundation
+- fresh replay, cross-tenant, RLS, permission, and historical-immutability security tests
 
-## 2. Non-negotiable decisions
+Stage 1 documents and plans this scope only. It does not implement schema, RLS, API,
+Auth, database, or external-provider changes.
+
+### 1.2 Later phases own their product and runtime implementation
+
+- Phase 4: contract start/change, payment failure, suspension, cancellation, and other
+  contract-lifecycle business processing
+- Phase 5: onboarding, durable setup draft, question finalization, and real
+  measurement-design integration
+- Phase 6: queue, worker, provider call, retry, budget, and provider-adapter runtime
+- Phase 7: analysis results, quality decisions, `反映 / 保留`, and the customer-display
+  read model
+- Phase 8: customer dashboard real-data integration
+- Phase 9: operator/admin screens
+- Phase 10: final integration work defined by its own parent Issue
+
+Issue #102 may define the interfaces those phases must respect. It does not implement
+those later-phase features or create them as Issue #102 Stage 2 children.
+
+### 1.3 Parallel-development policy
+
+Phases 4–10 may begin before Issue #102 is complete when each uses a separate Issue,
+worktree, branch, and Draft PR. A later phase must isolate Issue #102 dependencies behind
+an interface, adapter, fixture, or mock and must record the unresolved dependency in its
+Issue and PR. It must not independently redefine tenant ownership, RLS, operator access,
+entitlements/limits, retention/deletion, or the external-AI data boundary. Integration,
+Ready conversion, and merge stop until the required upstream contract is settled and
+integration verification succeeds.
+
+## 2. Phase 3 non-negotiable decisions
 
 1. `organization` is the tenant root.
-2. Every externally addressable or independently authorized root row carries
-   `organization_id`. New tenant-owned tables default to carrying it directly.
+2. Every externally addressable or independently authorized tenant root row carries
+   `organization_id`. A project-scoped root also carries `project_id`.
 3. A leaf may derive ownership through a parent only when the chain is mandatory,
-   indexed, enforced by composite foreign keys, and exercised by isolation tests.
-4. Membership alone is insufficient. Authorization also checks membership acceptance,
-   tenant lifecycle, object ownership, and the action-specific role.
-5. Customer browser code reads only customer-safe `api` read models backed by the
-   current published report version. It does not read raw `measurement`, internal
-   `control`, or `audit` data.
-6. `ready`, `approved`, and `published` are separate formal states. They are not
-   inferred only from JSON metadata.
-7. Published report versions and their published child rows are immutable. A
-   correction creates a new version and atomically switches the current pointer.
-8. A failed newer measurement, aggregation, validation, or publication cycle does not
-   replace the previously published healthy report.
-9. Contract or plan changes never mutate historical entitlement, setup, measurement,
-   result, or publication meaning.
-10. Measurement execution is provider-neutral. Cron enqueues work; workers claim,
-    execute, retry, and record attempts using idempotency controls.
-11. Branded prompts do not feed visibility, ranking, Share of Voice, average position,
-    or competitor-gap metrics.
-12. One valid observation or one metric snapshot cannot satisfy completeness or
-    metric-validity gates.
-13. Important admin actions, reruns, approvals, publication pointer changes,
-    permission changes, subscription changes, and deletion actions create audit
-    events.
-14. Supabase service-role and provider credentials remain server-only and never enter
-    customer or admin browser bundles.
-15. Destructive legacy removal occurs only after additive migration, backfill,
-    verification, read-path cutover, and an approved rollback checkpoint.
+   indexed, composite-FK-enforced, and covered by positive and negative isolation tests.
+4. Authorization requires verified identity, accepted active membership, tenant access
+   state, object ownership, and action permission. User-editable metadata is not an
+   authorization source.
+5. Customer and operator paths are separate. Customers cannot access another tenant or
+   internal provider envelopes, control data, audit data, secrets, or internal errors.
+6. The customer-safe surface may include an AI answer body, excerpt, and citation
+   information that passed the downstream customer-display decision. Issue #102 does
+   not prohibit the AI-answer and AI-answer-detail structure preserved by PR #71.
+7. Contract/plan records are separated from resolved entitlements/limits. The latter are
+   versioned and snapshotted immutably.
+8. Later contract changes never rewrite the entitlement conditions referenced by a
+   historical measurement design or result.
+9. OWNER/operator identity, permission, tenant scope, action, reason, and outcome are
+   auditable through a common foundation. The service role is a server capability, not
+   the operator identity.
+10. Contract-access state, retention configuration, restore eligibility, deletion state,
+    and deletion outcome are representable without fixing the product workflow or a
+    retention-day value in Phase 3.
+11. External-AI requests are built from a typed allowlist and reject secrets, login data,
+    billing data, unnecessary personal data, internal notes, and other-tenant data.
+12. Exposed tenant tables use RLS and explicit grants; privileged functions and views
+    follow least privilege; migration replay and security tests are mandatory.
+13. Legacy removal is additive and rollback-aware. Historical references and audit
+    evidence are not mutated to perform rollback.
+
+The following are not Phase 3 non-negotiable decisions: a queue/worker design, provider
+retry rules, branded-prompt metric eligibility, completeness observation counts,
+detailed analysis/publication states, or aggregate/derived-result implementation. Their
+owning phases decide them while respecting the Phase 3 tenant and privacy boundaries.
 
 ## 3. Current `master` inventory
 
-The classifications in this section mean:
+This is an audit inventory, not an assignment of every finding to Issue #102. Items that
+belong to Phases 4–10 are handed off in Section 13.
 
-- **Reusable**: the structure is a sound foundation, subject to the target contract.
-- **Fix**: retain the concept but correct its enforcement or lineage.
-- **Deprecate**: keep only for compatibility until a verified replacement is active.
-- **Missing**: add in separately approved Stage 2 child work.
+- **Reusable**: sound foundation within the confirmed Phase 3 contract.
+- **Fix**: retain the concept but correct tenant, authorization, or history enforcement.
+- **Deprecate**: compatibility-only until a verified replacement exists.
+- **Missing**: implement in a Phase 3 child or hand off to the owning later phase.
 
 ### 3.1 Reusable foundations
 
-| Foundation | Repository evidence | Conditions for reuse |
+| Foundation | Repository evidence | Phase ownership |
 |---|---|---|
-| Organization, membership, and project tenant root | `supabase/migrations/20260620181714_recora_tenant_foundation.sql:16-52,78-134` | Require accepted membership, lifecycle checks, and verified existing assignments |
-| Private RLS helper placement | `supabase/migrations/20260620202448_recora_minimal_rls.sql:10-127` | Keep `SECURITY DEFINER` helpers out of exposed schemas, fixed `search_path`, and narrow execute grants |
-| RLS enabled and browser writes revoked on current public tables | `supabase/migrations/20260620202448_recora_minimal_rls.sql:129-184` | Replace customer raw reads with publication read models and test actual role behavior |
-| Private `recora_admin` schema and read-only RPC boundary | `supabase/migrations/20260627204737_recora_admin_p0a.sql:346-361`; `20260701054500_recora_admin_customer_ops_readonly_rpc.sql:220-226` | Add production operator identity, authorization, audited write APIs, and tenant-safe result contracts |
-| Server-only service-role client | `lib/supabase/server.ts:1,63-83` | Continue to prohibit browser imports and add caller/action authorization before privileged work |
-| Setup draft validation and generator safety checks | `lib/recora/project-setup-draft.ts:380-397,566-671`; `lib/recora/project-setup-draft-generator.ts:595-691` | Persist immutable versions and connect materialization to entitlement and approval gates |
-| Prompt and provider evidence snapshots | `supabase/migrations/0001_recora_v01_schema.sql:232-247`; `scripts/run-openai-measurement.ts:638-687` | Add design, entitlement, payload-policy, adapter, parser, and attempt lineage |
-| Batch item idempotency skeleton | `supabase/migrations/20260628123152_recora_admin_p0b_batches.sql:102-153` | Add tenant ownership to the batch root and use a real provider-neutral queue worker |
-| Prompt scope and valid-observation helpers | `lib/recora/prompt-scope.ts:71-111`; `lib/recora/report-eligibility.ts:290-299` | Make them authoritative in execution and aggregation, with fail-closed tests |
-| Citation URL and occurrence evidence | `scripts/run-openai-measurement.ts:730-835,958-1029` | Separate provider adapter parsing, parse status, claim support review, and immutable reparsing |
-| Operation-event skeleton | `supabase/migrations/20260627204737_recora_admin_p0a.sql:222-251` | Make it append-only and write it atomically with privileged business actions |
+| Organization, membership, and project tenant root | `supabase/migrations/20260620181714_recora_tenant_foundation.sql:16-52,78-134` | Phase 3 fixes acceptance and existing assignments |
+| Private RLS helper placement | `supabase/migrations/20260620202448_recora_minimal_rls.sql:10-127` | Phase 3 retains fixed `search_path` and narrow grants |
+| RLS enabled and browser writes revoked on current public tables | `supabase/migrations/20260620202448_recora_minimal_rls.sql:129-184` | Phase 3 verifies actual role boundaries |
+| Private `recora_admin` schema and read-only RPC boundary | `supabase/migrations/20260627204737_recora_admin_p0a.sql:346-361` | Phase 3 common identity/authorization/audit; Phase 9 UI |
+| Server-only service-role client | `lib/supabase/server.ts:1,63-83` | Phase 3 privileged-access contract |
+| Setup-draft validation and generator safety | `lib/recora/project-setup-draft.ts:380-397,566-671` | Phase 5 may reuse through the Phase 3 entitlement interface |
+| Prompt/provider evidence snapshots | `supabase/migrations/0001_recora_v01_schema.sql:232-247` | Phase 3 defines immutable references; Phases 6–7 own runtime/result behavior |
+| Batch-item idempotency skeleton | `supabase/migrations/20260628123152_recora_admin_p0b_batches.sql:102-153` | Phase 6 candidate; not a Phase 3 queue decision |
+| Prompt-scope and valid-observation helpers | `lib/recora/prompt-scope.ts:71-111`; `lib/recora/report-eligibility.ts:290-299` | Phase 7 candidate; not a Phase 3 metric decision |
+| Operation-event skeleton | `supabase/migrations/20260627204737_recora_admin_p0a.sql:222-251` | Phase 3 audit foundation |
 
-### 3.2 Structures that require correction
+### 3.2 Confirmed structures requiring correction
 
-| Finding | Risk | Required correction |
+| Finding | Priority | Owner or handoff |
 |---|---|---|
-| Tenant foundation assigns every legacy project without an organization to the anonymous demo organization | P0 | Before any production migration, inventory live project ownership; use explicit mapping/quarantine and fail closed instead of bulk demo assignment |
-| Core evidence uses independent foreign keys that can join rows from different projects | P0 | Add project-scoped unique keys and composite foreign keys after a cross-tenant orphan audit and backfill |
-| Membership helper does not require `accepted_at` | P0 | Define accepted, active membership as a formal predicate and test invited/unaccepted/revoked users |
-| Customer authentication cookie is not propagated to dashboard DB queries | P0 | Resolve the authenticated user with `auth.getUser()`, use the session-aware server client, then authorize tenant/project membership |
-| Signup creates an Auth user but no membership | P0 | Add an invitation or onboarding transaction that establishes an accepted organization relationship |
-| Measurement runs are selected by project slug without contract, actor, or entitlement enforcement | P0 | Resolve the tenant, actor, lifecycle, entitlement snapshot, design version, budget, and idempotency key before enqueue and again at worker start |
-| Recalculation reuses an aggregate and updates metric snapshots in place | P0 | Create versioned derived results; never mutate a historical aggregate or published result |
-| Timeout, refusal, blocked, malformed, empty, partial, and valid absence are not separate provider outcomes | P0 | Introduce a provider-neutral result state and prohibit invalid observations from becoming absence evidence |
-| `plan_configs.config` and subscription entitlement JSON are mutable and resolved by a live join | P0 | Version plan policies and persist immutable resolved entitlement snapshots |
-| Measurement batch root has no direct tenant ownership | P0 | Carry organization/project on the batch root and enforce all schedule/intake links with composite tenant keys |
-| Current admin access is localhost-only with a fixed all-role actor | P0 | Add production operator identity, role checks, reason capture, and audit; keep local mode explicitly non-production |
-| Audit append-only behavior exists only in comments and no runtime write path exists | P1 | Add immutable event constraints and an authorized, transaction-coupled insert path |
-| Metric uniqueness omits calculation/version semantics | P1 | Version metric definitions and include the immutable calculation identity in derived-result uniqueness |
-| Typed Supabase schema is absent and hand-written types drift from migrations | P1 | Generate and check `Database` types; make schema drift fail CI |
-| Large child queries rely on the PostgREST row cap without cursor pagination | P1 | Add deterministic cursor pagination and completeness tests |
-| `site-inspect` is unauthenticated and DNS is resolved separately for validation and fetch | P1 candidate | Require auth/rate limits and validate a DNS-pinned connection strategy; reproduce DNS-rebinding risk before severity is finalized |
+| Tenant migration assigns every legacy project without an organization to the anonymous demo organization | P0 | Phase 3 live inventory, explicit mapping/quarantine, fail-closed backfill |
+| Core evidence uses independent FKs that permit cross-project combinations | P0 | Phase 3 composite tenant keys and backfill audit |
+| Membership helper does not require `accepted_at` | P0 | Phase 3 accepted-membership predicate |
+| Customer Auth cookie is not propagated to dashboard DB queries | P0 | Phase 3 session/tenant authorization contract; Phase 8 consumes it |
+| Signup creates Auth user but no membership | P0 | Phase 3 membership primitive; Phase 4/5 chooses business onboarding |
+| Mutable plan JSON is joined live to subscriptions | P0 | Phase 3 versioned plan policy and immutable resolved snapshot |
+| Current admin access is localhost-only with a fixed all-role actor | P0 | Phase 3 operator identity/authorization/audit; Phase 9 UI |
+| Customer routes read latest/raw measurement rather than a customer-display result | P0 | Phase 3 blocks unsafe access; Phases 7–8 build and consume the safe read model |
+| Measurement does not enforce tenant/entitlement/design conditions | P0 | Phase 3 interface; Phase 5 design and Phase 6 execution integration |
+| Provider retry/result-state runtime is missing | P0 | Phase 6 follow-up |
+| Aggregation mutates prior metric snapshots | P0 | Phase 7 follow-up under the Phase 3 immutable-reference contract |
+| Typed Supabase schema drifts from migrations | P1 | Phase 3 generated-type/security-test foundation |
+| `site-inspect` is unauthenticated; DNS validation/fetch are separate | P1 candidate | Phase 5 follow-up; runtime exploitability remains unverified |
 
-### 3.3 Compatibility-only or deprecation candidates
+### 3.3 Compatibility and deprecation candidates
 
-- direct customer access to `public.measurement_runs`, `run_items`,
-  `ai_conversations`, `citations`, `metric_snapshots`, and related raw evidence
-- anonymous demo access to the entire raw measurement hierarchy
-- selecting the latest completed aggregate as the customer report
-- treating Phase 1 `customer_ready` as final publication state
-- OpenAI-specific `data_source` and one-observation readiness logic
-- metadata-only recommendation/publication state
-- treating `report_publication_reviews.status = published` as an immutable customer
-  publication
+Phase 3 may revoke or narrow unsafe tenant/public grants when its approved migration plan
+requires it. Product-path replacement belongs to the owning later phase.
+
+- anonymous demo access to the raw measurement hierarchy
+- direct customer reachability to internal measurement/control/audit objects
 - a fixed demo customer/subscription inside a historical schema migration
-- static TypeScript measurement profile identifiers as the durable design contract
-- local-development admin authorization as a production admin design
-- the legacy direct measurement orchestrator as a production queue
-- raw provider inspection artifacts as an import source of truth
+- local-development all-role admin as a production authorization model
+- mutable plan JSON/live join as historical entitlement truth
+- metadata-only state where a formal tenant/security field is required
 
-These paths must not be removed in the same migration that introduces their
-replacement. They remain compatibility-only until the new read and write paths pass
-the acceptance gates in this document.
+Latest-aggregate selection, OpenAI-specific readiness, provider orchestration, prompt
+eligibility, completeness, analysis states, and publication/read-model shape remain audit
+findings handed to Phases 6–8 rather than Phase 3 deprecation work.
 
-### 3.4 Missing target capabilities
+### 3.4 Missing Phase 3 capabilities
 
-- logical `api`, `publication`, `measurement`, `control`, and `audit` boundaries
-- immutable report publication versions, published children, and current pointer
-- versioned plan policy and immutable resolved entitlement snapshot
-- durable setup draft, measurement design, prompt set, and approval versions
-- provider-neutral queue, worker, attempt, retry, budget, and adapter contracts
-- production customer membership resolution and operator authentication
-- formal quality gates and completeness profiles
-- lifecycle, retention policy, restoration, deletion job, deletion manifest, and
-  deletion result
-- append-only, queryable, tenant-aware admin audit
-- executable cross-tenant, fresh replay, backfill, rollback, and privacy tests
+- explicit accepted-membership and tenant-access predicates
+- composite organization/project integrity for tenant-owned roots and child chains
+- executable customer A/B RLS, grant, RPC, and route-isolation tests
+- versioned plan policy, immutable entitlement snapshot, resolver interface, and history
+  references
+- production operator identity, permission, and append-only audit primitives
+- retention/deletion state, configurable policy reference, manifest/result primitives
+- typed external-AI payload allowlist/denylist validator and privacy fixtures
+- deterministic fresh replay and generated schema/type drift checks
 
-## 4. Tenant ownership contract
+## 4. Tenant ownership and access contract
 
 ### 4.1 Root and keys
 
 `organizations.id` is the tenant identifier. `projects.organization_id` is mandatory.
-The organization referenced by every contract, subscription, setup, measurement,
-publication, control, and audit root must equal the project's organization.
+Every Phase 3 tenant-owned root derives its organization from an authorized project or a
+trusted server-side lookup; it does not trust a client-supplied organization identifier.
 
-For new tenant-owned roots:
+New tenant-owned roots:
 
 - store `organization_id not null`
-- store `project_id not null` when the object is project-scoped
-- reference `projects` through `(project_id, organization_id)`
-- create indexes beginning with the tenant key for common tenant queries
-- never accept `organization_id` only from a client body; derive or verify it from the
-  authorized project
+- store `project_id not null` when project-scoped
+- reference projects with `(project_id, organization_id)`
+- create indexes beginning with tenant keys for common tenant queries
+- use composite keys on parent/child chains that could otherwise mix projects
 
-For child evidence, either store `organization_id` and `project_id` directly or use a
-mandatory parent chain with composite foreign keys. Independent foreign keys that
-permit `run A + prompt B` or `conversation A + brand B` are prohibited.
+Before constraints are validated, backfill audits must identify null, orphan, duplicate,
+and cross-tenant rows. Existing rows are never silently assigned to the demo tenant.
 
-### 4.2 Membership and actor
+### 4.2 Membership and actors
 
-Customer access requires all of:
+Customer access requires:
 
-1. a verified authenticated user from `auth.getUser()`
+1. a user verified with `auth.getUser()`
 2. an accepted, active organization membership
-3. a tenant lifecycle state that permits the requested action
-4. ownership of the project or child row by that organization
-5. a role/action grant for non-read actions
+3. tenant access state that allows the action
+4. project/row ownership by that organization
+5. action permission for writes or sensitive operations
 
-Invitation, acceptance, suspension, revocation, and role changes are explicit states.
-User-editable JWT metadata is not an authorization source. A missing or ambiguous
-tenant returns a non-enumerating denial.
+Invitation, acceptance, suspension, revocation, and role changes are explicit. Missing,
+revoked, or ambiguous tenant context returns a non-enumerating denial.
 
-Workers and operators use separate identities:
-
-- a worker receives a claimed job whose organization/project and immutable execution
-  inputs are already recorded
-- an operator has a production identity, a scoped role, and a recorded reason
-- the service role is a server capability, not an actor; the actor is recorded
-  separately for every privileged action
+An operator uses a production identity and scoped authorization. Downstream worker or
+integration code receives a tenant-scoped contract through an interface; Phase 3 does
+not implement a queue or worker. The service role remains server-only and never becomes
+an end-user or operator identity.
 
 ### 4.3 RLS, grants, views, functions, and RPC
 
-- RLS is enabled on every exposed tenant table.
-- Policies use both `USING` and `WITH CHECK` where writes are allowed.
-- Table and sequence privileges are explicit; RLS does not replace `GRANT` review.
-- Customer-facing views use `security_invoker = true` and expose only approved fields.
-- `SECURITY DEFINER` functions live in a non-exposed schema, use a fixed empty or
-  explicit `search_path`, fully qualify objects, validate the actor, and have narrow
-  execute grants.
-- RPCs return tenant-safe DTOs and must not allow a caller-provided tenant to override
-  the actor's tenant.
-- Service-role APIs validate actor, action, project, lifecycle, and entitlement before
-  performing a write.
+- enable RLS on every exposed tenant table
+- use both `USING` and `WITH CHECK` for tenant-owned updates
+- review grants and sequence privileges separately from RLS
+- use `security_invoker = true` for exposed customer views
+- keep genuine `SECURITY DEFINER` functions in a non-exposed schema, fully qualify
+  objects, fix `search_path`, validate actor/tenant, and grant execution narrowly
+- reject caller-supplied tenant substitution in RPCs and server modules
+- select only required columns and paginate user-facing collections
+- keep service-role functions behind an operator/tenant/action authorization module
 
-## 5. Contract, entitlement, setup, and measurement lineage
+## 5. Contract, entitlement, and historical-reference foundation
 
-The dependency direction is:
+The cross-phase dependency is:
 
 ```text
-contract/subscription
-  → versioned plan policy
-  → immutable resolved entitlement snapshot
-  → immutable approved measurement-design version
-  → queue job and worker attempt
-  → raw evidence
-  → versioned derived result
-  → immutable publication version
+Phase 4 contract business state
+  → Phase 3 versioned plan-policy data
+  → Phase 3 immutable resolved entitlement snapshot
+  → Phase 5 measurement-design reference
+  → Phase 6 execution reference
+  → Phase 7 result/reflection reference
 ```
 
-### 5.1 Plan and entitlement
+Phase 3 owns only the plan-policy, resolver/snapshot, tenant constraints, and immutable
+reference contract in this chain.
 
-A plan policy version has an immutable identifier, effective interval, feature flags,
-limits, supported model/provider policy, frequency/budget policy, and schema version.
-Updating a marketed plan creates a new version.
+### 5.1 Versioned plan policy
 
-An entitlement snapshot resolves:
+A plan-policy version has an immutable ID, schema version, effective interval, typed
+capability/limit definition, and supersession relation. Updating a marketed plan creates
+a successor rather than changing the meaning of a prior version. Specific plan names,
+prices, question counts, AI counts, and payment-provider behavior are not decided here.
 
-- organization and optional project
-- subscription and plan-policy version
-- approved overrides and their reason
-- effective start/end
-- prompt, model, provider, frequency, concurrency, and cost limits
-- allowed features and data-processing policy
-- resolution schema version and hash
+### 5.2 Immutable entitlement snapshot
 
-Snapshots are immutable. A contract change creates a new current snapshot but does not
-rewrite snapshots referenced by setup designs, jobs, runs, results, or publications.
+A resolved snapshot records:
 
-Enforcement occurs at:
+- organization and optional project scope
+- opaque source-contract/subscription reference supplied by Phase 4
+- plan-policy version
+- resolved capability/limit document under a versioned schema
+- effective interval, resolution time, resolver version, and safe hash
+- approved exception metadata only when a separately authorized business process
+  supplies it; Phase 3 does not require human approval
 
-1. setup draft creation or regeneration
-2. setup/design approval and materialization
-3. job enqueue
-4. worker claim/start
-5. provider-call budget reservation
-6. retry or rerun
+The snapshot is append-only. A contract change may create a new current snapshot but
+cannot rewrite a snapshot referenced by historical data.
 
-A rejected gate records a structured reason and audit event without starting provider
-work.
+### 5.3 Consumer interface and immutable references
 
-### 5.2 Setup draft and measurement design
+Phase 3 provides an interface/fixture capable of:
 
-A durable setup draft stores the generator/schema version, tenant/project target,
-source inputs, personas, topics, prompts, review state, validation results, and
-entitlement snapshot used to create it.
+- resolving the current tenant-scoped snapshot
+- answering whether a named capability/limit is available without exposing contract or
+  billing data
+- returning stable reason codes without tenant enumeration
+- attaching `entitlement_snapshot_id` and schema version to a downstream record
+- rejecting cross-tenant snapshot references
 
-Approval materializes a new immutable measurement-design version containing:
+Phase 5 owns checks at setup/design creation and finalization. Phase 6 owns checks at
+enqueue/execution/retry. Those phases may use mocks before the Phase 3 implementation is
+ready, but integration stops until the real interface passes contract tests.
 
-- organization and project
-- setup draft and approval record
-- entitlement snapshot
-- prompt-set version and complete prompt-definition snapshots
-- persona/topic/brand/competitor snapshots
-- prompt type and measurement eligibility
-- requested provider/model/search configuration
-- completeness profile and metric-definition version
-- external payload policy version
-- effective interval and supersession link
+A historical measurement design/result reference must continue to resolve to the same
+snapshot identity after contract or plan changes. Phase 3 defines and tests the reference
+constraint; it does not implement setup drafts, measurement-design state machines,
+provider execution, parsing, aggregation, or result state machines.
 
-The design state is separate from subscription and publication:
+## 6. Customer and operator data boundary
 
-`draft → validating → review_required → approved → active → superseded | archived`
-
-An approved design is immutable. A change creates a successor. Every queue job, attempt,
-run, derived result, and publication references the exact design version.
-
-## 6. Measurement evidence and historical immutability
-
-### 6.1 Queue and attempt model
-
-Cron and operator actions enqueue jobs; they do not perform long-running provider work.
-A job carries tenant/project, design version, entitlement snapshot, idempotency key,
-priority, budget reservation, scheduled time, and audit correlation ID.
-
-A worker:
-
-1. atomically claims one eligible job
-2. revalidates lifecycle and entitlement
-3. creates an immutable attempt record
-4. calls a provider through a common adapter
-5. stores raw provider evidence once
-6. records structured result/error status
-7. enqueues parsing and derived work
-8. retries only retryable failures using bounded backoff and budget
-
-Provider idempotency support is used when available. When it is unavailable, Recora
-records request identity and treats an unknown provider outcome as a distinct state;
-it does not silently issue an unbounded duplicate call.
-
-### 6.2 Provider result states
-
-At minimum, distinguish:
-
-- `succeeded`
-- `refused`
-- `blocked`
-- `empty`
-- `partial`
-- `malformed`
-- `timed_out`
-- `rate_limited`
-- `provider_error_retryable`
-- `provider_error_terminal`
-- `canceled`
-- `unknown_outcome`
-
-Only a validated successful observation may become positive or negative brand evidence.
-Refusal, empty output, parse failure, and timeout must not become `absent`.
-
-### 6.3 Raw, parsed, derived, and published layers
-
-- raw provider response and request evidence are append-only
-- parser output is versioned and may be superseded, never rewritten in place
-- aggregate and metric results are versioned by source evidence set, design, parser,
-  metric definition, and calculation implementation
-- recalculation creates a new derived result
-- publication copies or references a frozen, validated result set
-- published rows reject update/delete except through an approved lifecycle workflow
-
-Prompt text, actual provider/model, request/response identity, usage, attempt, parser,
-payload policy, design, entitlement, and metric versions remain traceable from every
-published value.
-
-## 7. Publication and customer read contract
-
-Publication states are:
-
-`draft → validating → ready → approved → published → superseded | withdrawn`
-
-Each state change is formal and audited. `ready` means automated completeness and metric
-validity gates passed. `approved` records an authorized reviewer and reason.
-`published` records an immutable version that the customer may read.
-
-`project_current_publication` points to exactly one healthy published version. Pointer
-switch and audit event occur atomically. A failed candidate leaves the pointer
-unchanged.
-
-Customer routes resolve:
-
-```text
-authenticated user
-  → accepted organization membership
-  → authorized project
-  → current published report pointer
-  → customer-safe api read model
-```
-
-Customer responses exclude raw answers, raw provider payloads, internal run/job IDs,
-internal errors, operator notes, entitlement internals, audit details, and secrets.
-Raw run/conversation screens are internal evidence tools, not customer report routes.
-
-## 8. Customer and admin separation
-
-| Surface | Identity | Allowed data | Prohibited data/action |
+| Surface | Identity | Phase 3 boundary | Owning product phase |
 |---|---|---|---|
-| Customer browser | authenticated accepted member | current customer-safe publication for its tenant | raw measurement/control/audit, other tenant, service role |
-| Customer server action | customer actor plus authorized project | narrowly scoped writes allowed by lifecycle and entitlement | arbitrary organization/project selection |
-| Operator UI | production operator identity and scoped role | authorized control/read models | direct browser service-role access |
-| Operator write API | operator identity, role, reason, request ID | explicit command with audit event | generic table mutation |
-| Worker | claimed job identity | immutable job/design/evidence scope | free-form tenant selection |
-| Service role | server capability | only behind authorized server module | use as end-user identity or browser credential |
+| Customer browser/server | verified accepted member and authorized project | own-tenant customer-safe fields only; no provider envelope/control/audit/other tenant | Phase 8 consumes Phase 7 read model |
+| Operator server | production operator identity, permission, tenant, reason | authorized customer read/change with an audit event | Phase 9 UI |
+| Downstream execution | tenant-scoped interface input | cannot choose an unrelated tenant or bypass payload/entitlement contract | Phase 5/6 |
+| Service role | server capability | narrow server module only; never browser or actor identity | shared |
 
-Admin read and write paths are separate from customer paths. Sensitive reads may also
-require audit. Permission, subscription, rerun, approval, publication, and deletion
-changes record actor, tenant, target, before/after state, reason, request/correlation
-ID, time, and outcome.
+Phase 3 implements identity, authorization, tenant scope, grants/RLS, and audit primitives.
+It does not implement the customer dashboard, admin screen, queue, or analysis read model.
+Sensitive operator reads and important changes record actor, tenant, target, permission,
+reason, request/correlation ID, time, and outcome. The exact future staff-role catalog is
+not decided here.
 
-## 9. External AI payload and privacy contract
+## 7. `反映 / 保留` and customer AI-answer contract
 
-### 9.1 Allowlist
+The confirmed customer-reflection outcomes are:
 
-The provider-neutral request DTO may contain only fields required for the approved
-measurement design:
+- `反映`: eligible for the customer-display surface
+- `保留`: not displayed to the customer until the owning Phase 7 process changes the
+  decision
 
-- immutable prompt text snapshot
-- public target brand, service, domain, and approved aliases when required
-- approved public competitor names when required
-- locale/language and search mode
-- provider/model/tool configuration allowed by the entitlement
-- optionally, approved public web-page text with its source URL and size/classification
-- request, schema, adapter, and payload-policy version identifiers that contain no
-  secret or customer PII
+Any internal validation, version, analysis, or publication representation must map
+unambiguously to one of those two customer outcomes. Internal technical states do not
+create a third customer outcome. `approved` is not fixed as a mandatory human-review
+step. Phase 7 decides when human confirmation is required and owns the detailed state
+model and quality conditions.
 
-### 9.2 Denylist
+Phase 3 enforces the data boundary around the decision and customer-safe payload. The
+customer surface may preserve PR #71's AI answer and AI-answer-detail information:
 
-The request must reject or redact:
+- customer-display answer body
+- customer-display excerpt
+- customer-display citation/source information
+- other fields explicitly classified as customer-safe by Phase 7
 
-- member name, email, phone, user ID, auth claims, cookies, or session identifiers
-- contract, plan, billing, payment, quota, or commercial negotiation details
-- internal notes, audit contents, operator identity, or support content
-- secrets, tokens, credentials, database URLs, environment values, or private keys
-- another tenant's identifiers, prompts, results, domains, or internal metadata
-- unapproved personal, confidential, or regulated data
+The following remain internal and are not customer-display fields:
 
-The payload is constructed from a typed allowlist DTO, not by serializing an internal
-database object. Before network activity, validate classification, size, tenant/design
-lineage, entitlement, budget, and denylist patterns. Persist the payload policy version
-and a safe hash. Logs use opaque IDs and structured status; they do not print prompt
-text or raw provider output.
+- raw provider request and provider response envelope
+- internal metadata, prompts classified as internal, retry/control data, and cost data
+- secrets, credentials, authentication/session data, contract/billing internals
+- internal errors, operator notes, audit details, or another tenant's data
 
-### 9.3 Adapter and test contract
+Phase 7 creates the safe DTO/read model and the `反映 / 保留` decision. Phase 8 renders
+it. Issue #102 supplies the tenant/RLS/grant/classification boundary and negative tests.
 
-Every provider adapter maps the common request and result types without leaking
-provider-specific payload shape into aggregation. Contract fixtures cover success,
-refusal, blocked, empty, malformed, partial, timeout, rate limit, retryable/terminal
-errors, citations unavailable, and citation parse failure. Network calls are mocked in
-privacy and idempotency tests.
+## 8. External-AI payload safety foundation
 
-`store: false` is retained where supported but is not a substitute for payload
-minimization, vendor terms, retention policy, or deletion design.
+### 8.1 Allowlist
 
-## 10. Lifecycle, retention, restoration, and deletion
+The typed payload DTO may contain only fields required by a downstream measurement
+purpose and permitted by the resolved entitlement, for example:
 
-Subscription status, customer access state, and data lifecycle are separate. The data
-lifecycle is:
+- immutable question/prompt text supplied by the owning phase
+- public target brand, service, domain, and required public aliases
+- public competitor identifiers when the measurement purpose requires them
+- locale/language and permitted search/tool configuration
+- optional public page text with source, size, and classification
+- non-secret schema, request, and payload-policy version identifiers
 
-`active → access_suspended → terminated_retained → deletion_scheduled → deleting → deleted`
+Phase 3 defines the common DTO, versioned field classification, size rules, validator,
+safe hash, and negative fixtures. It does not implement provider adapters or calls.
 
-Exceptional states include `legal_hold`, `restored`, and `deletion_failed`.
+### 8.2 Denylist
 
-- `access_suspended`: deny customer access and all new setup/measurement work; keep
-  data unchanged.
-- `terminated_retained`: keep data under a versioned retention policy until
-  `retain_until`; permit only explicitly authorized internal handling.
-- `deletion_scheduled`: create an immutable inventory/manifest and idempotent job.
-- `deleting`: delete in dependency order with checkpoints, retries, and per-category
-  outcomes.
-- `deleted`: retain only the minimum permitted tombstone and audit proof.
-- `legal_hold`: suspend deletion for defined categories without silently restoring
-  customer access.
+Reject or redact:
 
-Retention duration is configuration, not a hard-coded number in this contract. The
-policy version defines treatment for Auth/membership, setup/design, raw provider
-evidence, derived results, published reports, billing/contract records, operational
-events, and security/audit records. Legal and contractual approval is required before
-defaults are implemented.
+- member name, email, phone, user ID, auth claims, cookies, and sessions
+- contract, plan, billing, payment, quota, or negotiation details
+- internal notes, audit contents, operator/support content
+- secrets, tokens, credentials, database URLs, environment values, and private keys
+- other-tenant identifiers, prompts, results, domains, or metadata
+- unnecessary personal, confidential, or regulated data
 
-Deletion is never a blind project cascade. It records tenant, policy, scope, inventory
-counts, exclusions/holds, attempt history, result counts, errors, actor, reason, and
-correlation ID. Restoration is allowed only before the policy's irreversible boundary
-and creates an audit event.
+Payloads are constructed from the allowlist DTO, not by serializing internal database
+objects. Logs use opaque IDs and structured status; they do not print prompt text or
+provider responses. `store: false`, where supported, is retained by the provider-owning
+phase but does not replace data minimization or retention controls.
 
-## 11. Threat and failure ledger
+### 8.3 Downstream adapter contract
 
-| ID | Threat/failure | Status from Stage 1 | Required control |
+Phase 6 must run the Phase 3 validator immediately before every provider call and prove
+that each adapter maps only allowlisted fields. Phase 6 owns provider-neutral adapter,
+retry, error, budget, and idempotency behavior. Its fixture/mock work may begin in
+parallel, but integration stops until the payload validator contract is stable.
+
+## 9. Retention and deletion-state foundation
+
+Phase 3 separates contract business state, customer-access state, and data-lifecycle
+state. It implements data primitives capable of representing:
+
+`active → access_suspended → retained → deletion_scheduled → deleting → deleted`
+
+Exceptional states include restore eligibility, legal hold, and deletion failure.
+The schema records organization, policy/version reference, retention start and deadline,
+restore deadline/eligibility, deletion scope, manifest, attempt/outcome, actor, reason,
+and audit correlation.
+
+The retention duration is configurable. Phase 3 does not choose a number of days or
+implement payment failure/cancellation business processing. Phase 4 maps contract events
+to the Phase 3 access/lifecycle interface. Phases 5 and 6 must stop new design/execution
+when the interface denies it. Phase 9 renders operator controls later.
+
+Deletion is not a blind project cascade. It is idempotent, tenant-scoped,
+manifest-driven, and auditable. Legal/contractual approval is required before default
+retention and purge rules are implemented.
+
+## 10. Threat and handoff ledger
+
+| ID | Threat/failure | Stage 1 fact | Direct owner |
 |---|---|---|---|
-| T1 | Legacy real project becomes anonymous demo data | Confirmed migration behavior; live applicability unverified | Explicit live inventory and mapping; fail-closed migration |
-| T2 | Privileged writer creates cross-project evidence references | Confirmed schema permits it | Composite tenant FKs and negative fixtures |
-| T3 | Customer auth session is ignored by dashboard queries | Confirmed code path | Session-aware client and route/project authorization |
-| T4 | Customer reads latest/raw internal measurement instead of published version | Confirmed code path | Publication pointer and customer-safe API read model |
-| T5 | Plan mutation changes historical entitlement meaning | Confirmed live-join design | Immutable plan policy and resolved snapshot |
-| T6 | Duplicate provider cost after timeout/commit failure | Confirmed missing attempt/idempotency model | Queue, attempt, budget reservation, bounded retry |
-| T7 | Provider failure becomes negative brand evidence | Confirmed parser/control-flow risk | Formal provider result and valid-observation gate |
-| T8 | Recalculation mutates past aggregate | Confirmed upsert path | Immutable derived versions |
-| T9 | External payload includes PII/secret through prompt text | No allowlist/denylist; exploit not demonstrated | Typed allowlist, redaction/rejection, log safety tests |
-| T10 | Unauthenticated site inspection is abused for outbound requests | Endpoint confirmed; DNS-rebinding is a static candidate | Auth, rate limit, DNS-pinned design, focused validation |
-| T11 | Admin action is unattributed or unaudited | Production admin/write audit missing | Operator identity, authorization, transaction-coupled audit |
-| T12 | Contract termination leaves access or measurement active | Lifecycle enforcement missing | Separate access/data states and tests |
-| T13 | Deletion cascade removes required evidence/audit without manifest | Current cascade and deletion workflow absence confirmed | Policy-driven manifest, holds, checkpoints, proof |
-| T14 | Fresh database cannot reach a secure reproducible state | Master migration replay blocker confirmed | Resolve #81-equivalent blocker and add replay CI |
+| T1 | Legacy real project becomes anonymous demo data | Migration behavior confirmed; live applicability unverified | Phase 3 |
+| T2 | Privileged writer creates cross-project references | Schema permits independent-FK combinations | Phase 3 |
+| T3 | Customer session is ignored by DB reads | Current server-query path confirmed | Phase 3 boundary; Phase 8 consumption |
+| T4 | Customer reaches internal/raw or other-tenant data | Current grants/read paths require replacement | Phase 3 access boundary; Phases 7–8 safe read model |
+| T5 | Plan mutation changes historical entitlement meaning | Mutable live-join design confirmed | Phase 3 foundation; Phase 4 source integration |
+| T6 | Provider failure/duplicate cost | Runtime controls missing | Phase 6 follow-up |
+| T7 | Recalculation mutates prior metrics | Current upsert path confirmed | Phase 7 follow-up under Phase 3 history contract |
+| T8 | Payload includes secret/PII/other tenant | Common validator missing | Phase 3 validator; Phase 6 integration |
+| T9 | Site inspection outbound abuse | Endpoint confirmed; DNS-rebinding only a static candidate | Phase 5 follow-up |
+| T10 | Operator action is unattributed | Production identity/write-audit path missing | Phase 3 foundation; Phase 9 UI |
+| T11 | Contract end leaves access active | Lifecycle interface missing | Phase 3 state; Phase 4 trigger; Phases 5–6 enforcement |
+| T12 | Deletion removes data without proof | Manifest/result workflow missing | Phase 3 foundation |
+| T13 | Fresh DB cannot replay | Master migration blocker confirmed | Phase 3 |
 
-No finding in this Stage 1 document is a claim about an exploited production system.
-Runtime-only hypotheses require separate validation approval.
+No Stage 1 finding claims an exploited production system. Runtime hypotheses require a
+separately approved validation scope.
 
-## 12. Cross-tenant and security test contract
+## 11. Phase 3 security-test contract
 
-Fixtures contain:
+Fixtures include organizations A/B, accepted members A/B, invited/unaccepted and revoked
+members, anonymous actor, scoped operator, demo/non-demo projects, and a deliberately
+rejected cross-tenant reference.
 
-- organization A and B
-- accepted member A and B
-- invited but unaccepted member
-- revoked/suspended member
-- anonymous actor
-- scoped operator and worker
-- demo and non-demo projects
-- complete parent/child evidence and one deliberately rejected cross-tenant fixture
+Phase 3 tests:
 
-Every customer-visible table, view, RPC, route, export, and job is tested for:
+1. own-tenant positive access and other-tenant UUID/slug denial
+2. list/search/filter/pagination/count and embedded/join/RPC non-leakage
+3. create/update/reparent/delete enforcement with `USING` and `WITH CHECK`
+4. anonymous, unaccepted, revoked, suspended, and missing-tenant behavior
+5. explicit grants and rejection of customer calls to operator RPCs
+6. least-privilege functions/views and no browser service-role exposure
+7. current entitlement resolution and immutable historical snapshot references
+8. contract/plan change fixtures leave past reference IDs/hashes unchanged
+9. operator authorization and audit-event integrity
+10. retention/deletion state, manifest, restore/hold, retry, and audit integrity
+11. payload allowlist/denylist, size, logging, secret/PII/other-tenant negative fixtures
+12. fresh migration replay, seed replay, schema/type drift, and backfill invariants
+13. customer-safe AI-answer fixtures are allowed while provider envelopes, internal
+    metadata/errors, audit details, and other-tenant fields are denied
 
-1. own-tenant positive read/action
-2. other-tenant UUID and slug direct access
-3. list, search, filter, pagination, and count leakage
-4. embedded/nested relation and multi-hop join leakage
-5. RPC tenant-parameter substitution
-6. create with another tenant/project
-7. update reparenting, including `WITH CHECK`
-8. delete and bulk action
-9. anonymous and unaccepted membership
-10. suspended/terminated lifecycle
-11. error/404 consistency and absence of existence leaks
+Downstream phases add their own integration tests: Phase 5 setup/design enforcement,
+Phase 6 provider/runtime behavior, Phase 7 analysis and `反映 / 保留`, Phase 8 dashboard,
+and Phase 9 admin UI. Those are not Issue #102 child acceptance tests.
 
-Additional suites verify:
+## 12. Additive migration, backfill, compatibility, and rollback
 
-- anon/authenticated cannot call admin RPCs
-- security-definer functions and grants are minimal
-- customer responses contain no raw answer, provider payload, internal ID/error, or
-  audit/operator fields
-- entitlement changes leave past design/run/result/publication hashes and references
-  unchanged
-- published rows reject mutation and pointer switches are atomic
-- failed newer cycles preserve the current publication
-- provider payload allowlist, denylist, logging, and mock adapter behavior
-- duplicate delivery and retry do not duplicate provider work or evidence
-- branded/non-eligible prompts never enter protected metrics
-- retention, restoration, legal hold, deletion retry, and audit proof
-- pagination remains complete above 1,000 child rows
-
-## 13. Additive migration, backfill, compatibility, and rollback
-
-### 13.1 Prerequisite
+### 12.1 Prerequisite
 
 `master` fresh replay currently stops in
 `supabase/migrations/20260701073553_recora_internal_demo_subscription.sql:10-33`
-because it requires a project that migrations do not create. Draft PR
-[#81](https://github.com/sushikikun/RECORA/pull/81) proposes a fix but is not part of
-`master` and is not assumed merged. Stage 2 schema work must first decide whether to
-merge, replace, or supersede that fix, then prove migration-only and full seed replay.
+because it requires a project not created by migrations. Draft PR #81 is reference only;
+Stage 2 must choose an approved resolution and then prove migration-only and seeded
+replay.
 
-### 13.2 Sequence
+### 12.2 Phase 3 sequence
 
-1. Inventory live schema, grants, policies, functions, project-to-organization mapping,
-   cross-tenant/orphan counts, current subscriptions, and publication/read usage.
-2. Make fresh migration replay deterministic without embedding required demo business
-   rows in historical schema migration.
-3. Add new schemas, roots, immutable version entities, lifecycle fields, constraints,
-   and supporting indexes without removing legacy paths.
-4. Add composite candidate keys and `NOT VALID` tenant foreign keys where needed.
-5. Backfill tenant ownership, plan-policy versions, entitlement snapshots, design
-   versions, and publication candidates in bounded, restartable chunks.
-6. Validate row counts, nulls, duplicates, orphan and cross-tenant links, hashes, and
-   constraint validity before enforcement.
-7. Shadow-write or materialize new immutable paths while legacy reads remain available.
-8. Verify customer-safe publication reads, RLS/API isolation, admin authorization,
-   provider payloads, lifecycle, and audit.
-9. Atomically switch customer reads to the current publication pointer.
-10. Enforce new write gates and stop creating legacy-only state.
-11. Remove legacy grants/read paths only in a later approved change after observation
-    and rollback windows pass.
+1. inspect live schema/grants/policies/functions and tenant/orphan/cross-tenant counts
+   under separately approved read-only access
+2. make fresh replay deterministic without required demo business rows in schema
+   migrations
+3. add tenant/access, plan-policy, entitlement-snapshot, operator/audit,
+   retention/deletion, and payload-policy primitives additively
+4. add composite candidate keys and initially non-validating constraints where required
+5. backfill ownership and Phase 3 version/reference data in bounded idempotent chunks
+6. validate counts, nulls, duplicates, orphans, cross-tenant links, hashes, and
+   constraints
+7. expose versioned interfaces/fixtures for Phases 4–10 without implementing their
+   product paths
+8. run the complete Phase 3 security suite before tightening legacy grants or writes
+9. remove compatibility paths only in a later approved change after dependent phases
+   have integrated and verified replacement paths
 
-Backfill SQL must be idempotent, tenant-scoped, bounded, observable without secrets,
-and safe to resume. Every migration records expected pre/post counts and queries for
-cross-tenant anomalies.
+Phase 3 does not backfill setup drafts, build a queue, recalculate results, define
+detailed publication states, switch a customer read model, connect dashboard data, or
+implement an admin screen.
 
-### 13.3 Rollback
+### 12.3 Rollback
 
-Rollback is application-level and additive:
+Rollback remains additive: stop new Phase 3 writers/interfaces, resume an idempotent
+backfill from a checkpoint, retain old compatible reads until a verified dependent path
+exists, and avoid destructive drops in the emergency step. It never mutates historical
+entitlement references or audit evidence. Later phases own rollback for their own
+product/runtime integration.
 
-- stop new-schema writers and queue claims with an approved feature/control flag
-- retain legacy read compatibility until the publication path is verified
-- switch a customer pointer only to an already healthy immutable publication
-- resume an idempotent backfill from its checkpoint
-- never roll back by mutating published versions, historical entitlement snapshots,
-  raw evidence, or audit events
-- never drop a new column/table/constraint in the emergency rollback step
+## 13. Stage 2 split and cross-phase dependencies
 
-Destructive cleanup is a separate change after evidence confirms it is safe.
+Every Phase 3 child requires its own accepted scope and separate R3 Execute approval for
+DB, RLS, Auth, migration, privileged, or external effects. Labels are planning labels,
+not existing Issue numbers.
 
-## 14. Stage 2 child-issue split
-
-Each child is independently scoped. Because the parent is R3, any database write,
-migration, local reset, external API execution, privileged operation, or production
-effect requires the exact child scope and a separate Execute approval.
+### 13.1 Phase 3 direct implementation children
 
 | Child | Scope and acceptance | Depends on |
 |---|---|---|
-| 102-A Fresh replay baseline | Resolve #81-equivalent blocker; migration-only and seeded fresh replay pass; no fixed required business row in schema migration | none |
-| 102-B Tenant ownership and composite integrity | Inventory/backfill plan approved; accepted membership predicate; organization/project keys and composite FKs reject cross-tenant rows | 102-A |
-| 102-C RLS, grants, API, and auth isolation | Session-aware customer auth; customer A/B, anon, invitation, lifecycle, URL/list/join/RPC tests pass; no raw customer grants | 102-B |
-| 102-D Contract and entitlement versions | Versioned plan policy and immutable resolved snapshots; create/finalize/enqueue/worker gates and historical-immutability tests pass | 102-B |
-| 102-E Durable setup and measurement design | Draft persistence, approval/materialization, immutable design and prompt-set versions, full lineage to entitlement | 102-D |
-| 102-F Provider-neutral queue and privacy | Queue/attempt/idempotency/retry/budget adapters; payload allowlist/denylist and failure-state tests | 102-D, 102-E |
-| 102-G Immutable derived results and quality gates | Versioned parse/aggregate/metric results; prompt eligibility and completeness gates; no in-place historical mutation | 102-F |
-| 102-H Publication and customer read cutover | Immutable publication children/current pointer; atomic publish; failed cycle preserves healthy report; customer-safe API only | 102-C, 102-G |
-| 102-I Production admin and audit | Operator identity/roles, command APIs, reason/before/after/request audit, sensitive-read policy | 102-B |
-| 102-J Lifecycle, retention, and deletion | Access suspension, policy version, restoration/hold, manifest, idempotent deletion, proof/audit | 102-D, 102-H, 102-I |
-| 102-K Integration and legacy retirement | Fresh replay CI, full cross-tenant/security suite, staged cutover observation, approved removal of compatibility paths | 102-C through 102-J |
+| 102-3A Fresh replay baseline | Resolve the master blocker; migration-only and seeded replay pass; no required business row in schema migration | none |
+| 102-3B Tenant ownership and membership | Explicit organization/project ownership, accepted membership, safe existing-data mapping | 102-3A |
+| 102-3C Composite integrity, RLS, grants, and customer/operator boundary | Composite tenant constraints and customer A/B, anon, URL/list/join/RPC tests pass | 102-3B |
+| 102-3D Plan policy, entitlement snapshot, and history references | Versioned policy, immutable snapshot/resolver, cross-tenant rejection, history contract tests | 102-3B |
+| 102-3E Operator identity, authorization, and audit foundation | OWNER/operator identity and scoped authorization; append-only audit primitives and tests | 102-3B |
+| 102-3F Retention and deletion-state foundation | Configurable policy/state, restore/hold, manifest/result, access-state tests; no product retention-day decision | 102-3D, 102-3E |
+| 102-3G External-AI payload safety foundation | Typed allowlist/denylist validator, safe logging/hash, privacy fixtures | 102-3B, 102-3D |
+| 102-3H Phase 3 integration/security suite | Fresh replay, RLS/grants, cross-tenant, history, audit, lifecycle, payload tests pass together | 102-3C through 102-3G |
 
-Child creation itself is outside Stage 1 unless separately requested. The identifiers
-above are planning labels, not existing Issue numbers.
+### 13.2 Dependency contracts delivered to later phases
 
-## 15. Stage 2 entry and stop conditions
+| Consumer | Issue #102 delivers | Integration stop condition |
+|---|---|---|
+| Phase 4 | tenant-scoped contract source interface and entitlement resolver input | no independent entitlement/tenant schema; wait for 102-3D before real integration |
+| Phase 5 | accepted-member/project resolver, entitlement lookup, immutable design-reference contract, payload validator | may use mocks; stop real DB/Auth integration until 102-3C/3D/3G pass |
+| Phase 6 | tenant/entitlement reference and payload-safety interface | may build queue/adapters separately; stop provider integration until 102-3D/3G pass |
+| Phase 7 | immutable history reference and customer-safe `反映 / 保留` classification boundary | Phase 7 owns detailed quality/state/read model; stop real integration until 102-3C/3D pass |
+| Phase 8 | customer identity/project authorization and safe DTO boundary | no direct internal/raw table access; wait for Phase 7 read model and 102-3C |
+| Phase 9 | operator identity/permission/audit command boundary | may build UI with fixtures; wait for 102-3E before real admin integration |
+| Phase 10 | combined upstream contract/fixtures | integrate only after required Phase 3 and owning-phase PRs pass joint verification |
 
-Stage 2 must not start until:
+### 13.3 Later-phase Issue candidates
 
-- this design and Exec Plan receive Human review
-- the parent/child scope, dependencies, and acceptance criteria are accepted
-- live Supabase target identity and read/write boundary are confirmed
-- any required migration plan is approved
-- the exact R3 Execute operation receives a separate explicit approval
+Create these under their own parent Issue, worktree, branch, and Draft PR, not as Issue
+#102 children:
 
-Stop before any:
+- Phase 4 contract/account/billing lifecycle and entitlement-source integration
+- Phase 5 onboarding, setup draft, question finalization, and measurement-design
+  integration
+- Phase 6 queue, worker, provider call, retry, budget, and provider adapters
+- Phase 7 analysis, quality decision, `反映 / 保留`, customer-safe AI answer, citation,
+  and read model
+- Phase 8 customer dashboard real-data connection
+- Phase 9 operator/admin UI
+- Phase 10 integration scope defined by its own parent plan
 
-- schema, migration, RLS, grant, function, view, or live DB change
-- Supabase local reset or production/non-local query/write not explicitly approved
-- Auth, API, measurement, publication, admin, retention, or deletion implementation
-- external provider execution
-- secret/environment inspection
-- ready-for-review PR conversion, merge, deploy, Issue close, or branch deletion
+Per OWNER comment 5117068026, these may start in parallel behind interfaces, adapters,
+fixtures, or mocks. They cannot redefine Issue #102 contracts or mix with this worktree.
 
-## 16. Stage 1 validation and residual risk
+## 14. Stage 2 entry and current stop conditions
 
-Stage 1 validates repository evidence and document integrity only. It intentionally
-does not validate:
+Issue #102 Stage 2 Phase 3 work starts only after:
 
-- live schema drift, RLS/grants, advisors, data ownership, or existing cross-tenant rows
-- real JWT behavior and runtime route isolation
-- DNS-rebinding exploitability
-- provider calls, idempotency, payload minimization, or vendor behavior
-- fresh local migration replay, because it is a write-capable local DB operation and
-  `master` has a known blocker
-- retention periods or legal requirements
+- this revised design and Exec Plan receive Human review
+- direct Phase 3 child scope, dependencies, and acceptance criteria are accepted
+- live Supabase target and read/write boundary are confirmed
+- each required migration/operation has its own R3 Execute approval
 
-These are explicit residual risks and required inputs to the appropriate child Issues,
-not silent assumptions.
+Later phases do not need to wait to begin separate mock/adapter/interface work, but their
+real integration, Ready conversion, and merge stop at the dependency gates in Section
+13.2.
+
+This Stage 1 revision stops before any schema, migration, RLS, grant, Auth, API, DB,
+provider, lifecycle, deletion, or product implementation; local DB reset; secret access;
+PR Ready conversion; merge; deploy; Issue close; or branch/worktree deletion.
+
+## 15. Stage 1 validation and residual risk
+
+Stage 1 validates repository evidence and document integrity only. It does not validate:
+
+- live schema/data/grant/policy drift or actual project organization mapping
+- real JWT/session RLS and route behavior
+- fresh local replay after an approved blocker fix
+- runtime payload/provider behavior or DNS-rebinding exploitability
+- business lifecycle integration in Phase 4
+- setup/execution/analysis/dashboard/admin integration in Phases 5–9
+- legal/contractual retention defaults
+
+These are explicit Phase 3 or downstream inputs, not silent assumptions and not Stage 2
+Execute authorization.

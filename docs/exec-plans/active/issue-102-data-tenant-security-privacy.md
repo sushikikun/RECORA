@@ -1,276 +1,295 @@
-# Issue #102 Stage 1: data, tenant security, and privacy foundation
+# Issue #102 Stage 1: Phase 3 data, tenant security, and privacy foundation
 
 ## Metadata
 
 - Issue: [#102](https://github.com/sushikikun/RECORA/issues/102)
-- OWNER approval:
-  [comment 5116752218](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5116752218)
+- Initial Stage 1 approval:
+  [OWNER comment 5116752218](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5116752218)
+- Parallel-development policy:
+  [OWNER comment 5117068026](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117068026)
+- Human-review correction:
+  [OWNER comment 5117210498](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117210498)
 - Risk: `R3`
 - Execution: `Local Codex`
 - Spec level: `Full`
 - Approval: `Plan`
 - Priority: `P0`
 - Area: `Infrastructure`
-- Ready: `Stage 1 only`
-- Status: `Stage 1 complete; Human review required`
+- Ready: `Stage 1 document revision only`
+- Status: `Stage 1 scope revised; Human review required`
 - Base: `master` at `4fcd505`
 - Branch: `codex/issue-102-stage1-data-tenant-security-plan`
+- Draft PR: [#103](https://github.com/sushikikun/RECORA/pull/103)
 - Authoritative design:
   [`docs/recora-data-tenant-security-privacy.md`](../../recora-data-tenant-security-privacy.md)
 
+### Authority order
+
+1. Issue #102 confirmed principles
+2. OWNER comment 5116752218
+3. OWNER comment 5117068026
+4. OWNER Human review 5117210498
+5. confirmed `master` implementation facts
+
+Existing architecture documents, PRs, and unmerged branches are reference material.
+They do not override this order or automatically contribute unapproved product and
+operational decisions.
+
 ## Objective
 
-Audit the current `master` data, tenant, authorization, measurement, publication,
-privacy, audit, retention, and deletion boundaries, then produce an implementation-ready
-foundation and child-issue sequence. Stop before Stage 2 code, schema, database,
-external provider, or privileged operations.
+Use the completed read-only audit to produce an implementation-ready plan for Phase 3
+only:
+
+- tenant ownership and accepted membership
+- composite integrity, RLS, grants, and customer/operator boundary
+- common contract/entitlement/history-reference foundation
+- operator identity/authorization/audit foundation
+- retention/deletion-state foundation
+- external-AI payload safety foundation
+- fresh replay and security tests
+
+Document interfaces for Phases 4–10 without implementing their product/runtime scope or
+creating those features as Issue #102 children. Stop before Stage 2.
 
 ## Context
 
-Recora already has Phase 1 tenant/RLS, measurement, admin-read, and dashboard structures,
-but the post-launch architecture requires stronger invariants:
+The Stage 1 audit remains accepted. OWNER Human review required correction of its scope:
 
-- customers read the current immutable publication, not the latest/raw measurement
-- contract and entitlement changes do not rewrite historical meaning
-- tenant isolation is enforced in keys, policies, routes, jobs, and tests
-- measurement is provider-neutral, queued, idempotent, privacy-minimized, and traceable
-- suspension, retention, deletion, and privileged actions are formal and auditable
+- Issue/OWNER decisions are above existing architecture references.
+- Issue #102 is the parent for Phase 3, not Phases 4–10.
+- later-phase implementation is separated from Phase 3 child work
+- customer reflection remains `反映 / 保留`
+- mandatory human `approved` is not assumed
+- customer-safe AI answer/detail content from PR #71 remains supported
+- Phases 4–10 may start in parallel behind interfaces, adapters, fixtures, and mocks
 
-This Stage 1 plan turns those requirements into an evidence-based contract. It does not
-implement them.
+The current revision changes only the three OWNER-approved documents. It does not alter
+the accepted audit evidence or product/database state.
 
-## Source documents and evidence
+## Sources and evidence
 
-Read before work:
+Required task sources:
 
+- Issue #102
+- OWNER comments 5116752218, 5117068026, and 5117210498
 - `docs/recora-agentic-sdlc.md`
 - `docs/README.md`
 - `docs/recora-dev-workflow.md`
 - `.agents/skills/RECORA-SKILL-STACK.md`
-- `docs/recora-post-launch-operations-architecture.md`
 - `docs/exec-plans/templates/exec-plan-template.md`
-- Issue #102 and OWNER comment 5116752218
 
-Repository areas inspected read-only:
+Reference-only sources:
 
-- `supabase/config.toml`, `supabase/seed.sql`, and all current migrations
-- `app/api/recora/**`, customer dashboard/report routes, Auth actions, and internal routes
-- `lib/supabase/**`, `lib/recora/db/**`, auth/access, setup, entitlement-read, and
-  readiness modules
-- measurement, aggregation, recommendation, report-cycle, backfill, and verification
-  scripts
-- package scripts and CI workflow
-- related current design/audit documents
-- open PRs relevant to fresh replay and customer report structure
+- `docs/recora-post-launch-operations-architecture.md`
+- PR #71 information structure
+- PR #81 fresh-replay proposal
+- other current or historical audit/design documents and unmerged branches
 
-No `.env`/secret was read or displayed. No DB connection, database write, migration,
-local reset, external API call, or production operation was performed.
+Confirmed repository evidence remains based on `master` at `4fcd505`. No `.env` or
+secret was read or displayed. No DB connection, write, migration, reset, provider call,
+or production action was performed.
 
 ## Scope
 
-### In scope
+### Phase 3 direct scope
 
-- repository-based current-state inventory
-- reusable/fix/deprecate/missing classification
-- formal tenant, entitlement, design, evidence, publication, admin, privacy, lifecycle,
-  migration, rollback, and test contracts
-- child-issue decomposition with dependencies, acceptance criteria, validation, and
-  Stage 2 boundaries
-- the two approved documentation files and this docs navigation update
-- explicit commit, push, Draft PR, Project transition, and Issue completion report
+- organization-root tenant ownership and existing-data mapping
+- accepted membership, tenant-access, and object/action authorization primitives
+- composite tenant keys/FKs and cross-tenant rejection
+- RLS, grants, safe functions/views/RPCs, and customer/operator access boundary
+- versioned plan policy, immutable resolved entitlement snapshot, and resolver
+- immutable reference contract for historical measurement designs and results
+- operator identity, permission, and append-only audit primitives
+- configurable retention/deletion state, manifest, outcome, and audit primitives
+- typed external-AI allowlist/denylist validator and privacy fixtures
+- fresh replay, generated type/schema drift, RLS/grant, cross-tenant, permission,
+  history, lifecycle-state, audit, and payload security tests
+- additive migration/backfill/rollback plan for the above
 
-### Out of scope
+### Dependency contracts only
 
-- schema, migration, RLS, grant, function, view, or generated type changes
-- application, API, Auth, dashboard, admin, measurement, or worker implementation
-- Supabase local/live inspection or writes
-- provider execution or environment/secret inspection
-- package or lockfile changes
-- repo settings, ready PR, merge, deployment, Issue close, or branch/worktree deletion
+- Phase 4 contract source → entitlement-resolver input
+- Phase 5 member/project/entitlement/payload interfaces and historical-design reference
+- Phase 6 tenant/entitlement/payload interfaces
+- Phase 7 immutable-history and customer-safe `反映 / 保留` classification boundary
+- Phase 8 customer identity/project authorization and safe DTO boundary
+- Phase 9 operator identity/permission/audit command boundary
+- Phase 10 combined fixtures/integration gates
+
+### Outside Issue #102 implementation
+
+- Phase 4 contract/account/billing lifecycle business processing
+- Phase 5 onboarding, setup draft, question finalization, and measurement-design
+  integration
+- Phase 6 queue, worker, provider call, retry, budget, and provider adapters
+- Phase 7 analysis, quality rules, detailed internal states, `反映 / 保留`, customer-safe
+  answer/citation read model, prompt eligibility, and completeness rules
+- Phase 8 customer dashboard real-data connection
+- Phase 9 admin screen
+- Phase 10 work defined by its own parent plan
+
+Those phases use separate Issues, worktrees, branches, and Draft PRs. Their interface,
+adapter, fixture, and mock work may begin before Issue #102 completes. Real integration,
+Ready conversion, and merge stop at the relevant upstream contract gate.
+
+### Current Stage 1 revision scope
+
+- `docs/recora-data-tenant-security-privacy.md`
+- `docs/exec-plans/active/issue-102-data-tenant-security-privacy.md`
+- `docs/README.md`
+- exact validation, explicit staging, commit, push, Draft PR #103 update, Project
+  verification, and Issue completion report
+
+No implementation, schema, RLS, API, Auth, DB write, Stage 2 Execute, ready PR, merge,
+deploy, Issue close, or branch/worktree deletion is authorized.
 
 ## Start gate evidence
 
-- OWNER comment author association: `OWNER`
-- OWNER explicitly marked only Stage 1 Ready and authorized read-only audit, the three
-  approved docs, validation, explicit staging/commit/push, Draft PR, and Project
-  transitions.
-- `git fetch origin` completed before editing.
-- Repository root:
+- review comment 5117210498 has `author_association = OWNER`
+- current worktree:
   `C:/Users/nakan/.codex/worktrees/0492/recora-main`
-- Git common dir: `C:/Users/nakan/work/recora-main/.git` (not OneDrive)
-- Initial state: detached `HEAD`, clean, `HEAD == origin/master == 4fcd505`
-- Dedicated task branch created before editing:
+- git-common-dir:
+  `C:/Users/nakan/work/recora-main/.git` (not OneDrive)
+- branch:
   `codex/issue-102-stage1-data-tenant-security-plan`
-- Project fields set and verified before execution:
-  `In Progress / R3 / Local Codex / Full / Plan / P0 / Infrastructure`
+- revision start:
+  `HEAD == origin/task branch == 628b6b7`
+- base:
+  `origin/master == 4fcd505`
+- initial revision working tree: clean
+- PR #103: open Draft targeting `master`
+- Project target after handoff: `Human review / Approval Plan`
 
-## Current-state audit summary
+## Accepted audit summary
 
-### Reusable
+### Phase 3 findings
 
-- organization/member/project tenant root and basic RLS helper design
-- RLS enabled, browser writes revoked, and private admin schema
-- server-only service-role client and two narrow read-only admin RPCs
-- setup-draft TypeScript validation/generation safety
-- prompt/model/raw-response/citation evidence skeleton
-- batch-item idempotency key and operation-event skeleton
-- explicit prompt-scope and valid-observation helpers
-
-### Must fix
-
-- master fresh migration replay stops on a required fixed demo project
-- tenant-foundation migration maps all unassigned projects to anonymous demo ownership
-- core evidence foreign keys permit cross-project combinations for privileged writers
+- fresh migration replay stops on a required fixed demo project
+- tenant-foundation migration maps unassigned projects to anonymous demo ownership
+- independent evidence FKs permit privileged cross-project combinations
 - accepted membership is not required
-- customer Auth cookie is not propagated into dashboard queries, while signup creates no
-  membership
-- customer routes read latest aggregate/raw measurement instead of a current
-  publication
-- measurement execution does not enforce actor, tenant lifecycle, contract, entitlement,
-  budget, or immutable design
-- retry/idempotency/provider failure states and provider-neutral workers are missing
-- aggregation updates prior metric snapshots in place
-- plan/entitlement is a mutable JSON/live-join model
-- production operator auth, write authorization, and append-only audit are missing
-- retention/deletion and executable cross-tenant DB tests are absent
+- customer session is not propagated into dashboard DB queries
+- mutable plan JSON/live join does not preserve historical entitlement meaning
+- production operator identity/write authorization/audit is missing
+- retention/deletion-state and executable tenant security suites are missing
+- a common external-AI payload validator is missing
 
-### Deprecate after verified cutover
+### Downstream findings retained only as handoffs
 
-- raw public measurement as the customer data surface
-- anonymous demo access to the raw hierarchy
-- latest-aggregate/one-observation/OpenAI-only customer readiness
-- metadata-only publication state
-- fixed demo data in schema migration
-- local all-role admin and direct measurement orchestration as production patterns
+- customer routes currently read latest/raw measurement instead of a safe customer DTO
+- measurement-design and execution paths do not consume an entitlement snapshot
+- queue/worker/provider retry/idempotency runtime is missing
+- aggregation mutates prior metrics
+- detailed analysis/reflection/read-model and dashboard integration are incomplete
+- admin UI is not production-ready
 
-### Missing
+These findings remain useful, but they do not become Issue #102 children when their
+implementation belongs to Phases 4–10.
 
-- immutable plan/entitlement, setup/design, derived result, and publication versions
-- current publication pointer and customer-safe API read model
-- provider-neutral queue/attempt/adapter/payload contract
-- lifecycle/retention/deletion manifest and proof
-- production operator identity and transaction-coupled audit
-- fresh replay, RLS, API, history, privacy, and rollback suites
+## Human-review correction matrix
 
-Detailed evidence and target decisions are recorded in the authoritative design.
-
-## Risk analysis
-
-### Highest risks
-
-1. A legacy real project could be mapped to an anonymously readable demo tenant during
-   migration. Live applicability is unknown and must be inspected before any migration.
-2. Independent foreign keys allow a privileged writer or future worker to create
-   cross-project evidence that RLS checks through only one ownership chain.
-3. Customer Auth and DB reads are disconnected; a real customer path is non-functional,
-   and raw demo data remains the main anonymous surface.
-4. Contract changes can alter live entitlement meaning without preserving the conditions
-   used by prior setup or measurement.
-5. Provider failures can become absence evidence, duplicate calls can incur repeated
-   cost, and recalculation can mutate historical aggregates.
-6. There is no canonical immutable publication/current pointer or retention/deletion
-   workflow.
-
-### Static security candidates requiring later validation
-
-- DNS validation and fetch perform separate resolution in `site-inspect`; DNS rebinding
-  remains a hypothesis, not a confirmed exploit.
-- Runtime JWT/RLS behavior and live grants/policies may differ from repository
-  migrations.
-- No Stage 1 finding asserts an exploited production system.
+| OWNER instruction | Revision |
+|---|---|
+| Correct source priority | Issue and three OWNER comments are ordered above `master`; architecture/PR/branch material is reference-only |
+| Limit Issue #102 to Phase 3 | direct scope now contains only shared data/security/privacy foundations and tests |
+| Reorganize Stage 2 | split into Phase 3 direct children, downstream dependency contracts, and later-phase Issue candidates |
+| Align `反映 / 保留` | external customer outcome is two-state; detailed internal model belongs to Phase 7 |
+| Do not require human `approved` | no mandatory human approval state is fixed; Phase 7 decides review conditions |
+| Preserve AI-answer display | customer-safe body/excerpt/citations remain allowed; only provider envelopes/internal data are excluded |
+| Apply parallel policy | Phases 4–10 may start separately behind interfaces/mocks; integration gates are explicit |
+| Move non-Phase-3 decisions | queue, retry, prompt eligibility, completeness, publication detail, and aggregation design moved to owning phases |
 
 ## Execution plan and progress
 
-### Milestone 1 — Start gate and baseline
+### Milestone 1 — Original Stage 1 audit
 
-- [x] Read Issue #102 and OWNER comment 5116752218.
-- [x] Confirm `R3 / Local Codex / Full / Plan / Stage 1 Ready`.
-- [x] Read mandatory lifecycle, workflow, post-launch, skill-stack, and plan sources.
-- [x] Fetch origin and verify clean `HEAD == origin/master`.
-- [x] Verify git-common-dir is outside OneDrive.
-- [x] Create a dedicated task branch.
-- [x] Add Issue #102 to the project and set/verify approved fields.
+- [x] Confirm original Stage 1 approval and classifications.
+- [x] Fetch and verify clean `master` baseline in the official worktree.
+- [x] Audit schema/migrations/RLS/Auth/API/admin/contracts/entitlements/measurement/
+  publication/privacy/retention/tests read-only.
+- [x] Record confirmed repository behavior separately from runtime hypotheses.
+- [x] Create the formal design, Exec Plan, docs navigation, and Draft PR #103.
+- [x] Run required validation and hand off to Human review.
 
-### Milestone 2 — Read-only inventory and threat review
+### Milestone 2 — OWNER Human-review revision
 
-- [x] Audit migrations, tenant keys, RLS, grants, functions, RPCs, seed, and replay.
-- [x] Audit customer/Auth/API/admin/service-role boundaries.
-- [x] Audit contracts, plans, entitlements, setup drafts, publication, and audit.
-- [x] Audit measurement, provider payloads, parsing, aggregation, retry, and privacy.
-- [x] Audit test coverage, CI, fresh replay, backfill, and rollback.
-- [x] Classify reusable, fix, deprecate, and missing structures.
-- [x] Record confirmed findings separately from runtime hypotheses.
+- [x] Read comments 5117210498 and 5117068026 and re-check Issue #102.
+- [x] Correct authority order and reference-only documents.
+- [x] Restrict direct implementation scope to Phase 3.
+- [x] Reorganize child work into three categories.
+- [x] Document parallel-worktree/interface/mock/integration gates.
+- [x] Map internal states to customer `反映 / 保留` without mandatory human approval.
+- [x] Preserve customer-safe AI answer/detail body, excerpt, and citations.
+- [x] Move queue, prompt eligibility, completeness, publication, and aggregation details
+  to their owning phases.
 
-### Milestone 3 — Formal design
-
-- [x] Define organization-root tenant and membership contract.
-- [x] Define contract → plan policy → entitlement snapshot → design lineage.
-- [x] Define historical evidence, derived result, and publication immutability.
-- [x] Define customer/admin/worker/service-role separation.
-- [x] Define external AI payload allowlist/denylist and provider adapter tests.
-- [x] Define lifecycle, retention, restoration, deletion, and audit.
-- [x] Define cross-tenant/RLS/API test matrix.
-- [x] Define additive migration, backfill, compatibility, and rollback.
-- [x] Split Stage 2 into dependency-ordered child scopes.
-- [x] Record exact Stage 2 entry and stop conditions.
-
-### Milestone 4 — Stage 1 validation and handoff
+### Milestone 3 — Revision validation and handoff
 
 - [x] Run `npm run recora:preflight:full` with existing fnm Node/npm.
 - [x] Run `git diff --check`.
 - [x] Record docs-only lint/build omission reason.
-- [x] Run `npm run recora:commit-check` before commit.
-- [x] Inspect exact changed and staged file lists and staged whitespace check.
-- [x] Commit only approved documentation files.
-- [x] Push the task branch and open a Draft PR to `master`.
-- [x] Transition Project Status to `Human review` and keep Approval `Plan`.
-- [ ] Post the completion report directly to Issue #102.
-- [ ] Stop without Stage 2, ready PR, merge, deploy, close, or cleanup.
+- [x] Run `npm run recora:commit-check`.
+- [x] Inspect exact changed/staged file lists and staged whitespace.
+- [ ] Commit and push only the three approved documents.
+- [ ] Update PR #103 body while keeping it Draft.
+- [ ] Verify Project `Human review / Approval Plan`.
+- [ ] Post completion directly to Issue #102 and stop.
 
-## Target child issues
+## Phase 3 child plan
 
-Planning labels and dependency order:
+The authoritative acceptance criteria are in
+[`docs/recora-data-tenant-security-privacy.md`](../../recora-data-tenant-security-privacy.md#131-phase-3-direct-implementation-children).
 
-1. `102-A` fresh replay baseline and #81-equivalent decision
-2. `102-B` tenant ownership, accepted membership, and composite integrity
-3. `102-C` RLS/grants/customer Auth/API isolation and executable A/B tests
-4. `102-D` plan-policy and immutable entitlement snapshots
-5. `102-E` durable setup draft and immutable measurement design
-6. `102-F` provider-neutral queue, idempotency, retry, budget, and payload privacy
-7. `102-G` immutable parsing/aggregation/metrics and completeness gates
-8. `102-H` immutable publication/current pointer and customer read cutover
-9. `102-I` production operator auth and transaction-coupled audit
-10. `102-J` lifecycle, retention, restoration, and deletion
-11. `102-K` integration, fresh replay CI, cutover observation, and legacy retirement
+1. `102-3A` fresh replay baseline
+2. `102-3B` tenant ownership and accepted membership
+3. `102-3C` composite integrity, RLS, grants, and customer/operator boundary
+4. `102-3D` plan policy, entitlement snapshot, and historical references
+5. `102-3E` operator identity, authorization, and audit foundation
+6. `102-3F` retention and deletion-state foundation
+7. `102-3G` external-AI payload safety foundation
+8. `102-3H` Phase 3 integration/security suite
 
-Acceptance criteria, dependencies, and Stage 2 approvals for each are defined in
-[`docs/recora-data-tenant-security-privacy.md`](../../recora-data-tenant-security-privacy.md#14-stage-2-child-issue-split).
-Child Issues are not created by Stage 1.
+These are planning labels, not created Issues. Every write-capable or privileged child
+needs its own R3 Execute approval.
+
+## Downstream dependency and parallel-work plan
+
+Phases 4–10 may start separately before Issue #102 completes. Each records:
+
+- the Phase 3 contract it consumes
+- the temporary interface/adapter/fixture/mock
+- what is not connected
+- the integration stop condition
+- the upstream Issue/PR required before Ready conversion or merge
+
+No later phase may independently define or change tenant ownership, RLS, operator
+authorization, entitlements/limits, retention/deletion, or external-AI payload policy.
+No branch or worktree mixes multiple phases.
 
 ## Migration and rollback strategy
 
-The first implementation dependency is deterministic fresh replay. Current `master`
-stops at `20260701073553_recora_internal_demo_subscription.sql` when the fixed project
-does not exist. Draft PR #81 is relevant but unmerged; Stage 2 must explicitly decide
-whether to merge, replace, or supersede it.
+Phase 3 starts with deterministic fresh replay. PR #81 is reference-only and is not
+assumed merged. An approved Phase 3 child chooses the actual resolution.
 
-All subsequent work is additive:
+All Phase 3 migration work is additive:
 
-1. inventory live state under separately approved read-only access
-2. add new roots/versions/keys/indexes
-3. backfill in bounded, idempotent chunks
-4. validate tenant/orphan/null/duplicate counts and constraints
-5. shadow new immutable writes and publication reads
-6. switch the customer pointer only after isolation and completeness gates pass
-7. retire compatibility paths later
+1. inspect live tenant/schema/grant/policy state under approved read-only access
+2. resolve replay without required demo business rows in schema migration
+3. add tenant/access, plan/entitlement/history, operator/audit, retention/deletion, and
+   payload-policy primitives
+4. backfill in bounded idempotent chunks
+5. validate null/orphan/duplicate/cross-tenant/hash/constraint invariants
+6. expose interfaces and fixtures to later phases
+7. run the Phase 3 security suite before tightening compatibility paths
 
-Emergency rollback disables new writers/claims or returns to the still-supported legacy
-read path. It does not drop additive schema or mutate historical entitlement, evidence,
-derived results, publications, or audit.
+It does not build setup, queue, provider, analysis/publication, dashboard, or admin UI
+paths. Emergency rollback stops new Phase 3 writers/interfaces, resumes backfill from a
+checkpoint, and retains compatibility reads. It does not drop additive schema or mutate
+historical entitlement references/audit evidence.
 
 ## Validation plan
 
-Stage 1 required:
+Required for this document-only revision:
 
 ```powershell
 fnm use 24.18.0
@@ -283,40 +302,35 @@ git diff --cached --name-only
 git diff --cached --check
 ```
 
-`npm run lint` and `npm run build` may be skipped because Stage 1 changes only Markdown
-architecture and plan documents and does not affect runtime, dashboard, report, API,
-dependencies, generated code, or deployment behavior. CI will still run its configured
-checks on the Draft PR.
+`npm run lint` and `npm run build` may be skipped because this revision changes only
+Markdown architecture/plan/navigation and cannot affect runtime, dashboard, API,
+dependencies, generated code, or deployment behavior. PR CI remains applicable.
 
-Stage 2 validation is child-specific and requires separate approval. It includes fresh
-Supabase replay, real role/JWT RLS tests, API/route isolation, entitlement history,
-provider adapter/idempotency/privacy, publication pointer, lifecycle/deletion, and
-backfill/rollback suites.
+Phase 3 implementation validation is child-specific and separately approved. Later
+phases own their own runtime/UI/integration suites.
 
 ## Decision log
 
 | Date | Decision |
 |---|---|
-| 2026-07-29 | Treat organization as the tenant root and require direct or composite-enforced ownership throughout the hierarchy. |
-| 2026-07-29 | Keep customer publication, raw measurement, control, and audit as separate data surfaces. |
-| 2026-07-29 | Use immutable plan/entitlement/design/evidence/derived/publication lineage; never reinterpret history through a live plan join. |
-| 2026-07-29 | Preserve Phase 1 paths only as compatibility paths until verified cutover. |
-| 2026-07-29 | Treat runtime-only security hypotheses as candidates requiring separately approved validation. |
-| 2026-07-29 | Split implementation into R3 child scopes; this Stage 1 does not grant Execute approval. |
+| 2026-07-29 | Organization remains the tenant root and accepted membership is required. |
+| 2026-07-29 | Contract data is separated from versioned plan policy and immutable entitlement snapshots. |
+| 2026-07-29 | Issue #102 defines immutable historical references but does not implement setup, queue, analysis, read model, dashboard, or admin UI. |
+| 2026-07-29 | Customer reflection is `反映 / 保留`; mandatory human `approved` is not assumed. |
+| 2026-07-29 | Customer-safe AI answer body, excerpt, and citations remain allowed; provider envelopes/internal data remain internal. |
+| 2026-07-29 | Phases 4–10 may start in parallel in separate worktrees behind interfaces/mocks, with integration/Ready/merge gates. |
+| 2026-07-29 | Every Phase 3 Stage 2 child retains separate R3 Execute approval. |
 
 ## Results and residual risk
 
-Stage 1 produced the implementation contract and dependency-ordered plan. It did not
-change product code or database state.
+The revised Stage 1 plan provides:
 
-Residual/unverified items:
+- corrected authority order
+- Phase 3-only direct implementation scope
+- downstream interface and parallel-development gates
+- corrected `反映 / 保留` and customer AI-answer boundary
+- dependency-ordered Phase 3 children and later-phase Issue candidates
 
-- live schema/data/grant/policy drift and actual project organization mapping
-- real JWT/session RLS behavior
-- fresh replay after an approved #81-equivalent fix
-- production Auth/operator design
-- runtime provider/idempotency/privacy behavior
-- legal/contractual retention defaults
-- DNS-rebinding validation for `site-inspect`
-
-These are explicit Stage 2 inputs. They do not authorize implementation.
+Unverified items remain live schema/data/grant/policy drift, JWT/RLS runtime behavior,
+fresh replay after an approved fix, downstream integration, DNS-rebinding runtime
+behavior, and legal retention defaults. This revision does not authorize Stage 2.

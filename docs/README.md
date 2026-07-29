@@ -10,16 +10,16 @@
 |---|---|
 | [`recora-agentic-sdlc.md`](./recora-agentic-sdlc.md) | **開発ライフサイクルとAIエージェント運用の正本**。Risk、Spec level、Execution lane、Ready、承認ゲート、タスク状態、Git・外部作用の境界を定義する |
 | [`exec-plans/README.md`](./exec-plans/README.md) | **Exec Plan運用の正本**。適用基準、Issueとの役割分担、命名、active / completedの移動、更新責任を定義する |
-| [`recora-post-launch-operations-architecture.md`](./recora-post-launch-operations-architecture.md) | **顧客公開、測定、運用制御、DB境界の正本**。公開版、品質ゲート、Queue、監査、権限、段階移行を定義する |
-| [`recora-data-tenant-security-privacy.md`](./recora-data-tenant-security-privacy.md) | **データ・tenant security・privacy実装契約**。tenant ownership、entitlement履歴、顧客/管理者境界、外部AI payload、retention/deletion、移行・テスト要件を定義する |
+| [`recora-post-launch-operations-architecture.md`](./recora-post-launch-operations-architecture.md) | **顧客公開、測定、運用制御、DB境界の参照資料**。対象Issueと最新OWNER決定で未承認の商品・運用判断は自動継承しない |
+| [`recora-data-tenant-security-privacy.md`](./recora-data-tenant-security-privacy.md) | **Issue #102工程3のデータ・tenant security・privacy実装契約**。tenant ownership、entitlement基盤、顧客/管理者境界、外部AI payload検査基盤、retention/deletion状態、security testを定義する |
 | [`recora-dev-workflow.md`](./recora-dev-workflow.md) | **ローカルで実際に実行する具体コマンドと安全手順**。New Worktreeの開始確認、検証、DB・measurement・commit・push・Vercelの手順を定義する |
 | [`.agents/skills/RECORA-SKILL-STACK.md`](../.agents/skills/RECORA-SKILL-STACK.md) | **Recora専門Skillの役割分担**。親Skill、専門Skill、品質ゲート、実装アーキテクトの責務を定義する |
 
-これらは互いを上書きする文書ではない。例えば、タスクのRiskと承認はAgentic SDLC、顧客公開版の状態はpost-launch architecture、ローカルの確認コマンドはdev workflow、専門分析の担当はSkill Stackを参照する。
+これらは互いを無条件に上書きする文書ではない。現在のIssueで確定した原則と最新OWNER決定が最優先であり、既存のアーキテクチャ文書、PR、未merge branchは、その決定と一致する範囲の参考資料として扱う。
 
 同じ対象領域について内容が異なる場合は、次の順で扱う。
 
-1. ユーザーが現在のIssueまたは承認記録で明示した決定
+1. ユーザーが現在のIssueまたはOWNER承認記録で明示した最新の決定
 2. 対象領域の正本
 3. 現在の製品・データモデルに対応する正式設計資料
 4. Phase別runbook
@@ -58,7 +58,7 @@ Phase 1資料と正式アーキテクチャが矛盾する場合は、既存処�
 
 - 開発方式またはAIエージェント運用を変更する場合は`recora-agentic-sdlc.md`を更新する
 - Exec Planの適用基準、テンプレート、保存先、更新責任を変更する場合は`exec-plans/README.md`と関連文書を更新する
-- 顧客公開、測定、運用制御、DB境界を変更する場合は`recora-post-launch-operations-architecture.md`を更新する
+- 顧客公開、測定、運用制御、DB境界の変更は対象Issueと最新OWNER決定を先に確認し、承認scopeに含まれる場合だけ関連文書を更新する
 - ローカルの具体コマンドや安全手順を変更する場合は`recora-dev-workflow.md`を更新する
 - Recora専門Skillの責務を変更する場合は、製品コード変更と分けてSkill Stackを更新する
 - 新しいアーキテクチャ判断を過去のhandoffだけに追加しない
