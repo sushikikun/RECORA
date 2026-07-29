@@ -6,17 +6,21 @@ import {
   ArrowLeft,
   ArrowRight,
   AlertCircle,
+  BadgeCheck,
+  BriefcaseBusiness,
   Building2,
   Check,
   CheckCircle2,
   ClipboardCheck,
   ExternalLink,
-  Info,
   Loader2,
   MessageSquareText,
+  Package,
   Plus,
   SearchCheck,
   Sparkles,
+  Store,
+  Tag,
   Target,
   Wand2,
   X
@@ -34,6 +38,20 @@ import type {
   PromptMetricEligibility
 } from "@/lib/recora/project-setup-draft";
 import { generateProjectSetupDraft } from "@/lib/recora/project-setup-draft-generator";
+import {
+  analysisTargetTypes,
+  buildAnalysisTargetDraft,
+  getAnalysisTargetLabel,
+  getAnalysisTargetUiContract,
+  toLegacyProjectSetupTargetSeed,
+  validateAnalysisTargetInput
+} from "@/lib/recora/onboarding-analysis-target";
+import type {
+  AnalysisTargetDraft,
+  AnalysisTargetFormInput,
+  AnalysisTargetType,
+  ProductTargetScope
+} from "@/lib/recora/onboarding-analysis-target";
 import type {
   SiteInspectionApiResponse,
   SiteInspectionResult,
@@ -42,17 +60,17 @@ import type {
 import { cn } from "@/lib/utils";
 
 const steps = [
-  { title: "ブランド確認", short: "ブランド", icon: Building2 },
-  { title: "サービス情報と確認条件", short: "サービス条件", icon: Wand2 },
-  { title: "見たいこと", short: "見たいこと", icon: Target },
-  { title: "プロンプト例", short: "質問例", icon: MessageSquareText },
-  { title: "最終確認", short: "確認", icon: ClipboardCheck }
+  { title: "分析対象", short: "分析対象", icon: BadgeCheck },
+  { title: "計測設定", short: "計測設定", icon: Wand2 },
+  { title: "確認したいこと", short: "確認したいこと", icon: Target },
+  { title: "質問", short: "質問", icon: MessageSquareText },
+  { title: "確認", short: "確認", icon: ClipboardCheck }
 ] as const;
 
 type AudienceType = "b2b" | "b2c" | "both_or_confirm";
-type CompetitorMode = "known_competitors_confirmed" | "competitor_discovery_needed";
-type ReportGoal = "visibility" | "competitor" | "citation" | "brand" | "improvement" | "other";
+type ReportGoal = "visibility" | "citation" | "brand" | "improvement" | "other";
 type PromptGroup = "candidate" | "brand" | "citation" | "review";
+type AiModel = "chatgpt" | "gemini" | "perplexity" | "claude";
 type OnboardingSuggestionProfileKey =
   | "b2bSaasOrSeo"
   | "b2bProfessionalService"
@@ -76,23 +94,25 @@ type OnboardingSuggestionProfile = {
 };
 
 type WizardState = {
-  brandName: string;
-  brandAliases: string[];
-  brandAliasInput: string;
+  targetType: AnalysisTargetType | null;
+  targetName: string;
+  targetAliases: string[];
+  targetAliasInput: string;
   officialUrl: string;
-  serviceDescription: string;
-  serviceCategory: string;
+  mainBusiness: string;
+  organizationName: string;
+  productScope: ProductTargetScope;
+  deliveryFormat: string;
+  storeLocation: string;
+  targetDescription: string;
+  targetCategory: string;
   audienceType: AudienceType;
   audienceTargets: string[];
-  audienceTargetInput: string;
   regions: string[];
   regionInput: string;
   language: "ja" | "en";
-  competitorMode: CompetitorMode;
-  competitors: string[];
-  competitorInput: string;
+  aiModels: AiModel[];
   watchTopics: string[];
-  watchTopicInput: string;
   reportGoals: ReportGoal[];
   reportGoalInput: string;
 };
@@ -184,38 +204,46 @@ type SiteInspectionState =
   | { status: "failed"; message: string; code?: string; warnings?: SiteInspectionWarning[] };
 
 type AutoSuggestionSources = {
-  serviceDescription: string | null;
-  serviceCategory: string | null;
+  targetDescription: string | null;
+  targetCategory: string | null;
   audienceTargets: string | null;
 };
 
 type UpdateForm = <K extends keyof WizardState>(field: K, value: WizardState[K]) => void;
 
 const initialAutoSuggestionSources: AutoSuggestionSources = {
-  serviceDescription: null,
-  serviceCategory: null,
+  targetDescription: null,
+  targetCategory: null,
   audienceTargets: null
 };
 
 const initialFormState: WizardState = {
-  brandName: "",
-  brandAliases: [],
-  brandAliasInput: "",
+  targetType: null,
+  targetName: "",
+  targetAliases: [],
+  targetAliasInput: "",
   officialUrl: "",
-  serviceDescription: "",
-  serviceCategory: "",
+  mainBusiness: "",
+  organizationName: "",
+  productScope: "single_product",
+  deliveryFormat: "",
+  storeLocation: "",
+  targetDescription: "",
+  targetCategory: "",
   audienceType: "b2b",
   audienceTargets: [],
-  audienceTargetInput: "",
   regions: ["日本"],
   regionInput: "",
   language: "ja",
-  competitorMode: "competitor_discovery_needed",
-  competitors: [],
-  competitorInput: "",
-  watchTopics: [],
-  watchTopicInput: "",
-  reportGoals: ["visibility"],
+  aiModels: ["chatgpt"],
+  watchTopics: [
+    "AI検索に表示されるか",
+    "候補として選ばれるか",
+    "自社サイトが引用されるか",
+    "どのような特徴で紹介されるか",
+    "改善すべき点は何か"
+  ],
+  reportGoals: ["visibility", "citation", "brand", "improvement"],
   reportGoalInput: ""
 };
 
@@ -230,11 +258,32 @@ const languageOptions = [
   { value: "en", label: "英語" }
 ] as const;
 
+const aiModelOptions: readonly { value: AiModel; label: string }[] = [
+  { value: "chatgpt", label: "ChatGPT" },
+  { value: "gemini", label: "Gemini" },
+  { value: "perplexity", label: "Perplexity" },
+  { value: "claude", label: "Claude" }
+];
+
+const focusOptions: readonly {
+  value: string;
+  label: string;
+  goal: Exclude<ReportGoal, "other">;
+}[] = [
+  { value: "AI検索に表示されるか", label: "AI検索に表示されるか", goal: "visibility" },
+  { value: "候補として選ばれるか", label: "候補として選ばれるか", goal: "visibility" },
+  { value: "自社サイトが引用されるか", label: "自社サイトが引用されるか", goal: "citation" },
+  { value: "どのような特徴で紹介されるか", label: "どのような特徴で紹介されるか", goal: "brand" },
+  { value: "改善すべき点は何か", label: "改善すべき点は何か", goal: "improvement" },
+  { value: "評判や印象に問題がないか", label: "評判や印象に問題がないか", goal: "brand" }
+];
+
+const recommendedFocusValues = focusOptions.slice(0, 5).map((option) => option.value);
+
 const regionSuggestions = ["日本", "首都圏", "関西", "全国", "英語圏", "北米", "アジア"];
 
 const defaultReportGoalOptions: ReportGoalOption[] = [
   { value: "visibility", label: "AI検索で候補に出るか知りたい" },
-  { value: "competitor", label: "競合と比べたい" },
   { value: "citation", label: "公式サイトの引用を確認したい" },
   { value: "brand", label: "評判や認知を確認したい" },
   { value: "improvement", label: "改善候補を出したい" },
@@ -246,10 +295,9 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
     key: "b2bSaasOrSeo",
     serviceCategories: ["SEO / AI検索対策", "マーケティング / SEO", "SaaS / 分析ツール"],
     audienceTargets: ["SEO担当者", "マーケティング責任者", "導入を判断する責任者", "比較検討する担当者", "実際に利用する担当者"],
-    watchTopics: ["AI検索での露出", "競合との比較", "公式サイトの引用状況", "料金", "機能", "導入事例", "費用対効果", "導入負荷"],
+    watchTopics: ["AI検索での露出", "候補として選ばれる条件", "公式サイトの引用状況", "料金", "機能", "導入事例", "費用対効果", "導入負荷"],
     reportGoalOptions: [
       { value: "visibility", label: "AI検索で自社が候補に出るか知りたい" },
-      { value: "competitor", label: "競合と比べたい" },
       { value: "citation", label: "参照元を増やしたい" },
       { value: "improvement", label: "改善候補を出したい" },
       { value: "other", label: "その他" }
@@ -259,7 +307,7 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
       { text: "生成AIで公式サイトが引用されやすくなるには、何を整えるべきですか？", group: "citation" },
       { text: "SEO支援ツールを導入する前に、費用対効果はどう確認すべきですか？", group: "candidate" }
     ],
-    questionAreaFallbacks: ["AI検索での露出", "競合比較", "公式サイトの引用状況"]
+    questionAreaFallbacks: ["AI検索での露出", "候補として選ばれる条件", "公式サイトの引用状況"]
   },
   b2bProfessionalService: {
     key: "b2bProfessionalService",
@@ -268,7 +316,6 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
     watchTopics: ["実績", "専門性", "料金", "相談前の確認点", "対応範囲", "信頼性"],
     reportGoalOptions: [
       { value: "visibility", label: "専門サービスとして候補に出るか知りたい" },
-      { value: "competitor", label: "他の依頼先と比べたい" },
       { value: "brand", label: "信頼材料や評判を確認したい" },
       { value: "improvement", label: "相談前の不安を知りたい" },
       { value: "other", label: "その他" }
@@ -287,7 +334,6 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
     reportGoalOptions: [
       { value: "visibility", label: "AI検索で候補に出るか知りたい" },
       { value: "brand", label: "口コミ・評判を確認したい" },
-      { value: "competitor", label: "他のスクールと比べたい" },
       { value: "improvement", label: "初めて選ぶ人の不安を知りたい" },
       { value: "other", label: "その他" }
     ],
@@ -340,7 +386,6 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
     watchTopics: ["価格", "口コミ", "返品条件", "品質", "自分に合うか", "比較時の注意点"],
     reportGoalOptions: [
       { value: "visibility", label: "商品候補に出るか知りたい" },
-      { value: "competitor", label: "他の商品と比べたい" },
       { value: "brand", label: "口コミ・評判を確認したい" },
       { value: "other", label: "その他" }
     ],
@@ -377,17 +422,21 @@ const suggestionProfiles: Record<OnboardingSuggestionProfileKey, OnboardingSugge
 };
 
 const promptSeedFields = new Set<keyof WizardState>([
-  "brandName",
-  "brandAliases",
+  "targetType",
+  "targetName",
+  "targetAliases",
   "officialUrl",
-  "serviceDescription",
-  "serviceCategory",
+  "mainBusiness",
+  "organizationName",
+  "productScope",
+  "deliveryFormat",
+  "storeLocation",
+  "targetDescription",
+  "targetCategory",
   "audienceType",
   "audienceTargets",
   "regions",
   "language",
-  "competitorMode",
-  "competitors",
   "watchTopics",
   "reportGoals",
   "reportGoalInput"
@@ -401,22 +450,41 @@ export function ProjectSetupWizard() {
   const [draftPreview, setDraftPreview] = useState<CustomerFacingDraftPreview | null>(null);
   const [promptSeedKey, setPromptSeedKey] = useState<string | null>(null);
   const [newPromptText, setNewPromptText] = useState("");
+  const [promptNotice, setPromptNotice] = useState<string | null>(null);
+  const [lastRemovedPrompt, setLastRemovedPrompt] = useState<{ prompt: EditablePrompt; index: number } | null>(null);
   const [confirmationDone, setConfirmationDone] = useState(false);
   const [siteInspection, setSiteInspection] = useState<SiteInspectionState>({ status: "idle" });
+  const [inspectedTargetKey, setInspectedTargetKey] = useState<string | null>(null);
   const [autoSuggestionSources, setAutoSuggestionSources] = useState<AutoSuggestionSources>(initialAutoSuggestionSources);
 
   const seedInput = useMemo(() => buildSeedInput(formState), [formState]);
   const seedKey = useMemo(() => stableSeedKey(seedInput), [seedInput]);
   const currentStepBlockers = getStepBlockers(stepIndex, formState);
   const showCurrentBlockers = attemptedSteps[stepIndex] && currentStepBlockers.length > 0;
-  const seedBlockers = useMemo(() => validateProjectSetupSeedInput(seedInput), [seedInput]);
+  const seedBlockers = useMemo(
+    () => [
+      ...validateAnalysisTargetInput(buildAnalysisTargetFormInput(formState)),
+      ...validateProjectSetupSeedInput(seedInput)
+    ],
+    [formState, seedInput]
+  );
   const isInspectingSite = siteInspection.status === "loading";
 
   const updateForm: UpdateForm = (field, value) => {
     setConfirmationDone(false);
     setFormState((current) => {
       const next = { ...current, [field]: value };
-      if (field === "serviceDescription" || field === "serviceCategory" || field === "audienceType") {
+      if (field === "targetType") {
+        return {
+          ...next,
+          mainBusiness: "",
+          organizationName: "",
+          productScope: "single_product",
+          deliveryFormat: "",
+          storeLocation: ""
+        };
+      }
+      if (field === "targetDescription" || field === "targetCategory" || field === "audienceType") {
         return {
           ...next,
           audienceTargets: reconcileAudienceTargetsForProfile(next, current.audienceTargets.length > 0)
@@ -424,14 +492,15 @@ export function ProjectSetupWizard() {
       }
       return next;
     });
-    if (field === "serviceDescription" || field === "serviceCategory" || field === "audienceTargets") {
+    if (field === "targetDescription" || field === "targetCategory" || field === "audienceTargets") {
       setAutoSuggestionSources((current) => ({ ...current, [field]: null }));
     }
     if (field === "audienceType") {
       setAutoSuggestionSources((current) => ({ ...current, audienceTargets: null }));
     }
-    if (field === "brandName" || field === "brandAliases" || field === "officialUrl") {
+    if (field === "targetType" || field === "targetName" || field === "targetAliases" || field === "officialUrl") {
       setSiteInspection({ status: "idle" });
+      setInspectedTargetKey(null);
     }
     if (promptSeedFields.has(field)) {
       setPromptExamples(null);
@@ -447,19 +516,12 @@ export function ProjectSetupWizard() {
     if (blockers.length > 0) return;
 
     if (stepIndex === 0) {
-      setSiteInspection({ status: "loading" });
-      const inspection = await inspectOfficialUrlForStep(formState);
       const sourceKey = stableStep1SourceKey(formState);
-      const nextSuggestions = applyServiceSuggestions(
-        formState,
-        autoSuggestionSources,
-        sourceKey,
-        inspection.status === "success" ? inspection.result : null
-      );
-      setSiteInspection(inspection);
-      setFormState(nextSuggestions.state);
-      setAutoSuggestionSources(nextSuggestions.sources);
-      setStepIndex(1);
+      if (inspectedTargetKey === sourceKey && siteInspection.status !== "idle") {
+        setStepIndex(1);
+        return;
+      }
+      await inspectAndApplySiteSuggestions(true);
       return;
     }
 
@@ -486,9 +548,33 @@ export function ProjectSetupWizard() {
     setStepIndex((current) => Math.max(current - 1, 0));
   }
 
+  async function inspectAndApplySiteSuggestions(advanceAfterInspection = false) {
+    if (isInspectingSite) return;
+    setSiteInspection({ status: "loading" });
+    const inspection = await inspectOfficialUrlForStep(formState);
+    const sourceKey = stableStep1SourceKey(formState);
+    const nextSuggestions = applyServiceSuggestions(
+      formState,
+      autoSuggestionSources,
+      sourceKey,
+      inspection.status === "success" ? inspection.result : null
+    );
+    setSiteInspection(inspection);
+    setInspectedTargetKey(sourceKey);
+    setFormState(nextSuggestions.state);
+    setAutoSuggestionSources(nextSuggestions.sources);
+    if (advanceAfterInspection) setStepIndex(1);
+  }
+
+  const currentPrompts = promptExamples ?? [];
+
   function addPrompt() {
     const text = newPromptText.trim();
     if (!text) return;
+    if (currentPrompts.some((prompt) => normalizeText(prompt.text) === normalizeText(text))) {
+      setPromptNotice("同じ内容の質問がすでにあります。");
+      return;
+    }
     setPromptExamples((current) => [
       ...(current ?? []),
       {
@@ -498,48 +584,83 @@ export function ProjectSetupWizard() {
       }
     ]);
     setNewPromptText("");
+    setPromptNotice("質問を一覧の先頭に追加しました。");
+    setLastRemovedPrompt(null);
     setConfirmationDone(false);
   }
 
-  const currentPrompts = promptExamples ?? [];
+  function removePrompt(promptId: string) {
+    const index = currentPrompts.findIndex((prompt) => prompt.id === promptId);
+    if (index < 0) return;
+    setLastRemovedPrompt({ prompt: currentPrompts[index], index });
+    setPromptNotice(null);
+    setPromptExamples(currentPrompts.filter((prompt) => prompt.id !== promptId));
+    setConfirmationDone(false);
+  }
+
+  function undoRemovePrompt() {
+    if (!lastRemovedPrompt) return;
+    setPromptExamples((current) => {
+      const prompts = [...(current ?? [])];
+      prompts.splice(Math.min(lastRemovedPrompt.index, prompts.length), 0, lastRemovedPrompt.prompt);
+      return prompts;
+    });
+    setLastRemovedPrompt(null);
+    setPromptNotice("削除した質問を元に戻しました。");
+  }
+
+  function goToStep(nextStepIndex: number) {
+    setConfirmationDone(false);
+    setStepIndex(nextStepIndex);
+  }
 
   return (
-    <main className="min-h-screen bg-[#F7FAF8] text-[#0B1F17]">
+    <main className="min-h-screen bg-[#F7FAF8] pb-28 text-[#0B1F17]">
       <section className="sticky top-0 z-20 border-b border-[#E2E8E5] bg-white/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#075E44] text-base font-bold text-white">
-                R
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-[#64736C]">無料診断後の測定条件確認フロー</p>
-                <h1 className="mt-0.5 text-xl font-bold leading-tight tracking-normal text-[#0B1F17] sm:text-2xl">
-                  Recora 初期設定ウィザード
-                </h1>
-              </div>
+          <div className="flex items-center gap-4">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#075E44] text-base font-bold text-white">
+              R
             </div>
-            <p className="hidden text-xs font-semibold leading-5 text-[#64736C] lg:block">
-              保存・承認・計測反映はここでは行いません。
-            </p>
+            <h1 className="text-xl font-bold leading-tight tracking-normal text-[#0B1F17] sm:text-2xl">
+              Recora プロジェクト設定
+            </h1>
           </div>
-          <StepProgress stepIndex={stepIndex} />
+          <StepProgress stepIndex={stepIndex} onStepSelect={goToStep} />
         </div>
       </section>
 
       <section className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-        {stepIndex === 0 ? <BrandStep formState={formState} updateForm={updateForm} siteInspection={siteInspection} /> : null}
-        {stepIndex === 1 ? <ServiceStep formState={formState} updateForm={updateForm} siteInspection={siteInspection} /> : null}
+        {stepIndex === 0 ? (
+          <TargetStep
+            formState={formState}
+            updateForm={updateForm}
+            siteInspection={siteInspection}
+            onInspectSite={() => void inspectAndApplySiteSuggestions(false)}
+          />
+        ) : null}
+        {stepIndex === 1 ? (
+          <ServiceStep
+            formState={formState}
+            updateForm={updateForm}
+            siteInspection={siteInspection}
+            autoSuggestionSources={autoSuggestionSources}
+          />
+        ) : null}
         {stepIndex === 2 ? <FocusStep formState={formState} updateForm={updateForm} /> : null}
         {stepIndex === 3 ? (
           <PromptStep
-            draftPreview={draftPreview}
             prompts={currentPrompts}
             newPromptText={newPromptText}
             setNewPromptText={setNewPromptText}
             onAddPrompt={addPrompt}
+            promptNotice={promptNotice}
+            lastRemovedPrompt={lastRemovedPrompt}
+            onUndoRemove={undoRemovePrompt}
+            onRemovePrompt={removePrompt}
             onChangePrompts={(prompts) => {
               setPromptExamples(prompts);
+              setPromptNotice(null);
               setConfirmationDone(false);
             }}
           />
@@ -547,11 +668,11 @@ export function ProjectSetupWizard() {
         {stepIndex === 4 ? (
           <ConfirmationStep
             formState={formState}
-            draftPreview={draftPreview}
             prompts={currentPrompts}
             seedBlockers={seedBlockers}
             confirmationDone={confirmationDone}
             onConfirm={() => setConfirmationDone(true)}
+            onEditStep={goToStep}
           />
         ) : null}
 
@@ -565,7 +686,10 @@ export function ProjectSetupWizard() {
           </MessageBox>
         ) : null}
 
-        <div className="mx-auto mt-4 flex w-full max-w-xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      </section>
+
+      <section className="fixed inset-x-0 bottom-0 z-20 border-t border-[#DDE8E5] bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur sm:px-6">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
           <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0 || isInspectingSite}>
             <ArrowLeft className="h-4 w-4" />
             戻る
@@ -579,7 +703,7 @@ export function ProjectSetupWizard() {
                 </>
               ) : (
                 <>
-                  {stepIndex === 2 ? "プロンプト例へ進む" : "次へ"}
+                  {stepIndex === 2 ? "質問を確認" : "次へ"}
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}
@@ -591,7 +715,13 @@ export function ProjectSetupWizard() {
   );
 }
 
-function StepProgress({ stepIndex }: { stepIndex: number }) {
+function StepProgress({
+  stepIndex,
+  onStepSelect
+}: {
+  stepIndex: number;
+  onStepSelect: (stepIndex: number) => void;
+}) {
   return (
     <nav aria-label="初期設定ステップ" className="-mx-1 overflow-x-auto px-1">
       <ol className="flex min-w-max items-center gap-2">
@@ -601,16 +731,23 @@ function StepProgress({ stepIndex }: { stepIndex: number }) {
           const done = index < stepIndex;
           return (
             <li key={step.title} className="flex items-center gap-2">
-              <span
+              <button
+                type="button"
+                disabled={!done}
+                onClick={() => onStepSelect(index)}
                 className={cn(
-                  "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-bold transition",
-                  active || done ? "border-[#075E44] bg-[#075E44] text-white" : "border-[#D8E2DE] bg-white text-[#64736C]"
+                  "inline-flex h-9 items-center gap-2 rounded-full border px-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B8B65] focus-visible:ring-offset-2",
+                  active
+                    ? "border-[#075E44] bg-[#075E44] text-white"
+                    : done
+                      ? "border-[#A9C6BA] bg-[#F2FAF6] text-[#075E44] hover:border-[#075E44]"
+                      : "border-[#D8E2DE] bg-white text-[#64736C]"
                 )}
               >
                 {done ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
                 <span>Step {index + 1}</span>
                 <span className="hidden sm:inline">{step.short}</span>
-              </span>
+              </button>
               {index < steps.length - 1 ? (
                 <span className="h-px w-6 bg-[#D8E2DE]" aria-hidden="true" />
               ) : null}
@@ -622,207 +759,391 @@ function StepProgress({ stepIndex }: { stepIndex: number }) {
   );
 }
 
-function BrandStep({
+const targetTypeIcons: Record<AnalysisTargetType, typeof Building2> = {
+  company: Building2,
+  brand: Tag,
+  product: Package,
+  service: BriefcaseBusiness,
+  store: Store
+};
+
+function TargetStep({
   formState,
   updateForm,
-  siteInspection
+  siteInspection,
+  onInspectSite
 }: {
   formState: WizardState;
   updateForm: UpdateForm;
   siteInspection: SiteInspectionState;
+  onInspectSite: () => void;
 }) {
+  const contract = formState.targetType ? getAnalysisTargetUiContract(formState.targetType) : null;
+
   return (
     <WizardCard
-      icon={<Building2 />}
-      title="ブランド確認"
-      description="公式サイトまたはサービスサイトのURLを入力してください。"
+      size="wide"
+      icon={<BadgeCheck />}
+      title="分析対象を設定"
+      description="計測したい対象の種類を選び、基本情報を入力してください。"
     >
-      <div className="space-y-4">
-        <TextInput
-          label="正式なブランド名 / サービス名"
-          value={formState.brandName}
-          onChange={(value) => updateForm("brandName", value)}
-          required
-          placeholder="例 Recora"
-        />
-        <ChipInput
-          label="表記ゆれ・別名"
-          optional
-          items={formState.brandAliases}
-          inputValue={formState.brandAliasInput}
-          onInputChange={(value) => updateForm("brandAliasInput", value)}
-          onAdd={(value) => updateForm("brandAliases", addUnique(formState.brandAliases, value))}
-          onRemove={(value) => updateForm("brandAliases", removeValue(formState.brandAliases, value))}
-          placeholder="例 レコラ、Recora Inc."
-          emptyText="別名がなければ空のままで進めます。"
-        />
-        <TextInput
-          label="公式URL"
-          value={formState.officialUrl}
-          onChange={(value) => updateForm("officialUrl", value)}
-          required
-          placeholder="例 https://recora.jp"
-        />
-        <p className="text-xs leading-5 text-[#64736C]">
-          次へ進むと、このURLの1ページだけを確認し、ページタイトルなどを次の入力候補に使います。
-        </p>
-        {siteInspection.status === "loading" ? (
-          <div className="rounded-xl border border-[#CFE2DA] bg-[#F2FAF6] p-4 text-sm leading-6 text-[#506158]">
-            <div className="flex items-start gap-3">
-              <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-[#1B8B65]" />
-              <div>
-                <p className="font-bold text-[#075E44]">公式URLを確認しています</p>
-                <p className="mt-1">ページタイトル、説明文、見出しを確認してサービス情報の候補を作っています。</p>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {analysisTargetTypes.map((targetType) => {
+          const option = getAnalysisTargetUiContract(targetType);
+          const Icon = targetTypeIcons[targetType];
+          const selected = formState.targetType === targetType;
+          return (
+            <button
+              key={targetType}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => updateForm("targetType", targetType)}
+              className={cn(
+                "group relative min-h-[108px] rounded-xl border p-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[#1B8B65] focus-visible:ring-offset-2",
+                selected
+                  ? "border-[#075E44] bg-[#F2FAF6] shadow-[0_1px_2px_rgba(7,94,68,0.08)]"
+                  : "border-[#DDE8E5] bg-white hover:border-[#A9C6BA] hover:bg-[#FBFDFC]"
+              )}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span
+                  className={cn(
+                    "flex h-9 w-9 items-center justify-center rounded-lg",
+                    selected ? "bg-[#075E44] text-white" : "bg-[#F1F5F3] text-[#506158]"
+                  )}
+                >
+                  <Icon className="h-4.5 w-4.5" />
+                </span>
+                {selected ? (
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#075E44] text-white">
+                    <Check className="h-3.5 w-3.5" />
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-3 text-sm font-bold text-[#0B1F17]">{option.label}</div>
+              <div className="mt-1 text-xs leading-5 text-[#64736C]">{option.shortDescription}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {contract && formState.targetType ? (
+        <section className="mt-5 overflow-hidden rounded-xl border border-[#DDE8E5] bg-white">
+          <div className="border-b border-[#E8EFEC] bg-[#FBFDFC] px-4 py-3 sm:px-5">
+            <h3 className="text-base font-bold text-[#0B1F17]">{contract.identificationTitle}</h3>
+            <p className="mt-1 text-sm leading-6 text-[#64736C]">{contract.identificationDescription}</p>
+          </div>
+
+          <div className="space-y-5 p-4 sm:p-5">
+            <div className="grid gap-5 lg:grid-cols-2">
+              <TextInput
+                label={contract.nameLabel}
+                value={formState.targetName}
+                onChange={(value) => updateForm("targetName", value)}
+                required
+                placeholder={contract.namePlaceholder}
+              />
+              <TargetSpecificFields formState={formState} updateForm={updateForm} />
+            </div>
+
+            <ChipInput
+              label={contract.aliasesLabel}
+              optional
+              items={formState.targetAliases}
+              inputValue={formState.targetAliasInput}
+              onInputChange={(value) => updateForm("targetAliasInput", value)}
+              onAdd={(value) => updateForm("targetAliases", addUnique(formState.targetAliases, value))}
+              onRemove={(value) => updateForm("targetAliases", removeValue(formState.targetAliases, value))}
+              placeholder={contract.aliasesPlaceholder}
+              emptyText="別名がなければ空のままで進めます。"
+            />
+
+            <div>
+              <TextInput
+                label={contract.urlLabel}
+                value={formState.officialUrl}
+                onChange={(value) => updateForm("officialUrl", value)}
+                required
+                placeholder={contract.urlPlaceholder}
+              />
+              <p className="mt-2 text-xs leading-5 text-[#64736C]">{contract.urlHelp}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onInspectSite}
+                  disabled={siteInspection.status === "loading" || !formState.targetName.trim() || !formState.officialUrl.trim()}
+                  className="border-[#C9D8D2] text-[#075E44]"
+                >
+                  {siteInspection.status === "loading" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <SearchCheck className="h-4 w-4" />
+                  )}
+                  サイトから入力
+                </Button>
+                {siteInspection.status === "success" ? (
+                  <span
+                    className={cn(
+                      "text-xs font-semibold",
+                      siteInspection.result.brandNameFound ? "text-[#075E44]" : "text-amber-700"
+                    )}
+                  >
+                    {siteInspection.result.brandNameFound
+                      ? "サイト情報を入力欄へ反映しました"
+                      : "ページ内で分析対象名を確認できませんでした"}
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>
-        ) : null}
-      </div>
+        </section>
+      ) : (
+        <div className="mt-5 rounded-xl border border-dashed border-[#C9D8D2] bg-white px-4 py-8 text-center">
+          <BadgeCheck className="mx-auto h-6 w-6 text-[#8B9A93]" />
+          <p className="mt-2 text-sm font-bold text-[#506158]">上から分析対象の種類を1つ選んでください</p>
+        </div>
+      )}
+
+      {siteInspection.status === "failed" ? (
+        <div className="mt-4">
+          <SiteInspectionPanel formState={formState} siteInspection={siteInspection} />
+        </div>
+      ) : null}
     </WizardCard>
   );
+}
+
+function TargetSpecificFields({
+  formState,
+  updateForm
+}: {
+  formState: WizardState;
+  updateForm: UpdateForm;
+}) {
+  if (formState.targetType === "company") {
+    return (
+      <TextInput
+        label="主な事業"
+        value={formState.mainBusiness}
+        onChange={(value) => updateForm("mainBusiness", value)}
+        required
+        placeholder="例 AI検索分析SaaSの開発・提供"
+      />
+    );
+  }
+
+  if (formState.targetType === "brand") {
+    return (
+      <TextInput
+        label="運営会社"
+        value={formState.organizationName}
+        onChange={(value) => updateForm("organizationName", value)}
+        required
+        placeholder="例 株式会社サンプル"
+      />
+    );
+  }
+
+  if (formState.targetType === "product") {
+    return (
+      <div className="space-y-4">
+        <TextInput
+          label="ブランド・メーカー名"
+          value={formState.organizationName}
+          onChange={(value) => updateForm("organizationName", value)}
+          required
+          placeholder="例 Sample Brand"
+        />
+        <SegmentedControl
+          label="計測する範囲"
+          value={formState.productScope}
+          options={[
+            { value: "single_product", label: "単一商品" },
+            { value: "product_series", label: "商品シリーズ" }
+          ]}
+          onChange={(value) => updateForm("productScope", value)}
+        />
+      </div>
+    );
+  }
+
+  if (formState.targetType === "service") {
+    return (
+      <div className="space-y-4">
+        <TextInput
+          label="提供会社・ブランド名"
+          value={formState.organizationName}
+          onChange={(value) => updateForm("organizationName", value)}
+          required
+          placeholder="例 株式会社サンプル"
+        />
+        <SelectLikeInput
+          label="提供形式"
+          value={formState.deliveryFormat}
+          onChange={(value) => updateForm("deliveryFormat", value)}
+          required
+          placeholder="例 Webサービス"
+          suggestions={["Webサービス", "対面・店舗", "訪問型", "オンラインと対面"]}
+        />
+      </div>
+    );
+  }
+
+  if (formState.targetType === "store") {
+    return (
+      <div className="space-y-4">
+        <TextInput
+          label="店舗所在地"
+          value={formState.storeLocation}
+          onChange={(value) => updateForm("storeLocation", value)}
+          required
+          placeholder="例 東京都渋谷区"
+        />
+        <TextInput
+          label="所属チェーン・ブランド"
+          value={formState.organizationName}
+          onChange={(value) => updateForm("organizationName", value)}
+          optional
+          placeholder="独立店舗の場合は空欄で進められます"
+        />
+        <p className="text-xs leading-5 text-[#64736C]">
+          チェーン全体を計測したい場合は、分析対象として「ブランド」を選んでください。
+        </p>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function ServiceStep({
   formState,
   updateForm,
-  siteInspection
+  siteInspection,
+  autoSuggestionSources
 }: {
   formState: WizardState;
   updateForm: UpdateForm;
   siteInspection: SiteInspectionState;
+  autoSuggestionSources: AutoSuggestionSources;
 }) {
   const suggestionProfile = deriveOnboardingSuggestionProfile(formState);
-  const serviceInsight = buildOnboardingServiceInsight(formState, siteInspection.status === "success" ? siteInspection.result : null);
-  const audienceSuggestions = uniqueStrings([
-    ...proposePersonaLabelsFromServiceInsight(serviceInsight, suggestionProfile),
-    ...suggestionProfile.audienceTargets
-  ]);
   const categorySuggestions = suggestionProfile.serviceCategories;
+  const siteAutoFilled = siteInspection.status === "success";
 
   return (
     <WizardCard
       size="wide"
       icon={<Wand2 />}
-      title="サービス情報と確認条件"
-      description="公式URLの確認結果を踏まえて、サービスカテゴリ・主に見たい相手・競合の扱いを整えます。"
+      title="計測設定"
+      description="対象の内容と、計測する地域・言語・AIモデルを設定します。"
     >
       <SiteInspectionPanel formState={formState} siteInspection={siteInspection} />
 
-      <div className="mt-3 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] px-3 py-2.5">
-        <div className="flex gap-3">
-          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#1B8B65]" />
-          <div>
-            <h3 className="text-sm font-bold text-[#075E44]">Recoraが補完した候補</h3>
-            <p className="mt-0.5 text-xs leading-5 text-[#64736C]">
-              公式URLの1ページ確認と入力内容から、初期候補を入れています。実態と違う場合はここで直してください。
-            </p>
+      <div className="mt-4 space-y-4">
+        <section className="rounded-xl border border-[#DDE8E5] bg-white p-4 sm:p-5">
+          <div className="mb-5">
+            <h3 className="text-base font-bold text-[#0B1F17]">対象情報</h3>
+            <p className="mt-1 text-sm leading-6 text-[#64736C]">AI検索で対象を判断するための基本情報です。</p>
           </div>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.82fr)]">
-        <div className="space-y-4">
-          <TextareaInput
-            label="どんなサービスですか？"
-            value={formState.serviceDescription}
-            onChange={(value) => updateForm("serviceDescription", value)}
-            required
-            rows={3}
-            placeholder="サービスの目的、提供価値、主な特徴を入力してください。"
-          />
-          <SelectLikeInput
-          label="サービスカテゴリ"
-          value={formState.serviceCategory}
-          onChange={(value) => updateForm("serviceCategory", value)}
-          required
-          placeholder="例 SEO / AI検索対策"
-          suggestions={categorySuggestions}
-          />
-        </div>
-        <div className="space-y-4">
-        <div>
-          <p className="text-sm font-bold text-[#334155]">提供形態</p>
-          <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
-            {audienceOptions.map((option) => (
-              <ChoicePill
-                key={option.value}
-                selected={formState.audienceType === option.value}
-                label={option.label}
-                description={option.description}
-                onClick={() => updateForm("audienceType", option.value)}
-              />
-            ))}
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <ChipInput
-            label="対象市場・地域"
-            items={formState.regions}
-            inputValue={formState.regionInput}
-            onInputChange={(value) => updateForm("regionInput", value)}
-            onAdd={(value) => updateForm("regions", addUnique(formState.regions, value))}
-            onRemove={(value) => updateForm("regions", removeValue(formState.regions, value))}
-            placeholder="例 日本"
-            suggestions={regionSuggestions}
-          />
-          <SegmentedControl
-            label="言語"
-            value={formState.language}
-            options={languageOptions}
-            onChange={(value) => updateForm("language", value)}
-          />
-        </div>
-        <ChipInput
-          label="主に見たい相手"
-          items={formState.audienceTargets}
-          inputValue={formState.audienceTargetInput}
-          onInputChange={(value) => updateForm("audienceTargetInput", value)}
-          onAdd={(value) => updateForm("audienceTargets", addUnique(formState.audienceTargets, value))}
-          onRemove={(value) => updateForm("audienceTargets", removeValue(formState.audienceTargets, value))}
-          placeholder="例 導入を判断する責任者"
-          suggestions={audienceSuggestions}
-        />
-        <section className="rounded-xl border border-[#E1E8E5] bg-white p-3.5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-5">
             <div>
-              <h3 className="text-sm font-bold text-[#0B1F17]">競合</h3>
-              <p className="mt-1 text-sm leading-6 text-[#64736C]">
-                比較したい競合があれば入力してください。未定の場合は、後続の診断設計で候補抽出する前提にします。
-              </p>
-            </div>
-            <div className="grid min-w-[240px] gap-2 sm:grid-cols-2">
-              <MiniToggle
-                selected={formState.competitorMode === "known_competitors_confirmed"}
-                label="競合を入力する"
-                onClick={() => updateForm("competitorMode", "known_competitors_confirmed")}
+              <TextareaInput
+                label="分析対象の概要"
+                value={formState.targetDescription}
+                onChange={(value) => updateForm("targetDescription", value)}
+                required
+                rows={4}
+                placeholder="何を提供している対象か、主な特徴や用途を入力してください。"
               />
-              <MiniToggle
-                selected={formState.competitorMode === "competitor_discovery_needed"}
-                label="候補を抽出してもらう"
-                onClick={() => updateForm("competitorMode", "competitor_discovery_needed")}
-              />
+              {siteAutoFilled && autoSuggestionSources.targetDescription ? <AutoFilledNote /> : null}
             </div>
-          </div>
-          <div className="mt-4">
-            <ChipInput
-              label="競合（最大5つまで）"
-              optional
-              items={formState.competitors}
-              inputValue={formState.competitorInput}
-              onInputChange={(value) => updateForm("competitorInput", value)}
-              onAdd={(value) => {
-                updateForm("competitors", addUnique(formState.competitors, value).slice(0, 5));
-                updateForm("competitorMode", "known_competitors_confirmed");
-              }}
-              onRemove={(value) => updateForm("competitors", removeValue(formState.competitors, value))}
-              placeholder="例 Brandwatch"
-              emptyText="未入力でも進められます。"
-            />
+            <div>
+              <SelectLikeInput
+                label="カテゴリ"
+                value={formState.targetCategory}
+                onChange={(value) => updateForm("targetCategory", value)}
+                required
+                placeholder="例 SEO / AI検索対策"
+                suggestions={categorySuggestions}
+              />
+              {siteAutoFilled && autoSuggestionSources.targetCategory ? <AutoFilledNote /> : null}
+            </div>
+            <div>
+              <p className="text-sm font-bold text-[#334155]">主な顧客タイプ</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {audienceOptions.map((option) => (
+                  <ChoicePill
+                    key={option.value}
+                    selected={formState.audienceType === option.value}
+                    label={option.label}
+                    description={option.description}
+                    onClick={() => updateForm("audienceType", option.value)}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
         </section>
-        </div>
+
+        <section className="rounded-xl border border-[#DDE8E5] bg-[#FBFDFC] p-4 sm:p-5">
+          <div className="mb-5">
+            <h3 className="text-base font-bold text-[#0B1F17]">計測範囲</h3>
+            <p className="mt-1 text-sm leading-6 text-[#64736C]">日本・日本語を初期設定にしています。必要に応じて変更できます。</p>
+          </div>
+          <div className="space-y-5">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_240px]">
+              <ChipInput
+                label="対象市場・地域"
+                items={formState.regions}
+                inputValue={formState.regionInput}
+                onInputChange={(value) => updateForm("regionInput", value)}
+                onAdd={(value) => updateForm("regions", addUnique(formState.regions, value))}
+                onRemove={(value) => updateForm("regions", removeValue(formState.regions, value))}
+                placeholder="例 日本"
+                suggestions={regionSuggestions}
+              />
+              <SegmentedControl
+                label="言語"
+                value={formState.language}
+                options={languageOptions}
+                onChange={(value) => updateForm("language", value)}
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-[#334155]">対象AIモデル</h3>
+                <RequiredBadge />
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                {aiModelOptions.map((model) => (
+                  <CheckCard
+                    key={model.value}
+                    selected={formState.aiModels.includes(model.value)}
+                    label={model.label}
+                    onClick={() => updateForm("aiModels", toggleValue(formState.aiModels, model.value))}
+                  />
+                ))}
+              </div>
+              <p className="mt-2 text-xs leading-5 text-[#64736C]">
+                実際の計測対象は、利用可能なモデルを確認したうえで確定します。
+              </p>
+            </div>
+          </div>
+        </section>
       </div>
     </WizardCard>
+  );
+}
+
+function AutoFilledNote() {
+  return (
+    <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-[#075E44]">
+      <Sparkles className="h-3.5 w-3.5" />
+      サイト情報から入力済み
+    </p>
   );
 }
 
@@ -867,49 +1188,7 @@ function SiteInspectionPanel({
     );
   }
 
-  const result = siteInspection.result;
-  return (
-    <div className="rounded-xl border border-[#CFE2DA] bg-white p-3.5 text-sm leading-6 text-[#20352C] shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <div className="flex items-start gap-3">
-        <SearchCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#1B8B65]" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h3 className="font-bold text-[#075E44]">公式URLのページ情報</h3>
-              <p className="mt-1 text-[#64736C]">1ページだけ確認し、サービス情報の候補に使いました。</p>
-            </div>
-            <InspectionLink href={result.normalizedUrl} />
-          </div>
-
-          <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-            <InspectionDatum label="ページタイトル" value={result.title} />
-            <InspectionDatum label="説明文" value={result.description} />
-            <InspectionDatum label="ブランド確認" value={result.brandNameFound ? "確認できました" : "確認できませんでした"} />
-            <InspectionDatum label="ホスト名" value={result.hostname} />
-          </dl>
-
-          {!result.brandNameFound ? (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
-              入力したブランド名がページ情報からは確認できませんでした。公式URLまたはブランド名が合っているか確認してください。
-            </div>
-          ) : null}
-
-          {result.warnings.includes("response_truncated") ? (
-            <p className="mt-3 text-xs leading-5 text-[#64736C]">ページが大きいため、先頭部分だけを確認しました。</p>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function InspectionDatum({ label, value }: { label: string; value: string | null }) {
-  return (
-    <div className="min-w-0 rounded-lg border border-[#EAF0ED] bg-[#F8FBFA] px-3 py-2">
-      <dt className="text-xs font-bold text-[#64736C]">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-semibold text-[#0B1F17]">{value || "未取得"}</dd>
-    </div>
-  );
+  return null;
 }
 
 function InspectionLink({ href, className }: { href: string; className?: string }) {
@@ -927,330 +1206,235 @@ function InspectionLink({ href, className }: { href: string; className?: string 
 }
 
 function FocusStep({ formState, updateForm }: { formState: WizardState; updateForm: UpdateForm }) {
-  const suggestionProfile = deriveOnboardingSuggestionProfile(formState);
-  const watchTopicOptions = suggestionProfile.watchTopics;
-  const reportGoalOptions = suggestionProfile.reportGoalOptions;
+  const isRecommended =
+    formState.watchTopics.length === recommendedFocusValues.length &&
+    recommendedFocusValues.every((value) => formState.watchTopics.includes(value));
+
+  function setFocusValues(values: string[]) {
+    const goals = uniqueStrings(
+      focusOptions.filter((option) => values.includes(option.value)).map((option) => option.goal)
+    );
+    updateForm("watchTopics", values);
+    updateForm("reportGoals", goals);
+  }
 
   return (
     <WizardCard
       icon={<Target className="h-9 w-9" />}
-      title="見たいこと"
-      description="特に知りたいテーマを選択してください。上位3つ程度を目安にすると、確認しやすくなります。"
-      footer="選択内容をもとに、次のステップでプロンプト例をご提案します。"
+      title="確認したいこと"
+      description="AI検索で特に確認したい内容を選んでください。"
     >
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div>
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-bold text-[#0B1F17]">特に見たいこと</h3>
-            <Badge variant="outline" className="border-[#D6E2DD] bg-white text-[#64736C]">
-              上位3つまで
-            </Badge>
-          </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {watchTopicOptions.map((topic) => (
-              <CheckCard
-                key={topic}
-                selected={formState.watchTopics.includes(topic)}
-                label={topic}
-                onClick={() => updateForm("watchTopics", toggleValue(formState.watchTopics, topic).slice(0, 3))}
-              />
-            ))}
-          </div>
-          <div className="mt-3">
-            <InlineAddInput
-              value={formState.watchTopicInput}
-              onChange={(value) => updateForm("watchTopicInput", value)}
-              onAdd={(value) => updateForm("watchTopics", addUnique(formState.watchTopics, value).slice(0, 3))}
-              placeholder="具体的に見たいテーマを入力"
-              buttonLabel="テーマを追加"
-            />
-          </div>
-        </div>
+      <button
+        type="button"
+        onClick={() => setFocusValues([...recommendedFocusValues])}
+        className={cn(
+          "flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B8B65] focus-visible:ring-offset-2",
+          isRecommended
+            ? "border-[#1B8B65] bg-[#F2FAF6]"
+            : "border-[#DDE8E5] bg-[#FBFDFC] hover:border-[#A9C6BA]"
+        )}
+      >
+        <span
+          className={cn(
+            "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
+            isRecommended ? "border-[#075E44] bg-[#075E44] text-white" : "border-[#C9D8D2] bg-white text-transparent"
+          )}
+        >
+          <Check className="h-4 w-4" />
+        </span>
+        <span>
+          <span className="block text-sm font-bold text-[#0B1F17]">おすすめ設定</span>
+          <span className="mt-1 block text-xs leading-5 text-[#64736C]">
+            表示・候補選定・引用・紹介され方・改善点をまとめて確認します。
+          </span>
+        </span>
+      </button>
 
-        <div>
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-bold text-[#0B1F17]">今回知りたいこと</h3>
-            <Badge variant="outline" className="border-[#D6E2DD] bg-white text-[#64736C]">
-              上位3つまで
-            </Badge>
-          </div>
-          <div className="mt-3 grid gap-2">
-            {reportGoalOptions.map((goal) => {
-              const selected = formState.reportGoals.includes(goal.value);
-              return (
-                <label
-                  key={goal.value}
-                  className={cn(
-                    "flex min-h-11 items-start gap-3 rounded-lg border px-3 py-3 text-sm transition",
-                    selected ? "border-[#1B8B65] bg-[#F2FAF6]" : "border-[#E1E8E5] bg-white hover:border-[#A9C6BA]"
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-1 h-4 w-4 rounded border-[#C9D8D2] text-[#075E44] focus:ring-[#075E44]"
-                    checked={selected}
-                    onChange={() => updateForm("reportGoals", toggleValue(formState.reportGoals, goal.value).slice(0, 3))}
-                  />
-                  <span className="leading-6 text-[#20352C]">{goal.label}</span>
-                </label>
-              );
-            })}
-          </div>
-          {formState.reportGoals.includes("other") ? (
-            <div className="mt-3">
-              <TextInput
-                label="その他の内容"
-                value={formState.reportGoalInput}
-                onChange={(value) => updateForm("reportGoalInput", value)}
-                placeholder="具体的にご入力ください"
-              />
-            </div>
-          ) : null}
-        </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {focusOptions.map((option) => (
+          <CheckCard
+            key={option.value}
+            selected={formState.watchTopics.includes(option.value)}
+            label={option.label}
+            onClick={() => setFocusValues(toggleValue(formState.watchTopics, option.value))}
+          />
+        ))}
+      </div>
+
+      <div className="mt-5">
+        <TextareaInput
+          label="ほかに確認したいこと（任意）"
+          value={formState.reportGoalInput}
+          onChange={(value) => updateForm("reportGoalInput", value)}
+          rows={3}
+          placeholder="例 新しいサービス名が正しく理解されているか確認したい"
+        />
       </div>
     </WizardCard>
   );
 }
 
 function PromptStep({
-  draftPreview,
   prompts,
   newPromptText,
   setNewPromptText,
   onAddPrompt,
+  promptNotice,
+  lastRemovedPrompt,
+  onUndoRemove,
+  onRemovePrompt,
   onChangePrompts
 }: {
-  draftPreview: CustomerFacingDraftPreview | null;
   prompts: EditablePrompt[];
   newPromptText: string;
   setNewPromptText: (value: string) => void;
   onAddPrompt: () => void;
+  promptNotice: string | null;
+  lastRemovedPrompt: { prompt: EditablePrompt; index: number } | null;
+  onUndoRemove: () => void;
+  onRemovePrompt: (promptId: string) => void;
   onChangePrompts: (prompts: EditablePrompt[]) => void;
 }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [visiblePromptCount, setVisiblePromptCount] = useState(10);
   const generatedPrompts = prompts.filter((prompt) => !isCustomPrompt(prompt));
   const customPrompts = prompts.filter(isCustomPrompt);
+  const orderedPrompts = [...customPrompts, ...generatedPrompts].filter((prompt) => prompt.text.trim());
+  const normalizedQuery = normalizeText(searchQuery);
+  const filteredPrompts = normalizedQuery
+    ? orderedPrompts.filter((prompt) => normalizeText(prompt.text).includes(normalizedQuery))
+    : orderedPrompts;
+  const visiblePrompts = filteredPrompts.slice(0, visiblePromptCount);
+  const remainingCount = Math.max(filteredPrompts.length - visiblePrompts.length, 0);
 
   return (
     <WizardCard
       icon={<MessageSquareText className="h-9 w-9" />}
-      title="プロンプト例"
-      description="Recoraが作成した質問例を確認し、必要なものだけ追加・編集してください。"
-      footer="ここでは質問例の確認だけを行います。保存・承認・計測反映は行いません。"
+      title="質問"
+      description="計測に使う質問を確認し、必要に応じて追加・編集してください。"
       size="wide"
     >
-      {draftPreview ? <DraftPreviewSummary draftPreview={draftPreview} /> : null}
-
       <div className="space-y-4">
+        <section className="rounded-xl border border-[#CFE2DA] bg-[#F8FBFA] p-4 sm:p-5">
+          <h3 className="text-base font-bold text-[#0B1F17]">質問を追加</h3>
+          <p className="mt-1 text-sm leading-6 text-[#64736C]">確認したい質問を、そのまま一覧へ追加できます。</p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <textarea
+              className="min-h-20 min-w-0 flex-1 resize-y rounded-lg border border-[#DDE8E5] bg-white px-4 py-3 text-base leading-6 text-[#0B1F17] outline-none transition placeholder:text-[#A3AEA8] focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15 sm:text-sm"
+              rows={2}
+              value={newPromptText}
+              onChange={(event) => setNewPromptText(event.target.value)}
+              placeholder="確認したい質問を入力してください"
+            />
+            <Button
+              type="button"
+              className="h-11 self-end bg-[#075E44] px-5 hover:bg-[#064D39]"
+              onClick={onAddPrompt}
+              disabled={!newPromptText.trim()}
+            >
+              <Plus className="h-4 w-4" />
+              追加する
+            </Button>
+          </div>
+          {promptNotice ? (
+            <p className={cn("mt-2 text-xs font-semibold", promptNotice.startsWith("同じ") ? "text-rose-600" : "text-[#075E44]")}>
+              {promptNotice}
+            </p>
+          ) : null}
+        </section>
+
+        {lastRemovedPrompt ? (
+          <div className="flex flex-col gap-2 rounded-xl border border-[#DDE8E5] bg-white px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <span className="min-w-0 truncate text-[#506158]">質問を削除しました</span>
+            <Button type="button" variant="outline" size="sm" onClick={onUndoRemove} className="border-[#C9D8D2] text-[#075E44]">
+              元に戻す
+            </Button>
+          </div>
+        ) : null}
+
         <section className="min-w-0 rounded-xl border border-[#DDE8E5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] sm:p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="max-w-2xl">
-              <h3 className="text-base font-bold text-[#0B1F17]">生成されたプロンプト例</h3>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h3 className="text-base font-bold text-[#0B1F17]">質問一覧</h3>
               <p className="mt-1 text-sm leading-6 text-[#64736C]">
-                入力内容をもとに作成した診断用の質問例です。文章はこの場で微調整できます。
+                {filteredPrompts.length}件中{visiblePrompts.length}件を表示
               </p>
             </div>
-            <Badge variant="outline" className="border-[#CFE2DA] bg-[#F8FBFA] text-[#075E44]">
-              {generatedPrompts.length}件
-            </Badge>
+            <label className="relative block w-full lg:max-w-sm">
+              <SearchCheck className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7A8982]" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  setVisiblePromptCount(10);
+                }}
+                className="h-11 w-full rounded-lg border border-[#DDE8E5] bg-white pl-10 pr-4 text-sm text-[#0B1F17] outline-none placeholder:text-[#A3AEA8] focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15"
+                placeholder="質問を検索"
+              />
+            </label>
           </div>
+
           <div className="mt-4 overflow-hidden rounded-xl border border-[#E1E8E5] bg-[#FBFDFC]">
-            {generatedPrompts.length > 0 ? (
-              generatedPrompts.map((prompt, index) => (
+            {visiblePrompts.length > 0 ? (
+              visiblePrompts.map((prompt, index) => (
                 <PromptListItem
                   key={prompt.id}
                   index={index}
                   prompt={prompt}
+                  added={isCustomPrompt(prompt)}
                   onChange={(nextPrompt) =>
                     onChangePrompts(prompts.map((item) => (item.id === prompt.id ? nextPrompt : item)))
                   }
-                  onRemove={() => onChangePrompts(prompts.filter((item) => item.id !== prompt.id))}
+                  onRemove={() => onRemovePrompt(prompt.id)}
                 />
               ))
             ) : (
-              <EmptyPromptState />
+              <EmptyPromptState hasSearchQuery={Boolean(searchQuery.trim())} />
             )}
           </div>
-        </section>
 
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="min-w-0 rounded-xl border border-[#E1E8E5] bg-white p-4 sm:p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-bold text-[#0B1F17]">追加したプロンプト例</h3>
-                <p className="mt-1 text-xs leading-5 text-[#64736C]">必要に応じて足した質問だけを分けて表示します。</p>
-              </div>
-              <span className="shrink-0 text-xs font-semibold text-[#64736C]">{customPrompts.length}件</span>
+          {remainingCount > 0 ? (
+            <div className="mt-4 flex justify-center">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-[#C9D8D2] bg-white text-[#075E44]"
+                onClick={() => setVisiblePromptCount((current) => current + 10)}
+              >
+                さらに10件表示
+                <span className="text-xs text-[#64736C]">（残り{remainingCount}件）</span>
+              </Button>
             </div>
-            <div className="mt-3 overflow-hidden rounded-xl border border-[#E8EFEC] bg-[#FBFDFC]">
-              {customPrompts.length > 0 ? (
-                customPrompts.map((prompt, index) => (
-                  <PromptListItem
-                    key={prompt.id}
-                    index={generatedPrompts.length + index}
-                    prompt={prompt}
-                    onChange={(nextPrompt) =>
-                      onChangePrompts(prompts.map((item) => (item.id === prompt.id ? nextPrompt : item)))
-                    }
-                    onRemove={() => onChangePrompts(prompts.filter((item) => item.id !== prompt.id))}
-                  />
-                ))
-              ) : (
-                <p className="p-4 text-sm leading-6 text-[#64736C]">まだ追加されたプロンプト例はありません。</p>
-              )}
-            </div>
-          </div>
-
-          <aside className="h-fit rounded-xl border border-[#DDE8E5] bg-[#F8FBFA] p-4">
-            <div className="mb-3">
-              <h3 className="text-sm font-bold text-[#0B1F17]">プロンプトを追加</h3>
-              <p className="mt-1 text-xs leading-5 text-[#64736C]">ほかに確認したい質問があれば追加できます。</p>
-            </div>
-            <TextareaInput
-              label="質問文"
-              value={newPromptText}
-              onChange={setNewPromptText}
-              rows={4}
-              placeholder="例 AI検索で自社サービスが候補に出るためには、どんな情報を揃えるべきですか？"
-            />
-            <Button type="button" variant="outline" className="mt-3 w-full border-[#C9D8D2] text-[#075E44]" onClick={onAddPrompt}>
-              <Plus className="h-4 w-4" />
-              追加
-            </Button>
-            <p className="mt-3 text-xs leading-5 text-[#7A8982]">追加・編集・削除した内容は最終確認に反映されます。</p>
-          </aside>
+          ) : null}
         </section>
       </div>
     </WizardCard>
   );
 }
 
-function DraftPreviewSummary({ draftPreview }: { draftPreview: CustomerFacingDraftPreview }) {
-  return (
-    <section className="mb-4 rounded-xl border border-[#DDE8E5] bg-[#F8FBFA] px-4 py-3">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-        <CompactPreviewBlock title="サービスカテゴリ" values={draftPreview.serviceCategories} emptyText="未入力" />
-        <CompactPreviewBlock title="主に見たい相手" values={draftPreview.audiencePersonas.map((persona) => persona.label)} emptyText="未入力" />
-        <CompactPreviewBlock
-          title="質問領域"
-          values={draftPreview.questionAreas.map(compactQuestionAreaLabel)}
-          emptyText="未入力"
-          limit={2}
-        />
-      </div>
-    </section>
-  );
-}
-
-function CompactPreviewBlock({
-  title,
-  values,
-  emptyText,
-  limit = 3,
-}: {
-  title: string;
-  values: readonly string[];
-  emptyText: string;
-  limit?: number;
-}) {
-  const visibleValues = values.slice(0, limit);
-  const remainingCount = Math.max(values.length - visibleValues.length, 0);
-
-  return (
-    <div className="min-w-0 flex-1">
-      <h3 className="text-xs font-bold text-[#64736C]">{title}</h3>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {visibleValues.length > 0 ? (
-          <>
-            {visibleValues.map((value, index) => (
-              <span
-                key={`${title}-${index}-${value}`}
-                title={value}
-                className="max-w-full truncate rounded-full bg-white px-2.5 py-1 text-xs font-semibold leading-5 text-[#506158] ring-1 ring-[#DDE8E5] lg:max-w-[15rem]"
-              >
-                {value}
-              </span>
-            ))}
-            {remainingCount > 0 ? (
-              <span className="rounded-full bg-[#EAF2EE] px-2.5 py-1 text-xs font-semibold leading-5 text-[#075E44]">
-                他{remainingCount}件
-              </span>
-            ) : null}
-          </>
-        ) : (
-          <span className="text-xs font-semibold text-[#8B9A93]">{emptyText}</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PersonaPreviewSection({ personas }: { personas: readonly CustomerPersona[] }) {
-  return (
-    <section className="min-w-0 rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-3">
-      <h3 className="text-xs font-bold uppercase tracking-normal text-[#64736C]">主に見たい相手</h3>
-      <div className="mt-2 space-y-2">
-        {personas.length > 0 ? (
-          personas.map((persona) => (
-            <div key={persona.id} className="rounded-lg bg-white px-3 py-2 ring-1 ring-[#DDE8E5]">
-              <div className="text-xs font-bold leading-5 text-[#0B1F17]">{persona.label}</div>
-              <div className="mt-0.5 text-xs leading-5 text-[#64736C]">{persona.description}</div>
-            </div>
-          ))
-        ) : (
-          <span className="text-sm text-[#8B9A93]">未入力</span>
-        )}
-      </div>
-    </section>
-  );
-}
-
-
-function compactQuestionAreaLabel(value: string) {
-  const label = value.split(/[：:]/)[0]?.trim();
-  return label || value;
-}
-function PreviewSection({ title, values, emptyText }: { title: string; values: readonly string[]; emptyText: string }) {
-  return (
-    <section className="min-w-0 rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-3">
-      <h3 className="text-xs font-bold uppercase tracking-normal text-[#64736C]">{title}</h3>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {values.length > 0 ? (
-          values.map((value) => (
-            <span key={value} className="max-w-full rounded-full bg-white px-2.5 py-1 text-xs font-semibold leading-5 text-[#506158] ring-1 ring-[#DDE8E5]">
-              {value}
-            </span>
-          ))
-        ) : (
-          <span className="text-sm text-[#8B9A93]">{emptyText}</span>
-        )}
-      </div>
-    </section>
-  );
-}
-
 function ConfirmationStep({
   formState,
-  draftPreview,
   prompts,
   seedBlockers,
   confirmationDone,
-  onConfirm
+  onConfirm,
+  onEditStep
 }: {
   formState: WizardState;
-  draftPreview: CustomerFacingDraftPreview | null;
   prompts: EditablePrompt[];
   seedBlockers: string[];
   confirmationDone: boolean;
   onConfirm: () => void;
+  onEditStep: (stepIndex: number) => void;
 }) {
-  const sections = buildConfirmationSections(formState, draftPreview);
-  const promptCount = prompts.filter((prompt) => prompt.text.trim()).length;
+  const sections = buildConfirmationSections(formState);
 
   return (
     <WizardCard
       icon={<ClipboardCheck className="h-9 w-9" />}
       title="確認"
-      description="ここまでの入力とプロンプト例を、最後に確認するための画面です。"
+      description="設定内容を確認し、必要な項目だけ戻って編集できます。"
       size="wide"
     >
       {seedBlockers.length > 0 ? (
@@ -1263,35 +1447,32 @@ function ConfirmationStep({
         </MessageBox>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryStat label="ブランド" value={formState.brandName || "未入力"} />
-        <SummaryStat label="市場 / 言語" value={formatList([formatList(formState.regions), formatLanguage(formState.language)].filter(Boolean))} />
-        <SummaryStat label="提供形態" value={formatAudienceType(formState.audienceType)} />
-        <SummaryStat label="プロンプト例" value={`${promptCount}件`} />
-      </div>
-
-      <div className="mt-5 grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2">
         {sections.map((section) => (
-          <ConfirmationSection key={section.title} title={section.title} items={section.items} />
+          <ConfirmationSection
+            key={section.title}
+            title={section.title}
+            items={section.items}
+            onEdit={() => onEditStep(section.stepIndex)}
+          />
         ))}
+        <PromptSummaryList prompts={prompts} onEdit={() => onEditStep(3)} />
       </div>
 
-      <div className="mt-5">
-        <PromptSummaryList prompts={prompts} />
-      </div>
-
-      <Button type="button" className="mt-6 h-12 w-full bg-[#075E44] text-base hover:bg-[#064D39]" onClick={onConfirm}>
-        この内容で確認を完了
+      <Button
+        type="button"
+        className="mt-6 h-12 w-full bg-[#075E44] text-base hover:bg-[#064D39]"
+        onClick={onConfirm}
+        disabled={seedBlockers.length > 0}
+      >
+        プロジェクトを作成
         <CheckCircle2 className="h-5 w-5" />
       </Button>
       {confirmationDone ? (
         <p className="mt-3 text-center text-sm font-semibold text-[#075E44]">
-          確認完了として画面上に反映しました。
+          プロジェクト作成の準備ができました。
         </p>
       ) : null}
-      <p className="mt-3 text-center text-xs leading-5 text-[#7A8982]">
-        確認内容は次の診断準備に使います。この画面では保存・承認・計測反映は行いません。
-      </p>
     </WizardCard>
   );
 }
@@ -1300,14 +1481,12 @@ function WizardCard({
   icon,
   title,
   description,
-  footer,
   children,
   size = "default"
 }: {
   icon: ReactNode;
   title: string;
   description: string;
-  footer?: string;
   children: ReactNode;
   size?: "default" | "wide";
 }) {
@@ -1318,22 +1497,16 @@ function WizardCard({
         size === "wide" ? "max-w-5xl" : "max-w-2xl"
       )}
     >
-      <div className="text-center">
-        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-[#F0F6F3] text-[#075E44] [&_svg]:h-5 [&_svg]:w-5">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F0F6F3] text-[#075E44] [&_svg]:h-5 [&_svg]:w-5">
           {icon}
         </div>
-        <h2 className="mt-2 text-lg font-bold tracking-normal text-[#0B1F17] sm:text-xl">{title}</h2>
-        <p className="mx-auto mt-1 max-w-xl text-sm leading-6 text-[#64736C]">{description}</p>
+        <div className="min-w-0">
+          <h2 className="text-lg font-bold tracking-normal text-[#0B1F17] sm:text-xl">{title}</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-[#64736C]">{description}</p>
+        </div>
       </div>
       <div className="mt-4">{children}</div>
-      {footer ? (
-        <div className="mt-4 rounded-xl border border-[#DDE8E5] bg-[#F8FBFA] px-4 py-3 text-sm leading-6 text-[#506158]">
-          <div className="flex gap-2">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#1B8B65]" />
-            <p>{footer}</p>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -1343,22 +1516,24 @@ function TextInput({
   value,
   onChange,
   required = false,
+  optional = false,
   placeholder
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
+  optional?: boolean;
   placeholder?: string;
 }) {
   return (
     <label className="block min-w-0">
       <span className="text-sm font-bold text-[#334155]">
         {label}
-        {required ? <RequiredBadge /> : null}
+        {required ? <RequiredBadge /> : optional ? <OptionalBadge /> : null}
       </span>
       <input
-        className="mt-2 h-12 w-full rounded-lg border border-[#DDE8E5] bg-white px-4 text-sm text-[#0B1F17] outline-none transition placeholder:text-[#A3AEA8] focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15"
+        className="mt-2 h-12 w-full rounded-lg border border-[#DDE8E5] bg-white px-4 text-base text-[#0B1F17] outline-none transition placeholder:text-[#A3AEA8] focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15 sm:text-sm"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
@@ -1389,7 +1564,7 @@ function TextareaInput({
         {required ? <RequiredBadge /> : null}
       </span>
       <textarea
-        className="mt-2 w-full resize-y rounded-lg border border-[#DDE8E5] bg-white px-4 py-3 text-sm leading-6 text-[#0B1F17] outline-none transition placeholder:text-[#A3AEA8] focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15"
+        className="mt-2 w-full resize-y rounded-lg border border-[#DDE8E5] bg-white px-4 py-3 text-base leading-6 text-[#0B1F17] outline-none transition placeholder:text-[#A3AEA8] focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15 sm:text-sm"
         rows={rows}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -1543,14 +1718,18 @@ function InlineAddInput({
   buttonLabel: string;
   className?: string;
 }) {
+  const [isComposing, setIsComposing] = useState(false);
+
   return (
     <div className={cn("flex flex-col gap-2 sm:flex-row", className)}>
       <input
         className="h-11 min-w-0 flex-1 rounded-lg border border-[#DDE8E5] bg-white px-4 text-sm text-[#0B1F17] outline-none placeholder:text-[#A3AEA8] focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15"
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onCompositionStart={() => setIsComposing(true)}
+        onCompositionEnd={() => setIsComposing(false)}
         onKeyDown={(event) => {
-          if (event.key === "Enter") {
+          if (event.key === "Enter" && !isComposing) {
             event.preventDefault();
             onAdd(value);
             onChange("");
@@ -1636,21 +1815,6 @@ function ChoicePill({
   );
 }
 
-function MiniToggle({ selected, label, onClick }: { selected: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "min-h-10 rounded-lg border px-3 text-sm font-bold transition",
-        selected ? "border-[#1B8B65] bg-[#075E44] text-white" : "border-[#DDE8E5] bg-white text-[#506158] hover:border-[#A9C6BA]"
-      )}
-      onClick={onClick}
-    >
-      {label}
-    </button>
-  );
-}
-
 function CheckCard({ selected, label, onClick }: { selected: boolean; label: string; onClick: () => void }) {
   return (
     <button
@@ -1677,34 +1841,31 @@ function CheckCard({ selected, label, onClick }: { selected: boolean; label: str
 function PromptListItem({
   index,
   prompt,
+  added,
   onChange,
   onRemove
 }: {
   index: number;
   prompt: EditablePrompt;
+  added: boolean;
   onChange: (prompt: EditablePrompt) => void;
   onRemove: () => void;
 }) {
   return (
-    <div className="border-b border-[#E8EFEC] p-4 last:border-b-0">
+    <div className={cn("border-b border-[#E8EFEC] p-4 last:border-b-0", added && "bg-[#F2FAF6]")}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="flex min-w-0 flex-1 gap-3">
           <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#075E44] text-xs font-bold text-white">
             {index + 1}
           </span>
           <label className="min-w-0 flex-1">
-            <span className="mb-2 flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="border-[#D6E2DD] bg-[#F8FBFA] text-[#075E44]">
-                {getPromptGroupLabel(prompt.group)}
-              </Badge>
-              <span className="text-xs font-semibold text-[#7A8982]">編集できます</span>
-            </span>
+            {added ? <span className="mb-2 block text-xs font-bold text-[#075E44]">追加した質問</span> : null}
             <textarea
-              className="min-h-24 w-full resize-y rounded-lg border border-[#E1E8E5] bg-white px-3 py-3 text-sm leading-6 text-[#0B1F17] outline-none transition focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15"
-              rows={3}
+              className="min-h-16 w-full resize-y rounded-lg border border-[#E1E8E5] bg-white px-3 py-3 text-sm leading-6 text-[#0B1F17] outline-none transition focus:min-h-28 focus:border-[#1B8B65] focus:ring-2 focus:ring-[#1B8B65]/15"
+              rows={2}
               value={prompt.text}
               onChange={(event) => onChange({ ...prompt, text: event.target.value })}
-              aria-label={'プロンプト例 ' + (index + 1)}
+              aria-label={"質問 " + (index + 1)}
             />
           </label>
         </div>
@@ -1712,7 +1873,7 @@ function PromptListItem({
           type="button"
           className="w-full shrink-0 rounded-lg border border-[#E1E8E5] bg-white px-3 py-2 text-xs font-bold text-[#7A8982] hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 sm:w-auto"
           onClick={onRemove}
-          aria-label={'プロンプト例 ' + (index + 1) + 'を削除'}
+          aria-label={"質問 " + (index + 1) + "を削除"}
         >
           削除
         </button>
@@ -1721,10 +1882,10 @@ function PromptListItem({
   );
 }
 
-function EmptyPromptState() {
+function EmptyPromptState({ hasSearchQuery }: { hasSearchQuery: boolean }) {
   return (
     <div className="p-5 text-sm leading-6 text-[#64736C]">
-      表示できるプロンプト例がありません。右側の欄から確認したい質問を追加できます。
+      {hasSearchQuery ? "検索条件に一致する質問はありません。" : "表示できる質問がありません。上の入力欄から追加できます。"}
     </div>
   );
 }
@@ -1753,7 +1914,11 @@ function MessageBox({
 }
 
 function RequiredBadge() {
-  return <span className="ml-2 rounded-full bg-[#F1F5F3] px-2 py-0.5 text-xs font-semibold text-[#64736C]">必須</span>;
+  return <span className="ml-1 text-xs font-semibold text-[#64736C]">（必須）</span>;
+}
+
+function OptionalBadge() {
+  return <span className="ml-1 text-xs font-semibold text-[#7A8982]">（任意）</span>;
 }
 
 async function inspectOfficialUrlForStep(state: WizardState): Promise<SiteInspectionState> {
@@ -1765,8 +1930,8 @@ async function inspectOfficialUrlForStep(state: WizardState): Promise<SiteInspec
       },
       body: JSON.stringify({
         url: state.officialUrl,
-        brandName: state.brandName,
-        aliases: state.brandAliases
+        brandName: state.targetName,
+        aliases: state.targetAliases
       })
     });
     const data = (await response.json()) as SiteInspectionApiResponse;
@@ -1798,20 +1963,20 @@ function applyServiceSuggestions(
   const proposedServiceCategory = buildSuggestedServiceCategoryForStep(state, inspection, proposedServiceDescription);
   const proposedAudienceTargets = inferAudienceTargetsForStep(state, proposedServiceCategory);
 
-  const shouldReplaceServiceDescription = !state.serviceDescription.trim() || sources.serviceDescription !== null;
-  const shouldReplaceServiceCategory = !state.serviceCategory.trim() || sources.serviceCategory !== null;
+  const shouldReplaceServiceDescription = !state.targetDescription.trim() || sources.targetDescription !== null;
+  const shouldReplaceServiceCategory = !state.targetCategory.trim() || sources.targetCategory !== null;
   const shouldReplaceAudienceTargets = state.audienceTargets.length === 0 || sources.audienceTargets !== null;
 
   return {
     state: {
       ...state,
-      serviceDescription: shouldReplaceServiceDescription ? proposedServiceDescription : state.serviceDescription,
-      serviceCategory: shouldReplaceServiceCategory ? proposedServiceCategory : state.serviceCategory,
+      targetDescription: shouldReplaceServiceDescription ? proposedServiceDescription : state.targetDescription,
+      targetCategory: shouldReplaceServiceCategory ? proposedServiceCategory : state.targetCategory,
       audienceTargets: shouldReplaceAudienceTargets ? proposedAudienceTargets : state.audienceTargets
     },
     sources: {
-      serviceDescription: shouldReplaceServiceDescription ? sourceKey : sources.serviceDescription,
-      serviceCategory: shouldReplaceServiceCategory ? sourceKey : sources.serviceCategory,
+      targetDescription: shouldReplaceServiceDescription ? sourceKey : sources.targetDescription,
+      targetCategory: shouldReplaceServiceCategory ? sourceKey : sources.targetCategory,
       audienceTargets: shouldReplaceAudienceTargets ? sourceKey : sources.audienceTargets
     }
   };
@@ -1826,18 +1991,20 @@ function buildCustomerFacingDraftPreview(
   const brandIdentity = buildBrandIdentity(seedInput);
   const profile = deriveOnboardingSuggestionProfile(formState);
   const serviceInsight = buildOnboardingServiceInsight(formState, inspection);
-  const generated = result.draft.prompts.slice(0, 5).map((prompt) => ({
+  const generated = result.draft.prompts.slice(0, 30).map((prompt) => ({
     id: prompt.promptId,
     text: normalizeCustomerPromptExampleText(prompt.text),
     group: classifyGeneratedPrompt(prompt, derivePromptMetricEligibility(prompt, brandIdentity))
   }));
   const customerReadyGenerated = filterPromptsForSuggestionProfile(generated, profile);
   const fallback = buildFallbackPrompts(formState);
-  const prompts = uniquePrompts(customerReadyGenerated.length > 0 ? customerReadyGenerated : fallback).slice(0, 5);
-  const serviceCategories = uniqueStrings([seedInput.industryCategory, formState.serviceCategory, ...profile.serviceCategories]).slice(0, 3);
+  const prompts = uniquePrompts(customerReadyGenerated.length > 0 ? customerReadyGenerated : fallback).slice(0, 30);
+  const serviceCategories = uniqueStrings([seedInput.industryCategory, formState.targetCategory, ...profile.serviceCategories]).slice(0, 3);
   const audiencePersonas = buildCustomerPersonas(formState, result.draft.personas, profile, serviceInsight);
   const audienceTargets = audiencePersonas.map((persona) => persona.label);
-  const generatedQuestionAreas = result.draft.topics.map((topic) => buildCustomerFacingQuestionArea(topic.topicName, topic.diagnosisGoal));
+  const generatedQuestionAreas = result.draft.topics
+    .map((topic) => buildCustomerFacingQuestionArea(topic.topicName, topic.diagnosisGoal))
+    .filter((area) => !isRemovedCompetitionArea(area));
   const questionAreas = uniqueStrings([
     ...generatedQuestionAreas,
     ...profile.questionAreaFallbacks
@@ -1862,9 +2029,14 @@ function buildFallbackPrompts(formState: WizardState): EditablePrompt[] {
 }
 
 function filterPromptsForSuggestionProfile(prompts: EditablePrompt[], profile: OnboardingSuggestionProfile): EditablePrompt[] {
-  if (!isConsumerSuggestionProfile(profile.key)) return prompts;
+  const competitionFreePrompts = prompts.filter((prompt) => !isRemovedCompetitionArea(prompt.text));
+  if (!isConsumerSuggestionProfile(profile.key)) return competitionFreePrompts;
 
-  return prompts.filter((prompt) => !containsBusinessAdoptionLanguage(prompt.text));
+  return competitionFreePrompts.filter((prompt) => !containsBusinessAdoptionLanguage(prompt.text));
+}
+
+function isRemovedCompetitionArea(value: string) {
+  return matchesAnyText(value, ["競合", "他社", "他ブランド", "competitor"]);
 }
 
 function isConsumerSuggestionProfile(profileKey: OnboardingSuggestionProfileKey) {
@@ -1888,36 +2060,35 @@ function buildOnboardingServiceInsight(
   inspection: SiteInspectionResult | null = null
 ): OnboardingServiceInsight {
   const profile = deriveOnboardingSuggestionProfile(formState);
-  const serviceSummary = formState.serviceDescription.trim() || buildSuggestedServiceDescriptionForStep(formState, inspection);
+  const serviceSummary = formState.targetDescription.trim() || buildSuggestedServiceDescriptionForStep(formState, inspection);
   const sourceEvidence = {
     fromUrlTitle: inspection?.title || undefined,
     fromUrlDescription: inspection?.description || undefined,
     fromH1: inspection?.h1 || undefined,
-    fromUserServiceDescription: formState.serviceDescription.trim() || undefined,
+    fromUserServiceDescription: formState.targetDescription.trim() || undefined,
     fromSelectedFocus: uniqueStrings([...formState.watchTopics, ...formatReportGoalLabels(formState)])
   };
   const evidenceSignals = uniqueStrings([
-    formState.serviceCategory,
+    formState.targetCategory,
     serviceSummary,
     ...formState.audienceTargets,
     ...formState.watchTopics,
     ...formatReportGoalLabels(formState),
-    ...formState.competitors,
     inspection?.title ?? "",
     inspection?.description ?? "",
     inspection?.h1 ?? ""
   ]).slice(0, 10);
   const uncertaintyFlags = [
-    !formState.serviceDescription.trim() ? "service_description_missing" : "",
+    !formState.targetDescription.trim() ? "service_description_missing" : "",
     !inspection ? "url_metadata_unavailable" : "",
     formState.audienceTargets.length === 0 ? "selected_persona_missing" : ""
   ].filter(Boolean);
 
   return {
-    brandName: formState.brandName.trim(),
-    serviceName: formState.brandName.trim(),
+    brandName: formState.targetName.trim(),
+    serviceName: formState.targetName.trim(),
     serviceSummary,
-    categoryHypothesis: formState.serviceCategory.trim() || profile.serviceCategories[0] || "サービス",
+    categoryHypothesis: formState.targetCategory.trim() || profile.serviceCategories[0] || "サービス",
     audienceType: formState.audienceType,
     market: formState.regions,
     language: formState.language,
@@ -2011,7 +2182,7 @@ function deriveServiceInsightValueProposition(formState: WizardState, serviceSum
   if (matchesAnyText(text, ["化粧品", "コスメ", "スキンケア", "肌"])) return ["肌に合うか確認できる", "成分や口コミを比較できる"];
   if (matchesAnyText(text, ["採用", "求人", "面接", "候補者", "ATS"])) return ["採用業務を整理できる", "人事と現場の判断材料をそろえられる"];
   if (matchesAnyText(text, ["SEO", "AI検索", "LLMO", "GEO"])) return ["AI検索での見え方を確認できる", "改善施策の判断材料をそろえられる"];
-  return uniqueStrings([formState.serviceCategory, ...formState.watchTopics, ...formatReportGoalLabels(formState)]).slice(0, 3);
+  return uniqueStrings([formState.targetCategory, ...formState.watchTopics, ...formatReportGoalLabels(formState)]).slice(0, 3);
 }
 
 function deriveServiceInsightUseCases(formState: WizardState, serviceSummary: string) {
@@ -2021,7 +2192,7 @@ function deriveServiceInsightUseCases(formState: WizardState, serviceSummary: st
   if (matchesAnyText(text, ["マットレス", "睡眠", "寝具"])) return ["寝心地の比較", "返品条件の確認", "素材の確認"];
   if (matchesAnyText(text, ["化粧品", "コスメ", "スキンケア", "肌"])) return ["肌との相性確認", "成分確認", "定期購入条件の確認"];
   if (matchesAnyText(text, ["採用", "求人", "面接", "候補者", "ATS"])) return ["採用管理の比較", "面接連携の確認", "費用対効果の説明"];
-  if (matchesAnyText(text, ["SEO", "AI検索", "LLMO", "GEO"])) return ["AI検索露出の確認", "競合比較", "公式サイト引用の確認"];
+  if (matchesAnyText(text, ["SEO", "AI検索", "LLMO", "GEO"])) return ["AI検索露出の確認", "候補選定の確認", "公式サイト引用の確認"];
   return uniqueStrings([...formState.watchTopics, ...formatReportGoalLabels(formState)]).slice(0, 3);
 }
 
@@ -2091,17 +2262,16 @@ function buildServiceEvidenceReason(label: string, serviceInsight: OnboardingSer
 
 function buildServiceInsightText(formState: WizardState, serviceSummary: string) {
   return [
-    formState.brandName,
-    formState.brandAliases.join(" "),
+    formState.targetName,
+    formState.targetAliases.join(" "),
     formState.officialUrl,
     serviceSummary,
-    formState.serviceCategory,
+    formState.targetCategory,
     formState.audienceType,
     formState.audienceTargets.join(" "),
     formState.regions.join(" "),
     formState.watchTopics.join(" "),
-    formatReportGoalLabels(formState).join(" "),
-    formState.competitors.join(" ")
+    formatReportGoalLabels(formState).join(" ")
   ]
     .filter(Boolean)
     .join(" ");
@@ -2268,7 +2438,7 @@ function derivePersonaTriggerSituation(label: string, profile: OnboardingSuggest
 
 function derivePersonaEvaluationCriteria(label: string, profile: OnboardingSuggestionProfile, sourceText: string) {
   const text = normalizeText(label + " " + sourceText);
-  if (profile.key === "b2bSaasOrSeo") return uniqueStrings(["効果指標", "改善余地", "公式サイト引用", "競合比較", "運用負荷"]);
+  if (profile.key === "b2bSaasOrSeo") return uniqueStrings(["効果指標", "改善余地", "公式サイト引用", "候補選定", "運用負荷"]);
   if (profile.key === "b2bProfessionalService") return uniqueStrings(["実績", "専門性", "料金", "相談前の確認点", "信頼性"]);
   if (profile.key === "b2cSchoolEducation") return uniqueStrings(["料金", "口コミ", "初心者向けか", "通いやすさ", "体験しやすさ"]);
   if (profile.key === "healthcareClinic") return uniqueStrings(["料金", "口コミ", "資格・専門性", "リスク説明", "初回相談のしやすさ"]);
@@ -2309,7 +2479,7 @@ function derivePersonaPromptAngle(
     const criteria = serviceInsight.trustRequirements.length > 0 ? serviceInsight.trustRequirements.slice(0, 3).join("、") : derivePersonaEvaluationCriteria(label, profile, serviceInsight.serviceSummary).slice(0, 3).join("、");
     return label + "が" + serviceInsight.categoryHypothesis + "を選ぶ前に確認したい" + criteria + "の論点。";
   }
-  if (profile.key === "b2bSaasOrSeo") return label + "がAI検索・SEOの比較前に確認したい効果指標、競合比較、公式サイト引用の論点。";
+  if (profile.key === "b2bSaasOrSeo") return label + "がAI検索・SEOの検討前に確認したい効果指標、候補選定、公式サイト引用の論点。";
   if (profile.key === "healthcareClinic") return label + "が初回相談前に確認したい料金、口コミ、資格、リスク説明の論点。";
   if (profile.key === "ecommerceProduct") return label + "が購入前に確認したい価格、口コミ、品質、返品条件の論点。";
   if (profile.key === "b2cSchoolEducation") return label + "が申し込み前に確認したい料金、口コミ、通いやすさ、自分に合うかの論点。";
@@ -2320,17 +2490,15 @@ function derivePersonaPromptAngle(
 
 function buildCustomerPersonaSourceKey(formState: WizardState) {
   return JSON.stringify({
-    brandName: formState.brandName,
-    serviceDescription: formState.serviceDescription,
-    serviceCategory: formState.serviceCategory,
+    brandName: formState.targetName,
+    targetDescription: formState.targetDescription,
+    targetCategory: formState.targetCategory,
     audienceType: formState.audienceType,
     audienceTargets: formState.audienceTargets,
     regions: formState.regions,
     language: formState.language,
     watchTopics: formState.watchTopics,
-    reportGoals: formState.reportGoals,
-    competitorMode: formState.competitorMode,
-    competitors: formState.competitors
+    reportGoals: formState.reportGoals
   });
 }
 
@@ -2555,7 +2723,7 @@ function buildNaturalTargetCustomers(formState: WizardState) {
   const serviceInsight = buildOnboardingServiceInsight(formState);
   const personas = buildCustomerPersonas(formState, [], profile, serviceInsight).map((persona) => persona.label).slice(0, 4);
   const personaText = personas.length > 0 ? personas.join("、") : "確認したい顧客層";
-  const category = serviceInsight.categoryHypothesis || formState.serviceCategory.trim() || profile.serviceCategories[0] || "サービス";
+  const category = serviceInsight.categoryHypothesis || formState.targetCategory.trim() || profile.serviceCategories[0] || "サービス";
   const context = serviceInsight.primaryUseCases.length > 0 ? ` 主な確認場面: ${serviceInsight.primaryUseCases.slice(0, 3).join("、")}。` : "";
 
   if (formState.audienceType === "b2c") {
@@ -2567,102 +2735,135 @@ function buildNaturalTargetCustomers(formState: WizardState) {
   return `BtoB / ${category}。主な検討者: ${personaText}。${context}`;
 }
 
-function buildSeedInput(formState: WizardState): ProjectSetupSeedInput {
+function buildAnalysisTargetFormInput(formState: WizardState): AnalysisTargetFormInput {
   return {
-    companyName: formState.brandName.trim(),
-    brandName: formState.brandName.trim(),
-    officialSiteUrl: normalizeTargetUrlForSeed(formState.officialUrl),
+    targetType: formState.targetType,
+    targetName: formState.targetName,
+    targetAliases: formState.targetAliases,
+    officialUrl: formState.officialUrl,
+    mainBusiness: formState.mainBusiness,
+    organizationName: formState.organizationName,
+    productScope: formState.productScope,
+    deliveryFormat: formState.deliveryFormat,
+    storeLocation: formState.storeLocation
+  };
+}
+
+function buildTargetIdentificationSummaryItems(target: AnalysisTargetDraft | null) {
+  if (!target) return [];
+  if (target.targetType === "company") return [{ label: "主な事業", value: target.mainBusiness }];
+  if (target.targetType === "brand") return [{ label: "運営会社", value: target.operatorName }];
+  if (target.targetType === "product") {
+    return [
+      { label: "ブランド・メーカー", value: target.organizationName },
+      { label: "対象範囲", value: target.productScope === "single_product" ? "単一商品" : "商品シリーズ" }
+    ];
+  }
+  if (target.targetType === "service") {
+    return [
+      { label: "提供会社・ブランド", value: target.organizationName },
+      { label: "提供形式", value: target.deliveryFormat }
+    ];
+  }
+  return [
+    { label: "店舗所在地", value: target.location },
+    { label: "所属チェーン・ブランド", value: target.organizationName || "独立店舗 / 未入力" }
+  ];
+}
+
+function buildSeedInput(formState: WizardState): ProjectSetupSeedInput {
+  const target = buildAnalysisTargetDraft(buildAnalysisTargetFormInput(formState));
+  const legacyTarget = target
+    ? toLegacyProjectSetupTargetSeed(target)
+    : {
+        companyName: formState.targetName.trim(),
+        brandName: formState.targetName.trim(),
+        serviceName: formState.targetName.trim(),
+        brandAliases: formState.targetAliases,
+        officialSiteUrl: normalizeTargetUrlForSeed(formState.officialUrl),
+        identificationContext: ""
+      };
+
+  return {
+    companyName: legacyTarget.companyName,
+    brandName: legacyTarget.brandName,
+    officialSiteUrl: legacyTarget.officialSiteUrl,
     productOrServiceDescription: [
-      formState.serviceDescription.trim(),
+      legacyTarget.identificationContext,
+      formState.targetDescription.trim(),
       formState.watchTopics.length ? `見たいこと: ${formState.watchTopics.join("、")}` : "",
       formatReportGoalLabels(formState).length ? `今回知りたいこと: ${formatReportGoalLabels(formState).join("、")}` : ""
     ]
       .filter(Boolean)
       .join("\n"),
-    industryCategory: formState.serviceCategory.trim(),
+    industryCategory: formState.targetCategory.trim(),
     targetCustomers: buildNaturalTargetCustomers(formState),
     regions: formState.regions,
     language: formState.language,
-    serviceName: formState.brandName.trim() || undefined,
-    brandAliases: formState.brandAliases,
-    knownCompetitors: formState.competitorMode === "known_competitors_confirmed" ? formState.competitors : [],
+    serviceName: legacyTarget.serviceName || undefined,
+    brandAliases: legacyTarget.brandAliases,
+    knownCompetitors: [],
     strengths: [],
     knownRisks: [],
     diagnosisGoals: mapReportGoalsToPromptIntents(formState.reportGoals)
   };
 }
 
-function buildConfirmationSections(formState: WizardState, draftPreview: CustomerFacingDraftPreview | null) {
+function buildConfirmationSections(formState: WizardState) {
+  const target = buildAnalysisTargetDraft(buildAnalysisTargetFormInput(formState));
+  const contract = formState.targetType ? getAnalysisTargetUiContract(formState.targetType) : null;
   return [
     {
-      title: "ブランド確認",
+      title: "分析対象",
+      stepIndex: 0,
       items: [
-        { label: "ブランド名", value: formState.brandName || "未入力" },
-        { label: "公式URL", value: formState.officialUrl || "未入力" },
-        { label: "別名", value: formState.brandAliases.length ? formatList(formState.brandAliases) : "別名なし" }
+        { label: "対象種別", value: getAnalysisTargetLabel(formState.targetType) },
+        { label: contract?.nameLabel ?? "分析対象名", value: formState.targetName || "未入力" },
+        { label: contract?.urlLabel ?? "公式URL", value: formState.officialUrl || "未入力" },
+        { label: contract?.aliasesLabel ?? "別名・表記ゆれ", value: formState.targetAliases.length ? formatList(formState.targetAliases) : "別名なし" },
+        ...buildTargetIdentificationSummaryItems(target)
       ]
     },
     {
-      title: "サービス理解",
+      title: "計測設定",
+      stepIndex: 1,
       items: [
-        { label: "サービス概要", value: formState.serviceDescription || "未入力" },
-        { label: "サービスカテゴリ", value: formatList(draftPreview?.serviceCategories ?? [formState.serviceCategory].filter(Boolean)) }
-      ]
-    },
-    {
-      title: "市場と言語",
-      items: [
+        { label: "分析対象の概要", value: formState.targetDescription || "未入力" },
+        { label: "カテゴリ", value: formState.targetCategory || "未入力" },
+        { label: "顧客タイプ", value: formatAudienceType(formState.audienceType) },
         { label: "地域", value: formatList(formState.regions) },
         { label: "言語", value: formatLanguage(formState.language) },
-        { label: "提供形態", value: formatAudienceType(formState.audienceType) }
+        { label: "AIモデル", value: formatAiModelLabels(formState.aiModels) }
       ]
     },
     {
-      title: "主に見たい相手",
-      items: [{ label: "確認対象", value: formatPersonaFrames(draftPreview?.audiencePersonas, formState.audienceTargets) }]
-    },
-    {
-      title: "競合",
+      title: "確認したいこと",
+      stepIndex: 2,
       items: [
-        {
-          label: "競合の扱い",
-          value:
-            formState.competitorMode === "competitor_discovery_needed"
-              ? "Recoraで候補抽出"
-              : formatList(formState.competitors)
-        }
-      ]
-    },
-    {
-      title: "見たいこと",
-      items: [
-        { label: "重点論点", value: formatList(formState.watchTopics) },
-        { label: "生成された質問領域", value: formatList((draftPreview?.questionAreas ?? formState.watchTopics).map(compactQuestionAreaLabel)) },
-        { label: "レポート目的", value: formatList(formatReportGoalLabels(formState)) }
+        { label: "確認項目", value: formatList(formState.watchTopics) },
+        { label: "その他", value: formState.reportGoalInput.trim() || "なし" }
       ]
     }
   ];
 }
 
-function SummaryStat({ label, value }: { label: string; value: string }) {
-  return (
-    <section className="min-w-0 rounded-xl border border-[#E1E8E5] bg-[#F8FBFA] p-3">
-      <div className="text-xs font-bold uppercase tracking-normal text-[#64736C]">{label}</div>
-      <div className="mt-1 break-words text-sm font-bold leading-5 text-[#0B1F17]">{value}</div>
-    </section>
-  );
-}
-
 function ConfirmationSection({
   title,
-  items
+  items,
+  onEdit
 }: {
   title: string;
   items: { label: string; value: string }[];
+  onEdit: () => void;
 }) {
   return (
     <section className="min-w-0 rounded-xl border border-[#E1E8E5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <h3 className="text-sm font-bold text-[#0B1F17]">{title}</h3>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-bold text-[#0B1F17]">{title}</h3>
+        <button type="button" onClick={onEdit} className="text-xs font-bold text-[#075E44] hover:underline">
+          編集
+        </button>
+      </div>
       <dl className="mt-3 space-y-3">
         {items.map((item) => (
           <div key={item.label} className="min-w-0">
@@ -2675,27 +2876,34 @@ function ConfirmationSection({
   );
 }
 
-function PromptSummaryList({ prompts }: { prompts: EditablePrompt[] }) {
-  const visiblePrompts = prompts.filter((prompt) => prompt.text.trim());
-  const generatedPrompts = visiblePrompts.filter((prompt) => !isCustomPrompt(prompt));
-  const customPrompts = visiblePrompts.filter(isCustomPrompt);
+function PromptSummaryList({ prompts, onEdit }: { prompts: EditablePrompt[]; onEdit: () => void }) {
+  const allPrompts = prompts.filter((prompt) => prompt.text.trim());
+  const orderedPrompts = [
+    ...allPrompts.filter(isCustomPrompt),
+    ...allPrompts.filter((prompt) => !isCustomPrompt(prompt))
+  ];
+  const visiblePrompts = orderedPrompts.slice(0, 3);
 
   return (
-    <section className="rounded-xl border border-[#DDE8E5] bg-[#FBFDFC] p-4 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className="min-w-0 rounded-xl border border-[#E1E8E5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-bold text-[#0B1F17]">プロンプト例のまとめ</h3>
-          <p className="mt-1 text-xs leading-5 text-[#64736C]">生成された質問と追加した質問を分けて確認します。</p>
+          <h3 className="text-sm font-bold text-[#0B1F17]">質問</h3>
+          <p className="mt-1 text-xs leading-5 text-[#64736C]">{allPrompts.length}件</p>
         </div>
-        <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#64736C] ring-1 ring-[#DDE8E5]">
-          {visiblePrompts.length}件
-        </span>
+        <button type="button" onClick={onEdit} className="text-xs font-bold text-[#075E44] hover:underline">
+          すべて確認
+        </button>
       </div>
       {visiblePrompts.length > 0 ? (
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <PromptSummaryGroup title="生成された質問" prompts={generatedPrompts} startIndex={0} limit={5} />
-          <PromptSummaryGroup title="追加した質問" prompts={customPrompts} startIndex={generatedPrompts.length} limit={3} emptyText="追加した質問はありません。" />
-        </div>
+        <ol className="mt-3 space-y-2">
+          {visiblePrompts.map((prompt, index) => (
+            <li key={prompt.id} className="flex gap-2 rounded-lg bg-[#F8FBFA] px-3 py-2 text-sm leading-6 text-[#0B1F17]">
+              <span className="shrink-0 font-bold text-[#075E44]">{index + 1}.</span>
+              <span className="min-w-0 break-words">{prompt.text}</span>
+            </li>
+          ))}
+        </ol>
       ) : (
         <p className="mt-3 text-sm leading-6 text-[#64736C]">未入力</p>
       )}
@@ -2703,85 +2911,25 @@ function PromptSummaryList({ prompts }: { prompts: EditablePrompt[] }) {
   );
 }
 
-function PromptSummaryGroup({
-  title,
-  prompts,
-  startIndex,
-  limit,
-  emptyText
-}: {
-  title: string;
-  prompts: EditablePrompt[];
-  startIndex: number;
-  limit: number;
-  emptyText?: string;
-}) {
-  const visiblePrompts = prompts.slice(0, limit);
-  const remainingCount = Math.max(prompts.length - visiblePrompts.length, 0);
-
-  return (
-    <div className="min-w-0 rounded-xl border border-[#E8EFEC] bg-white p-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h4 className="text-xs font-bold text-[#506158]">{title}</h4>
-        <span className="text-xs font-semibold text-[#7A8982]">{prompts.length}件</span>
-      </div>
-      {visiblePrompts.length > 0 ? (
-        <ol className="space-y-2">
-          {visiblePrompts.map((prompt, index) => (
-            <li key={prompt.id + '-' + index} className="rounded-lg bg-[#F8FBFA] p-3 ring-1 ring-[#E1E8E5]">
-              <div className="mb-1 flex items-center gap-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#075E44] text-[11px] font-bold text-white">
-                  {startIndex + index + 1}
-                </span>
-                <span className="text-xs font-semibold text-[#64736C]">{getPromptGroupLabel(prompt.group)}</span>
-              </div>
-              <p className="break-words text-sm leading-6 text-[#0B1F17]">{prompt.text}</p>
-            </li>
-          ))}
-          {remainingCount > 0 ? (
-            <li className="px-1 text-xs font-semibold text-[#64736C]">他{remainingCount}件</li>
-          ) : null}
-        </ol>
-      ) : (
-        <p className="text-sm leading-6 text-[#64736C]">{emptyText ?? "未入力"}</p>
-      )}
-    </div>
-  );
-}
-
 function isCustomPrompt(prompt: EditablePrompt) {
   return prompt.id.startsWith("custom-") || prompt.id.startsWith("prompt-custom-");
-}
-
-function getPromptGroupLabel(group: PromptGroup) {
-  return formatPromptGroup(group);
 }
 
 function getStepBlockers(stepIndex: number, formState: WizardState) {
   const blockers: string[] = [];
   if (stepIndex === 0) {
-    if (!formState.brandName.trim()) blockers.push("正式なブランド名 / サービス名を入力してください。");
-    if (!formState.officialUrl.trim()) blockers.push("公式URLを入力してください。");
-    const normalizedUrl = normalizeTargetUrlForSeed(formState.officialUrl);
-    if (normalizedUrl && !isLikelyHttpUrl(normalizedUrl)) blockers.push("公式URLはURLとして扱える形式で入力してください。");
+    blockers.push(...validateAnalysisTargetInput(buildAnalysisTargetFormInput(formState)));
   }
 
   if (stepIndex === 1) {
-    if (!formState.serviceDescription.trim()) blockers.push("どんなサービスかを入力してください。");
-    if (!formState.serviceCategory.trim()) blockers.push("サービスカテゴリを入力してください。");
+    if (!formState.targetDescription.trim()) blockers.push("分析対象の概要を入力してください。");
+    if (!formState.targetCategory.trim()) blockers.push("カテゴリを入力してください。");
     if (formState.regions.length === 0) blockers.push("対象市場・地域を1件以上入力してください。");
-    if (formState.audienceTargets.length === 0) blockers.push("ペルソナを1件以上入力してください。");
-    if (formState.competitorMode === "known_competitors_confirmed" && formState.competitors.length === 0) {
-      blockers.push("競合を入力する場合は、競合を1件以上入力してください。");
-    }
+    if (formState.aiModels.length === 0) blockers.push("対象AIモデルを1件以上選んでください。");
   }
 
   if (stepIndex === 2) {
-    if (formState.watchTopics.length === 0) blockers.push("特に見たいことを1件以上選んでください。");
-    if (formState.reportGoals.length === 0) blockers.push("今回知りたいことを1件以上選んでください。");
-    if (formState.reportGoals.includes("other") && !formState.reportGoalInput.trim()) {
-      blockers.push("その他の内容を入力してください。");
-    }
+    if (formState.watchTopics.length === 0) blockers.push("確認したいことを1件以上選んでください。");
   }
 
   return blockers;
@@ -2793,25 +2941,26 @@ function buildSuggestedServiceDescriptionForStep(state: WizardState, inspection:
   const metadataDescription = inspection ? [inspection.description, inspection.h1, inspection.title].find((value) => value?.trim()) : null;
   if (metadataDescription) return metadataDescription.trim();
 
-  const brandName = state.brandName.trim() || "対象サービス";
+  const targetName = state.targetName.trim() || "分析対象";
+  const targetTypeLabel = getAnalysisTargetLabel(state.targetType);
   const hostname = extractHostname(normalizeTargetUrlForSeed(state.officialUrl));
   return hostname
-    ? `${brandName}（${hostname}）のサービス内容をもとに、AI検索での見え方を確認するための測定対象です。`
-    : `${brandName}のサービス内容をもとに、AI検索での見え方を確認するための測定対象です。`;
+    ? `${targetTypeLabel}「${targetName}」（${hostname}）の内容をもとに、AI検索での見え方を確認する対象です。`
+    : `${targetTypeLabel}「${targetName}」の内容をもとに、AI検索での見え方を確認する対象です。`;
 }
 
 function buildSuggestedServiceCategoryForStep(
   state: WizardState,
   inspection: SiteInspectionResult | null,
-  serviceDescription: string
+  targetDescription: string
 ) {
   const inspectedCategory = inspection?.suggestedCategory?.trim();
   if (inspectedCategory && inspectedCategory !== "その他") return inspectedCategory;
-  return inferInterimCategory(state, inspection, serviceDescription);
+  return inferInterimCategory(state, inspection, targetDescription);
 }
 
-function inferAudienceTargetsForStep(state: WizardState, serviceCategory: string) {
-  const nextState = { ...state, serviceCategory };
+function inferAudienceTargetsForStep(state: WizardState, targetCategory: string) {
+  const nextState = { ...state, targetCategory };
   const profile = deriveOnboardingSuggestionProfile(nextState);
   const serviceInsight = buildOnboardingServiceInsight(nextState);
   return uniqueStrings([...proposePersonaLabelsFromServiceInsight(serviceInsight, profile), ...profile.audienceTargets]).slice(0, 3);
@@ -2820,14 +2969,14 @@ function inferAudienceTargetsForStep(state: WizardState, serviceCategory: string
 function inferInterimCategory(
   formState: WizardState,
   inspection: SiteInspectionResult | null = null,
-  serviceDescription = formState.serviceDescription
+  targetDescription = formState.targetDescription
 ) {
   const text = normalizeText(
     [
-      formState.brandName,
-      formState.brandAliases.join(" "),
+      formState.targetName,
+      formState.targetAliases.join(" "),
       formState.officialUrl,
-      serviceDescription,
+      targetDescription,
       inspection?.title,
       inspection?.description,
       inspection?.siteName,
@@ -2856,13 +3005,20 @@ function inferInterimCategory(
   return "その他";
 }
 
-function deriveOnboardingSuggestionProfile(state: Pick<WizardState, "brandName" | "brandAliases" | "officialUrl" | "serviceDescription" | "serviceCategory" | "audienceType" | "audienceTargets">): OnboardingSuggestionProfile {
+function deriveOnboardingSuggestionProfile(
+  state: Pick<
+    WizardState,
+    "targetType" | "targetName" | "targetAliases" | "officialUrl" | "targetDescription" | "targetCategory" | "audienceType" | "audienceTargets"
+  >
+): OnboardingSuggestionProfile {
   const text = normalizeText(
-    [state.brandName, state.brandAliases.join(" "), state.serviceDescription, state.serviceCategory, state.audienceType]
+    [state.targetType ?? "", state.targetName, state.targetAliases.join(" "), state.targetDescription, state.targetCategory, state.audienceType]
       .filter(Boolean)
       .join(" ")
   );
 
+  if (state.targetType === "store") return suggestionProfiles.localService;
+  if (state.targetType === "product" && matchesEcommerceText(text)) return suggestionProfiles.ecommerceProduct;
   if (matchesAnyText(text, ["英会話", "スクール", "教育", "学校", "講座", "school", "lesson", "english"])) return suggestionProfiles.b2cSchoolEducation;
   if (matchesAnyText(text, ["クリニック", "医療", "美容", "病院", "clinic", "medical"])) return suggestionProfiles.healthcareClinic;
   if (matchesAnyText(text, ["地域", "店舗", "予約", "来店", "local", "エリア", "近く"])) return suggestionProfiles.localService;
@@ -2926,24 +3082,16 @@ function classifyGeneratedPrompt(prompt: PromptDraft, eligibility: PromptMetricE
 
 function classifyPromptText(text: string, formState: WizardState): PromptGroup {
   const normalized = normalizeText(text);
-  const brandSignals = [formState.brandName, ...formState.brandAliases].map(normalizeText).filter(Boolean);
+  const brandSignals = [formState.targetName, ...formState.targetAliases].map(normalizeText).filter(Boolean);
   if (brandSignals.some((signal) => normalized.includes(signal))) return "brand";
   if (normalized.includes("引用") || normalized.includes("根拠") || normalized.includes("参照")) return "citation";
   if (normalized.includes("候補") || normalized.includes("比較") || normalized.includes("おすすめ")) return "candidate";
   return "review";
 }
 
-function formatPromptGroup(group: PromptGroup) {
-  if (group === "candidate") return "候補・比較";
-  if (group === "brand") return "ブランド確認";
-  if (group === "citation") return "引用状況";
-  return "確認用";
-}
-
 function mapReportGoalsToPromptIntents(goals: readonly ReportGoal[]): PromptIntent[] {
   const mapped = goals.flatMap((goal): PromptIntent[] => {
     if (goal === "visibility") return ["non_branded"];
-    if (goal === "competitor") return ["comparison", "buyer_intent"];
     if (goal === "citation") return ["citation_check"];
     if (goal === "brand") return ["branded", "brand_perception", "sentiment"];
     if (goal === "improvement") return ["problem_aware", "solution_aware"];
@@ -2962,27 +3110,35 @@ function formatLanguage(value: "ja" | "en") {
   return value === "ja" ? "日本語" : "英語";
 }
 
+function formatAiModelLabels(values: readonly AiModel[]) {
+  return formatList(
+    values.map((value) => aiModelOptions.find((option) => option.value === value)?.label ?? value)
+  );
+}
+
 function formatReportGoalLabels(formState: WizardState) {
   const options = deriveOnboardingSuggestionProfile(formState).reportGoalOptions;
-  return formState.reportGoals.map((goal) => {
-    if (goal === "other") return formState.reportGoalInput.trim() || "その他";
+  const labels = formState.reportGoals.map((goal) => {
+    if (goal === "other") return "";
     return options.find((option) => option.value === goal)?.label ?? defaultReportGoalOptions.find((option) => option.value === goal)?.label ?? goal;
   });
+  if (formState.reportGoalInput.trim()) labels.push(formState.reportGoalInput.trim());
+  return uniqueStrings(labels);
 }
 
 function translateSeedBlocker(value: string) {
   const map: Record<string, string> = {
-    "seedInput.companyName is required": "ブランド名を確認してください。",
-    "seedInput.brandName is required": "ブランド名を確認してください。",
-    "seedInput.officialSiteUrl is required": "公式URLを確認してください。",
-    "seedInput.productOrServiceDescription is required": "サービス説明を確認してください。",
-    "seedInput.industryCategory is required": "サービスカテゴリを確認してください。",
-    "seedInput.targetCustomers is required": "ペルソナを確認してください。",
+    "seedInput.companyName is required": "分析対象名を確認してください。",
+    "seedInput.brandName is required": "分析対象名を確認してください。",
+    "seedInput.officialSiteUrl is required": "分析対象のURLを確認してください。",
+    "seedInput.productOrServiceDescription is required": "分析対象の概要を確認してください。",
+    "seedInput.industryCategory is required": "カテゴリを確認してください。",
+    "seedInput.targetCustomers is required": "対象顧客の設定を確認してください。",
     "seedInput.regions must include at least one region": "対象市場・地域を確認してください。",
     "seedInput.language is required": "言語を確認してください。",
-    "seedInput.officialSiteUrl must be an http or https URL": "公式URLの形式を確認してください。"
+    "seedInput.officialSiteUrl must be an http or https URL": "分析対象のURL形式を確認してください。"
   };
-  return map[value] ?? "Recora側で確認が必要な項目があります。";
+  return map[value] ?? (value.endsWith("。") ? value : "Recora側で確認が必要な項目があります。");
 }
 
 function addUnique(values: readonly string[], value: string) {
@@ -3019,21 +3175,15 @@ function formatList(values: readonly string[], emptyText = "未入力") {
   return values.length ? values.join("、") : emptyText;
 }
 
-function formatPersonaFrames(personas: readonly CustomerPersona[] | undefined, fallbackLabels: readonly string[]) {
-  if (personas && personas.length > 0) {
-    return personas.map((persona) => persona.label).join("、");
-  }
-  return formatList(fallbackLabels);
-}
-
 function normalizeText(value: string) {
   return value.normalize("NFKC").trim().toLowerCase();
 }
 
 function stableStep1SourceKey(formState: WizardState) {
   return JSON.stringify({
-    brandName: normalizeText(formState.brandName),
-    brandAliases: formState.brandAliases.map(normalizeText),
+    targetType: formState.targetType,
+    targetName: normalizeText(formState.targetName),
+    targetAliases: formState.targetAliases.map(normalizeText),
     officialUrl: normalizeTargetUrlForSeed(formState.officialUrl)
   });
 }
