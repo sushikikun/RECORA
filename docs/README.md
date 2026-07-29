@@ -1,31 +1,49 @@
 # Recora Documentation Map
 
-このディレクトリには、現在の正式方針、実装設計、Phase別runbook、開発手順が混在している。文書間で内容が異なる場合は、次の優先順位で判断する。
+このディレクトリには、開発ライフサイクル、製品・運用アーキテクチャ、実装設計、Phase別runbook、ローカル作業手順が含まれる。
 
-## 優先順位
+正本は競合する一つの順位ではなく、対象領域ごとに分ける。判断を記録するときは、該当領域の正本を更新する。
 
-1. ユーザーが直近に明示した決定
-2. `docs/recora-post-launch-operations-architecture.md`
-3. 現在の製品・測定・データモデルに対応する正式設計資料
-4. `docs/recora-dev-workflow.md`などの開発・安全運用手順
-5. Phase別runbook、過去のhandoff、検証用メモ
+## 対象領域別の正本
 
-## ローンチ後運用構造の正本
+| 文書 | 担当領域 |
+|---|---|
+| [`recora-agentic-sdlc.md`](./recora-agentic-sdlc.md) | **開発ライフサイクルとAIエージェント運用の正本**。Risk、Spec level、Execution lane、Ready、承認ゲート、タスク状態、Git・外部作用の境界を定義する |
+| [`exec-plans/README.md`](./exec-plans/README.md) | **Exec Plan運用の正本**。適用基準、Issueとの役割分担、命名、active / completedの移動、更新責任を定義する |
+| [`recora-post-launch-operations-architecture.md`](./recora-post-launch-operations-architecture.md) | **顧客公開、測定、運用制御、DB境界の参照資料**。対象Issueと最新OWNER決定で未承認の商品・運用判断は自動継承しない |
+| [`recora-data-tenant-security-privacy.md`](./recora-data-tenant-security-privacy.md) | **Issue #102工程3のデータ・tenant security・privacy実装契約**。tenant ownership、entitlement基盤、顧客/管理者境界、外部AI payload検査基盤、retention/deletion状態、security testを定義する |
+| [`recora-dev-workflow.md`](./recora-dev-workflow.md) | **ローカルで実際に実行する具体コマンドと安全手順**。New Worktreeの開始確認、検証、DB・measurement・commit・push・Vercelの手順を定義する |
+| [`.agents/skills/RECORA-SKILL-STACK.md`](../.agents/skills/RECORA-SKILL-STACK.md) | **Recora専門Skillの役割分担**。親Skill、専門Skill、品質ゲート、実装アーキテクトの責務を定義する |
 
-- [`recora-post-launch-operations-architecture.md`](./recora-post-launch-operations-architecture.md)
+これらは互いを無条件に上書きする文書ではない。現在のIssueで確定した原則と最新OWNER決定が最優先であり、既存のアーキテクチャ文書、PR、未merge branchは、その決定と一致する範囲の参考資料として扱う。
 
-この文書は、次の正式方針を定義する。
+PR #71は、未mergeのコード実装、デザイン値、モック値を再設計・修正可能な参考資料として扱う。一方、OWNERが採用した10の主要顧客画面と主要詳細画面の情報構成は正式な製品基準であり、Phase 3はこれを削除・変更せず安全なtenant / RLS / grant / classification境界を定義し、実際の画面実装とデータ接続はPhase 8が所有する。
 
-- 顧客向け画面と管理者向け画面
-- 運用制御層、測定・証跡層、公開レポート層
-- `api / publication / measurement / control / audit`の論理分離
-- 公開レポートの版管理と現在公開版ポインタ
-- `ready`と`published`の分離
-- 四段階品質ゲート
-- Queue、retry、idempotency
-- provider非依存の測定モデル
-- 監査ログ、権限、公開安全性
-- 既存Phase 1構造からの段階移行
+同じ対象領域について内容が異なる場合は、次の順で扱う。
+
+1. ユーザーが現在のIssueまたはOWNER承認記録で明示した最新の決定
+2. 対象領域の正本
+3. 現在の製品・データモデルに対応する正式設計資料
+4. Phase別runbook
+5. 過去のhandoff、検証用メモ
+
+会話で恒久的な判断が確定した場合は、該当するIssueまたは正本文書へ反映する。ChatGPT / Codex会話だけを正本にしない。
+
+## Exec Plan
+
+- [Exec Plan運用](./exec-plans/README.md)
+- [再利用可能なExec Planテンプレート](./exec-plans/templates/exec-plan-template.md)
+- [進行中のplan](./exec-plans/active/README.md)
+- [完了・中止・置換済みplan](./exec-plans/completed/README.md)
+
+Issueはタスク契約と承認の正本、Exec Planは複数段階の実行計画と実績の正本として相互リンクする。適用基準と更新責任はExec Plan運用を参照する。
+
+## 開発レビューの提出・CI契約
+
+- [PRテンプレート](../.github/pull_request_template.md): Issue、分類、scope、検証証跡、未実施事項、影響範囲、残存リスクをHuman reviewへ渡す標準形式
+- [Recora CI](../.github/workflows/ci.yml): PRと`master` pushでpreflight、lint、buildを実行し、PRではbase / head差分のwhitespace integrityも確認する
+
+PRとCIは検証可能な証跡を揃えるための仕組みであり、Human approvalやmerge、deploy、production操作の承認を代替しない。開発ライフサイクルと承認境界は[`recora-agentic-sdlc.md`](./recora-agentic-sdlc.md)、具体的な作業手順は[`recora-dev-workflow.md`](./recora-dev-workflow.md)を正本とする。branch protectionの実設定は別Issue・別承認で扱う。
 
 ## Phase 1資料の扱い
 
@@ -40,6 +58,11 @@ Phase 1資料と正式アーキテクチャが矛盾する場合は、既存処�
 
 ## 変更時のルール
 
+- 開発方式またはAIエージェント運用を変更する場合は`recora-agentic-sdlc.md`を更新する
+- Exec Planの適用基準、テンプレート、保存先、更新責任を変更する場合は`exec-plans/README.md`と関連文書を更新する
+- 顧客公開、測定、運用制御、DB境界の変更は対象Issueと最新OWNER決定を先に確認し、承認scopeに含まれる場合だけ関連文書を更新する
+- ローカルの具体コマンドや安全手順を変更する場合は`recora-dev-workflow.md`を更新する
+- Recora専門Skillの責務を変更する場合は、製品コード変更と分けてSkill Stackを更新する
 - 新しいアーキテクチャ判断を過去のhandoffだけに追加しない
 - 正式方針を変更する場合は正本文書も更新する
 - Phase限定の例外には対象Phaseと終了条件を明記する

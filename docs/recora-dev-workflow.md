@@ -1,12 +1,14 @@
 ﻿# Recora 開発ワークフロー
 
-最終更新: 2026-06-22
+最終更新: 2026-07-28
 
-このドキュメントは、Recora 開発で迷わないための標準運用手順です。Codex 作業、DB 作業、本番計測、dashboard / read model 修正、commit / push 前確認、Vercel deploy 確認で使います。
+このドキュメントは、Recora Agentic SDLC v2をローカルで実行するための標準運用手順です。開発ライフサイクルと承認境界は`docs/recora-agentic-sdlc.md`、ここではCodex作業、DB作業、本番計測、dashboard / read model修正、commit / push前確認、Vercel deploy確認の具体手順を扱います。
 
 ## 1. Recora 開発の基本ルール
 
-- 作業ディレクトリは原則 `C:\Users\nakan\work\recora` に固定する。
+- 正式repoは `C:\Users\nakan\work\recora-main` とする。Local Codexは、そこから作られたCodex管理Worktree内で作業してよい。
+- 新規作業はChatGPT project `recora-main`、start mode `New Worktree`、environment `recora-main-local`、base branch `master`から開始する。
+- Risk、Execution、Spec level、Ready、承認ゲートは`docs/recora-agentic-sdlc.md`に従う。
 - `git add .` と無条件の `git add -A` は禁止。stage する場合は明示的なファイル指定、または `npm run recora:safe-commit -- --message "..."` を使う。
 - `.env`, `.env.local`, `.env.*`, private key, API key, backup env file は表示しない、貼らない、commit しない。
 - env は「存在する / しない」だけ確認する。値はログ、スクリーンショット、ChatGPT/Codex への貼り付けに含めない。
@@ -18,38 +20,66 @@
 
 ## 2. 作業開始時の手順
 
-PowerShell で `C:\Users\nakan\work\recora` に移動してから実行する。
+Local Codexは、人間に状態出力の全文転送を要求せず、Issueとrepoを読んで開始チェックを自ら実行・報告する。
+
+作業開始前にIssue本文、OWNERによる開始判定、指定された正本文書を読み、次を確認する。
+
+- Issue番号と一つの目的
+- Risk / Execution / Spec level / Approval / Ready状態
+- 許可範囲、禁止範囲、停止条件
+- 受け入れ条件、指定検証、Human reviewへ渡す内容
+- 依存Issue、blocker、既存差分の所有者
+
+続いて、対象Worktree内で次を実行する。
 
 ```powershell
+git fetch origin
 npm run recora:whereami
-npm run recora:human-check
+git rev-parse --show-toplevel
+git rev-parse --path-format=absolute --git-common-dir
+git branch --show-current
+git rev-parse --short HEAD
+git rev-parse --short origin/master
+git status --short
 npm run recora:before-codex
 ```
 
-`recora:whereami` では、current directory、repo root、branch、latest commit、Node/npm、`.env.local` の存在を確認する。
+Local Codexは、repo root、`git-common-dir`、current branchまたはdetached `HEAD`、短い`HEAD`、短い`origin/master`、dirty stateを報告する。
 
-`recora:human-check` は ChatGPT/Codex に貼るための作業状態スナップショット。secret 値は出さず、状態だけをまとめる。
+`git-common-dir`がOneDriveを指す場合は編集せず停止する。Codex管理Worktreeがdetached `HEAD`で開始した場合は、`HEAD == origin/master`かつworking treeがcleanなときだけtask branchを作る。detached `HEAD`が`origin/master`と異なる場合、`master`が`origin/master`より古い場合、既存差分の所有者や扱いが不明な場合は編集しない。
 
-`recora:before-codex` は Codex 投入前の安全確認。未コミット差分、重要領域、lock file、`git diff --check` を確認する。
-
-## 3. Codex 投入前の手順
-
-Codex に作業させる前に、最低限以下の出力を貼る。
+`npm run recora:human-check`は、必要時に人間が安全な状態スナップショットを取得するため残す。
 
 ```powershell
 npm run recora:human-check
-npm run recora:before-codex
 ```
 
-依頼文には必ず以下を書く。
+`human-check`の全文を毎回ChatGPT / Codexへ貼ることは標準義務にしない。共有が必要な場合もsecret値を含めず、状態だけを扱う。
 
-- 編集してよいファイル / ディレクトリ。
-- 編集してはいけないファイル / ディレクトリ。
-- DB、migration、`.agents/skills`、本番計測が対象に含まれるか。
-- commit を許可するか。未指定なら commit 不可。
-- push を許可するか。未指定でも push 不可。
+## 3. IssueからHuman reviewまでの手順
 
-既存の未コミット差分がある場合は、それが人間の作業か、Codex が触ってよいかを明記する。混ぜたくない場合は、先に commit / stash / 別ブランチ化する。
+1. Issueで目的、Risk、Execution、Spec level、Approval、受け入れ条件、許可・禁止範囲、停止条件を整理し、`Ready`を記録する。
+2. ChatGPT project `recora-main`からNew Worktreeを作り、environment `recora-main-local`、base `master`を選ぶ。
+3. Local CodexがAGENTS.md、Issue、指定文書を読み、開始チェックを実行・報告する。
+4. 複数ファイル、DB、deployment、長時間作業では`/plan`を先に使い、実装範囲と検証を固定する。
+5. R2は計画のHuman承認前に実装しない。計画承認後も、実装またはwrite-capable executionへ進む前に別の明示承認を得る。
+6. R3は調査、計画、read-only確認、明示承認済みdry-runを超えない。productionまたはprivileged operationは対象ごとに個別承認を得る。
+7. 開始ゲート通過後にtask branchを作り、Issueで許可された範囲だけを変更する。
+8. 指定検証を実行し、`git diff --name-only`と差分内容を確認する。
+9. 受け入れ条件、検証結果、未確認事項、残存リスクを報告し、Approvalで許可されていないcommit、push、PR作成の前でHuman reviewへ渡す。
+
+PR作成が明示承認されている場合は、[`.github/pull_request_template.md`](../.github/pull_request_template.md)を標準handoffとして使い、実行した検証の実結果と証跡、実行しなかった検証と理由を区別して記録する。CI成功は必要条件であり、Human approvalやmerge、deploy、production操作の承認を代替しない。branch protectionの実設定は別Issue・別承認で扱う。
+
+Issueには最低限、次を記録する。
+
+- 編集してよいファイル / ディレクトリ
+- 編集してはいけないファイル / ディレクトリ
+- DB、migration、`.agents/skills`、本番計測、外部API writeが対象に含まれるか
+- commitを許可するか。未指定ならcommit不可
+- pushを許可するか。未指定ならpush不可
+- PR作成を許可するか。未指定ならPR作成不可
+
+既存の未コミット差分がある場合は、それが人間の作業か、Codexが触ってよいかを明記する。混ぜたくない場合は、先にcommit / stash / 別branch化する。
 
 ## 4. 実装後の検証手順
 
