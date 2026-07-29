@@ -221,9 +221,9 @@ Detailed evidence and target decisions are recorded in the authoritative design.
 - [x] Record docs-only lint/build omission reason.
 - [x] Run `npm run recora:commit-check` before commit.
 - [x] Inspect exact changed and staged file lists and staged whitespace check.
-- [ ] Commit only approved documentation files.
-- [ ] Push the task branch and open a Draft PR to `master`.
-- [ ] Transition Project Status to `Human review` and keep Approval `Plan`.
+- [x] Commit only approved documentation files.
+- [x] Push the task branch and open a Draft PR to `master`.
+- [x] Transition Project Status to `Human review` and keep Approval `Plan`.
 - [ ] Post the completion report directly to Issue #102.
 - [ ] Stop without Stage 2, ready PR, merge, deploy, close, or cleanup.
 
