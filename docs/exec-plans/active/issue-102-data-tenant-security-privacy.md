@@ -9,6 +9,8 @@
   [OWNER comment 5117068026](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117068026)
 - Human-review correction:
   [OWNER comment 5117210498](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117210498)
+- Human-review follow-up:
+  [OWNER comment 5117655117](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117655117)
 - Risk: `R3`
 - Execution: `Local Codex`
 - Spec level: `Full`
@@ -16,7 +18,7 @@
 - Priority: `P0`
 - Area: `Infrastructure`
 - Ready: `Stage 1 document revision only`
-- Status: `Stage 1 scope revised; Human review required`
+- Status: `Stage 1 follow-up revised; Human review required`
 - Base: `master` at `4fcd505`
 - Branch: `codex/issue-102-stage1-data-tenant-security-plan`
 - Draft PR: [#103](https://github.com/sushikikun/RECORA/pull/103)
@@ -29,7 +31,8 @@
 2. OWNER comment 5116752218
 3. OWNER comment 5117068026
 4. OWNER Human review 5117210498
-5. confirmed `master` implementation facts
+5. OWNER Human review follow-up 5117655117
+6. confirmed `master` implementation facts
 
 Existing architecture documents, PRs, and unmerged branches are reference material.
 They do not override this order or automatically contribute unapproved product and
@@ -60,8 +63,12 @@ The Stage 1 audit remains accepted. OWNER Human review required correction of it
 - later-phase implementation is separated from Phase 3 child work
 - customer reflection remains `反映 / 保留`
 - mandatory human `approved` is not assumed
-- customer-safe AI answer/detail content from PR #71 remains supported
+- PR #71's entire customer-screen information structure remains supported, including
+  customer-safe AI answer/detail content
 - Phases 4–10 may start in parallel behind interfaces, adapters, fixtures, and mocks
+- Phase 10 is the LP/public-site phase, not a final-integration phase
+- PR #71's unmerged implementation values remain revisable, while its OWNER-adopted
+  customer-screen information structure is a formal product criterion
 
 The current revision changes only the three OWNER-approved documents. It does not alter
 the accepted audit evidence or product/database state.
@@ -71,7 +78,7 @@ the accepted audit evidence or product/database state.
 Required task sources:
 
 - Issue #102
-- OWNER comments 5116752218, 5117068026, and 5117210498
+- OWNER comments 5116752218, 5117068026, 5117210498, and 5117655117
 - `docs/recora-agentic-sdlc.md`
 - `docs/README.md`
 - `docs/recora-dev-workflow.md`
@@ -81,9 +88,14 @@ Required task sources:
 Reference-only sources:
 
 - `docs/recora-post-launch-operations-architecture.md`
-- PR #71 information structure
+- PR #71 unmerged code implementation, design values, and mock values
 - PR #81 fresh-replay proposal
 - other current or historical audit/design documents and unmerged branches
+
+OWNER-adopted product criterion:
+
+- PR #71 customer-screen information structure: 10 primary screens and their major
+  detail views
 
 Confirmed repository evidence remains based on `master` at `4fcd505`. No `.env` or
 secret was read or displayed. No DB connection, write, migration, reset, provider call,
@@ -114,7 +126,8 @@ or production action was performed.
 - Phase 7 immutable-history and customer-safe `反映 / 保留` classification boundary
 - Phase 8 customer identity/project authorization and safe DTO boundary
 - Phase 9 operator identity/permission/audit command boundary
-- Phase 10 combined fixtures/integration gates
+- Phase 10 public-entry tenant/classification boundary where an LP/public-site flow
+  enters customer context
 
 ### Outside Issue #102 implementation
 
@@ -126,26 +139,30 @@ or production action was performed.
   answer/citation read model, prompt eligibility, and completeness rules
 - Phase 8 customer dashboard real-data connection
 - Phase 9 admin screen
-- Phase 10 work defined by its own parent plan
+- Phase 10 LP/public site: LP, service/feature introductions, pricing, FAQ, contact,
+  legal pages, and service-start entry paths
 
 Those phases use separate Issues, worktrees, branches, and Draft PRs. Their interface,
 adapter, fixture, and mock work may begin before Issue #102 completes. Real integration,
-Ready conversion, and merge stop at the relevant upstream contract gate.
+Ready conversion, and merge stop at the relevant upstream contract gate. Phase 10 may
+build public content in parallel, but real pricing/contract/registration paths depend on
+Phase 4 and alignment with actual customer screens/content depends on Phase 8.
+Cross-phase integration and release verification is a shared gate, not Phase 10 scope.
 
 ### Current Stage 1 revision scope
 
 - `docs/recora-data-tenant-security-privacy.md`
 - `docs/exec-plans/active/issue-102-data-tenant-security-privacy.md`
 - `docs/README.md`
-- exact validation, explicit staging, commit, push, Draft PR #103 update, Project
-  verification, and Issue completion report
+- exact validation, explicit staging, commit, push, Draft PR #103 update, and Project
+  verification or unverified-status report, followed by an Issue completion report
 
 No implementation, schema, RLS, API, Auth, DB write, Stage 2 Execute, ready PR, merge,
 deploy, Issue close, or branch/worktree deletion is authorized.
 
 ## Start gate evidence
 
-- review comment 5117210498 has `author_association = OWNER`
+- review comment 5117655117 is the latest OWNER instruction
 - current worktree:
   `C:/Users/nakan/.codex/worktrees/0492/recora-main`
 - git-common-dir:
@@ -153,7 +170,7 @@ deploy, Issue close, or branch/worktree deletion is authorized.
 - branch:
   `codex/issue-102-stage1-data-tenant-security-plan`
 - revision start:
-  `HEAD == origin/task branch == 628b6b7`
+  `HEAD == origin/task branch == 1b383b4`
 - base:
   `origin/master == 4fcd505`
 - initial revision working tree: clean
@@ -190,13 +207,14 @@ implementation belongs to Phases 4–10.
 
 | OWNER instruction | Revision |
 |---|---|
-| Correct source priority | Issue and three OWNER comments are ordered above `master`; architecture/PR/branch material is reference-only |
+| Correct source priority | Issue and four OWNER comments are ordered above `master`; architecture/PR/branch material is reference-only except the explicitly OWNER-adopted PR #71 information structure |
 | Limit Issue #102 to Phase 3 | direct scope now contains only shared data/security/privacy foundations and tests |
 | Reorganize Stage 2 | split into Phase 3 direct children, downstream dependency contracts, and later-phase Issue candidates |
 | Align `反映 / 保留` | external customer outcome is two-state; detailed internal model belongs to Phase 7 |
 | Do not require human `approved` | no mandatory human approval state is fixed; Phase 7 decides review conditions |
-| Preserve AI-answer display | customer-safe body/excerpt/citations remain allowed; only provider envelopes/internal data are excluded |
+| Preserve PR #71 information structure | all 10 primary customer screens and major detail views remain the product baseline; unmerged code/design/mock values remain revisable; customer-safe answer body/excerpt/citations remain allowed |
 | Apply parallel policy | Phases 4–10 may start separately behind interfaces/mocks; integration gates are explicit |
+| Correct Phase 10 | Phase 10 is LP/public site; Phase 4/8 dependencies are explicit; cross-phase integration/release remains a shared gate |
 | Move non-Phase-3 decisions | queue, retry, prompt eligibility, completeness, publication detail, and aggregation design moved to owning phases |
 
 ## Execution plan and progress
@@ -223,7 +241,7 @@ implementation belongs to Phases 4–10.
 - [x] Move queue, prompt eligibility, completeness, publication, and aggregation details
   to their owning phases.
 
-### Milestone 3 — Revision validation and handoff
+### Milestone 3 — Previous revision validation and handoff
 
 - [x] Run `npm run recora:preflight:full` with existing fnm Node/npm.
 - [x] Run `git diff --check`.
@@ -232,7 +250,21 @@ implementation belongs to Phases 4–10.
 - [x] Inspect exact changed/staged file lists and staged whitespace.
 - [x] Commit and push only the three approved documents.
 - [x] Update PR #103 body while keeping it Draft.
-- [ ] Verify Project `Human review / Approval Plan` (local `gh` token lacks `project` / `read:project`; no Project mutation was made).
+- [x] Record Project `Human review / Approval Plan` as unverified without mutation because the local `gh` token lacks `project` / `read:project`.
+- [x] Post the previous completion directly to Issue #102 in comment 5117486620 and stop.
+
+### Milestone 4 — OWNER follow-up 5117655117
+
+- [x] Re-fetch Issue #102, OWNER comments, PR #103, and clean Git start state.
+- [x] Reclassify Phase 10 as LP/public site and move integration/release to a shared gate.
+- [x] Distinguish PR #71's revisable implementation values from its adopted
+  information structure.
+- [x] Preserve all 10 primary customer-screen areas and major detail views through the
+  Phase 3 tenant/RLS/grant/classification boundary.
+- [x] Run the same required validation and inspect exact changed/staged scope.
+- [ ] Commit and push only the approved documents.
+- [ ] Update PR #103 body and verify it remains Draft.
+- [ ] Leave Project unchanged and report it unverified if token scope remains insufficient.
 - [ ] Post completion directly to Issue #102 and stop.
 
 ## Phase 3 child plan
@@ -264,7 +296,10 @@ Phases 4–10 may start separately before Issue #102 completes. Each records:
 
 No later phase may independently define or change tenant ownership, RLS, operator
 authorization, entitlements/limits, retention/deletion, or external-AI payload policy.
-No branch or worktree mixes multiple phases.
+No branch or worktree mixes multiple phases. Phase 10 owns the LP/public site and may
+start in parallel; real pricing/contract/registration integration waits for Phase 4,
+customer-screen/content alignment waits for Phase 8, and cross-phase integration/release
+verification remains a shared gate.
 
 ## Migration and rollback strategy
 
@@ -320,6 +355,8 @@ phases own their own runtime/UI/integration suites.
 | 2026-07-29 | Customer-safe AI answer body, excerpt, and citations remain allowed; provider envelopes/internal data remain internal. |
 | 2026-07-29 | Phases 4–10 may start in parallel in separate worktrees behind interfaces/mocks, with integration/Ready/merge gates. |
 | 2026-07-29 | Every Phase 3 Stage 2 child retains separate R3 Execute approval. |
+| 2026-07-29 | Phase 10 is LP/public site; cross-phase integration/release is a shared gate, with real Phase 4 and Phase 8 dependencies recorded separately. |
+| 2026-07-29 | PR #71 code/design/mock values remain revisable, while its 10-screen customer information structure and major detail views are an OWNER-adopted product criterion preserved by Phase 3 boundaries and implemented by Phase 8. |
 
 ## Results and residual risk
 
@@ -328,8 +365,9 @@ The revised Stage 1 plan provides:
 - corrected authority order
 - Phase 3-only direct implementation scope
 - downstream interface and parallel-development gates
-- corrected `反映 / 保留` and customer AI-answer boundary
+- corrected `反映 / 保留` and the full PR #71 customer-information boundary
 - dependency-ordered Phase 3 children and later-phase Issue candidates
+- correct Phase 10 LP/public-site ownership and shared cross-phase release gate
 
 Unverified items remain live schema/data/grant/policy drift, JWT/RLS runtime behavior,
 fresh replay after an approved fix, downstream integration, DNS-rebinding runtime

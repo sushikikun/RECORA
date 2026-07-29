@@ -1,6 +1,6 @@
 # Recora data, tenant security, and privacy contract
 
-Status: **Issue #102 Stage 1 revised after OWNER Human review / Human review required**
+Status: **Issue #102 Stage 1 revised after OWNER Human review follow-up / Human review required**
 
 This document defines the Phase 3 common data, tenant-security, and privacy foundation.
 It also defines the interfaces that later phases must consume without assigning their
@@ -14,14 +14,16 @@ For Issue #102, use the following order. A lower source cannot override a higher
 2. [OWNER approval 5116752218](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5116752218)
 3. [OWNER parallel-development policy 5117068026](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117068026)
 4. [OWNER Human review 5117210498](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117210498)
-5. Confirmed implementation facts on `master` at `4fcd505`
+5. [OWNER Human review follow-up 5117655117](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117655117)
+6. Confirmed implementation facts on `master` at `4fcd505`
 
 [`recora-agentic-sdlc.md`](./recora-agentic-sdlc.md) controls lifecycle and approval
 mechanics. Existing architecture documents, PRs, and unmerged branches, including
-[`recora-post-launch-operations-architecture.md`](./recora-post-launch-operations-architecture.md)
-and PR #71, are reference material. Their product or operational decisions are not
-automatically inherited unless they agree with the authority order above. PR #71's
-AI-answer information structure is explicitly preserved by Issue #102.
+[`recora-post-launch-operations-architecture.md`](./recora-post-launch-operations-architecture.md),
+are reference material and do not automatically contribute product or operational
+decisions. PR #71's unmerged code implementation, design values, and mock values are
+also reference material and remain revisable. Its OWNER-adopted customer-screen
+information structure is a formal product criterion that Issue #102 must preserve.
 
 ## 1. Phase 3 scope and parallel development
 
@@ -53,7 +55,13 @@ Auth, database, or external-provider changes.
   read model
 - Phase 8: customer dashboard real-data integration
 - Phase 9: operator/admin screens
-- Phase 10: final integration work defined by its own parent Issue
+- Phase 10: LP and public site, including the LP, service and feature introductions,
+  pricing, FAQ, contact, legal pages, and service-start entry paths
+
+Cross-phase integration and release verification is a shared gate across the owning
+phases; it is not Phase 10. Phase 10 may start in parallel, but real pricing, contract,
+and registration-path integration depends on Phase 4, while alignment with the actual
+customer surface and displayed content depends on Phase 8.
 
 Issue #102 may define the interfaces those phases must respect. It does not implement
 those later-phase features or create them as Issue #102 Stage 2 children.
@@ -80,9 +88,10 @@ integration verification succeeds.
    authorization source.
 5. Customer and operator paths are separate. Customers cannot access another tenant or
    internal provider envelopes, control data, audit data, secrets, or internal errors.
-6. The customer-safe surface may include an AI answer body, excerpt, and citation
-   information that passed the downstream customer-display decision. Issue #102 does
-   not prohibit the AI-answer and AI-answer-detail structure preserved by PR #71.
+6. Phase 3 preserves PR #71's OWNER-adopted customer-screen information structure,
+   including all 10 primary screens and their major detail views. It may expose fields
+   classified as customer-safe, including an AI answer body, excerpt, and citation
+   information, but it does not implement or redesign the screens.
 7. Contract/plan records are separated from resolved entitlements/limits. The latter are
    versioned and snapshotted immutably.
 8. Later contract changes never rewrite the entitlement conditions referenced by a
@@ -298,7 +307,15 @@ Sensitive operator reads and important changes record actor, tenant, target, per
 reason, request/correlation ID, time, and outcome. The exact future staff-role catalog is
 not decided here.
 
-## 7. `反映 / 保留` and customer AI-answer contract
+## 7. `反映 / 保留` and PR #71 customer-information contract
+
+PR #71's OWNER-adopted product baseline preserves 10 primary customer-screen areas and
+their major detail views: overview, brand/competitor, persona/topic, prompt, AI answer,
+citation/source, brand perception, trend, recommendation, and settings. The unmerged
+code, design values, and mock values may be redesigned or corrected, but Phase 3 does
+not remove or redefine this information structure. Phase 3 supplies only the tenant,
+RLS, grant, and customer-safe classification boundary; Phase 8 owns the actual screen
+implementation and data connection.
 
 The confirmed customer-reflection outcomes are:
 
@@ -312,8 +329,9 @@ create a third customer outcome. `approved` is not fixed as a mandatory human-re
 step. Phase 7 decides when human confirmation is required and owns the detailed state
 model and quality conditions.
 
-Phase 3 enforces the data boundary around the decision and customer-safe payload. The
-customer surface may preserve PR #71's AI answer and AI-answer-detail information:
+Phase 3 enforces the data boundary around the decision and customer-safe payload for
+the entire retained PR #71 information structure. Within the AI-answer and
+AI-answer-detail areas, the customer surface may include:
 
 - customer-display answer body
 - customer-display excerpt
@@ -432,8 +450,10 @@ Phase 3 tests:
 10. retention/deletion state, manifest, restore/hold, retry, and audit integrity
 11. payload allowlist/denylist, size, logging, secret/PII/other-tenant negative fixtures
 12. fresh migration replay, seed replay, schema/type drift, and backfill invariants
-13. customer-safe AI-answer fixtures are allowed while provider envelopes, internal
-    metadata/errors, audit details, and other-tenant fields are denied
+13. fixtures for every retained PR #71 customer-screen area accept customer-safe
+    classified fields, including AI-answer body/excerpt/citations, while provider
+    envelopes, internal metadata/errors, audit details, and other-tenant fields are
+    denied
 
 Downstream phases add their own integration tests: Phase 5 setup/design enforcement,
 Phase 6 provider/runtime behavior, Phase 7 analysis and `反映 / 保留`, Phase 8 dashboard,
@@ -508,7 +528,7 @@ not existing Issue numbers.
 | Phase 7 | immutable history reference and customer-safe `反映 / 保留` classification boundary | Phase 7 owns detailed quality/state/read model; stop real integration until 102-3C/3D pass |
 | Phase 8 | customer identity/project authorization and safe DTO boundary | no direct internal/raw table access; wait for Phase 7 read model and 102-3C |
 | Phase 9 | operator identity/permission/audit command boundary | may build UI with fixtures; wait for 102-3E before real admin integration |
-| Phase 10 | combined upstream contract/fixtures | integrate only after required Phase 3 and owning-phase PRs pass joint verification |
+| Phase 10 (LP/public site) | Phase 3 tenant/classification boundary only where a public flow enters customer context | static/public content may proceed; real pricing/contract/registration paths wait for Phase 4, customer-screen claims/links wait for Phase 8, and the shared release gate remains cross-phase |
 
 ### 13.3 Later-phase Issue candidates
 
@@ -523,10 +543,14 @@ Create these under their own parent Issue, worktree, branch, and Draft PR, not a
   and read model
 - Phase 8 customer dashboard real-data connection
 - Phase 9 operator/admin UI
-- Phase 10 integration scope defined by its own parent plan
+- Phase 10 LP/public site: LP, service/feature introductions, pricing, FAQ, contact,
+  legal pages, and service-start entry paths; real pricing/contract/registration
+  integration depends on Phase 4, and customer-surface alignment depends on Phase 8
 
 Per OWNER comment 5117068026, these may start in parallel behind interfaces, adapters,
 fixtures, or mocks. They cannot redefine Issue #102 contracts or mix with this worktree.
+Cross-phase integration and release verification is owned jointly by the affected phases
+and is not assigned to Phase 10.
 
 ## 14. Stage 2 entry and current stop conditions
 
