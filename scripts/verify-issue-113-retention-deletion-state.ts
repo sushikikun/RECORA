@@ -41,6 +41,8 @@ assert.match(migrationSql, /create table if not exists recora_private\.data_life
 assert.match(migrationSql, /create table if not exists recora_private\.data_lifecycle_events/i);
 assert.match(migrationSql, /create table if not exists recora_private\.deletion_manifests/i);
 assert.match(migrationSql, /create table if not exists recora_private\.deletion_attempts/i);
+assert.match(migrationSql, /create table if not exists recora_private\.data_lifecycle_decision_evidence/i);
+assert.match(migrationSql, /compute_deletion_manifest_hash/i);
 assert.match(migrationSql, /'active', 'access_suspended', 'retained', 'deletion_scheduled'/i);
 assert.match(migrationSql, /data_lifecycle\.transition/i);
 assert.match(migrationSql, /security definer\s+set search_path = ''/i);
@@ -48,7 +50,11 @@ assert.match(migrationSql, /grant execute on function public\.recora_resolve_dat
 assert.doesNotMatch(migrationSql, /delete\s+from\s+(?!recora_private\.deletion_)/i);
 assert.match(resolverSource, /import "server-only"/);
 assert.match(resolverSource, /resolveDataLifecycleAccess/);
-assert.doesNotMatch(resolverSource, /billing|contract|audit|email|phone/i);
+assert.match(resolverSource, /createRecoraSupabaseServerClient/);
+assert.match(resolverSource, /auth\.getUser\(\)/);
+assert.match(resolverSource, /transitionDataLifecycle/);
+assert.match(resolverSource, /setDataLifecycleLegalHold/);
+assert.doesNotMatch(resolverSource, /authUserId:\s*string/);
 
 queryLocal(`
 do $verify$
@@ -145,20 +151,17 @@ begin
   select * into r from public.recora_transition_data_lifecycle(
     p_auth_user_id=>'11300000-0000-4000-8000-000000000001', p_organization_id=>'11310000-0000-4000-8000-000000000001', p_project_id=>null,
     p_expected_state=>'retained', p_expected_version=>5, p_next_state=>'deletion_scheduled', p_reason=>'issue_113_schedule',
-    p_request_id=>'11340000-0000-4000-8000-000000000010', p_correlation_id=>'11350000-0000-4000-8000-000000000010');
+    p_request_id=>'11340000-0000-4000-8000-000000000010', p_correlation_id=>'11350000-0000-4000-8000-000000000010',
+    p_manifest_identifier=>'manifest_issue_113_v1', p_manifest_version=>1::smallint,
+    p_manifest_summary=>jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',0))),
+    p_manifest_hash=>recora_private.compute_deletion_manifest_hash('manifest_issue_113_v1',1::smallint,'11310000-0000-4000-8000-000000000001',null,jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',0)))));
   if r.outcome::text <> 'success' or r.lifecycle_version <> 6 then raise exception 'schedule failed'; end if;
   select * into r from public.recora_transition_data_lifecycle(
     p_auth_user_id=>'11300000-0000-4000-8000-000000000001', p_organization_id=>'11310000-0000-4000-8000-000000000001', p_project_id=>null,
-    p_expected_state=>'deletion_scheduled', p_expected_version=>6, p_next_state=>'deleting', p_reason=>'issue_113_missing_manifest',
+    p_expected_state=>'deletion_scheduled', p_expected_version=>6, p_next_state=>'deleting', p_reason=>'issue_113_start',
     p_request_id=>'11340000-0000-4000-8000-000000000011', p_correlation_id=>'11350000-0000-4000-8000-000000000011');
-  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'manifest_required' then raise exception 'deleting without manifest accepted'; end if;
-  select * into r from public.recora_transition_data_lifecycle(
-    p_auth_user_id=>'11300000-0000-4000-8000-000000000001', p_organization_id=>'11310000-0000-4000-8000-000000000001', p_project_id=>null,
-    p_expected_state=>'deletion_scheduled', p_expected_version=>6, p_next_state=>'deleting', p_reason=>'issue_113_manifest',
-    p_request_id=>'11340000-0000-4000-8000-000000000012', p_correlation_id=>'11350000-0000-4000-8000-000000000012',
-    p_manifest_identifier=>'manifest_issue_113_v1', p_manifest_version=>1::smallint, p_manifest_hash=>repeat('a',64),
-    p_manifest_summary=>jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',0))));
-  if r.outcome::text <> 'success' or r.lifecycle_version <> 7 then raise exception 'manifest-backed deleting failed'; end if;
+  if r.outcome::text <> 'success' or r.lifecycle_version <> 7 then raise exception 'selected manifest did not start deleting'; end if;
+  -- Manifest creation now occurs at deletion_scheduled; start consumes the explicit current selection.
   select * into r from public.recora_transition_data_lifecycle(
     p_auth_user_id=>'11300000-0000-4000-8000-000000000001', p_organization_id=>'11310000-0000-4000-8000-000000000001', p_project_id=>null,
     p_expected_state=>'deleting', p_expected_version=>7, p_next_state=>'deleted', p_reason=>'issue_113_missing_attempt',
@@ -173,7 +176,10 @@ begin
   select * into r from public.recora_transition_data_lifecycle(
     p_auth_user_id=>'11300000-0000-4000-8000-000000000001', p_organization_id=>'11310000-0000-4000-8000-000000000001', p_project_id=>null,
     p_expected_state=>'deletion_failed', p_expected_version=>8, p_next_state=>'deleting', p_reason=>'issue_113_retry',
-    p_request_id=>'11340000-0000-4000-8000-000000000015', p_correlation_id=>'11350000-0000-4000-8000-000000000015');
+    p_request_id=>'11340000-0000-4000-8000-000000000015', p_correlation_id=>'11350000-0000-4000-8000-000000000015',
+    p_manifest_identifier=>'manifest_issue_113_v2', p_manifest_version=>2::smallint,
+    p_manifest_summary=>jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',1))),
+    p_manifest_hash=>recora_private.compute_deletion_manifest_hash('manifest_issue_113_v2',2::smallint,'11310000-0000-4000-8000-000000000001',null,jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',1)))));
   if r.outcome::text <> 'success' or r.lifecycle_version <> 9 then raise exception 'retry transition failed'; end if;
   select * into r from public.recora_transition_data_lifecycle(
     p_auth_user_id=>'11300000-0000-4000-8000-000000000001', p_organization_id=>'11310000-0000-4000-8000-000000000001', p_project_id=>null,
@@ -237,5 +243,194 @@ rollback;
 
 queryLocal(`begin; set local role authenticated; select * from public.recora_transition_data_lifecycle(null,null,null,null,0,'active','bypass',gen_random_uuid(),gen_random_uuid());`, /permission denied/i);
 queryLocal(`begin; set local role anon; select * from public.recora_resolve_data_lifecycle_access(null, null);`, /permission denied/i);
+
+queryLocal(`
+begin;
+insert into auth.users (id, email, created_at, updated_at)
+values ('11300000-0000-4000-8000-000000000004', 'issue-113-owner-expanded@example.invalid', now(), now());
+insert into public.organizations (id, slug, name, organization_type, data_environment, is_internal, is_demo)
+values ('11310000-0000-4000-8000-000000000003', 'issue-113-expanded', 'Issue 113 Expanded', 'client', 'local', false, false);
+insert into recora_operator.operator_identities (id, auth_user_id, status, display_label)
+values ('11330000-0000-4000-8000-000000000003', '11300000-0000-4000-8000-000000000004', 'active', 'Issue 113 expanded operator');
+insert into recora_operator.operator_action_grants (operator_id, permission, organization_id, project_id)
+values ('11330000-0000-4000-8000-000000000003', 'data_lifecycle.transition', '11310000-0000-4000-8000-000000000003', null);
+
+do $verify$
+declare
+  r record; lifecycle_scope_id uuid; before_evidence jsonb; after_evidence jsonb;
+  summary jsonb := jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',0)));
+  tampered jsonb := jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',1)));
+  h1 text; h2 text; h3 text; manifest_count integer;
+begin
+  select * into r from public.recora_transition_data_lifecycle(
+    '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,null,0,'active','issue_113_expanded_init',
+    '11341000-0000-4000-8000-000000000001','11351000-0000-4000-8000-000000000001');
+  if r.outcome::text <> 'success' or r.lifecycle_version <> 1 then raise exception 'expanded init failed'; end if;
+  lifecycle_scope_id := r.lifecycle_id;
+
+  select * into r from public.recora_transition_data_lifecycle(
+    '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,'active',1,null,'issue_113_null_next',
+    '11341000-0000-4000-8000-000000000002','11351000-0000-4000-8000-000000000002');
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'next_state_invalid'
+    or (select version from recora_private.data_lifecycle_current where id=lifecycle_scope_id) <> 1
+  then raise exception 'NULL next state was not fail-closed'; end if;
+
+  select * into r from public.recora_transition_data_lifecycle(
+    '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,'active',1,'access_suspended','issue_113_suspend',
+    '11341000-0000-4000-8000-000000000003','11351000-0000-4000-8000-000000000003');
+  if r.lifecycle_version <> 2 then raise exception 'suspend failed'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'access_suspended',p_expected_version=>2,p_next_state=>'retained',p_reason=>'issue_113_partial_retention',
+    p_request_id=>'11341000-0000-4000-8000-000000000004',p_correlation_id=>'11351000-0000-4000-8000-000000000004',
+    p_retention_policy_reference=>'policy_v1',p_retention_started_at=>now(),p_retention_deadline_at=>now()+interval '2 days',p_restore_eligible=>false);
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'retention_payload_invalid' then raise exception 'partial retention accepted'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'access_suspended',p_expected_version=>2,p_next_state=>'retained',p_reason=>'issue_113_invalid_restore',
+    p_request_id=>'11341000-0000-4000-8000-000000000005',p_correlation_id=>'11351000-0000-4000-8000-000000000005',
+    p_retention_policy_reference=>'policy_v1',p_retention_policy_version_reference=>'policy_version_v1',p_retention_started_at=>now(),p_retention_deadline_at=>now()+interval '2 days',p_restore_eligible=>true);
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'retention_payload_invalid' then raise exception 'invalid restore pair accepted'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'access_suspended',p_expected_version=>2,p_next_state=>'retained',p_reason=>'issue_113_retain_v1',
+    p_request_id=>'11341000-0000-4000-8000-000000000006',p_correlation_id=>'11351000-0000-4000-8000-000000000006',
+    p_retention_policy_reference=>'policy_v1',p_retention_policy_version_reference=>'policy_version_v1',p_retention_started_at=>now(),p_retention_deadline_at=>now()+interval '2 days',p_restore_eligible=>true,p_restore_deadline_at=>now()+interval '1 day');
+  if r.lifecycle_version <> 3 then raise exception 'retain v1 failed'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,'retained',3,'active','issue_113_restore',
+    '11341000-0000-4000-8000-000000000007','11351000-0000-4000-8000-000000000007');
+  select * into r from public.recora_transition_data_lifecycle(
+    '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,'active',4,'access_suspended','issue_113_resuspend',
+    '11341000-0000-4000-8000-000000000008','11351000-0000-4000-8000-000000000008');
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'access_suspended',p_expected_version=>5,p_next_state=>'retained',p_reason=>'issue_113_retain_v2',
+    p_request_id=>'11341000-0000-4000-8000-000000000009',p_correlation_id=>'11351000-0000-4000-8000-000000000009',
+    p_retention_policy_reference=>'policy_v2',p_retention_policy_version_reference=>'policy_version_v2',p_retention_started_at=>now(),p_retention_deadline_at=>now()+interval '3 days',p_restore_eligible=>false);
+  if r.lifecycle_version <> 6 or (select count(*) from recora_private.data_lifecycle_decision_evidence where lifecycle_id=lifecycle_scope_id and decision_kind='retention') <> 2
+    or not exists (select 1 from recora_private.data_lifecycle_decision_evidence where lifecycle_id=lifecycle_scope_id and retention_policy_reference='policy_v1')
+    or not exists (select 1 from recora_private.data_lifecycle_decision_evidence where lifecycle_id=lifecycle_scope_id and retention_policy_reference='policy_v2')
+  then raise exception 'retain/restore/re-retain evidence missing'; end if;
+
+  select * into r from public.recora_set_data_lifecycle_legal_hold(
+    '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,6,'apply','issue_113_hold_apply_v1','hold_reason_v1',
+    '11341000-0000-4000-8000-000000000010','11351000-0000-4000-8000-000000000010');
+  select * into r from public.recora_set_data_lifecycle_legal_hold(
+    '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,7,'release','issue_113_hold_release_v1',null,
+    '11341000-0000-4000-8000-000000000011','11351000-0000-4000-8000-000000000011');
+  select * into r from public.recora_set_data_lifecycle_legal_hold(
+    '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,8,'apply','issue_113_hold_apply_v2','hold_reason_v2',
+    '11341000-0000-4000-8000-000000000012','11351000-0000-4000-8000-000000000012');
+  select * into r from public.recora_set_data_lifecycle_legal_hold(
+    '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,9,'release','issue_113_hold_release_v2',null,
+    '11341000-0000-4000-8000-000000000013','11351000-0000-4000-8000-000000000013');
+  if r.lifecycle_version <> 10 or (select count(*) from recora_private.data_lifecycle_decision_evidence where lifecycle_id=lifecycle_scope_id and decision_kind='legal_hold') <> 4
+    or not exists (select 1 from recora_private.data_lifecycle_decision_evidence where lifecycle_id=lifecycle_scope_id and legal_hold_reason_reference='hold_reason_v1')
+    or not exists (select 1 from recora_private.data_lifecycle_decision_evidence where lifecycle_id=lifecycle_scope_id and legal_hold_reason_reference='hold_reason_v2')
+  then raise exception 'legal hold decision evidence missing'; end if;
+
+  h1 := recora_private.compute_deletion_manifest_hash('owner_manifest_v1',1::smallint,'11310000-0000-4000-8000-000000000003',null,summary);
+  h2 := recora_private.compute_deletion_manifest_hash('owner_manifest_v2',2::smallint,'11310000-0000-4000-8000-000000000003',null,summary);
+  h3 := recora_private.compute_deletion_manifest_hash('owner_manifest_v3',3::smallint,'11310000-0000-4000-8000-000000000003',null,summary);
+  select count(*) into manifest_count from recora_private.deletion_manifests where lifecycle_id=lifecycle_scope_id;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'retained',p_expected_version=>10,p_next_state=>'deletion_scheduled',p_reason=>'issue_113_partial_manifest',
+    p_request_id=>'11341000-0000-4000-8000-000000000014',p_correlation_id=>'11351000-0000-4000-8000-000000000014',p_manifest_identifier=>'owner_manifest_partial');
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'manifest_payload_invalid' or (select count(*) from recora_private.deletion_manifests where lifecycle_id=lifecycle_scope_id) <> manifest_count then raise exception 'partial manifest accepted'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'retained',p_expected_version=>10,p_next_state=>'deletion_scheduled',p_reason=>'issue_113_hash_mismatch',
+    p_request_id=>'11341000-0000-4000-8000-000000000015',p_correlation_id=>'11351000-0000-4000-8000-000000000015',
+    p_manifest_identifier=>'owner_manifest_v1',p_manifest_version=>1::smallint,p_manifest_hash=>h1,p_manifest_summary=>tampered);
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'manifest_hash_mismatch' then raise exception 'hash mismatch accepted'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'retained',p_expected_version=>10,p_next_state=>'deletion_scheduled',p_reason=>'issue_113_bad_version',
+    p_request_id=>'11341000-0000-4000-8000-000000000016',p_correlation_id=>'11351000-0000-4000-8000-000000000016',
+    p_manifest_identifier=>'owner_manifest_v2',p_manifest_version=>2::smallint,p_manifest_hash=>h2,p_manifest_summary=>summary);
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'manifest_version_invalid' then raise exception 'forward version accepted'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'retained',p_expected_version=>10,p_next_state=>'deletion_scheduled',p_reason=>'issue_113_schedule_v1',
+    p_request_id=>'11341000-0000-4000-8000-000000000017',p_correlation_id=>'11351000-0000-4000-8000-000000000017',
+    p_manifest_identifier=>'owner_manifest_v1',p_manifest_version=>1::smallint,p_manifest_hash=>h1,p_manifest_summary=>summary);
+  if r.lifecycle_version <> 11 then raise exception 'manifest v1 schedule failed'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,'deletion_scheduled',11,'retained','issue_113_unschedule',
+    '11341000-0000-4000-8000-000000000018','11351000-0000-4000-8000-000000000018');
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'retained',p_expected_version=>12,p_next_state=>'deletion_scheduled',p_reason=>'issue_113_duplicate_version',
+    p_request_id=>'11341000-0000-4000-8000-000000000019',p_correlation_id=>'11351000-0000-4000-8000-000000000019',
+    p_manifest_identifier=>'owner_manifest_v1_reused',p_manifest_version=>1::smallint,p_manifest_hash=>recora_private.compute_deletion_manifest_hash('owner_manifest_v1_reused',1::smallint,'11310000-0000-4000-8000-000000000003',null,summary),p_manifest_summary=>summary);
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'manifest_version_invalid' then raise exception 'duplicate/reverse version accepted'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'retained',p_expected_version=>12,p_next_state=>'deletion_scheduled',p_reason=>'issue_113_schedule_v2',
+    p_request_id=>'11341000-0000-4000-8000-000000000020',p_correlation_id=>'11351000-0000-4000-8000-000000000020',
+    p_manifest_identifier=>'owner_manifest_v2',p_manifest_version=>2::smallint,p_manifest_hash=>h2,p_manifest_summary=>summary);
+  select * into r from public.recora_transition_data_lifecycle(
+    '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,'deletion_scheduled',13,'deleting','issue_113_start_v2',
+    '11341000-0000-4000-8000-000000000021','11351000-0000-4000-8000-000000000021');
+  if r.lifecycle_version <> 14 then raise exception 'selected v2 start failed'; end if;
+
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'deleting',p_expected_version=>14,p_next_state=>'deletion_failed',p_reason=>'issue_113_null_attempt',
+    p_request_id=>'11341000-0000-4000-8000-000000000022',p_correlation_id=>'11351000-0000-4000-8000-000000000022',p_attempt_started_at=>now()-interval '2 minutes',p_attempt_finished_at=>now()-interval '1 minute');
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'attempt_payload_invalid' then raise exception 'NULL attempt outcome accepted'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'deleting',p_expected_version=>14,p_next_state=>'deleted',p_reason=>'issue_113_outcome_only',
+    p_request_id=>'11341000-0000-4000-8000-000000000023',p_correlation_id=>'11351000-0000-4000-8000-000000000023',p_attempt_outcome=>'success');
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'attempt_payload_invalid' then raise exception 'partial attempt accepted'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'deleting',p_expected_version=>14,p_next_state=>'deleted',p_reason=>'issue_113_success_failure',
+    p_request_id=>'11341000-0000-4000-8000-000000000024',p_correlation_id=>'11351000-0000-4000-8000-000000000024',p_attempt_started_at=>now()-interval '2 minutes',p_attempt_finished_at=>now()-interval '1 minute',p_attempt_outcome=>'success',p_attempt_failure_reason_code=>'not_allowed');
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'attempt_payload_invalid' then raise exception 'success/failure mismatch accepted'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'deleting',p_expected_version=>14,p_next_state=>'deletion_failed',p_reason=>'issue_113_failed_no_code',
+    p_request_id=>'11341000-0000-4000-8000-000000000025',p_correlation_id=>'11351000-0000-4000-8000-000000000025',p_attempt_started_at=>now()-interval '2 minutes',p_attempt_finished_at=>now()-interval '1 minute',p_attempt_outcome=>'failed');
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'attempt_payload_invalid' then raise exception 'failed without code accepted'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'deleting',p_expected_version=>14,p_next_state=>'deletion_failed',p_reason=>'issue_113_failed_v2',
+    p_request_id=>'11341000-0000-4000-8000-000000000026',p_correlation_id=>'11351000-0000-4000-8000-000000000026',p_attempt_started_at=>now()-interval '2 minutes',p_attempt_finished_at=>now()-interval '1 minute',p_attempt_outcome=>'failed',p_attempt_failure_reason_code=>'retryable_timeout');
+  if r.lifecycle_version <> 15 then raise exception 'valid v2 attempt failed'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'deletion_failed',p_expected_version=>15,p_next_state=>'deleting',p_reason=>'issue_113_stale_retry',
+    p_request_id=>'11341000-0000-4000-8000-000000000027',p_correlation_id=>'11351000-0000-4000-8000-000000000027',
+    p_manifest_identifier=>'owner_manifest_v2_reused',p_manifest_version=>2::smallint,p_manifest_hash=>recora_private.compute_deletion_manifest_hash('owner_manifest_v2_reused',2::smallint,'11310000-0000-4000-8000-000000000003',null,summary),p_manifest_summary=>summary);
+  if r.outcome::text <> 'denied' or r.failure_reason_code <> 'manifest_version_invalid' then raise exception 'stale manifest reuse accepted'; end if;
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'deletion_failed',p_expected_version=>15,p_next_state=>'deleting',p_reason=>'issue_113_retry_v3',
+    p_request_id=>'11341000-0000-4000-8000-000000000028',p_correlation_id=>'11351000-0000-4000-8000-000000000028',
+    p_manifest_identifier=>'owner_manifest_v3',p_manifest_version=>3::smallint,p_manifest_hash=>h3,p_manifest_summary=>summary);
+  select * into r from public.recora_transition_data_lifecycle(
+    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+    p_expected_state=>'deleting',p_expected_version=>16,p_next_state=>'deleted',p_reason=>'issue_113_success_v3',
+    p_request_id=>'11341000-0000-4000-8000-000000000029',p_correlation_id=>'11351000-0000-4000-8000-000000000029',p_attempt_started_at=>now()-interval '1 minute',p_attempt_finished_at=>now(),p_attempt_outcome=>'success');
+  if r.lifecycle_version <> 17
+    or not exists (select 1 from recora_private.data_lifecycle_decision_evidence evidence join recora_private.deletion_attempts attempt on attempt.id=evidence.attempt_id join recora_private.deletion_manifests manifest on manifest.id=evidence.manifest_id where evidence.lifecycle_id=lifecycle_scope_id and evidence.lifecycle_version=17 and manifest.manifest_version=3 and attempt.manifest_id=manifest.id)
+    or (select count(*) from recora_private.deletion_manifests where lifecycle_id=lifecycle_scope_id) <> 3
+  then raise exception 'selected manifest/attempt history invalid'; end if;
+
+  select jsonb_agg(to_jsonb(evidence) order by evidence.lifecycle_version) into before_evidence from recora_private.data_lifecycle_decision_evidence evidence where lifecycle_id=lifecycle_scope_id;
+  update recora_private.data_lifecycle_current set last_correlation_id=gen_random_uuid() where id=lifecycle_scope_id;
+  select jsonb_agg(to_jsonb(evidence) order by evidence.lifecycle_version) into after_evidence from recora_private.data_lifecycle_decision_evidence evidence where lifecycle_id=lifecycle_scope_id;
+  if before_evidence is distinct from after_evidence then raise exception 'current update mutated decision evidence'; end if;
+  begin update recora_private.data_lifecycle_decision_evidence set decision_kind='retention' where lifecycle_id=lifecycle_scope_id;
+    raise exception 'decision evidence mutation accepted';
+  exception when raise_exception then if sqlerrm !~ 'append-only' then raise; end if; end;
+end;
+$verify$;
+rollback;
+`);
 
 console.log(JSON.stringify({ status: "ok", database: "isolated-local-only", container: dbContainer, migration: path.relative(repoRoot, migrationPath), cases: { stateChain: "validated", holdsAndRestore: "validated", manifestAndAttempts: "append-only", access: "fail-closed", scopeAndRoles: "rejected", replay: "idempotent" } }, null, 2));

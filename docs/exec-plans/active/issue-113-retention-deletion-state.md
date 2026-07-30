@@ -1,39 +1,41 @@
 # Issue #113 / 102-3F retention and deletion-state foundation
 
-Status: **Implemented locally; validation and Draft PR handoff pending**
+Status: **OWNER follow-up implemented; final validation and Draft PR handoff pending**
 Parent: #102
 Risk: **R3**
 Execution: **Local Codex**
 Spec level: **Full**
-Approval: **Execute ? Issue #113 body**
+Approval: **Execute ‚Äî Issue #113 body**
+Ready: **Yes ‚Äî limited to the approved four files**
 
 ## Inventory and boundary
 
-- The master baseline supplies explicit organization/project ownership (#105), immutable entitlement history (#108), and private operator authorization/audit primitives (#109).
-- This child adds only lifecycle state, server-only access resolution, and deletion preparation evidence. It does not start a contract workflow, perform any data or storage deletion, schedule a worker, add UI, or connect 3C/3G/3H.
-- The dedicated local project is `recora-issue-113` under `C:/tmp` with its own ports and `supabase_db_recora-issue-113` container. It is not linked to a remote project.
+- This child adds lifecycle state, a server-only command/resolver boundary, and deletion preparation evidence. It does not start a contract workflow, perform data or storage deletion, schedule a worker, add UI, or connect 3C/3G/3H.
+- The dedicated local project is recora-issue-113 under C:/tmp, with supabase_db_recora-issue-113. It is not linked to a remote project.
+- The follow-up remains within the approved migration, lifecycle module, verifier, and this Exec Plan.
 
-## State and transition model
+## State and command boundary
 
-- Current state is one row per organization scope or project scope, constrained by the #105 composite ownership key and an optimistic version.
-- States are `active`, `access_suspended`, `retained`, `deletion_scheduled`, `deleting`, `deleted`, and `deletion_failed`. `deleted` has no outbound transition.
-- The database allows only: active Å® access_suspended; access_suspended Å® active/retained; retained Å® active/deletion_scheduled; deletion_scheduled Å® retained/deleting; deleting Å® deleted/deletion_failed; deletion_failed Å® deleting/retained.
-- A narrow initialization operation establishes the first `active` row only from expected version 0; all later commands require an authoritative current state and version.
-- Retention policy/version references are opaque identifiers. The caller must provide explicit start and future deadlines when entering `retained`; no retention-day default is introduced.
-- Legal holds are set/released through their own explicit operator command, versioned and evented. An active hold blocks scheduled/deleting/deleted transitions. Restore requires an unexpired restore deadline, eligibility, no active hold, and no started deletion.
+- Current state is one row per organization or project scope, backed by #105 composite ownership and optimistic versioning. The state graph remains active ‚Üí access_suspended ‚Üí retained ‚Üí deletion_scheduled ‚Üí deleting ‚Üí deleted/deletion_failed, with only the explicit inverse/retry edges described in the Issue.
+- transitionDataLifecycle and setDataLifecycleLegalHold are server-only APIs. Each obtains the current session user through auth.getUser() before it creates the service-role client and passes only that verified ID to the service-role RPC. No exported command input accepts an operator user ID.
+- The DB RPCs retain service-role-only grants and fixed search_path. They invoke the #109 scoped operator authorization primitive in the same transaction as state, append-only evidence, and operator audit writes.
+- Validation rejects NULL/partial/unknown lifecycle, retention, restore, manifest, and attempt combinations with stable reason codes before a state/manifest/attempt write. Denials retain bounded operator audit evidence only; raw optional payloads are not recorded.
 
-## Command, resolver, and evidence
+## Trusted manifests and append-only evidence
 
-- The `recora_transition_data_lifecycle` service-role RPC invokes the #109 private authorization primitive with `data_lifecycle.transition`, validates scope/state/version and transition-specific payloads, then atomically updates current state, appends lifecycle evidence, creates any required manifest/attempt, and appends the #109 operator event.
-- The `recora_set_data_lifecycle_legal_hold` service-role RPC uses the same explicit operator boundary and appends hold evidence plus its operator event atomically.
-- `recora_resolve_data_lifecycle_access` is service-role-only. Its four outputs are customer-access allowance, new-measurement allowance, restore eligibility, and a stable reason. It selects the exact project scope before an organization fallback and fails closed for invalid, absent, or ambiguous scope.
-- Manifests are append-only and store an opaque versioned identifier, SHA-256-format hash, and schema-versioned allowlisted category/count summary only. Attempts are append-only and preserve number, bounded timing, outcome, and an opaque failure code. Neither mechanism deletes anything.
+- A manifest is selected at deletion_scheduled; a direct deletion_failed ‚Üí deleting retry must select a newly created manifest. A scheduled manifest may be abandoned by returning to retained, and the next schedule creates the next scope-monotonic version.
+- The allowlisted category summary is canonicalized before SHA-256 is calculated from identifier, version, tenant/project scope, and canonical summary. Caller hash input is required to exactly match the trusted value.
+- data_lifecycle_current holds only the active manifest selection. Deletion start and every attempt resolve that explicit ID/version, never the implicit latest manifest.
+- data_lifecycle_decision_evidence is a private, RLS-protected, append-only typed history. It records retention policy/version/deadlines, legal-hold apply/release and opaque reference, and selected manifest/attempt IDs and outcomes with lifecycle event/version linkage.
+- Current state remains the mutable current-value projection. Retain ‚Üí restore ‚Üí re-retain and hold apply ‚Üí release ‚Üí reapply preserve each historical decision as separate evidence.
 
 ## Rollback and handoff
 
-- Rollback is additive: stop new lifecycle command/resolver consumers, retain existing operational reads, and preserve all lifecycle, manifest, attempt, and operator evidence. Do not drop or rewrite history.
-- Phase 4 supplies contract-driven entry/retention deadlines. Phases 5/6 consume the resolver before new design/execution. Phase 9 may introduce the approved operator UX. A later deletion worker must use manifests and append attempts; it must not bypass this lifecycle boundary.
+- Rollback is additive: stop new command/resolver consumers and preserve lifecycle, manifest, attempt, decision evidence, and operator audit history. Do not drop or rewrite history.
+- A later approved deletion worker must consume the explicit selected manifest and append attempts through this boundary. It must not perform actual deletion under this Issue.
 
 ## Validation record
 
-- Pending final run: migration-only and seeded reset, dedicated 3F verifier, migration list/advisors, 3A/3B/3D/3E regressions on the same isolated stack, preflight/typecheck/lint/build, diff/scope/secret/lockfile checks, and the manual R3 migration commit path.
+- The expanded 3F verifier covers verified server-only identity boundaries; NULL next-state; partial retention/restore; partial/tampered/version-invalid manifests; partial/NULL/mismatched attempts; retain/restore/re-retain; hold apply/release/reapply; manifest v1/v2/v3 selection; retry attempt linkage; append-only history; RLS and service-role boundaries.
+- Final required run remains: migration-only and seeded reset, expanded 3F verifier, 3A/3B/3D/3E regressions, migration list/advisors, preflight/typecheck/lint/build, diff/scope/secret/lockfile checks, recora:commit-check, non-force origin/master merge, and post-merge revalidation.
+- The migration auto-rejection in recora:commit-check uses Issue #113‚Äôs R3 Execute approval as the documented manual path. Any other validation failure blocks handoff.
