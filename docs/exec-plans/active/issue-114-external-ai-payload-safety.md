@@ -10,7 +10,7 @@
 | Execution | `Local Codex` |
 | Approval | `Execute` — Issue body is the OWNER approval |
 | Owner | `sushikikun` |
-| Status | `Active` |
+| Status | `Completed` |
 | Updated | `2026-07-30` |
 
 ## Objective / expected outcome
@@ -133,8 +133,8 @@ canonical representation is deterministic for the same validated payload.
 |---|---|---|---|
 | M1: Start gate and inventory | `Completed` | Confirm Issue #114 R3/Local/Full/Execute/Ready; fetch clean base; inspect authority docs and current master statically. | Scope, base, and prohibited operations recorded. |
 | M2: Safe payload boundary | `Completed` | Add server-only typed builder and provider-neutral branded DTO. | Internal envelope cannot be the adapter argument; allowlist and hash exist. |
-| M3: Negative verification | `In progress` | Run dedicated verifier plus required static/build checks without DB/network use. | All mandated commands pass and exact scope is clean. |
-| M4: Handoff | `Pending` | Commit, push, create Draft PR, and record results in #114 and #102. | Draft remains Draft; Issues are reported; no merge/close. |
+| M3: Negative verification | `Completed` | Dedicated verifier, preflight, typecheck, lint, build, scope, secret scan, lockfile, and commit checks passed. | All mandated commands passed without DB/network use. |
+| M4: Handoff | `Completed` | Commit `dc4c809` pushed; Draft PR #116 created. | Draft remains Draft; Issue/parent completion record is next; no merge/close. |
 
 ## Validation plan
 
@@ -186,8 +186,11 @@ runtime DNS-rebinding protection or provider integration.
 
 ### Results
 
-- In progress: final validation, commit, Draft PR, and Issue reports remain before
-  completion.
+- Completed: `dc4c809` contains the dedicated module, verifier, and child Exec Plan;
+  Draft PR #116 targets `master` and remains Draft.
+- Dedicated verifier, `recora:preflight:full`, `typecheck`, `lint`, `build`, diff and
+  staged-scope checks, literal scan, lockfile check, and `recora:commit-check` passed.
+- No Supabase/DB, provider, URL/DNS, deploy, or production operation was used.
 
 ### Remaining risks
 
