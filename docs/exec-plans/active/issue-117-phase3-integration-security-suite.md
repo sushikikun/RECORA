@@ -52,7 +52,7 @@ integration helper was added.
 
 The installed CLI required a Platform token for `supabase gen types --local`, even against
 the isolated stack. Supplying one would violate this Issue's no-remote/no-`.env` boundary.
-The suite instead asserts the local catalog's public column and lifecycle-enum contracts;
+The suite instead asserts the local catalog's public column, lifecycle-enum, and relevant hand-maintained application type contracts;
 repository `tsc --noEmit` is the TypeScript type check. No generated type file exists.
 
 ## Later-phase interfaces and non-goals

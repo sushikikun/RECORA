@@ -24,6 +24,7 @@ const supabaseWorkdir = process.env.RECORA_ISSUE_117_SUPABASE_WORKDIR;
 const supabaseCli = path.join(repoRoot, "node_modules", "supabase", "dist", "supabase.js");
 const tsxCli = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
 const temporaryRoot = path.join(os.tmpdir(), "recora-issue-117-phase3-integration");
+const recoraDbTypesPath = path.join(repoRoot, "lib", "recora", "db", "types.ts");
 
 assert.equal(
   dbContainer,
@@ -36,6 +37,11 @@ assert.match(supabaseWorkdir, /(?:^|[\\/])tmp(?:[\\/]|$)/i, "Issue #117 Supabase
 assert.ok(fs.existsSync(path.join(supabaseWorkdir, "supabase", "config.toml")), "Issue #117 isolated local config is missing.");
 assert.ok(fs.existsSync(supabaseCli), "Local Supabase CLI dependency is missing.");
 assert.ok(fs.existsSync(tsxCli), "Local tsx dependency is missing.");
+const recoraDbTypesSource = fs.readFileSync(recoraDbTypesPath, "utf8");
+assert.match(recoraDbTypesSource, /export type RecoraOrganizationMembershipStatus\s*=\s*\| "invited"\s*\| "active"\s*\| "suspended"\s*\| "revoked"/);
+assert.match(recoraDbTypesSource, /export type RecoraOrganizationRow[\s\S]*?is_demo: boolean/);
+assert.match(recoraDbTypesSource, /export type RecoraOrganizationMemberRow[\s\S]*?membership_status: RecoraOrganizationMembershipStatus/);
+assert.match(recoraDbTypesSource, /export type RecoraProjectRow[\s\S]*?organization_id: string/);
 
 function sanitize(value: string): string {
   return value.replace(/postgres(?:ql)?:\/\/[^\s]+/gi, "[redacted-local-db-url]");

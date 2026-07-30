@@ -603,7 +603,7 @@ data remain denied.
 
 No Phase 3 blocking defect was mechanically proven. No migration, generated type file,
 or downstream feature was added. The installed CLI required a Platform token for local
-type generation, which this Issue does not permit; the local catalog type contract and
-repository TypeScript check provide the no-network drift check. Phase 4-9 retain the
+type generation, which this Issue does not permit; the local catalog and hand-maintained
+application type contracts plus repository TypeScript check provide the no-network drift check. Phase 4-9 retain the
 interfaces and stop conditions in Section 13.2; their business flows, queue/provider,
 analysis/read-model, dashboard, and admin UI remain unexecuted.

@@ -392,5 +392,5 @@ was proven, so the authorized minimum additive correction was not needed.
 
 The installed local CLI required a Platform token for `gen types --local`; no token,
 remote DB, `.env`, provider, fetch, DNS, or real deletion was used. The suite substituted
-local catalog type checks and `tsc --noEmit`; no generated type file exists. Phase 4-9
+local catalog and hand-maintained application type checks plus `tsc --noEmit`; no generated type file exists. Phase 4-9
 interfaces remain those in the parent contract: tenant/entitlement (4), member/project,
