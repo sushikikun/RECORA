@@ -10,7 +10,7 @@
 | Execution | `Local Codex` |
 | Approval | `Execute` — Issue body is the OWNER approval |
 | Owner | `sushikikun` |
-| Status | `Completed` |
+| Status | `Active` |
 | Updated | `2026-07-30` |
 
 ## Objective / expected outcome
@@ -132,9 +132,9 @@ canonical representation is deterministic for the same validated payload.
 | Milestone | Status | Actions | Exit criteria |
 |---|---|---|---|
 | M1: Start gate and inventory | `Completed` | Confirm Issue #114 R3/Local/Full/Execute/Ready; fetch clean base; inspect authority docs and current master statically. | Scope, base, and prohibited operations recorded. |
-| M2: Safe payload boundary | `Completed` | Add server-only typed builder and provider-neutral branded DTO. | Internal envelope cannot be the adapter argument; allowlist and hash exist. |
-| M3: Negative verification | `Completed` | Dedicated verifier, preflight, typecheck, lint, build, scope, secret scan, lockfile, and commit checks passed. | All mandated commands passed without DB/network use. |
-| M4: Handoff | `Completed` | Commit `dc4c809` pushed; Draft PR #116 created. | Draft remains Draft; Issue/parent completion record is next; no merge/close. |
+| M2: Safe payload boundary | `In progress` | Apply OWNER comment `5131791721`: fail-closed internal context parsing, expanded sensitive/plain-text checks, shared raw budget, strict public host syntax, and runtime brand/deep freeze. | Internal envelope cannot be the adapter argument; malformed context and unbranded casts fail closed. |
+| M3: Negative verification | `Pending` | Re-run expanded dedicated verifier, preflight, typecheck, lint, build, scope, secret scan, lockfile, and commit checks. | All mandated commands pass without DB/network use. |
+| M4: Conditional handoff | `Pending` | Push the scoped repair; merge current `origin/master` non-force; wait for successful Recora CI and Vercel, zero unresolved threads, then use the OWNER's conditional approval. | PR is merged only after every stated condition succeeds; Issue records become the completion evidence. |
 
 ## Validation plan
 
@@ -150,10 +150,11 @@ canonical representation is deterministic for the same validated payload.
 ## Phase 6 handoff
 
 Phase 6 must call `buildProviderSafePayload` immediately before every provider call and
-pass only `ProviderSafePayload` to its adapter. It must retain provider-specific options
-(including any retention control), queue/worker/retry/idempotency/budget behavior, and
-the real fetch layer in its own approved scope. This plan deliberately does not claim
-runtime DNS-rebinding protection or provider integration.
+call `assertProviderSafePayload` at the adapter boundary before passing only the
+runtime-branded `ProviderSafePayload` to its adapter. It must retain provider-specific
+options (including any retention control), queue/worker/retry/idempotency/budget
+behavior, and the real fetch layer in its own approved scope. This plan deliberately
+does not claim runtime DNS-rebinding protection or provider integration.
 
 ## Rollback / recovery
 
@@ -186,11 +187,11 @@ runtime DNS-rebinding protection or provider integration.
 
 ### Results
 
-- Completed: `dc4c809` contains the dedicated module, verifier, and child Exec Plan;
-  Draft PR #116 targets `master` and remains Draft.
-- Dedicated verifier, `recora:preflight:full`, `typecheck`, `lint`, `build`, diff and
-  staged-scope checks, literal scan, lockfile check, and `recora:commit-check` passed.
-- No Supabase/DB, provider, URL/DNS, deploy, or production operation was used.
+- Prior baseline: `dc4c809` created the dedicated module, verifier, and child Exec Plan;
+  Draft PR #116 targets `master`.
+- OWNER follow-up repair is limited to the same three files and is pending the full
+  specified verification suite and conditional PR checks.
+- No Supabase/DB, provider, URL/DNS, deploy, or production operation is used.
 
 ### Remaining risks
 
