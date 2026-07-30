@@ -373,3 +373,24 @@ The revised Stage 1 plan provides:
 Unverified items remain live schema/data/grant/policy drift, JWT/RLS runtime behavior,
 fresh replay after an approved fix, downstream integration, DNS-rebinding runtime
 behavior, and legal retention defaults. This revision does not authorize Stage 2.
+
+## Phase 3 integration record: Issue #117 / 102-3H
+
+Issue #117 used latest `master` including PR #116 merge
+`f041c6cfd87e78d3fff3a8236c80acf79ca25814` and the sole isolated local database
+`supabase_db_recoraissue117`. Migration-only demo-only baseline replay, seeded replay,
+the 3A-3F child contracts, and the DB/network-free 3G contract all returned exit code
+zero with machine `status: ok`.
+
+The cross-component matrix passed: accepted-active membership and lifecycle fail-closed
+checks; Organization/Project A-B direct/list/search/count/pagination/join/RPC isolation;
+composite integrity; immutable entitlement/history; scoped operator/audit; lifecycle
+state/hold/restore/manifest controls; payload privacy; browser grants/RLS and
+security-definer/service-only function boundaries; catalog type/enum contract checks; and
+the PR #71 customer-safe versus raw/internal data boundary. No Phase 3 blocking defect
+was proven, so the authorized minimum additive correction was not needed.
+
+The installed local CLI required a Platform token for `gen types --local`; no token,
+remote DB, `.env`, provider, fetch, DNS, or real deletion was used. The suite substituted
+local catalog type checks and `tsc --noEmit`; no generated type file exists. Phase 4-9
+interfaces remain those in the parent contract: tenant/entitlement (4), member/project,

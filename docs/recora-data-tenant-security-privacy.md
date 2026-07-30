@@ -583,3 +583,27 @@ Stage 1 validates repository evidence and document integrity only. It does not v
 
 These are explicit Phase 3 or downstream inputs, not silent assumptions and not Stage 2
 Execute authorization.
+
+## 16. Phase 3 integration evidence (Issue #117 / 102-3H)
+
+On latest `master` including PR #116 merge `f041c6cfd87e78d3fff3a8236c80acf79ca25814`,
+Issue #117 ran the complete Phase 3 suite on one isolated local database. Migration-only
+replay accepted only the approved demo-organization baseline; seeded replay also passed.
+Existing 3A through 3F verifiers and the DB/network-free 3G verifier each returned
+machine `status: ok` and exit code zero.
+
+The integration matrix confirmed accepted-active identity and lifecycle denials; A/B
+composite tenant isolation across direct, list, search, count, pagination, join, and RPC
+paths; immutable entitlement/history references; scoped operator and append-only audit
+boundaries; lifecycle/hold/restore/manifest integrity; payload privacy; public RLS,
+private relation grants, security-definer grants, service-only RPC grants, and catalog
+column/enum contracts. PR #71 customer-safe answer/excerpt/citation candidates remain
+permitted only through their safe boundary; raw provider, control, audit, and other-tenant
+data remain denied.
+
+No Phase 3 blocking defect was mechanically proven. No migration, generated type file,
+or downstream feature was added. The installed CLI required a Platform token for local
+type generation, which this Issue does not permit; the local catalog type contract and
+repository TypeScript check provide the no-network drift check. Phase 4-9 retain the
+interfaces and stop conditions in Section 13.2; their business flows, queue/provider,
+analysis/read-model, dashboard, and admin UI remain unexecuted.
