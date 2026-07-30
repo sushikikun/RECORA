@@ -10,7 +10,7 @@
 | Execution | `Local Codex` |
 | Approval | `Execute` — Issue body is the OWNER approval |
 | Owner | `sushikikun` |
-| Status | `Active` |
+| Status | `Ready for conditional merge` |
 | Updated | `2026-07-30` |
 
 ## Objective / expected outcome
@@ -132,9 +132,9 @@ canonical representation is deterministic for the same validated payload.
 | Milestone | Status | Actions | Exit criteria |
 |---|---|---|---|
 | M1: Start gate and inventory | `Completed` | Confirm Issue #114 R3/Local/Full/Execute/Ready; fetch clean base; inspect authority docs and current master statically. | Scope, base, and prohibited operations recorded. |
-| M2: Safe payload boundary | `In progress` | Apply OWNER comment `5131791721`: fail-closed internal context parsing, expanded sensitive/plain-text checks, shared raw budget, strict public host syntax, and runtime brand/deep freeze. | Internal envelope cannot be the adapter argument; malformed context and unbranded casts fail closed. |
-| M3: Negative verification | `Pending` | Re-run expanded dedicated verifier, preflight, typecheck, lint, build, scope, secret scan, lockfile, and commit checks. | All mandated commands pass without DB/network use. |
-| M4: Conditional handoff | `Pending` | Push the scoped repair; merge current `origin/master` non-force; wait for successful Recora CI and Vercel, zero unresolved threads, then use the OWNER's conditional approval. | PR is merged only after every stated condition succeeds; Issue records become the completion evidence. |
+| M2: Safe payload boundary | `Completed` | Applied OWNER comment `5131791721`: fail-closed internal context parsing, expanded sensitive/plain-text checks, shared raw budget, strict public host syntax, and runtime brand/deep freeze. | Internal envelope cannot be the adapter argument; malformed context and unbranded casts fail closed. |
+| M3: Negative verification | `Completed` | Expanded verifier, preflight, typecheck, lint, build, scope, secret scan, lockfile, and commit checks passed after the latest `origin/master` merge check. | All mandated commands passed without DB/network use. |
+| M4: Conditional handoff | `Ready` | Push the scoped repair; wait for successful Recora CI and Vercel plus zero unresolved threads, then use the OWNER's conditional approval. | PR is merged only after every stated condition succeeds; Issue records become the completion evidence. |
 
 ## Validation plan
 
@@ -187,11 +187,11 @@ does not claim runtime DNS-rebinding protection or provider integration.
 
 ### Results
 
-- Prior baseline: `dc4c809` created the dedicated module, verifier, and child Exec Plan;
-  Draft PR #116 targets `master`.
-- OWNER follow-up repair is limited to the same three files and is pending the full
-  specified verification suite and conditional PR checks.
-- No Supabase/DB, provider, URL/DNS, deploy, or production operation is used.
+- Repair commit `3c76f7f` changes only the dedicated module, verifier, and child Exec
+  Plan; Draft PR #116 still targets `master`.
+- The expanded verifier, `recora:preflight:full`, `typecheck`, `lint`, `build`, diff
+  scope/literal/lockfile checks, and `recora:commit-check` passed after the latest
+  `origin/master` merge check. The remaining conditions are remote CI/Vercel/thread state.
 
 ### Remaining risks
 
