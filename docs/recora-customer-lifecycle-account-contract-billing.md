@@ -1,229 +1,144 @@
 # Recora Customer Lifecycle, Account, Contract, and Billing Specification
 
-Status: **Stage 1 proposal — Human review required before any implementation**
+Status: **Stage 1 Human review approved; Stage 2 child Execute unapproved**
 Issue: [#119](https://github.com/sushikikun/RECORA/issues/119)
-Baseline: `master` at `787fe84b48456bab569b6b5c043d6852271a674f`
-Scope: Phase 4 technical contract; no product pricing or payment-provider decision
+OWNER review record: [5135247884](https://github.com/sushikikun/RECORA/issues/119#issuecomment-5135247884)
+Approved baseline: `origin/master` at `787fe84b48456bab569b6b5c043d6852271a674f` (PR #118 merge)
+Scope: Phase 4 technical contract only; no product pricing, registration-channel, or payment-provider decision
 
-## 1. Authority and non-goals
+## 1. Authority order, scope, and non-goals
 
-This document is the proposed Phase 4 technical specification. The latest OWNER
-record in Issue #119 remains the approval authority. It consumes, and does not
-redefine, the Phase 3 tenant, membership, entitlement, lifecycle, operator, and
-audit contracts.
+The authority order is strict:
 
-The following are deliberately **not** decided here: registration channel,
-payment provider, marketed plan names, prices, free period, billing cadence,
-proration, refunds, tax/invoice operations, self-service billing portal timing,
-retention duration, or final UI. A later product decision may supply those values
-without changing the state boundaries below.
+1. The latest OWNER record in Issue #119, including the Stage 1 approval and limits.
+2. The merged Phase 3 tenant, membership, organization-lifecycle, entitlement, data-lifecycle, and operator-audit contracts.
+3. This Human-review-approved Phase 4 Stage 1 specification and its Exec Plan.
+4. Only compatible parts of the post-launch operations architecture and legacy/static repository evidence.
 
-No Stage 1 outcome authorizes a schema, Auth, signup, RLS, provider, DB, or
-production change.
+A lower source never overrides a higher source. The post-launch operations architecture is a compatible reference, not an authority that can replace an Issue #119 OWNER decision or a merged Phase 3 contract. This document consumes Phase 3; it does not redefine it.
+
+The following remain undecided: registration/invite channel, payment provider, merchant/tax/invoice model, marketed plan names, price, currency, free period, billing cadence, proration, refund, grace, dunning, cancellation/reactivation policy, contract template, seat/usage measure, retention duration, and final UI. A later approved product decision supplies those values without changing the technical boundaries here.
+
+This Stage 1 baseline authorizes no schema/migration, Auth/signup/invitation implementation, RLS, DB/Supabase, provider/webhook/API, package/lockfile, deploy, child-Issue, or Stage 2 Execute work.
 
 ## 2. Phase 3 contracts consumed unchanged
 
-- `organizations` is the tenant root and projects have explicit organization
-  ownership ([tenant foundation](../supabase/migrations/20260620181714_recora_tenant_foundation.sql#L16)).
-- An effective customer membership is an authenticated `user_id` with recorded
-  acceptance and `membership_status = active`; invited, suspended, revoked,
-  missing, and ambiguous memberships fail closed
-  ([membership migration](../supabase/migrations/20260729151417_tenant_ownership_accepted_membership.sql#L245)).
-- The organization lifecycle must have exactly one active organization row before
-  customer access. It is the hard ceiling; a project row can only further restrict
-  access ([authoritative lifecycle resolver](../supabase/migrations/20260730163156_recora_authoritative_lifecycle_rls_access.sql#L30)).
-- Plan-policy versions and entitlement snapshots are append-only; a mutable current
-  pointer may move, but the historical snapshot never changes
-  ([entitlement migration](../supabase/migrations/20260729163300_recora_plan_entitlement_history.sql#L57)).
-- Current entitlement resolution is service-role only and returns capabilities,
-  limits, stable reason codes, and no contract/billing detail
-  ([resolver](../supabase/migrations/20260729163300_recora_plan_entitlement_history.sql#L337)).
-- Data lifecycle state and evidence are separate from customer access and retain
-  the `active → access_suspended → retained` path; actual deletion is not a
-  Phase 4 operation ([retention contract](../supabase/migrations/20260730130000_recora_retention_deletion_state.sql#L8)).
-- Important operator actions use a verified Auth identity plus the Phase 3
-  authorization/audit command receipt; service role is never an actor identity
-  ([server boundary](../lib/recora/operator-authorization-audit.ts#L52)).
+- `organizations` is the tenant root and projects have explicit organization ownership ([tenant foundation](../supabase/migrations/20260620181714_recora_tenant_foundation.sql#L16)).
+- Accepted active membership requires `accepted_at` and `membership_status = active`; invited, suspended, revoked, missing, and ambiguous membership fail closed ([membership state](../supabase/migrations/20260729151417_tenant_ownership_accepted_membership.sql#L168), [effective predicate](../supabase/migrations/20260729151417_tenant_ownership_accepted_membership.sql#L258)).
+- Organization lifecycle is the hard customer-access ceiling; a project lifecycle can only add a restrictive override ([resolver](../supabase/migrations/20260730163156_recora_authoritative_lifecycle_rls_access.sql#L28), [hard ceiling](../supabase/migrations/20260730163156_recora_authoritative_lifecycle_rls_access.sql#L157)).
+- Plan-policy versions and entitlement snapshots are append-only; only a current pointer may change ([policy/snapshot](../supabase/migrations/20260729163300_recora_plan_entitlement_history.sql#L57), [pointer](../supabase/migrations/20260729163300_recora_plan_entitlement_history.sql#L264)).
+- The Phase 3 entitlement resolver is a **server-side downstream entitlement contract**. It is service-role-only and returns capabilities/limits and stable reasons, never contract, subscription, billing, payment, policy, or exception detail ([resolver boundary](../supabase/migrations/20260729163300_recora_plan_entitlement_history.sql#L337)). It is not browser-public.
+- Phase 3 owns data lifecycle state, guarded command, append-only evidence, retention, and deletion semantics ([state](../supabase/migrations/20260730130000_recora_retention_deletion_state.sql#L8), [events](../supabase/migrations/20260730130000_recora_retention_deletion_state.sql#L144)).
+- Important operator actions require a verified actor and Phase 3 authorization/audit receipt; service role is execution capability, never actor identity ([server boundary](../lib/recora/operator-authorization-audit.ts#L52)).
 
-## 3. Static current-state inventory
+## 3. Current-master inventory and compatibility boundary
 
-The classification records present-master facts, not a claim that the existing
-records are a complete Phase 4 implementation.
+| Area | Static evidence | Classification | Phase 4 handling |
+| --- | --- | --- | --- |
+| Email/password signup | `app/signup/actions.ts:48` creates Auth identity only. | Fix | Identity creation is never customer provisioning or access. |
+| Login, confirmation, recovery, password change | `app/login/actions.ts:26`, `app/auth/confirm/route.ts:28`, `app/forgot-password/actions.ts:31`, `app/auth/update-password/actions.ts:34`. | Reuse | Login is insufficient for customer access. |
+| Invitation | Auth invite OTP exists, but no tenant-bound create/resend/cancel/claim command exists. | Missing | P4-A defines one-time invitation persistence; P4-B may implement commands only after Execute approval. |
+| Membership | Phase 3 `organization_members` predicate. | Reuse | Business role never weakens it. |
+| Legacy commercial data | [`recora_admin` inventory](../supabase/migrations/20260627204737_recora_admin_p0a.sql#L35). | Compatibility-only | Mutable plan/profile/subscription/JSON fields are not contract, billing, entitlement, or access authority. |
+| Internal demo | [`demo bootstrap`](../supabase/migrations/20260701073553_recora_internal_demo_subscription.sql#L14). | Compatibility-only | Never proves a real customer contract/payment/access history. |
+| Dashboard/settings | `app/dashboard/layout.tsx`; `lib/recora/db/dashboard.ts:92`. | Later phase / Fix | No commercial surface is inferred from current dashboard code. |
 
-| Area | Evidence | Classification | Phase 4 handling |
-|---|---|---|---|
-| Email/password signup | `app/signup/actions.ts:48` calls Auth `signUp`; it creates no organization, membership, profile, subscription, or project | Fix | Keep as an identity-creation primitive only; add an approved post-verification onboarding/assignment contract later. |
-| Login, confirmation, recovery, password change | `app/login/actions.ts:26`, `app/auth/confirm/route.ts:28`, `app/forgot-password/actions.ts:31`, `app/auth/update-password/actions.ts:34` | Reuse | Keep token/session primitives and safe failure handling; do not equate a successful login with customer access. |
-| Redirect/session helpers | `lib/recora/auth-access.ts:11`, `lib/supabase/middleware.ts:6` | Fix | Retain safe same-origin next-path handling and session refresh, then add one server-side customer-access decision. |
-| Invite acceptance | confirmation route accepts Auth `invite` OTP at `app/auth/confirm/route.ts:7`; no membership invitation create/resend/cancel/claim command exists | Missing | Define a tenant-bound, expiring, one-time invitation command/event path before enabling any invite channel. |
-| Membership foundation | `public.organization_members` plus accepted-active predicate | Reuse | Consume its Phase 3 predicate. Role labels are business authorization inputs, not a replacement for the predicate. |
-| Internal customer profile | `recora_admin.customer_profiles` has a mutable internal lifecycle field at `supabase/migrations/20260627204737_recora_admin_p0a.sql:57` | Compatibility-only | Do not use it as the customer-access gate or silently backfill a new business state from it. |
-| Internal subscription | `recora_admin.customer_subscriptions` has mutable status/config/billing mode at the same migration line 91 | Compatibility-only | Treat only as a legacy/manual input candidate after an explicit reconciliation command; never as historical entitlement truth. |
-| Internal plan config | mutable JSON config at the same migration line 35 | Compatibility-only | Map an approved policy family to Phase 3 plan-policy versions; do not expose or repurpose current plan codes as marketed products. |
-| Diagnostic intake and demo bootstrap | `diagnostic_intakes` at line 135 and internal demo-only upsert in `20260701073553_recora_internal_demo_subscription.sql` | Compatibility-only | Preserve as internal/demo operations. Do not infer a real-customer contract, access, or billing history. |
-| Internal plan/customer pages | server-only service-role read RPCs in `lib/recora/internal-plan-configs.ts:43` and `lib/recora/internal-customer-ops.ts:80`; local-only guard in `app/internal/layout.tsx:14` | Reuse for internal read-only visibility | Retain the customer/operator boundary; a production operator console and write commands remain later approved work. |
-| Customer dashboard/settings | `app/dashboard/layout.tsx` has no account/contract access gate and its current read model selects measurement data directly (`lib/recora/db/dashboard.ts:92`) | Later phase / Fix | It is not a Phase 4 entitlement or account surface and must not become one by reading internal contract/billing data. |
+## 4. Authoritative transition contract
 
-## 4. Separated authoritative state model
+The following domains are separate. P4-A is the proposed owner of new Phase 4 current/history/event persistence; this document creates none. Every later command records correlation ID, verified actor or source, outcome, and domain-scoped idempotency key. No domain status authorizes a direct write to another domain.
 
-The following state domains must remain distinct. A transition in one domain does
-not implicitly mutate another domain unless an approved command explicitly says
-so and records its event, correlation ID, actor, outcome, and idempotency key.
+| Domain | Authoritative source and states | Allowed transition and actor/command | Forbidden transition | Idempotency key | Direct customer-access effect |
+| --- | --- | --- | --- | --- | --- |
+| Auth account facts | Auth provider facts: account, verified-email, credential/recovery, deactivation. | Provider/Auth server records a fact after its own proof. | Treat session, user metadata, or email string as verified; create membership/contract from identity alone. | Provider user ID + provider event/request ID. | No direct grant; no verified identity denies. |
+| Invitation lifecycle | P4-A one-time record/history: `pending`, `accepted`, `expired`, `revoked`, `superseded`. | Operator `invite.create` creates pending; bound recipient `invite.accept` accepts; clock marks expiry; operator cancel revokes; resend creates a new pending invitation and supersedes the old one. | Accept after expiry/revocation/supersession; cancel after acceptance; cross-tenant or mismatched-recipient acceptance; revive terminal row. | Invitation ID + command type; acceptance binds verified recipient. | No direct grant; accepted invitation is only membership input. |
+| Organization membership | Phase 3 `organization_members`: `invited`, `active`, `suspended`, `revoked`. | `invited -> active` only via valid accepted invitation; `active -> suspended/revoked` by authorized operator; `suspended -> active` only by fresh audited reactivation and membership event. | `revoked -> active` in the same row; activation from login, contract, billing, demo, or profile. Revocation needs new invitation/new membership episode. | Organization + membership relation + request ID. | Active accepted membership is necessary, never sufficient. |
+| Customer/business lifecycle | P4-A current relationship plus append-only episode history: `lead`, `onboarding`, `serving`, `paused`, `closed`, `rejected`. | Authorized operator relationship command changes the current episode; later renewed relationship uses a new episode. | Use as plan/trial/payment/entitlement state; resurrect closed/rejected episode; direct deletion/RLS grant. | Organization + lifecycle episode + request ID. | None; it is internal operations state. |
+| Contract/subscription projection | P4-A provider-neutral current contract plus append-only events: `draft`, `pending_activation`, `active`, `paused`, `canceled`, `ended`. | Event/approved manual command moves `draft -> pending_activation/canceled`, `pending_activation -> active/canceled`, `active -> paused/canceled/ended`, or `paused -> active/canceled/ended` through approved policy hook. New contract episode follows canceled/ended. | Edit history; revive canceled/ended in place; set entitlement pointer directly; assume grace, price, or access. | Contract ID + source sequence/command key. | Indirect only through committed entitlement pointer and derived decision. || Billing-event processing state | P4-A receipt/process record: `received`, `validated`, `applying`, `applied`, `ignored_duplicate`, `rejected`, `reconciliation_required`. | Ingress/manual adapter writes received; normalizer validates; atomic command makes `applying -> applied` only when all required effects commit. Duplicate is ignored; invalid is rejected; ordering/conflict/retry exhaustion requires reconciliation. | Raw payload as payment fact; applied before required effects; overwrite a receipt/outcome. | Source namespace + source/manual ID + tenant scope + payload fingerprint. | None; pending/reconciliation-required required effects fail closed. |
+| Normalized billing/payment fact | Append-only provider-neutral fact: `payment_succeeded`, `payment_failed`, `payment_reversed`, `payment_disputed`, or `payment_unknown`, with opaque external reference. | Validated receipt appends a fact. Correction appends a later correcting fact with causal reference. | Mutate/delete fact; expose payment method, invoice, provider ID, webhook, or payload; equate fact with process state. | Source namespace + event ID + fact kind + tenant scope. | None; it invokes a policy hook only through projection. |
+| Entitlement resolution/current pointer | Phase 3 immutable snapshot/current pointer; resolution is `ok`, `no_snapshot`, `ambiguous_snapshot`, `expired_snapshot`, or `invalid_scope`. | Atomic P4 command creates a snapshot and moves same-scope pointer after policy resolution. | Mutate history; cross-tenant/project pointer; customer/browser invocation of resolver. | Scope + policy/version/source-contract causal reference + command key. | Required input; non-`ok` denies. |
+| Derived customer access | Server-side computed `allowed` or `denied` with stable customer-safe reason. | Recompute from committed Phase 3/4 authorities for each request/capability. | Persist duplicate grant; fallback to login, legacy subscription, demo, or provider event. | Evaluation key is diagnostic only, never authority. | Only customer-facing decision; incomplete required downstream effect denies. |
+| Phase 3 data lifecycle | Phase 3 state/evidence: `active`, `access_suspended`, `retained`, `deletion_scheduled`, `deleting`, `deleted`, `deletion_failed`. | Only existing Phase 3 authorized command transitions using expected state, request ID, evidence, and authorization rules. | Contract/billing/business status directly updates lifecycle; access suspension equals deletion; overwrite evidence. | Lifecycle ID + request ID. | Organization lifecycle remains hard ceiling; required pending checkpoint denies. |
 
-| Domain | Authoritative source | Technical states / resolution | Does not authorize |
-|---|---|---|---|
-| Auth account | Auth provider; verified server-side by `auth.getUser()` | provider account/session/verified-email facts; absence is fail closed | membership, tenant, contract, entitlement, or operator role |
-| Organization membership | `public.organization_members` and Phase 3 predicate | `invited`, `active`, `suspended`, `revoked` | billing or data retention state |
-| Customer/business lifecycle | new Phase 4 internal relationship record | `lead`, `onboarding`, `serving`, `paused`, `closed`, `rejected` | direct customer access, payment outcome, or deletion |
-| Contract/subscription | new provider-neutral current contract plus append-only contract event history | `draft`, `pending_activation`, `active`, `paused`, `canceled`, `ended` | payment settlement, membership change, or snapshot mutation |
-| Billing/payment | append-only normalized provider/manual event history | `received`, `validated`, `applied`, `ignored_duplicate`, `rejected`, `reconciliation_required`; payment outcome is an opaque normalized attribute | direct RLS or customer browser access |
-| Entitlement resolution | Phase 3 policy version, immutable snapshot, current pointer, resolver | `ok`, `no_snapshot`, `ambiguous_snapshot`, `expired_snapshot`, `invalid_scope` | customer identity or lifecycle transition |
-| Customer access | derived server-side decision; not a mutable duplicate status | allowed only when all required predicates pass; otherwise deny with stable non-sensitive reason | data deletion or billing mutation |
-| Data lifecycle / retention | Phase 3 lifecycle command/event/evidence | `active`, `access_suspended`, `retained`, `deletion_scheduled`, `deleting`, `deleted`, `deletion_failed` | replacement for contract or payment history |
+### 4.1 Invitation and history rules
 
-The business lifecycle labels above are operational relationship states, not plan,
-price, trial, cadence, or provider decisions. The final implementation may add an
-explicit compatibility mapping only after a pre-write inventory proves each legacy
-row is unambiguous.
+Acceptance is tenant-bound and one-time. Replay returns the recorded outcome only for the same verified identity and command key; it never creates another membership. Resend never reopens an old invitation: it supersedes it and creates a new ID. Expired, revoked, superseded, canceled, and cross-tenant attempts fail closed. Revoked membership and ended/canceled contract episodes are not silently resurrected: a later authorized relationship uses new invitation, membership episode, contract event, or contract episode. Event, snapshot, audit, and lifecycle evidence remains append-only.
 
-### 4.1 Customer access predicate
-
-The authoritative customer-access decision must be computed, not inferred from a
-single status:
+### 4.2 Customer-access predicate
 
 ```text
 verified Auth identity
 AND accepted active organization membership
 AND exactly one active organization lifecycle (hard ceiling)
 AND requested project belongs to that organization
-AND a current, unambiguous, time-valid entitlement snapshot permits the requested capability
-AND no project lifecycle restriction denies the requested project
+AND current, unambiguous, time-valid entitlement permits capability
+AND no project lifecycle restriction denies the project
+AND no required Phase 4 downstream checkpoint is pending or failed
 ```
 
-Missing, ambiguous, expired, contradictory, or unavailable input denies access.
-Authentication alone, a legacy customer profile, a legacy subscription row, a
-provider event, and a service-role client are each insufficient. Anonymous demo
-read behavior remains the explicit Phase 3 demo exception and must never become a
-customer fallback.
+Missing, ambiguous, contradictory, expired, unavailable, or non-active input denies. Authentication, legacy profile/subscription, normalized payment fact, provider event, service-role client, and anonymous demo behavior are each insufficient. The Phase 3 demo exception is never a customer fallback.
 
-### 4.2 Transition authority and causality
+## 5. Event, projection, entitlement, access, and lifecycle recovery contract
+
+Contract projection and billing-event processing are separate. A billing receipt says how an input is handled; a normalized billing/payment fact says what was observed; a contract projection says the current provider-neutral relationship. None is an entitlement pointer or access grant.
+
+1. When effects are in one data store, one atomic command/transaction must perform event dedupe, append-only event/receipt write, projection update, approved policy resolution, immutable snapshot creation, same-scope pointer update, command/audit receipt, and `applied` outcome.
+2. Derived access evaluates only committed authority. Receipt cannot become `applied` until every required downstream effect is committed and causally referenced.
+3. If a required Phase 3 lifecycle command or protected boundary cannot join that transaction, the atomic command writes durable outbox/checkpoint data: correlation ID, idempotency key, expected lifecycle version, required effect, retry schedule, and safe failure category. Until successful receipt, derived access fails closed with stable non-sensitive pending/failure reason.
+4. `reconciliation_required` is mandatory for unsafe ordering, source conflict, incomplete projection/pointer chain, contradictory idempotency content, or bounded retry exhaustion. It is never silently replayed as a new commercial event.
+5. Retry reuses the exact source/command key and returns prior outcome. Permanent failure records failed receipt/checkpoint and needs authorized operator reconciliation with reason/audit record.
+6. Correction is a compensating append-only event/fact and, where required, new projection/snapshot/pointer. It never overwrites event, fact, snapshot, pointer history, audit receipt, or lifecycle evidence.
+7. Access suspension and retention/deletion are separate causal steps. Policy may request Phase 3 `access_suspended`; retention begins only through its own Phase 3 command/evidence. Retention failure neither re-enables access nor deletes data.
+
+## 6. Customer-safe and actor allowlists
+
+No UI is chosen. A later server surface may return only this **customer-safe derived contract/account summary** after the derived access check:
+
+| Customer-safe allowlist | Explicit exclusion |
+| --- | --- |
+| Derived access allowed/denied and stable non-sensitive reason category. | Provider customer/subscription/invoice/payment IDs, payment method, raw webhook/payload/signature, exception metadata, internal notes, operator audit, reconciliation detail. |
+| Effective entitlement period only when policy authorizes it, and scoped capability availability expressed safely. | Marketed plan, price, tax, discount, grace/dunning explanation, policy document, entitlement snapshot/pointer IDs, internal policy versions unless separately approved. |
+| Caller's own verified-account status, own safe membership scope/role, and explicit organization/project selection state. | Other users' membership, tenant commercial state, internal lifecycle, service-role result, control data, or audit data. |
+
+The downstream entitlement contract remains private to trusted server consumers. A separate server view-model may derive the customer-safe result; it must not forward the resolver output wholesale to a browser.
+
+| Actor | Allowlisted operations (UI-independent) | Prohibited operations |
+| --- | --- | --- |
+| Customer | Own login/logout, recovery, own verified email/password change through Auth proof, explicit scope selection, accept bound invitation, read own safe summary, request permitted account action. | Create/cancel/resend invitation; change membership role/status; alter contract/billing; move pointer; reconcile/lifecycle command; read provider/internal/audit data. |
+| Authorized operator | Create/cancel/resend invitation; suspend/revoke/reactivate membership; approved manual contract command; reconcile receipt/projection; policy activation only with separate product authority; Phase 3 lifecycle command; all verified/reasoned/audited server command. | Act as customer, use service role as actor, expose raw provider payload, bypass Phase 3 authorization/evidence. |
+| Provider-neutral adapter | Normalize manual fixture or future validated provider input into receipt/fact command. | Live provider API/webhook in Stage 1; direct RLS bypass/pointer write; actor/operator impersonation. |
+| Service role | Execute server command after verified actor/event authorization. | Browser credential, actor classification, autonomous access grant, audit bypass. |
+## 7. Proposed implementation split: three Waves maximum
+
+No child Issue is created by this Stage 1 baseline. Each child requires its own later R2/R3 Execute approval.
 
 ```text
-validated manual command or validated provider event
-  → append-only contract/billing event
-  → current contract projection
-  → plan-policy resolution
-  → new immutable entitlement snapshot
-  → current-snapshot pointer update
-  → derived customer access decision
-  → Phase 3 data-lifecycle command only when an approved policy requires it
+Wave 1
+  P4-A: common canonical Phase 4 state/event persistence and server command boundary
+      |\
+      | \-- Wave 2 P4-B: account, invitation, membership, and derived-access commands
+      |
+      \---- Wave 2 P4-C: fixture/normalized-event adapter, contract projection,
+                           entitlement and lifecycle integration
+                 \         /
+                  \-------/
+                   Wave 3 P4-D: compatibility cutover and end-to-end release gate
 ```
 
-- The command is idempotent by a source event ID or a generated command key scoped
-  to its tenant/project. Duplicate delivery returns the prior outcome; it must not
-  create a second snapshot or transition.
-- Provider signature validation happens at ingress before any state write. Raw
-  signatures, secrets, payment payloads, and full provider responses are not
-  stored in customer-visible data or audit summaries.
-- Out-of-order events do not overwrite later state. They remain append-only
-  evidence and become `reconciliation_required` when a deterministic ordering rule
-  cannot safely apply them.
-- Reversal is a new correction event, contract projection, snapshot, and pointer
-  update; no historical event or snapshot is edited.
-- A payment failure, pause, cancellation, or end has no pre-decided commercial
-  grace behavior here. Product policy later chooses the permitted transition; the
-  implementation must still make it explicit, audited, idempotent, and fail closed.
+| Wave | Proposed child Issue | Scope owned by the child | Parallel/decision boundary |
+| --- | --- | --- | --- |
+| 1 | P4-A: common canonical authority/state/event foundation | Sole Phase 4 additive persistence owner: business lifecycle current plus append-only history; invitation current/history or one-time contract; provider-neutral contract current plus append-only events; normalized billing receipt/dedupe/order/reconciliation; causal references to Phase 3 policy/snapshot/lifecycle/audit; server-only command interfaces; compatibility-inventory gate. | No provider, price, registration, or live-cutover decision. Stable shared schema/interface and fixture boundary complete before Wave 2. |
+| 2 | P4-B: account/invitation/membership and derived access | Auth-adjacent server commands, invitation acceptance, membership commands, explicit scope selection, and derived customer-access gate using P4-A/Phase 3 contracts. | Depends on P4-A; edits no migration and no P4-C contract/billing files. No final UI/registration decision. |
+| 2 | P4-C: provider-neutral fixture, billing normalization, and projection | Manual fixture plus provider-neutral normalized-event adapter; contract projection; atomic snapshot/pointer effect; lifecycle checkpoint/outbox recovery; negative/idempotency tests. | Depends on P4-A; edits no migration/Auth flow; no live provider call. Interface, fixture, and fail-closed policy hooks can precede provider/price/trial/cadence choice; policy activation/live cutover cannot. |
+| 3 | P4-D: compatibility cutover and release proof | End-to-end security/recovery/compatibility/customer-safe/operator-audit proof and release/cutover gate. | Depends on P4-B/P4-C. It alone proposes compatibility cutover and does not expand into Phase 5-10. |
 
-## 5. Account and membership contract
+## 8. Compatibility, rollback, and stop conditions
 
-1. Signup, login, confirmation, recovery, password change, and email change are
-   identity operations. They never create a customer membership merely because a
-   provider account exists.
-2. An invitation binds intended organization, intended email or verified identity,
-   invited role, expiry, issuer, and opaque one-time invitation ID. It rejects
-   cross-tenant acceptance, hijack, replay, cancel-after-accept, duplicate active
-   membership, and open redirect.
-3. A user may have multiple organizations. Implicit organization selection fails
-   closed when absent or ambiguous; explicit organization/project scope is checked
-   against active membership and ownership.
-4. Suspend, revoke, and reactivate are explicit operator commands. Reactivation
-   needs a new authorization decision; it never revives a revoked invitation or
-   overrides the organization lifecycle hard ceiling.
-5. Customer roles (`owner`, `admin`, `member`, `viewer`) can constrain permitted
-   customer actions, but may not weaken Phase 3 membership, lifecycle, project, or
-   entitlement predicates.
+Keep legacy `plan_configs`, `customer_profiles`, `customer_subscriptions`, and demo bootstrap read-compatible until P4-D proves approved cutover. Do not infer commercial truth from mutable/demo rows. Preserve healthy entitlement/access behavior when a new command path fails. Roll back through feature-gated read routing and compensating event/snapshot/correction records, never destructive cleanup or historical mutation.
 
-## 6. Contract, billing, and entitlement source contract
+Stop for Human review if a product decision is required; a proposal weakens Phase 3 fail-closed behavior; an effect cannot be atomic or durably recoverable; a legacy row would become authority; DB/Supabase/provider/environment/production use is needed without approval; or lifecycle, membership, entitlement, audit, customer-safe, or retention evidence fails.
 
-- A contract is the provider-neutral, organization-scoped authorization input. A
-  project may receive a scoped override only through an explicit, tenant-safe
-  contract/policy command.
-- Current contract projection and append-only contract-event history are distinct.
-  Current state is replaceable; events are not.
-- Existing `recora_admin.plan_configs`, `customer_subscriptions`, and JSON
-  documents are mutable compatibility inventory. They are reconciled into a policy
-  version and a new snapshot, never mutated into a historical ledger.
-- Provider identifiers are opaque references with bounded format/length. They are
-  not customer-visible fields and do not carry secrets or payment payloads.
-- Manual contracts and future webhook-originated contracts normalize into the same
-  command/event envelope. Provider adapters own signature verification and mapping;
-  domain commands own tenant validation, idempotency, audit, and snapshot creation.
-- The Phase 3 resolver remains the only consumer-facing entitlement output. No
-  browser table/RPC exposes subscription, billing, policy, exception, or provider
-  details.
+## 9. Stage 1 approved acceptance record
 
-## 7. Customer, operator, and external-actor boundaries
-
-| Actor | Permitted Phase 4 boundary | Prohibited boundary |
-|---|---|---|
-| Customer | own account settings and membership-scoped customer-safe reads after the derived access check | direct writes to contract, billing, entitlement pointer, operator/audit, or lifecycle tables/RPCs |
-| Recora operator | authorized, reasoned, audited server command | acting through a customer browser identity or using service role as the actor |
-| Provider webhook | validated provider-event ingress with opaque source identity | direct operator impersonation, RLS bypass, or raw-payload propagation |
-| Service role | server execution capability behind a verified actor/event command | identity, membership, payment-provider, or customer actor classification |
-
-## 8. Compatibility, migration, and rollback rules
-
-- Start any implementation with a read-only inventory for null, orphan, duplicate,
-  contradictory, or ambiguous legacy customer/profile/subscription/plan rows.
-- Do not infer a customer relationship, membership, payment state, contract start,
-  lifecycle, entitlement, or retention deadline from demo/manual rows.
-- Introduce new state/event/pointer structures additively. Preserve compatibility
-  reads until the new writer, resolver, and customer access decision pass their
-  dedicated tests.
-- A production backfill, provider switch, billing migration, or external webhook
-  activation needs separate R3 approval. Phase 4 rollback is a new corrective
-  event/snapshot or a feature-gated read-path reversal, never deletion or mutation
-  of immutable history.
-
-## 9. Proposed implementation split: three Waves maximum
-
-The following are proposed child Issues only. They require individual R2/R3
-Execute approvals after this Stage 1 review; no Issue is created by this document.
-
-```text
-Wave 1: P4-A state/event foundation
-             │
-             ├──────────────┐
-Wave 2: P4-B account &      P4-C contract/billing adapter and
-        membership commands       entitlement/lifecycle integration
-             │                    │
-             └──────────────┬─────┘
-                            ▼
-Wave 3: P4-D end-to-end security, recovery, and compatibility suite
-```
-
-| Wave | Proposed child Issue | Scope and independent exit criteria | Dependencies / anti-conflict rule |
-|---|---|---|---|
-| 1 | P4-A — Provider-neutral contract/billing state and command foundation | One additive migration set defines contract/event/idempotency/reconciliation and compatibility-read boundaries; server-only command interfaces; no provider SDK/webhook activation or pricing decision. Local schema/RLS/grant/negative tests pass. | Sole Phase 4 migration owner. It imports Phase 3 interfaces and exposes stable interfaces to Wave 2. |
-| 2 | P4-B — Account, invitation, and membership access commands | Auth-adjacent server flows for invitation/accept/suspend/revoke/reactivate and the derived customer-access gate; tests cover enumeration, takeover, tenant substitution, replay, multi-organization ambiguity, and lifecycle hard ceiling. | Depends on P4-A interfaces; no migration edits. Does not decide registration channel or final UI. |
-| 2 | P4-C — Contract/billing adapter normalization and entitlement/lifecycle projection | Manual command and fixture adapter normalize to P4-A events; deterministic snapshot/pointer creation and approved lifecycle command handoff; tests cover duplicate, reverse order, retry, fail closed, pause/cancel/reactivate policy hooks. | Depends on P4-A; no migration edits and no external provider call. It must not modify P4-B Auth flows. |
-| 3 | P4-D — Phase 4 integration/security and compatibility proof | Same isolated local DB verifies account/membership, contract/billing events, snapshots, customer access, lifecycle, operator audit, legacy compatibility, and no customer billing exposure. | Depends on P4-B and P4-C. No downstream UI work; a blocking correction needs separately approved additive scope. |
-
-## 10. Stage 1 acceptance record
-
-- Latest-master static audit evidence is recorded above.
-- No environment file, credential, DB, Supabase CLI/MCP, external payment API,
-  package, lockfile, Auth source, migration, or product source is changed by this
-  specification.
-- Human review must choose the Stage 2 child-Issue execution order and approve the
-  relevant R2/R3 implementation authority before any write-capable work begins.
+- OWNER record 5135247884 approved this Stage 1 baseline after these five documentation corrections.
+- Authority order, real evidence paths, transition matrix, invitation rules, billing separation, atomic/recovery contract, three-Wave boundary, deferred product decisions, and customer-safe allowlists are synchronized with the Exec Plan.
+- Stage 2 child Execute remains unapproved. No child Issue, product implementation, migration, Auth/DB/Supabase/provider action, or UI decision is created by this document.
