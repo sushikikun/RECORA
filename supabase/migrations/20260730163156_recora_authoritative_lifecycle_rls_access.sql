@@ -1,8 +1,10 @@
 -- Issue #117 / 102-3H: bind customer RLS to the same authoritative lifecycle
 -- decision consumed by the service-role resolver. This is additive: the only
 -- compatibility bootstrap creates an organization-level active state for
--- organizations that existed when this migration ran. New scopes require an
--- explicit lifecycle row and therefore fail closed.
+-- organizations that existed when this migration ran. A new organization
+-- requires an explicit organization-level lifecycle row and therefore fails
+-- closed. A project inherits its active organization's state unless it has an
+-- explicit, more restrictive lifecycle row.
 begin;
 
 insert into recora_private.data_lifecycle_current (
@@ -23,7 +25,7 @@ where not exists (
 );
 
 comment on table recora_private.data_lifecycle_current is
-  'Mutable organization or project current lifecycle state. Issue #117 bootstrapped an active organization-level state only for organizations existing during the additive migration; later scopes require an explicit lifecycle decision.';
+  'Mutable organization or project current lifecycle state. Issue #117 bootstrapped an active organization-level state only for organizations existing during the additive migration; a new organization requires an explicit lifecycle decision, while a project inherits active organization state unless it has an explicit restrictive override.';
 
 create or replace function recora_private.resolve_data_lifecycle_access(
   p_organization_id uuid,
@@ -41,8 +43,10 @@ security definer
 set search_path = ''
 as $$
 declare
-  candidate_count integer;
-  lifecycle_row recora_private.data_lifecycle_current%rowtype;
+  organization_candidate_count integer;
+  project_candidate_count integer;
+  organization_lifecycle_row recora_private.data_lifecycle_current%rowtype;
+  project_lifecycle_row recora_private.data_lifecycle_current%rowtype;
   legal_hold_active boolean;
 begin
   if p_organization_id is null or not exists (
@@ -64,86 +68,93 @@ begin
     return;
   end if;
 
-  with candidates as (
-    select
-      current_row.id,
-      case
-        when p_project_id is not null and current_row.project_id = p_project_id then 0
-        else 1
-      end as precedence
-    from recora_private.data_lifecycle_current current_row
-    where current_row.organization_id = p_organization_id
-      and (
-        current_row.project_id is null
-        or (p_project_id is not null and current_row.project_id = p_project_id)
-      )
-  ), preferred as (
-    select candidate.id
-    from candidates candidate
-    where candidate.precedence = (
-      select min(candidate_precedence.precedence)
-      from candidates candidate_precedence
-    )
-  )
-  select count(*) into candidate_count
-  from preferred;
+  select count(*) into organization_candidate_count
+  from recora_private.data_lifecycle_current current_row
+  where current_row.organization_id = p_organization_id
+    and current_row.project_id is null;
 
-  if candidate_count = 0 then
+  if organization_candidate_count = 0 then
     return query select false, false, false, 'no_lifecycle_state'::text;
     return;
   end if;
 
-  if candidate_count <> 1 then
+  if organization_candidate_count <> 1 then
     return query select false, false, false, 'ambiguous_lifecycle_state'::text;
     return;
   end if;
 
-  with candidates as (
-    select
-      current_row.id,
-      case
-        when p_project_id is not null and current_row.project_id = p_project_id then 0
-        else 1
-      end as precedence
-    from recora_private.data_lifecycle_current current_row
-    where current_row.organization_id = p_organization_id
-      and (
-        current_row.project_id is null
-        or (p_project_id is not null and current_row.project_id = p_project_id)
-      )
-  )
-  select current_row.* into lifecycle_row
-  from candidates candidate
-  join recora_private.data_lifecycle_current current_row
-    on current_row.id = candidate.id
-  where candidate.precedence = (
-    select min(candidate_precedence.precedence)
-    from candidates candidate_precedence
-  );
+  select current_row.* into organization_lifecycle_row
+  from recora_private.data_lifecycle_current current_row
+  where current_row.organization_id = p_organization_id
+    and current_row.project_id is null;
 
-  legal_hold_active := lifecycle_row.legal_hold_started_at is not null
-    and lifecycle_row.legal_hold_released_at is null;
+  legal_hold_active := organization_lifecycle_row.legal_hold_started_at is not null
+    and organization_lifecycle_row.legal_hold_released_at is null;
 
-  if lifecycle_row.state = 'active'::recora_private.data_lifecycle_state then
+  if organization_lifecycle_row.state <> 'active'::recora_private.data_lifecycle_state then
+    if organization_lifecycle_row.state = 'retained'::recora_private.data_lifecycle_state
+      and organization_lifecycle_row.restore_eligible
+      and organization_lifecycle_row.restore_deadline_at is not null
+      and organization_lifecycle_row.restore_deadline_at > clock_timestamp()
+      and organization_lifecycle_row.deletion_started_at is null
+      and not legal_hold_active
+    then
+      return query select false, false, true, 'retained_restore_eligible'::text;
+      return;
+    end if;
+
+    return query select false, false, false, organization_lifecycle_row.state::text;
+    return;
+  end if;
+
+  if p_project_id is null then
     return query select true, true, false, 'active'::text;
     return;
-  elsif lifecycle_row.state = 'retained'::recora_private.data_lifecycle_state
-    and lifecycle_row.restore_eligible
-    and lifecycle_row.restore_deadline_at is not null
-    and lifecycle_row.restore_deadline_at > clock_timestamp()
-    and lifecycle_row.deletion_started_at is null
+  end if;
+
+  select count(*) into project_candidate_count
+  from recora_private.data_lifecycle_current current_row
+  where current_row.organization_id = p_organization_id
+    and current_row.project_id = p_project_id;
+
+  if project_candidate_count = 0 then
+    return query select true, true, false, 'active'::text;
+    return;
+  end if;
+
+  if project_candidate_count <> 1 then
+    return query select false, false, false, 'ambiguous_lifecycle_state'::text;
+    return;
+  end if;
+
+  select current_row.* into project_lifecycle_row
+  from recora_private.data_lifecycle_current current_row
+  where current_row.organization_id = p_organization_id
+    and current_row.project_id = p_project_id;
+
+  legal_hold_active := project_lifecycle_row.legal_hold_started_at is not null
+    and project_lifecycle_row.legal_hold_released_at is null;
+
+  if project_lifecycle_row.state = 'active'::recora_private.data_lifecycle_state then
+    return query select true, true, false, 'active'::text;
+    return;
+  elsif project_lifecycle_row.state = 'retained'::recora_private.data_lifecycle_state
+    and project_lifecycle_row.restore_eligible
+    and project_lifecycle_row.restore_deadline_at is not null
+    and project_lifecycle_row.restore_deadline_at > clock_timestamp()
+    and project_lifecycle_row.deletion_started_at is null
     and not legal_hold_active
   then
     return query select false, false, true, 'retained_restore_eligible'::text;
     return;
   end if;
 
-  return query select false, false, false, lifecycle_row.state::text;
+  return query select false, false, false, project_lifecycle_row.state::text;
 end;
 $$;
 
 comment on function recora_private.resolve_data_lifecycle_access(uuid, uuid) is
-  'Authoritative lifecycle selection for service-role resolution and customer RLS: exact project state takes precedence over organization fallback; invalid, missing, and ambiguous scopes fail closed.';
+  'Authoritative lifecycle selection for service-role resolution and customer RLS: exactly one active organization lifecycle is the hard customer-access ceiling; a project inherits it unless one exact project row adds a restrictive override. Invalid, missing, and ambiguous scopes fail closed.';
 
 create or replace function recora_private.is_customer_lifecycle_access_allowed(
   p_organization_id uuid,
@@ -216,6 +227,16 @@ as $$
     );
 $$;
 
+drop policy if exists "recora_member_organization_members_select" on public.organization_members;
+create policy "recora_member_organization_members_select"
+on public.organization_members
+for select
+to authenticated
+using (
+  user_id = (select auth.uid())
+  and recora_private.can_read_organization(organization_id)
+);
+
 create or replace function public.recora_resolve_data_lifecycle_access(
   p_organization_id uuid,
   p_project_id uuid default null
@@ -267,6 +288,6 @@ grant execute on function recora_audit.is_safe_audit_summary_value(jsonb, intege
   to service_role;
 
 comment on function public.recora_resolve_data_lifecycle_access(uuid, uuid) is
-  'Service-role-only lifecycle resolver backed by recora_private.resolve_data_lifecycle_access. It returns only access, measurement, restore booleans and stable reason codes.';
+  'Service-role-only lifecycle resolver backed by recora_private.resolve_data_lifecycle_access. It returns only access, measurement, restore booleans and stable reason codes, with organization lifecycle as the hard customer-access ceiling.';
 
 commit;

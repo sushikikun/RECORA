@@ -38,6 +38,13 @@ assert.ok(fs.existsSync(path.join(supabaseWorkdir, "supabase", "config.toml")), 
 assert.ok(fs.existsSync(supabaseCli), "Local Supabase CLI dependency is missing.");
 assert.ok(fs.existsSync(tsxCli), "Local tsx dependency is missing.");
 const recoraDbTypesSource = fs.readFileSync(recoraDbTypesPath, "utf8");
+const lifecycleRlsMigrationPath = path.join(
+  repoRoot,
+  "supabase",
+  "migrations",
+  "20260730163156_recora_authoritative_lifecycle_rls_access.sql",
+);
+const lifecycleRlsMigrationSql = fs.readFileSync(lifecycleRlsMigrationPath, "utf8");
 assert.match(recoraDbTypesSource, /export type RecoraOrganizationMembershipStatus\s*=\s*\| "invited"\s*\| "active"\s*\| "suspended"\s*\| "revoked"/);
 assert.match(recoraDbTypesSource, /export type RecoraOrganizationRow[\s\S]*?is_demo: boolean/);
 assert.match(recoraDbTypesSource, /export type RecoraOrganizationMemberRow[\s\S]*?membership_status: RecoraOrganizationMembershipStatus/);
@@ -246,6 +253,48 @@ $migration_only$;
 `);
 
 runSupabase("Issue #117 seeded reset", ["db", "reset", "--local"]);
+const seededDemoFixtureCheckSql = `
+begin;
+do $seeded_demo_lifecycle$
+begin
+  if (select count(*)
+      from recora_private.data_lifecycle_current lifecycle_row
+      where lifecycle_row.organization_id = '00000000-0000-4000-8000-000000000001'
+        and lifecycle_row.project_id is null
+        and lifecycle_row.state = 'active'::recora_private.data_lifecycle_state) <> 1 then
+    raise exception 'seeded demo requires exactly one explicit active organization lifecycle row';
+  end if;
+
+  if exists (
+    select 1
+    from recora_private.data_lifecycle_events event_row
+    where event_row.organization_id = '00000000-0000-4000-8000-000000000001'
+  ) then
+    raise exception 'seeded demo lifecycle fixture must not create a lifecycle event';
+  end if;
+end;
+$seeded_demo_lifecycle$;
+
+set local role anon;
+select set_config('request.jwt.claim.role', 'anon', true);
+select set_config('request.jwt.claim.sub', '', true);
+do $seeded_demo_anon_read$
+begin
+  if (select count(*) from public.organizations where id = '00000000-0000-4000-8000-000000000001') <> 1
+    or (select count(*) from public.projects where id = '10000000-0000-4000-8000-000000000001') <> 1
+    or (select count(*) from public.brands where project_id = '10000000-0000-4000-8000-000000000001') = 0
+    or not recora_private.can_read_organization('00000000-0000-4000-8000-000000000001')
+    or not recora_private.can_read_project('10000000-0000-4000-8000-000000000001')
+    or exists (select 1 from public.organizations where is_demo is false) then
+    raise exception 'seeded demo lifecycle/RLS boundary failed';
+  end if;
+end;
+$seeded_demo_anon_read$;
+commit;
+`;
+queryLocal(seededDemoFixtureCheckSql);
+runSupabase("Issue #117 seeded reset idempotency", ["db", "reset", "--local"]);
+queryLocal(seededDemoFixtureCheckSql);
 const migrationList = runSupabase("Issue #117 local migration list", ["migration", "list", "--local"]);
 assert.match(migrationList, /20260730163156/, "Issue #117 local migration list is missing the authoritative lifecycle/RLS migration.");
 
@@ -393,6 +442,19 @@ begin
     raise exception 'Phase 3 catalog RLS/policy drift: %', missing_policies;
   end if;
 
+  if not exists (
+    select 1
+    from pg_policy policy_row
+    join pg_class relation_row on relation_row.oid = policy_row.polrelid
+    join pg_namespace namespace_row on namespace_row.oid = relation_row.relnamespace
+    where namespace_row.nspname = 'public'
+      and relation_row.relname = 'organization_members'
+      and policy_row.polname = 'recora_member_organization_members_select'
+      and position('user_id' in pg_get_expr(policy_row.polqual, policy_row.polrelid)) > 0
+      and position('recora_private.can_read_organization(organization_id)' in pg_get_expr(policy_row.polqual, policy_row.polrelid)) > 0
+  ) then
+    raise exception 'organization_members lifecycle-aware select policy drift';
+  end if;
   if (select array_agg(enumlabel::text order by enumsortorder)
       from pg_enum where enumtypid = 'public.recora_organization_membership_status'::regtype)
       is distinct from array['invited','active','suspended','revoked'] then
@@ -457,6 +519,11 @@ $phase3_catalog_type_drift$;
 
 const childResults = Object.fromEntries(childCases.map((caseDefinition) => [caseDefinition.id, runChild(caseDefinition)]));
 const payloadResult = runIssue114Verifier();
+
+// 3F deliberately replays its historical migration as part of its isolated
+// contract. Restore the current additive lifecycle migration before the final
+// cross-component inventory and matrix assert the latest-master schema.
+queryLocal(lifecycleRlsMigrationSql);
 
 queryLocal(`
 do $phase3_full_inventory$
@@ -698,6 +765,8 @@ begin
   if (select count(*) from public.organizations where id = '11710000-0000-4000-8000-000000000001') <> 1
     or (select count(*) from public.projects where id = '11720000-0000-4000-8000-000000000001') <> 1
     or (select count(*) from public.brands where id = '11730000-0000-4000-8000-000000000001') <> 1
+    or (select count(*) from public.organization_members where organization_id = '11710000-0000-4000-8000-000000000001' and user_id = (select auth.uid())) <> 1
+    or exists (select 1 from public.organization_members where organization_id = '11710000-0000-4000-8000-000000000001' and user_id <> (select auth.uid()))
     or exists (select 1 from public.organizations where id = '11710000-0000-4000-8000-000000000002')
     or exists (select 1 from public.projects where id = '11720000-0000-4000-8000-000000000002')
     or recora_private.can_read_organization('11710000-0000-4000-8000-000000000002')
@@ -728,6 +797,7 @@ begin
       join public.organizations organization_row on organization_row.id = project_row.organization_id
       where brand_row.id = '11730000-0000-4000-8000-000000000001'
     )
+    or exists (select 1 from public.organization_members where organization_id = '11710000-0000-4000-8000-000000000001')
     or recora_private.can_read_organization('11710000-0000-4000-8000-000000000001')
     or recora_private.can_read_project('11720000-0000-4000-8000-000000000001') then
     raise exception 'customer RLS/Data API lifecycle denial failed for %', p_state;
@@ -747,14 +817,15 @@ begin
 end;
 $$;
 
-create function pg_temp.assert_project_override_active() returns void language plpgsql as $$
+create function pg_temp.assert_organization_hard_ceiling_denied() returns void language plpgsql as $$
 begin
   if exists (select 1 from public.organizations where id = '11710000-0000-4000-8000-000000000001')
-    or (select count(*) from public.projects where id = '11720000-0000-4000-8000-000000000001') <> 1
-    or (select count(*) from public.brands where id = '11730000-0000-4000-8000-000000000001') <> 1
+    or exists (select 1 from public.projects where id = '11720000-0000-4000-8000-000000000001')
+    or exists (select 1 from public.brands where id = '11730000-0000-4000-8000-000000000001')
+    or exists (select 1 from public.organization_members where organization_id = '11710000-0000-4000-8000-000000000001')
     or recora_private.can_read_organization('11710000-0000-4000-8000-000000000001')
-    or not recora_private.can_read_project('11720000-0000-4000-8000-000000000001') then
-    raise exception 'project lifecycle precedence differs from RLS';
+    or recora_private.can_read_project('11720000-0000-4000-8000-000000000001') then
+    raise exception 'organization lifecycle hard ceiling was bypassed by an active project';
   end if;
 end;
 $$;
@@ -763,11 +834,12 @@ create function pg_temp.assert_project_scope_denied() returns void language plpg
 begin
   if (select count(*) from public.organizations where id = '11710000-0000-4000-8000-000000000001') <> 1
     or not recora_private.can_read_organization('11710000-0000-4000-8000-000000000001')
+    or (select count(*) from public.organization_members where organization_id = '11710000-0000-4000-8000-000000000001' and user_id = (select auth.uid())) <> 1
     or exists (select 1 from public.projects where id = '11720000-0000-4000-8000-000000000001')
     or exists (select 1 from public.projects where slug = 'issue-117-lifecycle-project-a')
     or exists (select 1 from public.brands where id = '11730000-0000-4000-8000-000000000001')
     or recora_private.can_read_project('11720000-0000-4000-8000-000000000001') then
-    raise exception 'project-specific lifecycle denial differs from RLS';
+    raise exception 'project-specific restrictive lifecycle differs from RLS';
   end if;
 end;
 $$;
@@ -796,6 +868,7 @@ create function pg_temp.assert_missing_customer_scope() returns void language pl
 begin
   if exists (select 1 from public.organizations where id = '11710000-0000-4000-8000-000000000004')
     or exists (select 1 from public.projects where id = '11720000-0000-4000-8000-000000000004')
+    or exists (select 1 from public.organization_members where organization_id = '11710000-0000-4000-8000-000000000004')
     or recora_private.can_read_organization('11710000-0000-4000-8000-000000000004')
     or recora_private.can_read_project('11720000-0000-4000-8000-000000000004') then
     raise exception 'missing lifecycle customer scope was not fail closed';
@@ -807,6 +880,7 @@ create function pg_temp.assert_ambiguous_fallback_scope_denied() returns void la
 begin
   if exists (select 1 from public.organizations where id = '11710000-0000-4000-8000-000000000002')
     or exists (select 1 from public.projects where id = '11720000-0000-4000-8000-000000000002')
+    or exists (select 1 from public.organization_members where organization_id = '11710000-0000-4000-8000-000000000002')
     or recora_private.can_read_organization('11710000-0000-4000-8000-000000000002')
     or recora_private.can_read_project('11720000-0000-4000-8000-000000000002') then
     raise exception 'ambiguous organization fallback scope was readable';
@@ -908,17 +982,34 @@ select set_config('request.jwt.claim.sub', '11700000-0000-4000-8000-000000000001
 select pg_temp.assert_project_scope_denied();
 reset role;
 
-update recora_private.data_lifecycle_current set state = 'access_suspended'
-where organization_id = '11710000-0000-4000-8000-000000000001' and project_id is null;
 update recora_private.data_lifecycle_current set state = 'active'
 where organization_id = '11710000-0000-4000-8000-000000000001' and project_id = '11720000-0000-4000-8000-000000000001';
 select pg_temp.assert_resolver_access('11710000-0000-4000-8000-000000000001', '11720000-0000-4000-8000-000000000001', true, 'active');
 set local role authenticated;
-select pg_temp.assert_project_override_active();
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '11700000-0000-4000-8000-000000000001', true);
+select pg_temp.assert_customer_scope_active();
+reset role;
+
+update recora_private.data_lifecycle_current set state = 'access_suspended'
+where organization_id = '11710000-0000-4000-8000-000000000001' and project_id is null;
+select pg_temp.assert_resolver_access('11710000-0000-4000-8000-000000000001', '11720000-0000-4000-8000-000000000001', false, 'access_suspended');
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '11700000-0000-4000-8000-000000000001', true);
+select pg_temp.assert_organization_hard_ceiling_denied();
 reset role;
 
 update recora_private.data_lifecycle_current set state = 'active'
 where organization_id = '11710000-0000-4000-8000-000000000001' and project_id is null;
+update recora_private.data_lifecycle_current set state = 'access_suspended'
+where organization_id = '11710000-0000-4000-8000-000000000001' and project_id = '11720000-0000-4000-8000-000000000001';
+select pg_temp.assert_resolver_access('11710000-0000-4000-8000-000000000001', '11720000-0000-4000-8000-000000000001', false, 'access_suspended');
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '11700000-0000-4000-8000-000000000001', true);
+select pg_temp.assert_project_scope_denied();
+reset role;
 set local role anon;
 select set_config('request.jwt.claim.role', 'anon', true);
 select set_config('request.jwt.claim.sub', '', true);
@@ -952,16 +1043,16 @@ console.log(
       scope: "issue-117-phase3-integration-security",
       database: "isolated-local-only",
       container: dbContainer,
-      resets: { migrationOnly: "passed", seeded: "passed" },
+      resets: { migrationOnly: "passed", seeded: "passed", seededIdempotency: "passed", standardDemoLifecycleAnonRead: "passed" },
       contracts: { ...childResults, "3G": payloadResult },
       matrix: {
-        identityMembershipLifecycle: "direct-authoritative-lifecycle-RLS-active-nonactive-missing-ambiguous-and-anon-demo",
+        identityMembershipLifecycle: "direct-authoritative-lifecycle-RLS-and-organization-members-active-nonactive-missing-ambiguous-recovery-and-anon-demo",
         compositeIntegrity: "passed-by-3C",
         entitlementHistoryPayload: "passed-by-3D-3G",
         operatorAuditLifecycle: "passed-by-3E-3F",
         grantsFunctionsSchema: "full-public-private-table-view-sequence-policy-function-and-security-definer-inventory",
         customerInformationBoundary: "PR-71-ten-area-exact-key-classification-fixture",
-        lifecycleRlsAuthority: "shared-private-resolution-with-project-precedence-and-organization-fallback",
+        lifecycleRlsAuthority: "shared-private-resolution-with-organization-hard-ceiling-and-project-restrictive-override",
         catalogTypeDrift: "3C-through-3H-relations-columns-constraints-enums-signatures-and-grants",
         classificationFixture: customerInformationClassificationFixture
       },

@@ -1,6 +1,6 @@
 # Recora data, tenant security, and privacy contract
 
-Status: **Issue #102 Stage 1 revised after OWNER Human review follow-up / Human review required**
+Status: **Issue #102 Phase 3 Stage 2 implementation complete / final 102-3H merge gate (PR #118)**
 
 This document defines the Phase 3 common data, tenant-security, and privacy foundation.
 It also defines the interfaces that later phases must consume without assigning their
@@ -15,7 +15,8 @@ For Issue #102, use the following order. A lower source cannot override a higher
 3. [OWNER parallel-development policy 5117068026](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117068026)
 4. [OWNER Human review 5117210498](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117210498)
 5. [OWNER Human review follow-up 5117655117](https://github.com/sushikikun/RECORA/issues/102#issuecomment-5117655117)
-6. Confirmed implementation facts on `master` at `4fcd505`
+6. [OWNER final 102-3H review follow-up 5134202088](https://github.com/sushikikun/RECORA/issues/117#issuecomment-5134202088)
+7. Confirmed `master` baseline at `f041c6cfd87e78d3fff3a8236c80acf79ca25814` and the final 102-3H correction in PR #118
 
 [`recora-agentic-sdlc.md`](./recora-agentic-sdlc.md) controls lifecycle and approval
 mechanics. Existing architecture documents, PRs, and unmerged branches, including
@@ -41,8 +42,7 @@ information structure is a formal product criterion that Issue #102 must preserv
 - common external-AI payload allowlist, denylist, and safety-inspection foundation
 - fresh replay, cross-tenant, RLS, permission, and historical-immutability security tests
 
-Stage 1 documents and plans this scope only. It does not implement schema, RLS, API,
-Auth, database, or external-provider changes.
+The Stage 1 material below is retained as historical planning evidence. Current authority is the completed Phase 3 Stage 2 implementation: 102-3A through 102-3G are merged, and 102-3H / PR #118 is the final integration and merge gate. It does not add Phase 4-10 product or runtime features.
 
 ### 1.2 Later phases own their product and runtime implementation
 
@@ -584,49 +584,43 @@ Stage 1 validates repository evidence and document integrity only. It does not v
 These are explicit Phase 3 or downstream inputs, not silent assumptions and not Stage 2
 Execute authorization.
 
-## 16. Phase 3 integration evidence (Issue #117 / 102-3H)
+## 16. Current Phase 3 integration evidence (Issue #117 / 102-3H)
 
-OWNER Human review comment `5133496218` supersedes the first 3H conclusion:
-customer RLS could bypass the service-role lifecycle resolver, which is a Phase
-3 blocking defect. The correction is the additive migration
-`20260730163156_recora_authoritative_lifecycle_rls_access.sql`.
+OWNER review follow-up `5134202088` supersedes the earlier 3H correction record.
+It identified three remaining Phase 3 blocking defects: `organization_members`
+RLS could bypass lifecycle, an active project could reopen an organization-level
+deny, and seeded reset could remove the demo lifecycle bootstrap without replacing
+it. The current PR #118 correction resolves all three without changing any merged
+3A-3G migration.
 
-It centralizes lifecycle selection in
-`recora_private.resolve_data_lifecycle_access(uuid, uuid)`. The public 3F
-resolver and customer RLS helpers use the same selection: exact project state
-wins over organization fallback; only `active` allows customer access and new
-measurement; invalid, missing, and ambiguous selection fails closed. To preserve
-existing organization compatibility, the migration adds an organization-level
-`active` lifecycle row only where an organization already exists and lacks one.
-It does not infer tenant ownership, create a fake operator/service actor, or
-create audit/lifecycle events. New scopes require an explicit lifecycle row.
+`20260730163156_recora_authoritative_lifecycle_rls_access.sql` remains the one
+additive correction migration. Its private authoritative resolver now requires
+exactly one organization-level lifecycle row in `active` state as the hard
+customer-access and new-measurement ceiling. Only after that ceiling passes may
+one exact project row add a restrictive override; no project row inherits the
+active organization state. Missing or ambiguous organization/project rows and
+all non-active states fail closed. The service-only 3F resolver and customer RLS
+helpers consume the same decision and reason code.
 
-On the Issue #117-only local database, migration-only and seeded replay; updated
-3C; all 3A–3G contracts; expanded lifecycle/RLS matrix; public/private table,
-view, sequence, policy, function, and security-definer inventory; exact PR #71
-ten-area classification fixture; and 3C–3H catalog/type drift matrix passed
-with machine `status: ok`. The matrix directly proves active customer access;
-all six non-active states, missing state, and deliberate ambiguity deny
-Data API/RLS direct, slug, list, search, count, pagination, JOIN, and RLS-helper
-RPC paths; active recovery works; project precedence matches RLS; and anon
-demo/local is denied for non-active or missing lifecycle.
+The migration recreates `recora_member_organization_members_select` so an
+accepted authenticated actor can read only its own membership row and only when
+`recora_private.can_read_organization(organization_id)` permits that organization.
+The 3C regression and 3H matrix directly verify active visibility and
+non-active, missing, ambiguous, cross-tenant, and recovery denial. A seeded
+`recora-internal-demo` now upserts exactly one explicit organization-level
+`active` lifecycle fixture without an actor, audit event, or lifecycle event;
+project access inherits it. Seed rerun is asserted idempotently.
 
-The fixture preserves answer body/excerpt and citation/source as customer-safe
-candidates for the exact ten PR #71 areas, while rejecting raw provider envelope,
-internal metadata/error, retry/control, cost, audit, operator note, billing, and
-other-tenant keys. Full catalog inventory enforces RLS, no browser writes or
-sequence use, private-relation isolation, function signature allowlists, no
-default PUBLIC execute, fixed `search_path` for every security definer, and
-service-role-only privileged RPCs.
-
-No generated DB-type canonical file exists. The local CLI requests a Platform
-token even for `gen types --local`; no token, `.env`, remote/linked/production
-DB, provider, fetch, DNS, DB push, analytics container, or actual deletion was
-used. The local catalog matrix is the type-drift authority; TypeScript checking
-is supplementary. A production application still requires a live lifecycle
-source inventory before the deterministic bootstrap is acceptable. Any rollback
-must be a separately approved forward migration that updates resolver and RLS
-together and leaves bootstrap rows intact rather than deleting data.
+The Issue #117-only local suite re-runs migration-only and seeded resets, standard
+seed demo anon read before any private fixture, updated 3A-3G contracts, the
+organization hard-ceiling/project-restrictive matrix, `organization_members`
+RLS, UUID/slug/list/search/count/pagination/JOIN/helper paths, full
+relation/policy/sequence/function/grant/`SECURITY DEFINER` inventory, the exact
+PR #71 ten-area classification fixture, and catalog/hand-maintained type drift.
+`recora:preflight:full`, typecheck, lint, build, and diff check are part of the
+same final gate. The installed CLI requires a Platform token for `gen types
+--local`; no token or remote path is used, so the local catalog matrix remains
+the DB drift authority and TypeScript checking is supplementary.
 
 | Contract | Issue / PR | merged `master` SHA |
 |---|---|---|
@@ -637,10 +631,19 @@ together and leaves bootstrap rows intact rather than deleting data.
 | 102-3E | #109 / #110 | `4c01eb0cdb3ae45c38dbad2b9596f14ee8df596e` |
 | 102-3F | #113 / #115 | `a495e55a820e41df6432d6479eab52021e02e6b5` |
 | 102-3G | #114 / #116 | `f041c6cfd87e78d3fff3a8236c80acf79ca25814` |
-| 102-3H | #117 / #118 | Draft PR; no merge SHA yet |
+| 102-3H | #117 / #118 | Final conditional merge gate; merge SHA pending |
 
-Issue #102 remains OPEN. It may be considered for close only after PR #118 has
-Human review and an explicitly approved merge, the merged master repeats the
-accepted Phase 3 evidence, and downstream/release owners accept the documented
-interfaces and residual risks. PR #118 remains Draft; no Ready conversion,
-merge, or Issue close is authorized by this evidence.
+The correction is forward-only and rollback-aware: any rollback requires a new
+reviewed migration that changes the authoritative resolver, customer RLS, and
+membership policy together; bootstrap/seed rows are not destructively removed.
+Before production application, a live lifecycle-source inventory must confirm
+bootstrap compatibility. Remote/production DBs, `supabase db push`, external AI,
+URL fetch/DNS, actual deletion, deployment, and Phase 4-10 implementation remain
+out of scope.
+
+At this final gate Issue #102 remains OPEN. OWNER comment `5134202088` authorizes
+PR #118 Ready conversion, normal squash merge, and completed close of #117 and
+#102 only after the specified isolated-local validation, non-force latest-master
+merge, seven-file scope, Recora CI, unresolved-thread, and Vercel/rate-limit
+conditions are all re-confirmed. The merged master SHA and residual downstream
+Phase 4-10 responsibilities are recorded directly on both Issues.
