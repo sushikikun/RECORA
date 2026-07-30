@@ -376,21 +376,55 @@ behavior, and legal retention defaults. This revision does not authorize Stage 2
 
 ## Phase 3 integration record: Issue #117 / 102-3H
 
-Issue #117 used latest `master` including PR #116 merge
-`f041c6cfd87e78d3fff3a8236c80acf79ca25814` and the sole isolated local database
-`supabase_db_recoraissue117`. Migration-only demo-only baseline replay, seeded replay,
-the 3A-3F child contracts, and the DB/network-free 3G contract all returned exit code
-zero with machine `status: ok`.
+OWNER Human review comment `5133496218` found that the earlier 3H suite did
+not prove the required lifecycle-to-customer-RLS boundary. In particular,
+`recora_private.can_read_organization()` did not consume the 3F lifecycle
+resolution and could therefore bypass a non-active decision. The earlier claim
+that no Phase 3 blocking defect existed is superseded.
 
-The cross-component matrix passed: accepted-active membership and lifecycle fail-closed
-checks; Organization/Project A-B direct/list/search/count/pagination/join/RPC isolation;
-composite integrity; immutable entitlement/history; scoped operator/audit; lifecycle
-state/hold/restore/manifest controls; payload privacy; browser grants/RLS and
-security-definer/service-only function boundaries; catalog type/enum contract checks; and
-the PR #71 customer-safe versus raw/internal data boundary. No Phase 3 blocking defect
-was proven, so the authorized minimum additive correction was not needed.
+The corrective additive migration
+`20260730163156_recora_authoritative_lifecycle_rls_access.sql` introduces one
+private authoritative lifecycle resolver. Both the service-role-only 3F resolver
+and the customer RLS helpers consume that selection. It denies invalid, missing,
+and ambiguous state; `active` is the only customer-readable state. Exact project
+state precedes organization fallback. Existing organizations without an
+organization-level lifecycle row receive a deterministic `active` bootstrap;
+new scopes do not. The bootstrap creates no inferred ownership, fake operator,
+service actor, audit event, or lifecycle event.
 
-The installed local CLI required a Platform token for `gen types --local`; no token,
-remote DB, `.env`, provider, fetch, DNS, or real deletion was used. The suite substituted
-local catalog and hand-maintained application type checks plus `tsc --noEmit`; no generated type file exists. Phase 4-9
-interfaces remain those in the parent contract: tenant/entitlement (4), member/project,
+On `supabase_db_recoraissue117` only, migration-only and seeded replay, updated
+3C, 3A–3F, DB/network-free 3G, advisors, full grant/function/schema/policy/
+sequence inventory, PR #71 ten-area classification fixture, and the 3C–3H
+catalog/type matrix all returned machine `status: ok` / exit code zero. The
+matrix directly exercised active customer access; six non-active lifecycle
+states; missing and deliberately ambiguous state; active recovery; project
+precedence; anon demo/local active, non-active, and missing paths; A/B
+substitution; browser-write/raw/private/operator boundaries.
+
+The local CLI requires a Platform token for `gen types --local`. No token,
+remote/linked/production DB, `.env`, provider, URL fetch, DNS, analytics
+container, DB push, or actual deletion was used. With no generated DB-type
+canonical file, the local catalog is the drift authority; TypeScript checking is
+supplementary.
+
+### Phase 3 merge inventory
+
+| Contract | Issue / PR | merged `master` SHA |
+|---|---|---|
+| 102-3A | #80 / #81 | `5df688ac5dc76f30e73baef504ad06e46ec7d68d` |
+| 102-3B | #105 / #106 | `6319ef7fb84a57e8f22b909190ce2e76d4aed135` |
+| 102-3C | #107 / #112 | `d2353bde5f9d503b88c652c2fca29d1abd0cdd9a` |
+| 102-3D | #108 / #111 | `2fb878acfecb9bf80a8a6f1d1c113797b38bcf6f` |
+| 102-3E | #109 / #110 | `4c01eb0cdb3ae45c38dbad2b9596f14ee8df596e` |
+| 102-3F | #113 / #115 | `a495e55a820e41df6432d6479eab52021e02e6b5` |
+| 102-3G | #114 / #116 | `f041c6cfd87e78d3fff3a8236c80acf79ca25814` |
+| 102-3H | #117 / #118 | Draft PR; no merge SHA yet |
+
+The additive correction is rollback-aware but forward-only: any rollback must
+be a separately approved migration that changes the resolver and RLS helpers
+together, without destructively deleting bootstrap rows. Production application
+requires a live lifecycle-source inventory before the bootstrap can be judged
+safe. Issue #102 remains OPEN until PR #118 is Human-reviewed and merged, the
+resulting master repeats the Phase 3 evidence, and downstream/release owners
+accept the interface and residual-risk handoff. PR #118 stays Draft; no Ready,
+merge, or Issue close is authorized here.

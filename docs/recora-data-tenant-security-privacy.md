@@ -586,24 +586,61 @@ Execute authorization.
 
 ## 16. Phase 3 integration evidence (Issue #117 / 102-3H)
 
-On latest `master` including PR #116 merge `f041c6cfd87e78d3fff3a8236c80acf79ca25814`,
-Issue #117 ran the complete Phase 3 suite on one isolated local database. Migration-only
-replay accepted only the approved demo-organization baseline; seeded replay also passed.
-Existing 3A through 3F verifiers and the DB/network-free 3G verifier each returned
-machine `status: ok` and exit code zero.
+OWNER Human review comment `5133496218` supersedes the first 3H conclusion:
+customer RLS could bypass the service-role lifecycle resolver, which is a Phase
+3 blocking defect. The correction is the additive migration
+`20260730163156_recora_authoritative_lifecycle_rls_access.sql`.
 
-The integration matrix confirmed accepted-active identity and lifecycle denials; A/B
-composite tenant isolation across direct, list, search, count, pagination, join, and RPC
-paths; immutable entitlement/history references; scoped operator and append-only audit
-boundaries; lifecycle/hold/restore/manifest integrity; payload privacy; public RLS,
-private relation grants, security-definer grants, service-only RPC grants, and catalog
-column/enum contracts. PR #71 customer-safe answer/excerpt/citation candidates remain
-permitted only through their safe boundary; raw provider, control, audit, and other-tenant
-data remain denied.
+It centralizes lifecycle selection in
+`recora_private.resolve_data_lifecycle_access(uuid, uuid)`. The public 3F
+resolver and customer RLS helpers use the same selection: exact project state
+wins over organization fallback; only `active` allows customer access and new
+measurement; invalid, missing, and ambiguous selection fails closed. To preserve
+existing organization compatibility, the migration adds an organization-level
+`active` lifecycle row only where an organization already exists and lacks one.
+It does not infer tenant ownership, create a fake operator/service actor, or
+create audit/lifecycle events. New scopes require an explicit lifecycle row.
 
-No Phase 3 blocking defect was mechanically proven. No migration, generated type file,
-or downstream feature was added. The installed CLI required a Platform token for local
-type generation, which this Issue does not permit; the local catalog and hand-maintained
-application type contracts plus repository TypeScript check provide the no-network drift check. Phase 4-9 retain the
-interfaces and stop conditions in Section 13.2; their business flows, queue/provider,
-analysis/read-model, dashboard, and admin UI remain unexecuted.
+On the Issue #117-only local database, migration-only and seeded replay; updated
+3C; all 3A–3G contracts; expanded lifecycle/RLS matrix; public/private table,
+view, sequence, policy, function, and security-definer inventory; exact PR #71
+ten-area classification fixture; and 3C–3H catalog/type drift matrix passed
+with machine `status: ok`. The matrix directly proves active customer access;
+all six non-active states, missing state, and deliberate ambiguity deny
+Data API/RLS direct, slug, list, search, count, pagination, JOIN, and RLS-helper
+RPC paths; active recovery works; project precedence matches RLS; and anon
+demo/local is denied for non-active or missing lifecycle.
+
+The fixture preserves answer body/excerpt and citation/source as customer-safe
+candidates for the exact ten PR #71 areas, while rejecting raw provider envelope,
+internal metadata/error, retry/control, cost, audit, operator note, billing, and
+other-tenant keys. Full catalog inventory enforces RLS, no browser writes or
+sequence use, private-relation isolation, function signature allowlists, no
+default PUBLIC execute, fixed `search_path` for every security definer, and
+service-role-only privileged RPCs.
+
+No generated DB-type canonical file exists. The local CLI requests a Platform
+token even for `gen types --local`; no token, `.env`, remote/linked/production
+DB, provider, fetch, DNS, DB push, analytics container, or actual deletion was
+used. The local catalog matrix is the type-drift authority; TypeScript checking
+is supplementary. A production application still requires a live lifecycle
+source inventory before the deterministic bootstrap is acceptable. Any rollback
+must be a separately approved forward migration that updates resolver and RLS
+together and leaves bootstrap rows intact rather than deleting data.
+
+| Contract | Issue / PR | merged `master` SHA |
+|---|---|---|
+| 102-3A | #80 / #81 | `5df688ac5dc76f30e73baef504ad06e46ec7d68d` |
+| 102-3B | #105 / #106 | `6319ef7fb84a57e8f22b909190ce2e76d4aed135` |
+| 102-3C | #107 / #112 | `d2353bde5f9d503b88c652c2fca29d1abd0cdd9a` |
+| 102-3D | #108 / #111 | `2fb878acfecb9bf80a8a6f1d1c113797b38bcf6f` |
+| 102-3E | #109 / #110 | `4c01eb0cdb3ae45c38dbad2b9596f14ee8df596e` |
+| 102-3F | #113 / #115 | `a495e55a820e41df6432d6479eab52021e02e6b5` |
+| 102-3G | #114 / #116 | `f041c6cfd87e78d3fff3a8236c80acf79ca25814` |
+| 102-3H | #117 / #118 | Draft PR; no merge SHA yet |
+
+Issue #102 remains OPEN. It may be considered for close only after PR #118 has
+Human review and an explicitly approved merge, the merged master repeats the
+accepted Phase 3 evidence, and downstream/release owners accept the documented
+interfaces and residual risks. PR #118 remains Draft; no Ready conversion,
+merge, or Issue close is authorized by this evidence.
