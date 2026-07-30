@@ -957,10 +957,12 @@ comment on function recora_private.is_customer_visible_recommendation(
 revoke all on function recora_private.is_customer_visible_recommendation(public.recora_recommendation_state, jsonb)
 from public;
 
--- RLS helpers derive tenant access from database ownership plus accepted active
--- membership. The demo predicate is intentionally anon-only: authenticated
--- callers must satisfy their own accepted active membership. No organization
--- identifier supplied by the caller is trusted.
+-- RLS helpers derive tenant access from the verified request role, database
+-- ownership, and accepted active membership. The demo predicate is
+-- intentionally anon-only: authenticated callers must satisfy their own
+-- accepted active membership and a non-null identity. Missing, unknown, or
+-- inconsistent role/identity claims fail closed. No organization identifier
+-- supplied by the caller is trusted.
 create or replace function recora_private.can_read_organization(
   target_organization_id uuid
 )
@@ -972,9 +974,11 @@ set search_path = ''
 as $$
   select target_organization_id is not null
     and (
-      ((select auth.uid()) is null
+      ((select auth.role()) = 'anon'
+        and (select auth.uid()) is null
         and recora_private.is_demo_organization(target_organization_id))
-      or ((select auth.uid()) is not null
+      or ((select auth.role()) = 'authenticated'
+        and (select auth.uid()) is not null
         and recora_private.is_organization_member(target_organization_id))
     );
 $$;

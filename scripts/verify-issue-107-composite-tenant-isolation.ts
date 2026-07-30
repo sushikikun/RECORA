@@ -975,6 +975,7 @@ end;
 $verify_derivation_and_integrity$;
 
 set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config(
   'request.jwt.claim.sub',
   '10700000-0000-4000-8000-000000000001',
@@ -1146,6 +1147,7 @@ begin
 end;
 $verify_active_a$;
 
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config(
   'request.jwt.claim.sub',
   '10700000-0000-4000-8000-000000000002',
@@ -1172,6 +1174,7 @@ begin
 end;
 $verify_active_b$;
 
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config(
   'request.jwt.claim.sub',
   '10700000-0000-4000-8000-000000000003',
@@ -1196,6 +1199,7 @@ begin
 end;
 $verify_invited$;
 
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config(
   'request.jwt.claim.sub',
   '10700000-0000-4000-8000-000000000004',
@@ -1220,6 +1224,7 @@ begin
 end;
 $verify_suspended$;
 
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config(
   'request.jwt.claim.sub',
   '10700000-0000-4000-8000-000000000005',
@@ -1244,6 +1249,7 @@ begin
 end;
 $verify_revoked$;
 
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config(
   'request.jwt.claim.sub',
   '10700000-0000-4000-8000-000000000006',
@@ -1269,8 +1275,99 @@ begin
 end;
 $verify_missing$;
 
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '', true);
+
+do $verify_authenticated_missing_identity$
+begin
+  if exists (
+    select 1 from public.projects
+    where id in (
+      '10720000-0000-4000-8000-000000000001',
+      '10720000-0000-4000-8000-000000000002',
+      '10720000-0000-4000-8000-000000000003'
+    )
+  ) or recora_private.can_read_project('10720000-0000-4000-8000-000000000001')
+    or recora_private.can_read_project('10720000-0000-4000-8000-000000000002')
+    or recora_private.can_read_project('10720000-0000-4000-8000-000000000003')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000001')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000002')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000003') then
+    raise exception 'Issue 107 request identity failed: authenticated role without sub was allowed';
+  end if;
+end;
+$verify_authenticated_missing_identity$;
+
+select set_config('request.jwt.claim.role', '', true);
+select set_config('request.jwt.claim.sub', '10700000-0000-4000-8000-000000000001', true);
+
+do $verify_missing_role$
+begin
+  if exists (
+    select 1 from public.projects
+    where id in (
+      '10720000-0000-4000-8000-000000000001',
+      '10720000-0000-4000-8000-000000000002',
+      '10720000-0000-4000-8000-000000000003'
+    )
+  ) or recora_private.can_read_project('10720000-0000-4000-8000-000000000001')
+    or recora_private.can_read_project('10720000-0000-4000-8000-000000000002')
+    or recora_private.can_read_project('10720000-0000-4000-8000-000000000003')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000001')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000002')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000003') then
+    raise exception 'Issue 107 request role failed: missing role claim was allowed';
+  end if;
+end;
+$verify_missing_role$;
+
+select set_config('request.jwt.claim.role', 'unknown', true);
+
+do $verify_unknown_role$
+begin
+  if exists (
+    select 1 from public.projects
+    where id in (
+      '10720000-0000-4000-8000-000000000001',
+      '10720000-0000-4000-8000-000000000002',
+      '10720000-0000-4000-8000-000000000003'
+    )
+  ) or recora_private.can_read_project('10720000-0000-4000-8000-000000000001')
+    or recora_private.can_read_project('10720000-0000-4000-8000-000000000002')
+    or recora_private.can_read_project('10720000-0000-4000-8000-000000000003')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000001')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000002')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000003') then
+    raise exception 'Issue 107 request role failed: unknown role claim was allowed';
+  end if;
+end;
+$verify_unknown_role$;
 reset role;
 set local role anon;
+select set_config('request.jwt.claim.role', 'anon', true);
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claim.sub', '10700000-0000-4000-8000-000000000001', true);
+
+do $verify_anon_identity_mismatch$
+begin
+  if exists (
+    select 1 from public.projects
+    where id in (
+      '10720000-0000-4000-8000-000000000001',
+      '10720000-0000-4000-8000-000000000002',
+      '10720000-0000-4000-8000-000000000003'
+    )
+  ) or recora_private.can_read_project('10720000-0000-4000-8000-000000000001')
+    or recora_private.can_read_project('10720000-0000-4000-8000-000000000002')
+    or recora_private.can_read_project('10720000-0000-4000-8000-000000000003')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000001')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000002')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000003') then
+    raise exception 'Issue 107 anon identity failed: anon role with sub was allowed';
+  end if;
+end;
+$verify_anon_identity_mismatch$;
+
 select set_config('request.jwt.claim.sub', '', true);
 
 do $verify_anon$

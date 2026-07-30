@@ -179,10 +179,12 @@ run-derived project; global AI model scopes remain global.
 
 All exposed public tables retain RLS. Project-owned policies use direct
 `project_id` after composite integrity is established. Organization/project
-helpers branch on auth context: anon callers can use only the explicit demo/local
-predicate, while authenticated callers must satisfy stored accepted active
-membership. Membership SELECT is reduced to the authenticated actor's own
-effective row.
+helpers branch on the verified request role and identity: only an exact `anon`
+role with a null `auth.uid()` can use the explicit demo/local predicate, while
+only an exact `authenticated` role with a non-null `auth.uid()` and stored
+accepted active membership can read its own tenant. Missing, unknown, or
+inconsistent role/identity claims fail closed. Membership SELECT is reduced to
+the authenticated actor's own effective row.
 
 `authenticated` receives:
 
@@ -271,11 +273,12 @@ otherwise modified.
 |---|---|---|
 | migration-only isolated reset | all migrations replay without seed | Passed |
 | seeded isolated reset | migration plus existing seed replay; legacy inserts derive project | Passed |
-| dedicated 102-3C verifier via existing `tsx` | all security/integrity cases pass and roll back | Passed |
+| dedicated 102-3C verifier via existing `tsx` | all security/integrity and role/identity matrix cases pass and roll back | Passed after no-seed and seeded resets; exact anon/authenticated role matrix is fail-closed |
 | migration reapply | no duplicate objects or semantic drift | Passed inside dedicated verifier |
 | unsafe pre-write inventory | cross-project fixture rejected before migration writes | Passed inside dedicated verifier |
 | 102-3A verifier against isolated container | pass | Passed with in-memory container-name substitution; source unchanged |
 | 102-3B verifier against isolated container | pass | Passed with in-memory container-name substitution; source unchanged |
+| 102-3D / 102-3E regressions against isolated container | pass | Passed with temporary guard-retargeted copies; source unchanged |
 | local migration list | new migration listed locally | Passed; latest local migration is `20260729164230` |
 | local advisors | no unreviewed issue | Passed; `No issues found` |
 | `npm run recora:preflight:full` | pass | Passed |
@@ -332,6 +335,7 @@ Rollback is roll-forward and additive:
 | 2026-07-30 | Reassert the existing admin boundary without adding operator identity | 102-3E owns operator permission and audit foundations |
 | 2026-07-30 | Proceed through the manual migration commit gate | `recora:commit-check` passed preflight and raised its expected migration-only FAIL; the Issue body explicitly approves this exact R3 migration execution and commit |
 | 2026-07-30 | Separate authenticated and anon tenant predicates | Authenticated customer context requires accepted active membership; anon context alone may use demo/local compatibility |
+| 2026-07-30 | Require verified request role and consistent identity | Exact anon/authenticated role paths are explicit; missing, unknown, or inconsistent role/identity claims fail closed |
 
 ## Results and remaining risks
 
@@ -343,12 +347,14 @@ Current implementation results:
   substitution, cross-project reparenting, and metric scope substitution
 - active A/B membership is tenant-scoped; invited, suspended, revoked, missing,
   and anonymous production access fail closed
+- authenticated-without-sub, missing/unknown-role, and anon-with-identity cases
+  fail closed
 - UUID, slug, list, search, filter, count, pagination, JOIN, multi-hop, and
   helper calls do not leak tenant B
 - authenticated raw measurement, internal recommendation metadata, browser
   writes, and operator/control access are denied
 - anonymous legacy evidence access is limited to local/demo tenant rows
-- Issue #80 and #105 regression verifiers pass against the isolated container
+- Issue #80 and #105 regression verifiers pass against the isolated container`n- latest-master 102-3D and 102-3E regression verifiers pass against the same isolated container
 - the local migration list ends at `20260729164230`; DB advisors report no issue
 - `recora:preflight:full`, typecheck, lint, and build pass; build retains only
   the existing `metadataBase` warning
