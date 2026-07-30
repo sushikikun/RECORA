@@ -12,6 +12,13 @@ const migrationPath = path.join(
   "20260729164230_composite_tenant_isolation.sql",
 );
 const migrationSql = fs.readFileSync(migrationPath, "utf8");
+const lifecycleRlsMigrationPath = path.join(
+  repoRoot,
+  "supabase",
+  "migrations",
+  "20260730163156_recora_authoritative_lifecycle_rls_access.sql",
+);
+const lifecycleRlsMigrationSql = fs.readFileSync(lifecycleRlsMigrationPath, "utf8");
 
 function sanitize(value: string): string {
   return value.replace(
@@ -372,6 +379,15 @@ insert into public.organizations (
     'production',
     false,
     false
+  ),
+  (
+    '10710000-0000-4000-8000-000000000005',
+    'issue-107-missing-lifecycle',
+    'Issue 107 Missing Lifecycle',
+    'client',
+    'production',
+    false,
+    false
   );
 
 insert into auth.users (id, email, created_at, updated_at) values
@@ -408,6 +424,12 @@ insert into auth.users (id, email, created_at, updated_at) values
   (
     '10700000-0000-4000-8000-000000000006',
     'issue-107-no-membership@example.invalid',
+    now(),
+    now()
+  ),
+  (
+    '10700000-0000-4000-8000-000000000007',
+    'issue-107-missing-lifecycle@example.invalid',
     now(),
     now()
   );
@@ -465,6 +487,15 @@ insert into public.organization_members (
     now(),
     now(),
     'revoked'
+  ),
+  (
+    '10710000-0000-4000-8000-000000000005',
+    '10700000-0000-4000-8000-000000000007',
+    'issue-107-missing-lifecycle@example.invalid',
+    'member',
+    now(),
+    now(),
+    'active'
   );
 
 insert into public.projects (id, organization_id, slug, name) values
@@ -491,7 +522,23 @@ insert into public.projects (id, organization_id, slug, name) values
     '10710000-0000-4000-8000-000000000004',
     'issue-107-project-nondemo',
     'Issue 107 Project Non-demo'
+  ),
+  (
+    '10720000-0000-4000-8000-000000000005',
+    '10710000-0000-4000-8000-000000000005',
+    'issue-107-project-missing-lifecycle',
+    'Issue 107 Project Missing Lifecycle'
   );
+
+-- Issue #117 regression fixture: only explicit active lifecycle scopes are
+-- customer-readable. The active member in organization 5 intentionally has no
+-- lifecycle row and must therefore fail closed.
+insert into recora_private.data_lifecycle_current (organization_id, project_id, state)
+values
+  ('10710000-0000-4000-8000-000000000001', null, 'active'),
+  ('10710000-0000-4000-8000-000000000002', null, 'active'),
+  ('10710000-0000-4000-8000-000000000003', null, 'active'),
+  ('10710000-0000-4000-8000-000000000004', null, 'active');
 
 insert into public.brands (id, project_id, brand_type, name) values
   (
@@ -1067,11 +1114,17 @@ begin
 
   if (
     select count(*) from public.organization_members
+    where organization_id = '10710000-0000-4000-8000-000000000001'
+      and user_id = (select auth.uid())
   ) <> 1 or exists (
     select 1 from public.organization_members
-    where user_id <> (select auth.uid())
+    where organization_id = '10710000-0000-4000-8000-000000000001'
+      and user_id <> (select auth.uid())
+  ) or exists (
+    select 1 from public.organization_members
+    where organization_id <> '10710000-0000-4000-8000-000000000001'
   ) then
-    raise exception 'Issue 107 RLS failed: membership policy exposes another member';
+    raise exception 'Issue 107 RLS failed: membership policy exposes another member or tenant';
   end if;
 
   if recora_private.can_read_project(
@@ -1147,6 +1200,43 @@ begin
 end;
 $verify_active_a$;
 
+reset role;
+update recora_private.data_lifecycle_current
+set state = 'access_suspended'
+where organization_id = '10710000-0000-4000-8000-000000000001'
+  and project_id is null;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claim.sub',
+  '10700000-0000-4000-8000-000000000001',
+  true
+);
+
+do $verify_non_active_lifecycle$
+begin
+  if exists (select 1 from public.organizations where id = '10710000-0000-4000-8000-000000000001')
+    or exists (select 1 from public.projects where id = '10720000-0000-4000-8000-000000000001'
+      or slug ilike '%project-a%')
+    or (select count(*) from public.projects where slug like 'issue-107-project-a%') <> 0
+    or exists (
+      select 1 from (
+        select id from public.projects where slug like 'issue-107-project-%' order by slug limit 2 offset 0
+      ) page_row where page_row.id = '10720000-0000-4000-8000-000000000001'
+    )
+    or exists (
+      select 1 from public.brands brand_row
+      join public.projects project_row on project_row.id = brand_row.project_id
+      where brand_row.id = '10730000-0000-4000-8000-000000000001'
+    )
+    or exists (select 1 from public.organization_members where organization_id = '10710000-0000-4000-8000-000000000001')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000001')
+    or recora_private.can_read_project('10720000-0000-4000-8000-000000000001') then
+    raise exception 'Issue 107 lifecycle RLS failed: access_suspended actor read customer data or membership';
+  end if;
+end;
+$verify_non_active_lifecycle$;
+
 select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config(
   'request.jwt.claim.sub',
@@ -1173,6 +1263,25 @@ begin
   end if;
 end;
 $verify_active_b$;
+
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claim.sub',
+  '10700000-0000-4000-8000-000000000007',
+  true
+);
+
+do $verify_missing_lifecycle$
+begin
+  if exists (select 1 from public.organizations where id = '10710000-0000-4000-8000-000000000005')
+    or exists (select 1 from public.projects where id = '10720000-0000-4000-8000-000000000005')
+    or exists (select 1 from public.organization_members where organization_id = '10710000-0000-4000-8000-000000000005')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000005')
+    or recora_private.can_read_project('10720000-0000-4000-8000-000000000005') then
+    raise exception 'Issue 107 lifecycle RLS failed: missing lifecycle scope or membership was readable';
+  end if;
+end;
+$verify_missing_lifecycle$;
 
 select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config(
@@ -1343,6 +1452,24 @@ begin
 end;
 $verify_unknown_role$;
 reset role;
+drop index recora_private.data_lifecycle_current_organization_scope_unique;
+insert into recora_private.data_lifecycle_current (organization_id, project_id, state)
+values ('10710000-0000-4000-8000-000000000002', null, 'active');
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '10700000-0000-4000-8000-000000000002', true);
+do $verify_ambiguous_lifecycle_membership$
+begin
+  if exists (select 1 from public.organizations where id = '10710000-0000-4000-8000-000000000002')
+    or exists (select 1 from public.projects where id = '10720000-0000-4000-8000-000000000002')
+    or exists (select 1 from public.organization_members where organization_id = '10710000-0000-4000-8000-000000000002')
+    or recora_private.can_read_organization('10710000-0000-4000-8000-000000000002')
+    or recora_private.can_read_project('10720000-0000-4000-8000-000000000002') then
+    raise exception 'Issue 107 lifecycle RLS failed: ambiguous lifecycle scope or membership was readable';
+  end if;
+end;
+$verify_ambiguous_lifecycle_membership$;
+reset role;
 set local role anon;
 select set_config('request.jwt.claim.role', 'anon', true);
 select set_config('request.jwt.claim.sub', '', true);
@@ -1426,7 +1553,9 @@ rollback;
 
 queryLocal(`
 ${migrationSql}
+${lifecycleRlsMigrationSql}
 ${migrationSql}
+${lifecycleRlsMigrationSql}
 `);
 
 queryLocal(
@@ -1538,8 +1667,9 @@ console.log(
         mandatoryParentProjectDerivation: "compatible-and-fail-closed",
         crossProjectCreateAndReparent: "rejected",
         metricScopeSubstitution: "rejected",
-        activeMembershipAandB: "own-tenant-only",
+        activeMembershipAandB: "own-tenant-only-with-lifecycle-aware-organization-members-RLS",
         invitedSuspendedRevokedMissing: "rejected",
+        lifecycleMembershipNonactiveMissingAmbiguous: "fail-closed",
         uuidSlugListSearchFilterCountPagination: "no-cross-tenant-leakage",
         embeddedJoinMultiHop: "no-cross-tenant-leakage",
         rpcTenantSubstitution: "rejected",

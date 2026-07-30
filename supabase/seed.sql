@@ -52,6 +52,19 @@ insert into public.organizations (
   '2026-06-16 09:00:00+09'
 );
 
+-- Issue #117: seeded demo is an explicit active organization lifecycle fixture.
+-- This creates neither actor/audit/lifecycle-event history nor a project row.
+insert into recora_private.data_lifecycle_current (
+  organization_id,
+  project_id,
+  state
+) values (
+  '00000000-0000-4000-8000-000000000001',
+  null,
+  'active'::recora_private.data_lifecycle_state
+)
+on conflict (organization_id) where project_id is null
+do update set state = excluded.state;
 insert into public.projects (
   id,
   organization_id,
