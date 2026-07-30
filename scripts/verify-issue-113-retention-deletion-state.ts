@@ -43,6 +43,16 @@ assert.match(migrationSql, /create table if not exists recora_private\.deletion_
 assert.match(migrationSql, /create table if not exists recora_private\.deletion_attempts/i);
 assert.match(migrationSql, /create table if not exists recora_private\.data_lifecycle_decision_evidence/i);
 assert.match(migrationSql, /compute_deletion_manifest_hash/i);
+assert.match(migrationSql, /if p_summary is null then return false/i);
+assert.match(migrationSql, /exception when others then\s+return false/i);
+assert.match(migrationSql, /retention_deadline_at is not null and retention_deadline_at > retention_started_at/i);
+assert.match(migrationSql, /manifest_version is not null and manifest_version > 0/i);
+assert.match(migrationSql, /attempt_outcome is not null and attempt_outcome in \('success', 'failed'\)/i);
+assert.match(migrationSql, /attempt_failure_reason_code is not null and recora_private\.is_safe_lifecycle_reference\(attempt_failure_reason_code\)/i);
+assert.match(migrationSql, /data_lifecycle_decision_evidence_shape check/i);
+assert.match(migrationSql, /\) is true/i);
+assert.match(migrationSql, /event_row\.next_state is distinct from 'retained'/i);
+assert.match(migrationSql, /attempt_row\.outcome is distinct from new\.attempt_outcome/i);
 assert.match(migrationSql, /'active', 'access_suspended', 'retained', 'deletion_scheduled'/i);
 assert.match(migrationSql, /data_lifecycle\.transition/i);
 assert.match(migrationSql, /security definer\s+set search_path = ''/i);
@@ -260,7 +270,8 @@ declare
   r record; lifecycle_scope_id uuid; before_evidence jsonb; after_evidence jsonb;
   summary jsonb := jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',0)));
   tampered jsonb := jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',1)));
-  h1 text; h2 text; h3 text; manifest_count integer;
+  h1 text; h2 text; h3 text; manifest_count integer; lifecycle_version_before bigint; evidence_count integer; attempt_count integer; event_count integer;
+  invalid_summary jsonb; manifest_v2_id uuid; manifest_v3_id uuid; failed_attempt_id uuid; success_attempt_id uuid; event_id uuid;
 begin
   select * into r from public.recora_transition_data_lifecycle(
     '11300000-0000-4000-8000-000000000004','11310000-0000-4000-8000-000000000003',null,null,0,'active','issue_113_expanded_init',
@@ -334,8 +345,47 @@ begin
   h2 := recora_private.compute_deletion_manifest_hash('owner_manifest_v2',2::smallint,'11310000-0000-4000-8000-000000000003',null,summary);
   h3 := recora_private.compute_deletion_manifest_hash('owner_manifest_v3',3::smallint,'11310000-0000-4000-8000-000000000003',null,summary);
   select count(*) into manifest_count from recora_private.deletion_manifests where lifecycle_id=lifecycle_scope_id;
-  select * into r from public.recora_transition_data_lifecycle(
-    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+  select version into lifecycle_version_before from recora_private.data_lifecycle_current where id=lifecycle_scope_id;
+  select count(*) into evidence_count from recora_private.data_lifecycle_decision_evidence where lifecycle_id=lifecycle_scope_id;
+  select count(*) into attempt_count from recora_private.deletion_attempts where manifest_id in (select id from recora_private.deletion_manifests where lifecycle_id=lifecycle_scope_id);
+  select count(*) into event_count from recora_private.data_lifecycle_events where lifecycle_id=lifecycle_scope_id;
+  for invalid_summary in
+    select invalid.summary from (values
+      (null::jsonb), ('{}'::jsonb), ('[]'::jsonb), (to_jsonb('summary'::text)), (to_jsonb(1)), (to_jsonb(true::boolean)),
+      (jsonb_build_object('schema_version',1,'categories',null)),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_object('unexpected',true))),
+      (jsonb_build_object('schema_version',1,'categories',to_jsonb('wrong'::text))),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_array(null))),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_array(to_jsonb('wrong'::text)))),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_array(to_jsonb(1)))),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_array('nested')))),
+      (jsonb_build_object('schema_version',1,'categories',summary->'categories','unexpected',true)),
+      (jsonb_build_object('schema_version',1)),
+      (jsonb_build_object('categories',summary->'categories')),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',0,'unexpected',true)))),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence')))),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('count',0)))),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',-1)))),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',0.5)))),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',1000000000)))),
+      (jsonb_build_object('schema_version',1,'categories',jsonb_build_array(jsonb_build_object('category','measurement_evidence','count',0),jsonb_build_object('category','measurement_evidence','count',1))))
+    ) as invalid(summary)
+  loop
+    if recora_private.is_valid_deletion_manifest_summary(invalid_summary) is not false then raise exception 'invalid manifest summary validator accepted'; end if;
+    select * into r from public.recora_transition_data_lifecycle(
+      p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
+      p_expected_state=>'retained',p_expected_version=>lifecycle_version_before,p_next_state=>'deletion_scheduled',p_reason=>'issue_113_bad_summary',
+      p_request_id=>gen_random_uuid(),p_correlation_id=>gen_random_uuid(),p_manifest_identifier=>'owner_manifest_invalid',p_manifest_version=>1::smallint,
+      p_manifest_hash=>repeat('0',64),p_manifest_summary=>invalid_summary);
+    if r.outcome::text <> 'denied' or r.failure_reason_code <> 'manifest_payload_invalid'
+      or (select count(*) from recora_private.deletion_manifests where lifecycle_id=lifecycle_scope_id) <> manifest_count
+      or (select version from recora_private.data_lifecycle_current where id=lifecycle_scope_id) <> lifecycle_version_before
+      or (select count(*) from recora_private.deletion_attempts where manifest_id in (select id from recora_private.deletion_manifests where lifecycle_id=lifecycle_scope_id)) <> attempt_count
+      or (select count(*) from recora_private.data_lifecycle_decision_evidence where lifecycle_id=lifecycle_scope_id) <> evidence_count
+      or (select count(*) from recora_private.data_lifecycle_events where lifecycle_id=lifecycle_scope_id) <> event_count
+    then raise exception 'invalid manifest summary did not fail closed'; end if;
+  end loop;
+  select * into r from public.recora_transition_data_lifecycle(    p_auth_user_id=>'11300000-0000-4000-8000-000000000004',p_organization_id=>'11310000-0000-4000-8000-000000000003',p_project_id=>null,
     p_expected_state=>'retained',p_expected_version=>10,p_next_state=>'deletion_scheduled',p_reason=>'issue_113_partial_manifest',
     p_request_id=>'11341000-0000-4000-8000-000000000014',p_correlation_id=>'11351000-0000-4000-8000-000000000014',p_manifest_identifier=>'owner_manifest_partial');
   if r.outcome::text <> 'denied' or r.failure_reason_code <> 'manifest_payload_invalid' or (select count(*) from recora_private.deletion_manifests where lifecycle_id=lifecycle_scope_id) <> manifest_count then raise exception 'partial manifest accepted'; end if;
@@ -421,6 +471,108 @@ begin
     or (select count(*) from recora_private.deletion_manifests where lifecycle_id=lifecycle_scope_id) <> 3
   then raise exception 'selected manifest/attempt history invalid'; end if;
 
+  select count(*) into evidence_count from recora_private.data_lifecycle_decision_evidence where lifecycle_id=lifecycle_scope_id;
+  select count(*) into event_count from recora_private.data_lifecycle_events where lifecycle_id=lifecycle_scope_id;
+  select id into manifest_v2_id from recora_private.deletion_manifests where lifecycle_id=lifecycle_scope_id and manifest_version=2;
+  select id into manifest_v3_id from recora_private.deletion_manifests where lifecycle_id=lifecycle_scope_id and manifest_version=3;
+  select attempt.id into failed_attempt_id from recora_private.deletion_attempts attempt join recora_private.deletion_manifests manifest on manifest.id=attempt.manifest_id where manifest.lifecycle_id=lifecycle_scope_id and attempt.outcome='failed' order by attempt.attempt_number desc limit 1;
+  select attempt.id into success_attempt_id from recora_private.deletion_attempts attempt join recora_private.deletion_manifests manifest on manifest.id=attempt.manifest_id where manifest.lifecycle_id=lifecycle_scope_id and attempt.outcome='success' order by attempt.attempt_number desc limit 1;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','access_suspended','retained',101,'11330000-0000-4000-8000-000000000003','issue_113_evidence_retention',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,retention_policy_reference,retention_policy_version_reference,retention_started_at,retention_deadline_at,restore_eligible)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,101,event_id,'retention','policy_v2','policy_version_v2',now(),null,false);
+    raise exception 'retention deadline NULL decision evidence accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','retained','deletion_scheduled',102,'11330000-0000-4000-8000-000000000003','issue_113_evidence_manifest_null',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,manifest_id,manifest_version)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,102,event_id,'deletion_scheduled',manifest_v3_id,null);
+    raise exception 'manifest ID with NULL version decision evidence accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','deleting','deleted',103,'11330000-0000-4000-8000-000000000003','issue_113_evidence_attempt_null',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,manifest_id,manifest_version,attempt_id,attempt_outcome)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,103,event_id,'deletion_attempt',manifest_v3_id,3,success_attempt_id,null);
+    raise exception 'attempt ID with NULL outcome decision evidence accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','deleting','deletion_failed',104,'11330000-0000-4000-8000-000000000003','issue_113_evidence_failure_null',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,manifest_id,manifest_version,attempt_id,attempt_outcome,attempt_failure_reason_code)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,104,event_id,'deletion_attempt',manifest_v2_id,2,failed_attempt_id,'failed',null);
+    raise exception 'failed outcome with NULL failure code decision evidence accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','retained','deleting',105,'11330000-0000-4000-8000-000000000003','issue_113_evidence_event_mismatch',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,retention_policy_reference,retention_policy_version_reference,retention_started_at,retention_deadline_at,restore_eligible)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,105,event_id,'retention','policy_v2','policy_version_v2',now(),now()+interval '2 days',false);
+    raise exception 'decision kind event mismatch accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','retained','deletion_scheduled',106,'11330000-0000-4000-8000-000000000003','issue_113_evidence_manifest_version',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,manifest_id,manifest_version)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,106,event_id,'deletion_scheduled',manifest_v3_id,2);
+    raise exception 'manifest version mismatch decision evidence accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','deleting','deleted',107,'11330000-0000-4000-8000-000000000003','issue_113_evidence_attempt_outcome',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,manifest_id,manifest_version,attempt_id,attempt_outcome,attempt_failure_reason_code)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,107,event_id,'deletion_attempt',manifest_v2_id,2,failed_attempt_id,'success',null);
+    raise exception 'attempt outcome mismatch decision evidence accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  if (select count(*) from recora_private.data_lifecycle_decision_evidence where lifecycle_id=lifecycle_scope_id) <> evidence_count then raise exception 'invalid decision evidence left residue'; end if;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','deleting','deleted',108,'11330000-0000-4000-8000-000000000003','issue_113_evidence_attempt_manifest_null',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,manifest_id,manifest_version,attempt_id,attempt_outcome)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,108,event_id,'deletion_attempt',manifest_v3_id,null,success_attempt_id,'success');
+    raise exception 'attempt manifest version NULL decision evidence accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','active','retained',109,'11330000-0000-4000-8000-000000000003','issue_113_evidence_legal_event_kind',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,legal_hold_action,legal_hold_reason_reference)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,109,event_id,'legal_hold','apply','hold_reason_v2');
+    raise exception 'legal hold event kind mismatch accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','deleting','deletion_failed',110,'11330000-0000-4000-8000-000000000003','issue_113_evidence_success_failed',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,manifest_id,manifest_version,attempt_id,attempt_outcome)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,110,event_id,'deletion_attempt',manifest_v3_id,3,success_attempt_id,'success');
+    raise exception 'success attempt linked to deletion failed accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','deleting','deleted',111,'11330000-0000-4000-8000-000000000003','issue_113_evidence_failed_deleted',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,manifest_id,manifest_version,attempt_id,attempt_outcome,attempt_failure_reason_code)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,111,event_id,'deletion_attempt',manifest_v2_id,2,failed_attempt_id,'failed','retryable_timeout');
+    raise exception 'failed attempt linked to deleted accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','deleting','deletion_failed',112,'11330000-0000-4000-8000-000000000003','issue_113_evidence_attempt_manifest_link',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,manifest_id,manifest_version,attempt_id,attempt_outcome,attempt_failure_reason_code)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,112,event_id,'deletion_attempt',manifest_v3_id,3,failed_attempt_id,'failed','retryable_timeout');
+    raise exception 'attempt manifest linkage mismatch accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+  begin
+    insert into recora_private.data_lifecycle_events (lifecycle_id,organization_id,project_id,event_kind,previous_state,next_state,version,actor_operator_id,reason,request_id,correlation_id)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,'state_transition','deleting','deleted',113,'11330000-0000-4000-8000-000000000003','issue_113_evidence_lifecycle_version',gen_random_uuid(),gen_random_uuid()) returning id into event_id;
+    insert into recora_private.data_lifecycle_decision_evidence (lifecycle_id,organization_id,project_id,lifecycle_version,event_id,decision_kind,manifest_id,manifest_version,attempt_id,attempt_outcome)
+    values (lifecycle_scope_id,'11310000-0000-4000-8000-000000000003',null,114,event_id,'deletion_attempt',manifest_v3_id,3,success_attempt_id,'success');
+    raise exception 'lifecycle version linkage mismatch accepted';
+  exception when others then if sqlerrm ~ 'accepted$' then raise; end if; end;
+
+  if (select count(*) from recora_private.data_lifecycle_decision_evidence where lifecycle_id=lifecycle_scope_id) <> evidence_count
+    or (select count(*) from recora_private.data_lifecycle_events where lifecycle_id=lifecycle_scope_id) <> event_count
+  then raise exception 'invalid decision evidence left residue'; end if;
   select jsonb_agg(to_jsonb(evidence) order by evidence.lifecycle_version) into before_evidence from recora_private.data_lifecycle_decision_evidence evidence where lifecycle_id=lifecycle_scope_id;
   update recora_private.data_lifecycle_current set last_correlation_id=gen_random_uuid() where id=lifecycle_scope_id;
   select jsonb_agg(to_jsonb(evidence) order by evidence.lifecycle_version) into after_evidence from recora_private.data_lifecycle_decision_evidence evidence where lifecycle_id=lifecycle_scope_id;

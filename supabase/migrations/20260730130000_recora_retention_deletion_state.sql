@@ -29,17 +29,22 @@ declare
   category_total integer;
   distinct_total integer;
 begin
-  if p_summary is null or jsonb_typeof(p_summary) <> 'object'
-    or (select count(*) from jsonb_object_keys(p_summary)) <> 2 or not (p_summary ? 'schema_version')
-    or not (p_summary ? 'categories') or jsonb_typeof(p_summary->'schema_version') <> 'number'
-    or p_summary->>'schema_version' <> '1' or jsonb_typeof(p_summary->'categories') <> 'array'
+  if p_summary is null then return false; end if;
+  if jsonb_typeof(p_summary) is distinct from 'object' then return false; end if;
+  if (select count(*) from jsonb_object_keys(p_summary)) <> 2 then return false; end if;
+  if not (p_summary ? 'schema_version') or not (p_summary ? 'categories') then return false; end if;
+  if jsonb_typeof(p_summary->'schema_version') is distinct from 'number'
+    or p_summary->>'schema_version' is distinct from '1'
   then return false; end if;
+  if jsonb_typeof(p_summary->'categories') is distinct from 'array' then return false; end if;
   select count(*) into category_total from jsonb_array_elements(p_summary->'categories');
   if category_total < 1 or category_total > 16 then return false; end if;
   for category_row in select value from jsonb_array_elements(p_summary->'categories') loop
-    if jsonb_typeof(category_row) <> 'object' or (select count(*) from jsonb_object_keys(category_row)) <> 2
-      or not (category_row ? 'category') or not (category_row ? 'count')
-      or jsonb_typeof(category_row->'category') <> 'string' or jsonb_typeof(category_row->'count') <> 'number'
+    if jsonb_typeof(category_row) is distinct from 'object' then return false; end if;
+    if (select count(*) from jsonb_object_keys(category_row)) <> 2 then return false; end if;
+    if not (category_row ? 'category') or not (category_row ? 'count') then return false; end if;
+    if jsonb_typeof(category_row->'category') is distinct from 'string'
+      or jsonb_typeof(category_row->'count') is distinct from 'number'
     then return false; end if;
     category_name := category_row->>'category'; category_count := category_row->>'count';
     if category_name not in (
@@ -49,6 +54,8 @@ begin
   end loop;
   select count(distinct value->>'category') into distinct_total from jsonb_array_elements(p_summary->'categories');
   return distinct_total = category_total;
+exception when others then
+  return false;
 end;
 $$;
 
@@ -853,36 +860,38 @@ create table if not exists recora_private.data_lifecycle_decision_evidence (
   constraint data_lifecycle_decision_evidence_version_unique unique (lifecycle_id, lifecycle_version),
   constraint data_lifecycle_decision_evidence_version_positive check (lifecycle_version > 0),
   constraint data_lifecycle_decision_evidence_shape check (
+    (
     (decision_kind = 'retention'
-      and recora_private.is_safe_lifecycle_reference(retention_policy_reference)
-      and recora_private.is_safe_lifecycle_reference(retention_policy_version_reference)
-      and retention_started_at is not null and retention_deadline_at > retention_started_at
+      and retention_policy_reference is not null and recora_private.is_safe_lifecycle_reference(retention_policy_reference)
+      and retention_policy_version_reference is not null and recora_private.is_safe_lifecycle_reference(retention_policy_version_reference)
+      and retention_started_at is not null and retention_deadline_at is not null and retention_deadline_at > retention_started_at
       and restore_eligible is not null
       and ((restore_eligible and restore_deadline_at is not null and restore_deadline_at <= retention_deadline_at)
         or (not restore_eligible and restore_deadline_at is null))
       and legal_hold_action is null and legal_hold_reason_reference is null and manifest_id is null
       and manifest_version is null and attempt_id is null and attempt_outcome is null and attempt_failure_reason_code is null)
     or (decision_kind = 'legal_hold'
-      and legal_hold_action in ('apply', 'release')
-      and recora_private.is_safe_lifecycle_reference(legal_hold_reason_reference)
+      and legal_hold_action is not null and legal_hold_action in ('apply', 'release')
+      and legal_hold_reason_reference is not null and recora_private.is_safe_lifecycle_reference(legal_hold_reason_reference)
       and retention_policy_reference is null and retention_policy_version_reference is null
       and retention_started_at is null and retention_deadline_at is null and restore_eligible is null
       and restore_deadline_at is null and manifest_id is null and manifest_version is null
       and attempt_id is null and attempt_outcome is null and attempt_failure_reason_code is null)
     or (decision_kind in ('deletion_scheduled', 'deletion_started')
-      and manifest_id is not null and manifest_version > 0 and attempt_id is null
+      and manifest_id is not null and manifest_version is not null and manifest_version > 0 and attempt_id is null
       and attempt_outcome is null and attempt_failure_reason_code is null
       and retention_policy_reference is null and retention_policy_version_reference is null
       and retention_started_at is null and retention_deadline_at is null and restore_eligible is null
       and restore_deadline_at is null and legal_hold_action is null and legal_hold_reason_reference is null)
     or (decision_kind = 'deletion_attempt'
-      and manifest_id is not null and manifest_version > 0 and attempt_id is not null
-      and attempt_outcome in ('success', 'failed')
+      and manifest_id is not null and manifest_version is not null and manifest_version > 0 and attempt_id is not null
+      and attempt_outcome is not null and attempt_outcome in ('success', 'failed')
       and ((attempt_outcome = 'success' and attempt_failure_reason_code is null)
-        or (attempt_outcome = 'failed' and recora_private.is_safe_lifecycle_reference(attempt_failure_reason_code)))
+        or (attempt_outcome = 'failed' and attempt_failure_reason_code is not null and recora_private.is_safe_lifecycle_reference(attempt_failure_reason_code)))
       and retention_policy_reference is null and retention_policy_version_reference is null
       and retention_started_at is null and retention_deadline_at is null and restore_eligible is null
       and restore_deadline_at is null and legal_hold_action is null and legal_hold_reason_reference is null)
+  ) is true
   )
 );
 
@@ -895,18 +904,47 @@ begin
   where current_row.id = new.lifecycle_id and current_row.organization_id = new.organization_id;
   if not found or expected_project_id is distinct from new.project_id then raise exception 'decision evidence scope invalid'; end if;
   select * into event_row from recora_private.data_lifecycle_events lifecycle_event where lifecycle_event.id = new.event_id;
-  if not found or event_row.lifecycle_id <> new.lifecycle_id or event_row.version <> new.lifecycle_version
-    or event_row.organization_id <> new.organization_id or event_row.project_id is distinct from new.project_id
+  if not found or event_row.lifecycle_id is distinct from new.lifecycle_id or event_row.version is distinct from new.lifecycle_version
+    or event_row.organization_id is distinct from new.organization_id or event_row.project_id is distinct from new.project_id
   then raise exception 'decision evidence event linkage invalid'; end if;
+  if new.decision_kind = 'retention' then
+    if event_row.event_kind is distinct from 'state_transition'
+      or event_row.next_state is distinct from 'retained'::recora_private.data_lifecycle_state
+    then raise exception 'decision evidence event kind invalid'; end if;
+  elsif new.decision_kind = 'legal_hold' then
+    if new.legal_hold_action = 'apply' then
+      if event_row.event_kind is distinct from 'legal_hold_applied' then raise exception 'decision evidence event kind invalid'; end if;
+    elsif new.legal_hold_action = 'release' then
+      if event_row.event_kind is distinct from 'legal_hold_released' then raise exception 'decision evidence event kind invalid'; end if;
+    else raise exception 'decision evidence event kind invalid'; end if;
+  elsif new.decision_kind = 'deletion_scheduled' then
+    if event_row.event_kind is distinct from 'state_transition'
+      or event_row.next_state is distinct from 'deletion_scheduled'::recora_private.data_lifecycle_state
+    then raise exception 'decision evidence event kind invalid'; end if;
+  elsif new.decision_kind = 'deletion_started' then
+    if event_row.event_kind is distinct from 'state_transition'
+      or event_row.next_state is distinct from 'deleting'::recora_private.data_lifecycle_state
+    then raise exception 'decision evidence event kind invalid'; end if;
+  elsif new.decision_kind = 'deletion_attempt' then
+    if new.attempt_outcome = 'success' then
+      if event_row.event_kind is distinct from 'state_transition'
+        or event_row.next_state is distinct from 'deleted'::recora_private.data_lifecycle_state
+      then raise exception 'decision evidence event kind invalid'; end if;
+    elsif new.attempt_outcome = 'failed' then
+      if event_row.event_kind is distinct from 'state_transition'
+        or event_row.next_state is distinct from 'deletion_failed'::recora_private.data_lifecycle_state
+      then raise exception 'decision evidence event kind invalid'; end if;
+    else raise exception 'decision evidence event kind invalid'; end if;
+  else raise exception 'decision evidence event kind invalid'; end if;
   if new.manifest_id is not null then
     select * into manifest_row from recora_private.deletion_manifests manifest where manifest.id = new.manifest_id;
-    if not found or manifest_row.lifecycle_id <> new.lifecycle_id or manifest_row.manifest_version <> new.manifest_version
-      or manifest_row.organization_id <> new.organization_id or manifest_row.project_id is distinct from new.project_id
+    if not found or manifest_row.lifecycle_id is distinct from new.lifecycle_id or manifest_row.manifest_version is distinct from new.manifest_version
+      or manifest_row.organization_id is distinct from new.organization_id or manifest_row.project_id is distinct from new.project_id
     then raise exception 'decision evidence manifest linkage invalid'; end if;
   end if;
   if new.attempt_id is not null then
     select * into attempt_row from recora_private.deletion_attempts attempt where attempt.id = new.attempt_id;
-    if not found or attempt_row.manifest_id <> new.manifest_id or attempt_row.outcome <> new.attempt_outcome
+    if not found or attempt_row.manifest_id is distinct from new.manifest_id or attempt_row.outcome is distinct from new.attempt_outcome
       or attempt_row.failure_reason_code is distinct from new.attempt_failure_reason_code
     then raise exception 'decision evidence attempt linkage invalid'; end if;
   end if;

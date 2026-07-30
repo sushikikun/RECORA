@@ -1,6 +1,6 @@
 # Issue #113 / 102-3F retention and deletion-state foundation
 
-Status: **OWNER follow-up validated; Draft PR Human review handoff pending**
+Status: **OWNER follow-up 5128831835 locally validated; conditional PR merge checks pending**
 Parent: #102
 Risk: **R3**
 Execution: **Local Codex**
@@ -41,3 +41,4 @@ Ready: **Yes — limited to the approved four files**
 - The 3A verifier body was run in memory with only its legacy container literal redirected to this Issue's dedicated container; no other Wave container, worktree, or branch was touched. The direct 3F and 3D/3E verifier container guards confirmed `supabase_db_recora-issue-113`.
 - `recora:preflight:full`, typecheck, lint, build, `git diff --check`, exact changed/staged scope, secret/env/DB URL scan, lockfile-diff check, and `recora:commit-check` all passed after the merge. The build retains the pre-existing `metadataBase` warning only.
 - The migration auto-rejection in `recora:commit-check` uses Issue #113 R3 Execute approval as the documented manual path. No other validation failure occurred.
+- OWNER follow-up 5128831835 is locally validated: migration-only and seeded resets, expanded 3F fail-closed negatives, 3A/3B/3C/3D/3E regressions, migration list/advisors, preflight/typecheck/lint/build, and local diff/scope checks completed on `supabase_db_recora-issue-113`. 3D used an in-memory no-op only for the unavailable `server-only` runtime marker; no source, dependency, or database configuration changed. `recora:commit-check` re-ran preflight successfully; its only FAIL is the intentional migration auto-commit block, satisfied manually by Issue #113's R3 Execute approval. External PR conditions remain required before Ready conversion or merge.
