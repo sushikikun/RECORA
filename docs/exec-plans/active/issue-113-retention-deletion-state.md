@@ -1,6 +1,6 @@
 # Issue #113 / 102-3F retention and deletion-state foundation
 
-Status: **OWNER follow-up implemented; final validation and Draft PR handoff pending**
+Status: **OWNER follow-up validated; Draft PR Human review handoff pending**
 Parent: #102
 Risk: **R3**
 Execution: **Local Codex**
@@ -37,5 +37,7 @@ Ready: **Yes — limited to the approved four files**
 ## Validation record
 
 - The expanded 3F verifier covers verified server-only identity boundaries; NULL next-state; partial retention/restore; partial/tampered/version-invalid manifests; partial/NULL/mismatched attempts; retain/restore/re-retain; hold apply/release/reapply; manifest v1/v2/v3 selection; retry attempt linkage; append-only history; RLS and service-role boundaries.
-- Final required run remains: migration-only and seeded reset, expanded 3F verifier, 3A/3B/3D/3E regressions, migration list/advisors, preflight/typecheck/lint/build, diff/scope/secret/lockfile checks, recora:commit-check, non-force origin/master merge, and post-merge revalidation.
-- The migration auto-rejection in recora:commit-check uses Issue #113’s R3 Execute approval as the documented manual path. Any other validation failure blocks handoff.
+- After `ceedb27` and non-force `origin/master` merge `aaf7aa3`, migration-only and seeded reset both passed on the same isolated `recora-issue-113` local stack. The expanded 3F verifier plus 3A/3B/3D/3E regressions, migration list, and security/performance advisors all passed after the merge.
+- The 3A verifier body was run in memory with only its legacy container literal redirected to this Issue's dedicated container; no other Wave container, worktree, or branch was touched. The direct 3F and 3D/3E verifier container guards confirmed `supabase_db_recora-issue-113`.
+- `recora:preflight:full`, typecheck, lint, build, `git diff --check`, exact changed/staged scope, secret/env/DB URL scan, lockfile-diff check, and `recora:commit-check` all passed after the merge. The build retains the pre-existing `metadataBase` warning only.
+- The migration auto-rejection in `recora:commit-check` uses Issue #113 R3 Execute approval as the documented manual path. No other validation failure occurred.
