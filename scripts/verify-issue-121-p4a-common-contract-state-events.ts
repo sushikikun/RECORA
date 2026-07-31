@@ -17,7 +17,8 @@ function runSql(sql: string) {
     ["exec", "--interactive", dbContainer!, "psql", "--username", "postgres", "--dbname", "postgres", "--no-psqlrc", "--set", "ON_ERROR_STOP=1", "--quiet"],
     { input: sql, encoding: "utf8", timeout: 120_000, maxBuffer: 8 * 1024 * 1024 }
   );
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.equal(result.status, 0, `${result.stdout}
+${result.stderr}`);
 }
 
 const migration = fs.readFileSync(migrationPath, "utf8");
@@ -90,13 +91,35 @@ begin
   select * into gate from public.recora_p4_resolve_checkpoint_gate(org_id,null);
   if gate.customer_access_allowed or gate.reason_code <> 'reconciliation_required' then raise exception 'P4 reconciliation checkpoint did not deny'; end if;
   begin update recora_private.p4_command_receipts set command_type='changed.command' where id=command_id; raise exception 'P4 command receipt mutation accepted'; exception when raise_exception then if sqlerrm !~ 'append-only' then raise; end if; end;
-  begin insert into recora_private.p4_invitations(organization_id,recipient_binding_hash,state,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at) values(org_id,repeat('d',64),'accepted',command_id,command_id,'12100000-0000-4000-8000-000000000001','12110000-0000-4000-8000-000000000001',now()+interval '1 day'); raise exception 'P4 invitation accepted without recipient proof'; exception when raise_exception then if sqlerrm !~ 'acceptance requires verified user and membership' then raise; end if; end;
+  begin insert into recora_private.p4_invitations(organization_id,recipient_binding_hash,state,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at) values(org_id,repeat('d',64),'accepted',command_id,command_id,'12100000-0000-4000-8000-000000000001','12110000-0000-4000-8000-000000000001',now()+interval '1 day'); raise exception 'P4 invitation accepted without recipient proof'; exception when check_violation then if sqlerrm !~ 'p4_invitation_state_shape' then raise; end if; when raise_exception then if sqlerrm !~ 'acceptance requires verified user and membership' then raise; end if; end;
   begin insert into recora_private.p4_contract_events(contract_id,organization_id,event_sequence,source_namespace,source_reference,source_sequence,payload_fingerprint,next_state,command_receipt_id,request_id,correlation_id) values(gen_random_uuid(),org_id,1,'fixture.p4','order.one',1,repeat('e',64),'active',command_id,gen_random_uuid(),gen_random_uuid()); raise exception 'P4 contract non-draft initial state accepted'; exception when foreign_key_violation or check_violation or raise_exception then null; end;
 end;
 $verify$;
 rollback;
 `);
 
+runSql(`
+begin;
+do $owner_matrix$
+declare org_id uuid := '00000000-0000-4000-8000-000000000001'; project_id uuid := '10000000-0000-4000-8000-000000000001'; command_one uuid; command_two uuid; old_invitation uuid; new_invitation uuid; gate record;
+begin
+  select command_receipt_id into command_one from public.recora_p4_record_command_receipt(org_id,null,'invitation.lifecycle','provider_fixture'::recora_private.p4_source_kind,'fixture.p4','invite.one',10,repeat('1',64),'12100000-0000-4000-8000-000000000010','12110000-0000-4000-8000-000000000010','invite.one');
+  insert into recora_private.p4_invitations(organization_id,recipient_binding_hash,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at) values(org_id,repeat('2',64),command_one,command_one,'12100000-0000-4000-8000-000000000010','12110000-0000-4000-8000-000000000010',now()+interval '1 day') returning id into old_invitation;
+  select command_receipt_id into command_two from public.recora_p4_record_command_receipt(org_id,null,'invitation.lifecycle','provider_fixture'::recora_private.p4_source_kind,'fixture.p4','invite.two',11,repeat('3',64),'12100000-0000-4000-8000-000000000011','12110000-0000-4000-8000-000000000011','invite.two');
+  update recora_private.p4_invitations set state='superseded',terminal_at=now(),last_command_receipt_id=command_two,request_id='12100000-0000-4000-8000-000000000011',correlation_id='12110000-0000-4000-8000-000000000011' where id=old_invitation;
+  insert into recora_private.p4_invitations(organization_id,recipient_binding_hash,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at) values(org_id,repeat('2',64),command_two,command_two,'12100000-0000-4000-8000-000000000011','12110000-0000-4000-8000-000000000011',now()+interval '1 day') returning id into new_invitation;
+  update recora_private.p4_invitations set superseded_by_invitation_id=new_invitation where id=old_invitation;
+  insert into recora_private.p4_downstream_checkpoints(organization_id,command_receipt_id,required_effect,blocks_customer_access,state,stable_reason) values(org_id,command_one,'lifecycle.effect',true,'pending','checkpoint_pending');
+  select * into gate from public.recora_p4_resolve_checkpoint_gate(org_id,project_id);if gate.customer_access_allowed or gate.reason_code<>'checkpoint_pending' then raise exception 'organization checkpoint did not hard-ceiling project access';end if;
+  update recora_private.p4_downstream_checkpoints set state='failed',stable_reason='checkpoint_failed' where command_receipt_id=command_one;
+  update recora_private.p4_downstream_checkpoints set state='pending',stable_reason='checkpoint_pending' where command_receipt_id=command_one;
+  update recora_private.p4_downstream_checkpoints set state='applying',stable_reason='checkpoint_pending' where command_receipt_id=command_one;
+  update recora_private.p4_downstream_checkpoints set state='completed',stable_reason='ok' where command_receipt_id=command_one;
+  select * into gate from public.recora_p4_resolve_checkpoint_gate(org_id,project_id);if not gate.customer_access_allowed or gate.reason_code<>'ok' then raise exception 'completed correction did not restore project access';end if;
+end;
+$owner_matrix$;
+rollback;
+`);
 console.log(JSON.stringify({
   status: "ok",
   database: "isolated-local-only",
@@ -107,6 +130,8 @@ console.log(JSON.stringify({
     providerPayloadBoundary: "validated",
     idempotencyAndConflict: "validated",
     checkpointFailClosed: "validated",
-    appendOnlyAndInvitationNegative: "validated"
+    appendOnlyAndInvitationNegative: "validated",
+    invitationSupersessionAndOrganizationHardCeiling: "validated",
+    checkpointRetryAndRecovery: "validated"
   }
 }, null, 2));

@@ -103,7 +103,7 @@ export function normalizePhase4CommandResult(value: unknown): Phase4CommandResul
     (outcome !== "accepted" && outcome !== "replayed" && outcome !== "rejected" && outcome !== "reconciliation_required") ||
     typeof stableReason !== "string" ||
     !reasonCodes.has(stableReason as Phase4StableReason) ||
-    (commandReceiptId !== null && (!isUuid(commandReceiptId) || (outcome === "rejected" && commandReceiptId !== null))) || !isResultCombination(outcome, stableReason as Phase4StableReason)
+    (commandReceiptId !== null && !isUuid(commandReceiptId)) || !isResultCombination(outcome, stableReason as Phase4StableReason)
   ) {
     return unavailableResult();
   }
