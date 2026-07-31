@@ -159,3 +159,30 @@ reviving it in place, or deleting it is denied. The dedicated verifier now
 exercises wrong command types, wrong source/fingerprint, conflicting payment
 facts, direct deletes, renewal history/pointer preservation, and two concurrent
 semantic retries that return one accepted receipt plus one replay.
+
+## OWNER remediation 5146470423
+
+The four project-scoped child histories (`p4_contract_events`,
+`p4_billing_receipt_events`, `p4_checkpoint_events`, and
+`p4_outbox_events`) do not carry a mutable or independently supplied project
+scope. Their command binding resolves the effective `project_id` from the
+authoritative parent projection, receipt, checkpoint, or outbox row before it
+looks up the command receipt. A missing parent, a parent tenant mismatch, or a
+command receipt scoped to another project is rejected before any downstream
+foreign-key, event, or current-projection validator can accept the write.
+Organization-scoped parents continue to require organization-scoped receipts.
+
+A new pending invitation must use one and the same
+`issuer_command_receipt_id` and `last_command_receipt_id`; its first immutable
+`pending` event must reference that identical receipt. The issuer remains
+immutable, while later valid lifecycle transitions advance only the last
+receipt.
+
+The dedicated local verifier creates a second project in the seeded
+organization inside a rolled-back transaction. It proves project-scoped
+contract projection/event, billing receipt/event/payment fact, and
+checkpoint/event/outbox/event positives; rejects a distinct same-tenant
+project command for each child-event domain; directly exercises missing-parent
+fail-closed branches; and rejects both a pending invitation issuer/last
+mismatch and an initial event bound to a different invitation receipt. These
+are real P4 rows and command receipts, not FK/check substitutes.

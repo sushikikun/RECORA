@@ -395,6 +395,154 @@ from public.recora_p4_record_command_receipt(
   console.log(JSON.stringify({ status: "ok", concurrentIdempotency: "accepted-and-replayed-on-one-receipt" }, null, 2));
 }
 
+runSql(`
+begin;
+do $owner_5146470423_project_scope_matrix$
+declare
+  org_id uuid := '00000000-0000-4000-8000-000000000001';
+  project_a uuid := '10000000-0000-4000-8000-000000000001';
+  project_b uuid := '12120000-0000-4000-8000-000000000801';
+  contract_ok uuid;
+  contract_cross uuid;
+  billing_ok uuid;
+  billing_payment uuid;
+  billing_cross uuid;
+  checkpoint_ok uuid;
+  checkpoint_cross uuid;
+  invitation_issuer uuid;
+  invitation_other uuid;
+  invitation_id uuid;
+  contract_id uuid;
+  billing_id uuid;
+  checkpoint_id uuid;
+  outbox_id uuid;
+begin
+  insert into public.projects(id,organization_id,slug,name)
+  values(project_b,org_id,'issue-121-project-scope-b','Issue 121 Project Scope B');
+
+  select command_receipt_id into contract_ok
+  from public.recora_p4_record_command_receipt(org_id,project_a,'contract.projection','provider_fixture'::recora_private.p4_source_kind,'fixture.p4','project.contract',801,repeat('1',64),'12100000-0000-4000-8000-000000000801','12110000-0000-4000-8000-000000000801','project.contract.ok');
+  insert into recora_private.p4_contract_projections(organization_id,project_id,contract_reference,source_namespace,latest_source_sequence,last_command_receipt_id)
+  values(org_id,project_a,'project.contract','fixture.p4',801,contract_ok) returning id into contract_id;
+  insert into recora_private.p4_contract_events(contract_id,organization_id,event_sequence,source_namespace,source_reference,source_sequence,payload_fingerprint,next_state,command_receipt_id,request_id,correlation_id)
+  values(contract_id,org_id,1,'fixture.p4','project.contract',801,repeat('1',64),'draft',contract_ok,'12100000-0000-4000-8000-000000000801','12110000-0000-4000-8000-000000000801');
+
+  select command_receipt_id into contract_cross
+  from public.recora_p4_record_command_receipt(org_id,project_b,'contract.projection','provider_fixture'::recora_private.p4_source_kind,'fixture.p4','project.contract',802,repeat('2',64),'12100000-0000-4000-8000-000000000802','12110000-0000-4000-8000-000000000802','project.contract.cross');
+  begin
+    insert into recora_private.p4_contract_events(contract_id,organization_id,event_sequence,source_namespace,source_reference,source_sequence,payload_fingerprint,previous_state,next_state,command_receipt_id,request_id,correlation_id)
+    values(contract_id,org_id,2,'fixture.p4','project.contract',802,repeat('2',64),'draft','pending_activation',contract_cross,'12100000-0000-4000-8000-000000000802','12110000-0000-4000-8000-000000000802');
+    raise exception 'cross-project contract event accepted';
+  exception when raise_exception then
+    if sqlerrm !~ 'P4 domain command type or scope mismatch' then raise; end if;
+  end;
+  begin
+    insert into recora_private.p4_contract_events(contract_id,organization_id,event_sequence,source_namespace,source_reference,source_sequence,payload_fingerprint,next_state,command_receipt_id,request_id,correlation_id)
+    values(gen_random_uuid(),org_id,1,'fixture.p4','project.contract',803,repeat('3',64),'draft',contract_ok,'12100000-0000-4000-8000-000000000801','12110000-0000-4000-8000-000000000801');
+    raise exception 'missing contract parent accepted';
+  exception when raise_exception then
+    if sqlerrm !~ 'P4 child event parent scope mismatch' then raise; end if;
+  end;
+
+  select command_receipt_id into billing_ok
+  from public.recora_p4_record_command_receipt(org_id,project_a,'billing.receipt','provider_fixture'::recora_private.p4_source_kind,'fixture.p4','project.billing',810,repeat('4',64),'12100000-0000-4000-8000-000000000810','12110000-0000-4000-8000-000000000810','project.billing.ok');
+  insert into recora_private.p4_billing_receipts(organization_id,project_id,source_kind,source_namespace,source_reference,source_sequence,payload_fingerprint,last_command_receipt_id,request_id,correlation_id)
+  values(org_id,project_a,'provider_fixture','fixture.p4','project.billing',810,repeat('4',64),billing_ok,'12100000-0000-4000-8000-000000000810','12110000-0000-4000-8000-000000000810') returning id into billing_id;
+  insert into recora_private.p4_billing_receipt_events(receipt_id,organization_id,event_sequence,next_state,command_receipt_id,request_id,correlation_id)
+  values(billing_id,org_id,1,'received',billing_ok,'12100000-0000-4000-8000-000000000810','12110000-0000-4000-8000-000000000810');
+  select command_receipt_id into billing_payment
+  from public.recora_p4_record_command_receipt(org_id,project_a,'billing.payment_fact','provider_fixture'::recora_private.p4_source_kind,'fixture.p4','project.billing',810,repeat('4',64),'12100000-0000-4000-8000-000000000810','12110000-0000-4000-8000-000000000810','project.billing.payment');
+  insert into recora_private.p4_normalized_payment_facts(receipt_id,organization_id,project_id,source_namespace,source_reference,source_sequence,payment_chain_key,fact_kind,command_receipt_id,request_id,correlation_id)
+  values(billing_id,org_id,project_a,'fixture.p4','project.billing',810,'project.billing.chain','payment_succeeded',billing_payment,'12100000-0000-4000-8000-000000000810','12110000-0000-4000-8000-000000000810');
+
+  select command_receipt_id into billing_cross
+  from public.recora_p4_record_command_receipt(org_id,project_b,'billing.receipt','provider_fixture'::recora_private.p4_source_kind,'fixture.p4','project.billing',810,repeat('4',64),'12100000-0000-4000-8000-000000000811','12110000-0000-4000-8000-000000000811','project.billing.cross');
+  begin
+    insert into recora_private.p4_billing_receipt_events(receipt_id,organization_id,event_sequence,previous_state,next_state,command_receipt_id,request_id,correlation_id)
+    values(billing_id,org_id,2,'received','validated',billing_cross,'12100000-0000-4000-8000-000000000811','12110000-0000-4000-8000-000000000811');
+    raise exception 'cross-project billing event accepted';
+  exception when raise_exception then
+    if sqlerrm !~ 'P4 domain command type or scope mismatch' then raise; end if;
+  end;
+  begin
+    insert into recora_private.p4_billing_receipt_events(receipt_id,organization_id,event_sequence,next_state,command_receipt_id,request_id,correlation_id)
+    values(gen_random_uuid(),org_id,1,'received',billing_ok,'12100000-0000-4000-8000-000000000810','12110000-0000-4000-8000-000000000810');
+    raise exception 'missing billing parent accepted';
+  exception when raise_exception then
+    if sqlerrm !~ 'P4 child event parent scope mismatch' then raise; end if;
+  end;
+
+  select command_receipt_id into checkpoint_ok
+  from public.recora_p4_record_command_receipt(org_id,project_a,'lifecycle.checkpoint','provider_fixture'::recora_private.p4_source_kind,'fixture.p4','project.checkpoint',820,repeat('5',64),'12100000-0000-4000-8000-000000000820','12110000-0000-4000-8000-000000000820','project.checkpoint.ok');
+  insert into recora_private.p4_downstream_checkpoints(organization_id,project_id,command_receipt_id,required_effect,blocks_customer_access,state,stable_reason)
+  values(org_id,project_a,checkpoint_ok,'project.checkpoint',true,'pending','checkpoint_pending') returning id into checkpoint_id;
+  insert into recora_private.p4_checkpoint_events(checkpoint_id,organization_id,event_sequence,next_state,command_receipt_id,request_id,correlation_id)
+  values(checkpoint_id,org_id,1,'pending',checkpoint_ok,'12100000-0000-4000-8000-000000000820','12110000-0000-4000-8000-000000000820');
+  insert into recora_private.p4_durable_outbox(checkpoint_id,command_receipt_id,organization_id,project_id,effect_kind,ordering_key,idempotency_key)
+  values(checkpoint_id,checkpoint_ok,org_id,project_a,'project.checkpoint',820,'project.outbox') returning id into outbox_id;
+  insert into recora_private.p4_outbox_events(outbox_id,organization_id,event_sequence,next_state,command_receipt_id,request_id,correlation_id)
+  values(outbox_id,org_id,1,'pending',checkpoint_ok,'12100000-0000-4000-8000-000000000820','12110000-0000-4000-8000-000000000820');
+
+  select command_receipt_id into checkpoint_cross
+  from public.recora_p4_record_command_receipt(org_id,project_b,'lifecycle.checkpoint','provider_fixture'::recora_private.p4_source_kind,'fixture.p4','project.checkpoint.cross',821,repeat('6',64),'12100000-0000-4000-8000-000000000821','12110000-0000-4000-8000-000000000821','project.checkpoint.cross');
+  begin
+    insert into recora_private.p4_checkpoint_events(checkpoint_id,organization_id,event_sequence,previous_state,next_state,command_receipt_id,request_id,correlation_id)
+    values(checkpoint_id,org_id,2,'pending','applying',checkpoint_cross,'12100000-0000-4000-8000-000000000821','12110000-0000-4000-8000-000000000821');
+    raise exception 'cross-project checkpoint event accepted';
+  exception when raise_exception then
+    if sqlerrm !~ 'P4 domain command type or scope mismatch' then raise; end if;
+  end;
+  begin
+    insert into recora_private.p4_outbox_events(outbox_id,organization_id,event_sequence,previous_state,next_state,command_receipt_id,request_id,correlation_id)
+    values(outbox_id,org_id,2,'pending','delivered',checkpoint_cross,'12100000-0000-4000-8000-000000000821','12110000-0000-4000-8000-000000000821');
+    raise exception 'cross-project outbox event accepted';
+  exception when raise_exception then
+    if sqlerrm !~ 'P4 domain command type or scope mismatch' then raise; end if;
+  end;
+  begin
+    insert into recora_private.p4_checkpoint_events(checkpoint_id,organization_id,event_sequence,next_state,command_receipt_id,request_id,correlation_id)
+    values(gen_random_uuid(),org_id,1,'pending',checkpoint_ok,'12100000-0000-4000-8000-000000000820','12110000-0000-4000-8000-000000000820');
+    raise exception 'missing checkpoint parent accepted';
+  exception when raise_exception then
+    if sqlerrm !~ 'P4 child event parent scope mismatch' then raise; end if;
+  end;
+  begin
+    insert into recora_private.p4_outbox_events(outbox_id,organization_id,event_sequence,next_state,command_receipt_id,request_id,correlation_id)
+    values(gen_random_uuid(),org_id,1,'pending',checkpoint_ok,'12100000-0000-4000-8000-000000000820','12110000-0000-4000-8000-000000000820');
+    raise exception 'missing outbox parent accepted';
+  exception when raise_exception then
+    if sqlerrm !~ 'P4 child event parent scope mismatch' then raise; end if;
+  end;
+
+  select command_receipt_id into invitation_issuer
+  from public.recora_p4_record_command_receipt(org_id,null,'invitation.lifecycle','provider_fixture'::recora_private.p4_source_kind,'fixture.p4','project.invitation',830,repeat('7',64),'12100000-0000-4000-8000-000000000830','12110000-0000-4000-8000-000000000830','project.invitation.issuer');
+  select command_receipt_id into invitation_other
+  from public.recora_p4_record_command_receipt(org_id,null,'invitation.lifecycle','provider_fixture'::recora_private.p4_source_kind,'fixture.p4','project.invitation.other',831,repeat('8',64),'12100000-0000-4000-8000-000000000831','12110000-0000-4000-8000-000000000831','project.invitation.other');
+  begin
+    insert into recora_private.p4_invitations(organization_id,recipient_binding_hash,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at)
+    values(org_id,repeat('9',64),invitation_issuer,invitation_other,'12100000-0000-4000-8000-000000000831','12110000-0000-4000-8000-000000000831',now()+interval '1 day');
+    raise exception 'pending invitation issuer mismatch accepted';
+  exception when raise_exception then
+    if sqlerrm !~ 'P4 pending invitation issuer must equal initial receipt' then raise; end if;
+  end;
+  insert into recora_private.p4_invitations(organization_id,recipient_binding_hash,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at)
+  values(org_id,repeat('a',64),invitation_issuer,invitation_issuer,'12100000-0000-4000-8000-000000000830','12110000-0000-4000-8000-000000000830',now()+interval '1 day') returning id into invitation_id;
+  begin
+    insert into recora_private.p4_invitation_events(invitation_id,organization_id,event_sequence,next_state,command_receipt_id,request_id,correlation_id)
+    values(invitation_id,org_id,1,'pending',invitation_other,'12100000-0000-4000-8000-000000000831','12110000-0000-4000-8000-000000000831');
+    raise exception 'initial invitation event receipt mismatch accepted';
+  exception when raise_exception then
+    if sqlerrm !~ 'P4 invitation initial event receipt mismatch' then raise; end if;
+  end;
+  insert into recora_private.p4_invitation_events(invitation_id,organization_id,event_sequence,next_state,command_receipt_id,request_id,correlation_id)
+  values(invitation_id,org_id,1,'pending',invitation_issuer,'12100000-0000-4000-8000-000000000830','12110000-0000-4000-8000-000000000830');
+end;
+$owner_5146470423_project_scope_matrix$;
+set constraints all immediate;
+rollback;
+`);
+console.log(JSON.stringify({ status: 'ok', owner5146470423: 'parent-project-scope-and-invitation-initial-receipt-validated' }, null, 2));
+
 verifyConcurrentIdempotency().catch((error: unknown) => {
   console.error(error);
   process.exitCode = 1;

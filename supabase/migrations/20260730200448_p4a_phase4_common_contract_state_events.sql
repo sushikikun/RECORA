@@ -901,3 +901,155 @@ begin
     execute format('revoke all on function %s from public, anon, authenticated',fn.signature);
   end loop;
 end $p4_object_local_exec_revoke_5146069373$;
+
+-- OWNER remediation 5146470423: event rows have no project column. Derive their
+-- command scope only from the authoritative current parent, never from child JSON.
+create or replace function recora_private.p4_validate_domain_command_binding()
+returns trigger language plpgsql set search_path='' as $$
+declare
+  j jsonb := to_jsonb(new);
+  r recora_private.p4_command_receipts%rowtype;
+  b recora_private.p4_billing_receipts%rowtype;
+  parent_organization_id uuid;
+  effective_project_id uuid := nullif(j->>'project_id','')::uuid;
+  invitation_issuer_id uuid;
+  invitation_last_id uuid;
+  invitation_state text;
+  command_id uuid;
+  org_id uuid := (j->>'organization_id')::uuid;
+  expected text;
+begin
+  command_id := case
+    when tg_table_name='p4_business_lifecycle_episodes' then (j->>'start_command_receipt_id')::uuid
+    else (j->>'command_receipt_id')::uuid
+  end;
+  command_id := coalesce(command_id,nullif(j->>'last_command_receipt_id','')::uuid);
+
+  if tg_table_name='p4_contract_events' then
+    select organization_id,project_id into parent_organization_id,effective_project_id
+    from recora_private.p4_contract_projections where id=(j->>'contract_id')::uuid;
+    if not found or parent_organization_id is distinct from org_id then
+      raise exception 'P4 child event parent scope mismatch';
+    end if;
+  elsif tg_table_name='p4_billing_receipt_events' then
+    select organization_id,project_id into parent_organization_id,effective_project_id
+    from recora_private.p4_billing_receipts where id=(j->>'receipt_id')::uuid;
+    if not found or parent_organization_id is distinct from org_id then
+      raise exception 'P4 child event parent scope mismatch';
+    end if;
+  elsif tg_table_name='p4_checkpoint_events' then
+    select organization_id,project_id into parent_organization_id,effective_project_id
+    from recora_private.p4_downstream_checkpoints where id=(j->>'checkpoint_id')::uuid;
+    if not found or parent_organization_id is distinct from org_id then
+      raise exception 'P4 child event parent scope mismatch';
+    end if;
+  elsif tg_table_name='p4_outbox_events' then
+    select organization_id,project_id into parent_organization_id,effective_project_id
+    from recora_private.p4_durable_outbox where id=(j->>'outbox_id')::uuid;
+    if not found or parent_organization_id is distinct from org_id then
+      raise exception 'P4 child event parent scope mismatch';
+    end if;
+  end if;
+
+  select * into r from recora_private.p4_command_receipts where id=command_id;
+  expected := case
+    when tg_table_name in('p4_business_lifecycle_episodes','p4_business_lifecycle_current','p4_business_lifecycle_events') then 'business.lifecycle'
+    when tg_table_name in('p4_invitations','p4_invitation_events','p4_membership_episodes','p4_membership_episode_events') then 'invitation.lifecycle'
+    when tg_table_name in('p4_contract_projections','p4_contract_events') then 'contract.projection'
+    when tg_table_name in('p4_billing_receipts','p4_billing_receipt_events') then 'billing.receipt'
+    when tg_table_name='p4_normalized_payment_facts' then 'billing.payment_fact'
+    else 'lifecycle.checkpoint'
+  end;
+  if not found or r.command_type is distinct from expected
+    or r.organization_id is distinct from org_id
+    or r.project_id is distinct from effective_project_id then
+    raise exception 'P4 domain command type or scope mismatch';
+  end if;
+  if expected in('business.lifecycle','invitation.lifecycle') and r.project_id is not null then
+    raise exception 'P4 organization domain command project mismatch';
+  end if;
+
+  if tg_table_name='p4_invitations' then
+    if tg_op='INSERT' and j->>'state'='pending'
+      and (j->>'issuer_command_receipt_id')::uuid is distinct from (j->>'last_command_receipt_id')::uuid then
+      raise exception 'P4 pending invitation issuer must equal initial receipt';
+    end if;
+    if r.request_id is distinct from (j->>'request_id')::uuid
+      or r.correlation_id is distinct from (j->>'correlation_id')::uuid
+      or not exists(
+        select 1 from recora_private.p4_command_receipts i
+        where i.id=(j->>'issuer_command_receipt_id')::uuid
+          and i.command_type='invitation.lifecycle'
+          and i.organization_id=org_id
+          and i.project_id is null
+      ) then
+      raise exception 'P4 invitation command causal binding mismatch';
+    end if;
+  elsif tg_table_name='p4_invitation_events' then
+    if (j->>'event_sequence')::bigint=1 then
+      select organization_id,state::text,issuer_command_receipt_id,last_command_receipt_id
+      into parent_organization_id,invitation_state,invitation_issuer_id,invitation_last_id
+      from recora_private.p4_invitations where id=(j->>'invitation_id')::uuid;
+      if not found
+        or parent_organization_id is distinct from org_id
+        or invitation_state is distinct from 'pending'
+        or invitation_issuer_id is distinct from invitation_last_id
+        or command_id is distinct from invitation_issuer_id then
+        raise exception 'P4 invitation initial event receipt mismatch';
+      end if;
+    end if;
+    if r.request_id is distinct from (j->>'request_id')::uuid
+      or r.correlation_id is distinct from (j->>'correlation_id')::uuid then
+      raise exception 'P4 domain command causal binding mismatch';
+    end if;
+  elsif tg_table_name in('p4_contract_projections','p4_contract_events') then
+    if r.source_namespace is distinct from j->>'source_namespace'
+      or r.source_reference is distinct from coalesce(j->>'contract_reference',j->>'source_reference')
+      or r.source_sequence is distinct from (coalesce(j->>'latest_source_sequence',j->>'source_sequence'))::bigint
+      or (tg_table_name='p4_contract_events' and r.payload_fingerprint is distinct from j->>'payload_fingerprint') then
+      raise exception 'P4 contract command source semantic identity mismatch';
+    end if;
+  elsif tg_table_name='p4_billing_receipts' then
+    if r.source_kind::text is distinct from j->>'source_kind'
+      or r.source_namespace is distinct from j->>'source_namespace'
+      or r.source_reference is distinct from j->>'source_reference'
+      or r.source_sequence is distinct from (j->>'source_sequence')::bigint
+      or r.payload_fingerprint is distinct from j->>'payload_fingerprint'
+      or r.request_id is distinct from (j->>'request_id')::uuid
+      or r.correlation_id is distinct from (j->>'correlation_id')::uuid then
+      raise exception 'P4 billing receipt command source semantic identity mismatch';
+    end if;
+  elsif tg_table_name in('p4_billing_receipt_events','p4_normalized_payment_facts') then
+    select * into b from recora_private.p4_billing_receipts
+    where id=(j->>'receipt_id')::uuid;
+    if not found
+      or b.organization_id is distinct from org_id
+      or b.project_id is distinct from effective_project_id
+      or r.source_kind is distinct from b.source_kind
+      or r.source_namespace is distinct from b.source_namespace
+      or r.source_reference is distinct from b.source_reference
+      or r.source_sequence is distinct from b.source_sequence
+      or r.payload_fingerprint is distinct from b.payload_fingerprint then
+      raise exception 'P4 billing command source semantic identity mismatch';
+    end if;
+    if tg_table_name='p4_normalized_payment_facts'
+      and (
+        b.contract_id is distinct from nullif(j->>'contract_id','')::uuid
+        or b.source_namespace is distinct from j->>'source_namespace'
+        or b.source_reference is distinct from j->>'source_reference'
+        or b.source_sequence is distinct from (j->>'source_sequence')::bigint
+        or b.request_id is distinct from (j->>'request_id')::uuid
+        or b.correlation_id is distinct from (j->>'correlation_id')::uuid
+        or r.request_id is distinct from (j->>'request_id')::uuid
+        or r.correlation_id is distinct from (j->>'correlation_id')::uuid
+      ) then
+      raise exception 'P4 payment fact command lineage mismatch';
+    end if;
+  elsif j ? 'request_id'
+    and (r.request_id is distinct from (j->>'request_id')::uuid
+      or r.correlation_id is distinct from (j->>'correlation_id')::uuid) then
+    raise exception 'P4 domain command causal binding mismatch';
+  end if;
+  return new;
+end; $$;
+revoke all on function recora_private.p4_validate_domain_command_binding() from public,anon,authenticated;
