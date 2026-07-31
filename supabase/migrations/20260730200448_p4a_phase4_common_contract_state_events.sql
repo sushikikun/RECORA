@@ -356,3 +356,433 @@ create or replace function recora_private.p4_validate_contract_pointer() returns
 alter table recora_private.p4_command_conflicts add column project_id uuid, add constraint p4_command_conflicts_project_scope foreign key(project_id,organization_id) references public.projects(id,organization_id) on delete restrict, add constraint p4_command_conflicts_opaque check(recora_private.p4_opaque(command_type)and recora_private.p4_opaque(source_namespace)and recora_private.p4_opaque(source_reference)and payload_fingerprint~'^[0-9a-f]{64}$');
 create or replace function recora_private.p4_validate_payment_fact() returns trigger language plpgsql set search_path='' as $$ declare receipt recora_private.p4_billing_receipts%rowtype; prior recora_private.p4_normalized_payment_facts%rowtype; command recora_private.p4_command_receipts%rowtype;begin select * into receipt from recora_private.p4_billing_receipts where id=new.receipt_id;select * into command from recora_private.p4_command_receipts where id=new.command_receipt_id;if not found or receipt.organization_id is distinct from new.organization_id or receipt.project_id is distinct from new.project_id or receipt.contract_id is distinct from new.contract_id or receipt.source_namespace is distinct from new.source_namespace or receipt.source_reference is distinct from new.source_reference or receipt.source_sequence is distinct from new.source_sequence or command.organization_id is distinct from new.organization_id or command.project_id is distinct from new.project_id or command.request_id is distinct from new.request_id or command.correlation_id is distinct from new.correlation_id then raise exception 'P4 payment causal mismatch';end if;if new.corrects_fact_id is not null then select * into prior from recora_private.p4_normalized_payment_facts where id=new.corrects_fact_id;if not found or prior.id=new.id or prior.organization_id is distinct from new.organization_id or prior.project_id is distinct from new.project_id or prior.contract_id is distinct from new.contract_id or prior.source_namespace is distinct from new.source_namespace or prior.source_reference is distinct from new.source_reference or prior.corrects_fact_id is not null then raise exception 'P4 payment correction lineage mismatch';end if;end if;return new;end;$$;
 revoke all on function recora_private.p4_validate_invitation_final(),recora_private.p4_validate_membership_episode(),recora_private.p4_validate_contract_pointer() from public,anon,authenticated;
+-- OWNER 5145421314: the final definitions retain every P4-A current, event,
+-- causal, and browser-execution boundary. Current projections are mutable only
+-- as projections of append-only evidence recorded in the same transaction.
+alter table recora_private.p4_downstream_checkpoints
+  add column correction_of_checkpoint_id uuid references recora_private.p4_downstream_checkpoints(id) on delete restrict;
+alter table recora_private.p4_durable_outbox
+  add column superseded_by_outbox_id uuid references recora_private.p4_durable_outbox(id) on delete restrict,
+  add column correction_of_outbox_id uuid references recora_private.p4_durable_outbox(id) on delete restrict;
+alter table recora_private.p4_checkpoint_events add column event_sequence bigint not null default 1 check(event_sequence>0);
+alter table recora_private.p4_outbox_events add column event_sequence bigint not null default 1 check(event_sequence>0);
+alter table recora_private.p4_normalized_payment_facts add column payment_chain_key text not null check(recora_private.p4_opaque(payment_chain_key));
+create unique index p4_one_checkpoint_correction on recora_private.p4_downstream_checkpoints(correction_of_checkpoint_id) where correction_of_checkpoint_id is not null;
+create unique index p4_one_outbox_correction on recora_private.p4_durable_outbox(correction_of_outbox_id) where correction_of_outbox_id is not null;
+create unique index p4_one_payment_fact_correction on recora_private.p4_normalized_payment_facts(corrects_fact_id) where corrects_fact_id is not null;
+alter table recora_private.p4_checkpoint_events add constraint p4_checkpoint_event_sequence_unique unique(checkpoint_id,event_sequence);
+alter table recora_private.p4_outbox_events add constraint p4_outbox_event_sequence_unique unique(outbox_id,event_sequence);
+
+create or replace function recora_private.p4_validate_business_episode()
+returns trigger language plpgsql set search_path='' as $$
+declare receipt recora_private.p4_command_receipts%rowtype;
+begin
+  select * into receipt from recora_private.p4_command_receipts where id=new.start_command_receipt_id;
+  if not found or receipt.organization_id is distinct from new.organization_id or receipt.project_id is not null
+    or receipt.request_id is distinct from new.request_id or receipt.correlation_id is distinct from new.correlation_id
+    or new.initial_state <> 'lead' then raise exception 'P4 business episode causal mismatch'; end if;
+  return new;
+end; $$;
+create trigger p4_business_episode_integrity before insert on recora_private.p4_business_lifecycle_episodes for each row execute function recora_private.p4_validate_business_episode();
+create trigger p4_business_episode_append_only before update or delete on recora_private.p4_business_lifecycle_episodes for each row execute function recora_private.p4_reject_history_mutation();
+
+create or replace function recora_private.p4_validate_membership_episode()
+returns trigger language plpgsql set search_path='' as $$
+declare invitation recora_private.p4_invitations%rowtype; member_row public.organization_members%rowtype; receipt recora_private.p4_command_receipts%rowtype;
+begin
+  select * into invitation from recora_private.p4_invitations where id=new.invitation_id;
+  select * into receipt from recora_private.p4_command_receipts where id=new.command_receipt_id;
+  if not found or invitation.organization_id is distinct from new.organization_id
+    or receipt.organization_id is distinct from new.organization_id or receipt.project_id is not null
+    or receipt.request_id is distinct from new.request_id or receipt.correlation_id is distinct from new.correlation_id
+    or invitation.intended_role is distinct from new.intended_role then raise exception 'P4 membership episode causal mismatch'; end if;
+  if tg_op='INSERT' and new.state <> 'invited' then raise exception 'P4 membership episode must start invited'; end if;
+  if new.state='invited' and invitation.state <> 'pending' then raise exception 'P4 invited episode requires pending invitation'; end if;
+  if new.state in('active','revoked') then
+    select * into member_row from public.organization_members where id=new.membership_id;
+    if invitation.state <> 'accepted' or invitation.accepted_user_id is distinct from new.accepted_user_id
+      or invitation.accepted_membership_id is distinct from new.membership_id or not found
+      or member_row.organization_id is distinct from new.organization_id or member_row.user_id is distinct from new.accepted_user_id
+      or member_row.role is distinct from new.intended_role
+      or (new.state='active' and member_row.membership_status <> 'active')
+      or (new.state='revoked' and member_row.membership_status <> 'revoked') then raise exception 'P4 membership episode acceptance mismatch'; end if;
+  end if;
+  if tg_op='UPDATE' then
+    if old.organization_id is distinct from new.organization_id or old.invitation_id is distinct from new.invitation_id
+      or old.episode_number is distinct from new.episode_number or old.intended_role is distinct from new.intended_role then raise exception 'P4 membership episode identity immutable'; end if;
+    if not((old.state='invited' and new.state='active') or (old.state='active' and new.state='revoked') or old.state=new.state) then raise exception 'P4 membership episode transition invalid'; end if;
+    if old.state <> 'invited' and (old.membership_id is distinct from new.membership_id or old.accepted_user_id is distinct from new.accepted_user_id) then raise exception 'P4 membership episode acceptance immutable'; end if;
+  end if;
+  return new;
+end; $$;
+drop trigger if exists p4_membership_episode_integrity on recora_private.p4_membership_episodes;
+create trigger p4_membership_episode_integrity before insert or update on recora_private.p4_membership_episodes for each row execute function recora_private.p4_validate_membership_episode();
+create trigger p4_membership_episode_delete_protected before delete on recora_private.p4_membership_episodes for each row execute function recora_private.p4_reject_history_mutation();
+
+create or replace function recora_private.p4_validate_membership_episode_event()
+returns trigger language plpgsql set search_path='' as $$
+declare episode recora_private.p4_membership_episodes%rowtype; receipt recora_private.p4_command_receipts%rowtype; predecessor text;
+begin
+  select * into episode from recora_private.p4_membership_episodes where id=new.episode_id;
+  select * into receipt from recora_private.p4_command_receipts where id=new.command_receipt_id;
+  if not found or episode.organization_id is distinct from new.organization_id
+    or receipt.organization_id is distinct from new.organization_id or receipt.project_id is not null
+    or receipt.request_id is distinct from new.request_id or receipt.correlation_id is distinct from new.correlation_id then raise exception 'P4 membership episode event causal mismatch'; end if;
+  if new.event_sequence=1 then
+    if new.previous_state is not null or new.next_state <> 'invited' then raise exception 'P4 membership episode initial event invalid'; end if;
+  else
+    select next_state::text into predecessor from recora_private.p4_membership_episode_events where episode_id=new.episode_id and event_sequence=new.event_sequence-1;
+    if predecessor is null or predecessor is distinct from new.previous_state::text
+      or not((new.previous_state='invited' and new.next_state='active') or (new.previous_state='active' and new.next_state='revoked')) then raise exception 'P4 membership episode event transition invalid'; end if;
+  end if;
+  return new;
+end; $$;
+create trigger p4_membership_episode_event_integrity before insert on recora_private.p4_membership_episode_events for each row execute function recora_private.p4_validate_membership_episode_event();
+
+create or replace function recora_private.p4_validate_lifecycle_event()
+returns trigger language plpgsql set search_path='' as $$
+declare parent_org uuid; parent_project uuid; parent_reference text; parent_namespace text;
+  receipt recora_private.p4_command_receipts%rowtype; predecessor text; state_before text:=new.previous_state::text; state_after text:=new.next_state::text;
+  snapshot_org uuid; snapshot_project uuid; snapshot_policy uuid;
+begin
+  select * into receipt from recora_private.p4_command_receipts where id=new.command_receipt_id;
+  if not found or receipt.organization_id is distinct from new.organization_id or receipt.request_id is distinct from new.request_id or receipt.correlation_id is distinct from new.correlation_id then raise exception 'P4 event command receipt causal mismatch'; end if;
+  if tg_table_name='p4_business_lifecycle_events' then
+    select organization_id into parent_org from recora_private.p4_business_lifecycle_episodes where id=new.episode_id; parent_project:=null;
+    select next_state::text into predecessor from recora_private.p4_business_lifecycle_events where episode_id=new.episode_id and event_sequence=new.event_sequence-1;
+  elsif tg_table_name='p4_invitation_events' then
+    select organization_id into parent_org from recora_private.p4_invitations where id=new.invitation_id; parent_project:=null;
+    select next_state::text into predecessor from recora_private.p4_invitation_events where invitation_id=new.invitation_id and event_sequence=new.event_sequence-1;
+  elsif tg_table_name='p4_contract_events' then
+    select organization_id,project_id,contract_reference,source_namespace into parent_org,parent_project,parent_reference,parent_namespace from recora_private.p4_contract_projections where id=new.contract_id;
+    select next_state::text into predecessor from recora_private.p4_contract_events where contract_id=new.contract_id and event_sequence=new.event_sequence-1;
+    if exists(select 1 from recora_private.p4_contract_events where contract_id=new.contract_id and source_sequence>=new.source_sequence) then raise exception 'P4 contract source ordering conflict'; end if;
+    if new.source_namespace is distinct from parent_namespace or new.source_reference is distinct from parent_reference then raise exception 'P4 contract event source identity mismatch'; end if;
+    if (new.plan_policy_version_id is null) <> (new.entitlement_snapshot_id is null) then raise exception 'P4 contract event policy snapshot pair invalid'; end if;
+    if new.entitlement_snapshot_id is not null then
+      select organization_id,project_id,plan_policy_version_id into snapshot_org,snapshot_project,snapshot_policy from recora_private.entitlement_snapshots where id=new.entitlement_snapshot_id;
+      if not found or snapshot_org is distinct from parent_org or snapshot_project is distinct from parent_project or snapshot_policy is distinct from new.plan_policy_version_id then raise exception 'P4 contract event snapshot scope mismatch'; end if;
+    end if;
+  else
+    select organization_id,project_id into parent_org,parent_project from recora_private.p4_billing_receipts where id=new.receipt_id;
+    select next_state::text into predecessor from recora_private.p4_billing_receipt_events where receipt_id=new.receipt_id and event_sequence=new.event_sequence-1;
+  end if;
+  if parent_org is null or parent_org is distinct from new.organization_id or receipt.project_id is distinct from parent_project then raise exception 'P4 event parent scope mismatch'; end if;
+  if new.event_sequence=1 then
+    if state_before is not null or (tg_table_name='p4_business_lifecycle_events' and state_after<>'lead')
+      or (tg_table_name='p4_invitation_events' and state_after<>'pending')
+      or (tg_table_name='p4_contract_events' and state_after<>'draft')
+      or (tg_table_name='p4_billing_receipt_events' and state_after<>'received') then raise exception 'P4 initial event state invalid'; end if;
+  elsif predecessor is null or predecessor is distinct from state_before then raise exception 'P4 event predecessor mismatch';
+  elsif (tg_table_name='p4_business_lifecycle_events' and not((state_before='lead' and state_after in('onboarding','rejected'))or(state_before='onboarding' and state_after in('serving','paused','closed','rejected'))or(state_before='serving' and state_after in('paused','closed'))or(state_before='paused' and state_after in('serving','closed'))))
+    or (tg_table_name='p4_invitation_events' and not(state_before='pending' and state_after in('accepted','expired','revoked','superseded')))
+    or (tg_table_name='p4_contract_events' and not((state_before='draft' and state_after in('pending_activation','canceled'))or(state_before='pending_activation' and state_after in('active','paused','canceled','ended'))or(state_before='active' and state_after in('paused','canceled','ended'))or(state_before='paused' and state_after in('active','canceled','ended'))))
+    or (tg_table_name='p4_billing_receipt_events' and not((state_before='received' and state_after in('validated','rejected','reconciliation_required'))or(state_before='validated' and state_after in('applying','rejected','reconciliation_required'))or(state_before='applying' and state_after in('applied','ignored_duplicate','rejected','reconciliation_required')))) then raise exception 'P4 event transition is not allowed'; end if;
+  return new;
+end; $$;
+create or replace function recora_private.p4_validate_checkpoint_event()
+returns trigger language plpgsql set search_path='' as $$
+declare checkpoint recora_private.p4_downstream_checkpoints%rowtype; receipt recora_private.p4_command_receipts%rowtype; predecessor text;
+begin
+  select * into checkpoint from recora_private.p4_downstream_checkpoints where id=new.checkpoint_id;
+  select * into receipt from recora_private.p4_command_receipts where id=new.command_receipt_id;
+  if not found or checkpoint.organization_id is distinct from new.organization_id or checkpoint.command_receipt_id is distinct from new.command_receipt_id
+    or receipt.organization_id is distinct from new.organization_id or receipt.project_id is distinct from checkpoint.project_id
+    or receipt.request_id is distinct from new.request_id or receipt.correlation_id is distinct from new.correlation_id then raise exception 'P4 checkpoint event causal mismatch'; end if;
+  if new.event_sequence=1 then
+    if new.previous_state is not null or new.next_state<>'pending' then raise exception 'P4 checkpoint initial event invalid'; end if;
+  else
+    select next_state::text into predecessor from recora_private.p4_checkpoint_events where checkpoint_id=new.checkpoint_id and event_sequence=new.event_sequence-1;
+    if predecessor is null or predecessor is distinct from new.previous_state::text
+      or not((new.previous_state='pending' and new.next_state in('applying','failed','reconciliation_required'))or(new.previous_state='applying' and new.next_state in('completed','failed','reconciliation_required'))or(new.previous_state='failed' and new.next_state in('pending','reconciliation_required'))or(new.previous_state='reconciliation_required' and new.next_state='pending')) then raise exception 'P4 checkpoint event transition invalid'; end if;
+  end if;
+  return new;
+end; $$;
+create or replace function recora_private.p4_validate_outbox_event()
+returns trigger language plpgsql set search_path='' as $$
+declare outbox recora_private.p4_durable_outbox%rowtype; receipt recora_private.p4_command_receipts%rowtype; predecessor text;
+begin
+  select * into outbox from recora_private.p4_durable_outbox where id=new.outbox_id;
+  select * into receipt from recora_private.p4_command_receipts where id=new.command_receipt_id;
+  if not found or outbox.organization_id is distinct from new.organization_id or outbox.command_receipt_id is distinct from new.command_receipt_id
+    or receipt.organization_id is distinct from new.organization_id or receipt.project_id is distinct from outbox.project_id
+    or receipt.request_id is distinct from new.request_id or receipt.correlation_id is distinct from new.correlation_id then raise exception 'P4 outbox event causal mismatch'; end if;
+  if new.event_sequence=1 then
+    if new.previous_state is not null or new.next_state<>'pending' then raise exception 'P4 outbox initial event invalid'; end if;
+  else
+    select next_state::text into predecessor from recora_private.p4_outbox_events where outbox_id=new.outbox_id and event_sequence=new.event_sequence-1;
+    if predecessor is null or predecessor is distinct from new.previous_state::text
+      or not((new.previous_state='pending' and new.next_state in('delivered','failed','reconciliation_required'))or(new.previous_state='failed' and new.next_state in('pending','reconciliation_required'))or(new.previous_state='reconciliation_required' and new.next_state='pending')) then raise exception 'P4 outbox event transition invalid'; end if;
+  end if;
+  return new;
+end; $$;
+create trigger p4_checkpoint_event_integrity before insert on recora_private.p4_checkpoint_events for each row execute function recora_private.p4_validate_checkpoint_event();
+create trigger p4_outbox_event_integrity before insert on recora_private.p4_outbox_events for each row execute function recora_private.p4_validate_outbox_event();
+
+create or replace function recora_private.p4_validate_current()
+returns trigger language plpgsql set search_path='' as $$
+declare o jsonb:=to_jsonb(old); n jsonb:=to_jsonb(new); old_state text:=coalesce(o->>'state',o->>'processing_state'); new_state text:=coalesce(n->>'state',n->>'processing_state');
+  receipt recora_private.p4_command_receipts%rowtype; episode recora_private.p4_business_lifecycle_episodes%rowtype; snapshot recora_private.entitlement_snapshots%rowtype; receipt_id uuid;
+begin
+  if tg_op='INSERT' then
+    if (tg_table_name='p4_business_lifecycle_current' and (new_state<>'lead' or new.version<>1))
+      or (tg_table_name='p4_invitations' and (new_state<>'pending' or new.version<>1))
+      or (tg_table_name='p4_contract_projections' and (new_state<>'draft' or new.version<>1))
+      or (tg_table_name='p4_billing_receipts' and (new_state<>'received' or new.version<>1))
+      or (tg_table_name='p4_downstream_checkpoints' and (new_state<>'pending' or new.version<>1))
+      or (tg_table_name='p4_durable_outbox' and (new_state<>'pending' or new.version<>1)) then raise exception 'P4 current initial state invalid'; end if;
+  else
+    if o->>'organization_id' is distinct from n->>'organization_id' or o->>'project_id' is distinct from n->>'project_id' then raise exception 'P4 current scope immutable'; end if;
+    if (n->>'version')::bigint=(o->>'version')::bigint then new.version:=(o->>'version')::bigint+1; elsif (n->>'version')::bigint<>(o->>'version')::bigint+1 then raise exception 'P4 version invalid'; end if;
+    if old_state is distinct from new_state and (
+      (tg_table_name='p4_business_lifecycle_current' and not((old_state='lead' and new_state in('onboarding','rejected'))or(old_state='onboarding' and new_state in('serving','paused','closed','rejected'))or(old_state='serving' and new_state in('paused','closed'))or(old_state='paused' and new_state in('serving','closed'))))
+      or (tg_table_name='p4_invitations' and not(old_state='pending' and new_state in('accepted','expired','revoked','superseded')))
+      or (tg_table_name='p4_contract_projections' and not((old_state='draft' and new_state in('pending_activation','canceled'))or(old_state='pending_activation' and new_state in('active','paused','canceled','ended'))or(old_state='active' and new_state in('paused','canceled','ended'))or(old_state='paused' and new_state in('active','canceled','ended'))))
+      or (tg_table_name='p4_billing_receipts' and not((old_state='received' and new_state in('validated','rejected','reconciliation_required'))or(old_state='validated' and new_state in('applying','rejected','reconciliation_required'))or(old_state='applying' and new_state in('applied','ignored_duplicate','rejected','reconciliation_required'))))
+      or (tg_table_name='p4_downstream_checkpoints' and not((old_state='pending' and new_state in('applying','failed','reconciliation_required'))or(old_state='applying' and new_state in('completed','failed','reconciliation_required'))or(old_state='failed' and new_state in('pending','reconciliation_required'))or(old_state='reconciliation_required' and new_state='pending')))
+      or (tg_table_name='p4_durable_outbox' and not((old_state='pending' and new_state in('delivered','failed','reconciliation_required'))or(old_state='failed' and new_state in('pending','reconciliation_required'))or(old_state='reconciliation_required' and new_state='pending')))) then raise exception 'P4 current transition invalid'; end if;
+    new.updated_at=now();
+  end if;
+  receipt_id:=coalesce(nullif(n->>'last_command_receipt_id','')::uuid,nullif(n->>'command_receipt_id','')::uuid);
+  select * into receipt from recora_private.p4_command_receipts where id=receipt_id;
+  if not found or receipt.organization_id is distinct from new.organization_id or receipt.project_id is distinct from nullif(n->>'project_id','')::uuid then raise exception 'P4 current command receipt scope mismatch'; end if;
+  if tg_table_name='p4_business_lifecycle_current' then
+    select * into episode from recora_private.p4_business_lifecycle_episodes where id=new.episode_id;
+    if not found or episode.organization_id is distinct from new.organization_id or episode.start_command_receipt_id is distinct from new.last_command_receipt_id then raise exception 'P4 business current episode mismatch'; end if;
+  elsif tg_table_name='p4_invitations' then
+    if receipt.request_id is distinct from new.request_id or receipt.correlation_id is distinct from new.correlation_id then raise exception 'P4 invitation receipt causal mismatch'; end if;
+    select * into receipt from recora_private.p4_command_receipts where id=new.issuer_command_receipt_id;
+    if not found or receipt.organization_id is distinct from new.organization_id or receipt.project_id is not null then raise exception 'P4 invitation issuer scope mismatch'; end if;
+  elsif tg_table_name='p4_contract_projections' then
+    if new.entitlement_snapshot_id is not null then
+      select * into snapshot from recora_private.entitlement_snapshots where id=new.entitlement_snapshot_id;
+      if not found or snapshot.organization_id is distinct from new.organization_id or snapshot.project_id is distinct from new.project_id or snapshot.plan_policy_version_id is distinct from new.plan_policy_version_id then raise exception 'P4 contract snapshot scope mismatch'; end if;
+    end if;
+  elsif tg_table_name='p4_billing_receipts' then
+    if receipt.request_id is distinct from new.request_id or receipt.correlation_id is distinct from new.correlation_id then raise exception 'P4 billing receipt causal mismatch'; end if;
+  end if;
+  return new;
+end; $$;
+
+create or replace function recora_private.p4_validate_checkpoint()
+returns trigger language plpgsql set search_path='' as $$
+declare receipt recora_private.p4_command_receipts%rowtype; target recora_private.p4_downstream_checkpoints%rowtype; lifecycle recora_private.data_lifecycle_current%rowtype;
+begin
+  select * into receipt from recora_private.p4_command_receipts where id=new.command_receipt_id;
+  if not found or receipt.organization_id is distinct from new.organization_id or receipt.project_id is distinct from new.project_id then raise exception 'P4 checkpoint command scope mismatch'; end if;
+  if new.phase3_lifecycle_id is not null then
+    select * into lifecycle from recora_private.data_lifecycle_current where id=new.phase3_lifecycle_id;
+    if not found or lifecycle.organization_id is distinct from new.organization_id or lifecycle.project_id is distinct from new.project_id or lifecycle.version is distinct from new.expected_lifecycle_version then raise exception 'P4 checkpoint lifecycle mismatch'; end if;
+  end if;
+  if new.superseded_by_checkpoint_id is not null then
+    select * into target from recora_private.p4_downstream_checkpoints where id=new.superseded_by_checkpoint_id;
+    if not found or target.id=new.id or target.organization_id is distinct from new.organization_id or target.project_id is distinct from new.project_id or target.required_effect is distinct from new.required_effect or target.blocks_customer_access is distinct from new.blocks_customer_access or target.phase3_lifecycle_id is distinct from new.phase3_lifecycle_id or target.command_receipt_id=new.command_receipt_id then raise exception 'P4 checkpoint supersession causal root mismatch'; end if;
+  end if;
+  if new.correction_of_checkpoint_id is not null then
+    select * into target from recora_private.p4_downstream_checkpoints where id=new.correction_of_checkpoint_id;
+    if not found or target.id=new.id or target.organization_id is distinct from new.organization_id or target.project_id is distinct from new.project_id or target.required_effect is distinct from new.required_effect or target.blocks_customer_access is distinct from new.blocks_customer_access or target.phase3_lifecycle_id is distinct from new.phase3_lifecycle_id or target.command_receipt_id=new.command_receipt_id then raise exception 'P4 checkpoint correction causal root mismatch'; end if;
+  end if;
+  return new;
+end; $$;
+
+create or replace function recora_private.p4_validate_outbox()
+returns trigger language plpgsql set search_path='' as $$
+declare checkpoint recora_private.p4_downstream_checkpoints%rowtype; receipt recora_private.p4_command_receipts%rowtype; target recora_private.p4_durable_outbox%rowtype;
+begin
+  select * into checkpoint from recora_private.p4_downstream_checkpoints where id=new.checkpoint_id;
+  select * into receipt from recora_private.p4_command_receipts where id=new.command_receipt_id;
+  if not found or checkpoint.organization_id is distinct from new.organization_id or checkpoint.project_id is distinct from new.project_id or checkpoint.command_receipt_id is distinct from new.command_receipt_id or receipt.organization_id is distinct from new.organization_id or receipt.project_id is distinct from new.project_id then raise exception 'P4 outbox causal mismatch'; end if;
+  if new.state='failed' and (new.next_attempt_at is null or new.exhausted_at is not null) then raise exception 'P4 outbox retry state invalid'; end if;
+  if new.state='reconciliation_required' and (new.exhausted_at is null or new.next_attempt_at is not null) then raise exception 'P4 outbox exhaustion state invalid'; end if;
+  if new.state='delivered' and (new.resolved_at is null or new.next_attempt_at is not null or new.exhausted_at is not null) then raise exception 'P4 outbox delivery state invalid'; end if;
+  if tg_op='UPDATE' and old.state='pending' and new.state='failed' and new.attempt_count<>old.attempt_count+1 then raise exception 'P4 outbox failure must advance attempt count'; end if;
+  if tg_op='UPDATE' and old.state='failed' and new.state='pending' and new.attempt_count<>old.attempt_count then raise exception 'P4 outbox retry may not rewrite attempt count'; end if;
+  if new.superseded_by_outbox_id is not null then
+    select * into target from recora_private.p4_durable_outbox where id=new.superseded_by_outbox_id;
+    if not found or target.id=new.id or target.organization_id is distinct from new.organization_id or target.project_id is distinct from new.project_id or target.effect_kind is distinct from new.effect_kind or target.command_receipt_id=new.command_receipt_id then raise exception 'P4 outbox supersession causal root mismatch'; end if;
+  end if;
+  if new.correction_of_outbox_id is not null then
+    select * into target from recora_private.p4_durable_outbox where id=new.correction_of_outbox_id;
+    if not found or target.id=new.id or target.organization_id is distinct from new.organization_id or target.project_id is distinct from new.project_id or target.effect_kind is distinct from new.effect_kind or target.command_receipt_id=new.command_receipt_id then raise exception 'P4 outbox correction causal root mismatch'; end if;
+  end if;
+  return new;
+end; $$;
+
+create or replace function recora_private.p4_validate_payment_fact()
+returns trigger language plpgsql set search_path='' as $$
+declare receipt recora_private.p4_billing_receipts%rowtype; prior recora_private.p4_normalized_payment_facts%rowtype; command recora_private.p4_command_receipts%rowtype;
+begin
+  select * into receipt from recora_private.p4_billing_receipts where id=new.receipt_id;
+  select * into command from recora_private.p4_command_receipts where id=new.command_receipt_id;
+  if not found or receipt.organization_id is distinct from new.organization_id or receipt.project_id is distinct from new.project_id or receipt.contract_id is distinct from new.contract_id or receipt.source_namespace is distinct from new.source_namespace or receipt.source_reference is distinct from new.source_reference or receipt.source_sequence is distinct from new.source_sequence or command.organization_id is distinct from new.organization_id or command.project_id is distinct from new.project_id or command.request_id is distinct from new.request_id or command.correlation_id is distinct from new.correlation_id then raise exception 'P4 payment fact causal mismatch'; end if;
+  if new.corrects_fact_id is not null then
+    select * into prior from recora_private.p4_normalized_payment_facts where id=new.corrects_fact_id;
+    if not found or prior.id=new.id or prior.organization_id is distinct from new.organization_id or prior.project_id is distinct from new.project_id or prior.contract_id is distinct from new.contract_id or prior.payment_chain_key is distinct from new.payment_chain_key or prior.corrects_fact_id is not null or prior.source_namespace is distinct from new.source_namespace or prior.source_reference=new.source_reference or prior.source_sequence>=new.source_sequence or new.fact_kind not in('payment_reversed','payment_disputed','payment_unknown') then raise exception 'P4 payment correction lineage mismatch'; end if;
+  end if;
+  return new;
+end; $$;
+create or replace function recora_private.p4_validate_current_event_alignment()
+returns trigger language plpgsql set search_path='' as $$
+declare e record; target record;
+begin
+  -- A deferred row trigger is queued for each projection version. Validate only
+  -- the row that is still the authoritative current version at constraint time.
+  if tg_table_name='p4_business_lifecycle_current' and not exists(select 1 from recora_private.p4_business_lifecycle_current where id=new.id and version=new.version) then return null;
+  elsif tg_table_name='p4_invitations' and not exists(select 1 from recora_private.p4_invitations where id=new.id and version=new.version) then return null;
+  elsif tg_table_name='p4_contract_projections' and not exists(select 1 from recora_private.p4_contract_projections where id=new.id and version=new.version) then return null;
+  elsif tg_table_name='p4_billing_receipts' and not exists(select 1 from recora_private.p4_billing_receipts where id=new.id and version=new.version) then return null;
+  elsif tg_table_name='p4_downstream_checkpoints' and not exists(select 1 from recora_private.p4_downstream_checkpoints where id=new.id and version=new.version) then return null;
+  elsif tg_table_name='p4_durable_outbox' and not exists(select 1 from recora_private.p4_durable_outbox where id=new.id and version=new.version) then return null;
+  end if;
+  if tg_table_name='p4_business_lifecycle_current' then
+    select * into e from recora_private.p4_business_lifecycle_events where episode_id=new.episode_id order by event_sequence desc limit 1;
+    if not found or e.organization_id is distinct from new.organization_id or e.next_state is distinct from new.state or e.command_receipt_id is distinct from new.last_command_receipt_id then raise exception 'P4 business current requires matching event'; end if;
+  elsif tg_table_name='p4_invitations' then
+    select * into e from recora_private.p4_invitation_events where invitation_id=new.id order by event_sequence desc limit 1;
+    if not found or e.organization_id is distinct from new.organization_id or e.next_state is distinct from new.state or e.command_receipt_id is distinct from new.last_command_receipt_id or e.request_id is distinct from new.request_id or e.correlation_id is distinct from new.correlation_id then raise exception 'P4 invitation current requires matching event'; end if;
+  elsif tg_table_name='p4_contract_projections' then
+    select * into e from recora_private.p4_contract_events where contract_id=new.id order by event_sequence desc limit 1;
+    if not found or e.organization_id is distinct from new.organization_id or e.next_state is distinct from new.state or e.command_receipt_id is distinct from new.last_command_receipt_id or e.source_namespace is distinct from new.source_namespace or e.source_reference is distinct from new.contract_reference or e.source_sequence is distinct from new.latest_source_sequence or e.plan_policy_version_id is distinct from new.plan_policy_version_id or e.entitlement_snapshot_id is distinct from new.entitlement_snapshot_id then raise exception 'P4 contract projection requires matching event'; end if;
+  elsif tg_table_name='p4_billing_receipts' then
+    select * into e from recora_private.p4_billing_receipt_events where receipt_id=new.id order by event_sequence desc limit 1;
+    if not found or e.organization_id is distinct from new.organization_id or e.next_state is distinct from new.processing_state or e.command_receipt_id is distinct from new.last_command_receipt_id or e.request_id is distinct from new.request_id or e.correlation_id is distinct from new.correlation_id then raise exception 'P4 billing receipt requires matching event'; end if;
+  elsif tg_table_name='p4_downstream_checkpoints' then
+    select * into e from recora_private.p4_checkpoint_events where checkpoint_id=new.id order by event_sequence desc limit 1;
+    if not found or e.organization_id is distinct from new.organization_id or e.next_state is distinct from new.state or e.command_receipt_id is distinct from new.command_receipt_id then raise exception 'P4 checkpoint requires matching event'; end if;
+    if new.superseded_by_checkpoint_id is not null then
+      select * into target from recora_private.p4_downstream_checkpoints where id=new.superseded_by_checkpoint_id;
+      if not found or target.correction_of_checkpoint_id is distinct from new.id or target.state<>'completed' then raise exception 'P4 checkpoint supersession final mismatch'; end if;
+    end if;
+    if new.correction_of_checkpoint_id is not null then
+      select * into target from recora_private.p4_downstream_checkpoints where id=new.correction_of_checkpoint_id;
+      if not found or target.superseded_by_checkpoint_id is distinct from new.id then raise exception 'P4 checkpoint correction final mismatch'; end if;
+    end if;
+  else
+    select * into e from recora_private.p4_outbox_events where outbox_id=new.id order by event_sequence desc limit 1;
+    if not found or e.organization_id is distinct from new.organization_id or e.next_state is distinct from new.state or e.command_receipt_id is distinct from new.command_receipt_id then raise exception 'P4 outbox requires matching event'; end if;
+    if new.superseded_by_outbox_id is not null then
+      select * into target from recora_private.p4_durable_outbox where id=new.superseded_by_outbox_id;
+      if not found or target.correction_of_outbox_id is distinct from new.id or target.state<>'delivered' then raise exception 'P4 outbox supersession final mismatch'; end if;
+    end if;
+    if new.correction_of_outbox_id is not null then
+      select * into target from recora_private.p4_durable_outbox where id=new.correction_of_outbox_id;
+      if not found or target.superseded_by_outbox_id is distinct from new.id then raise exception 'P4 outbox correction final mismatch'; end if;
+    end if;
+  end if;
+  return null;
+end; $$;
+create constraint trigger p4_business_current_event_alignment after insert or update on recora_private.p4_business_lifecycle_current deferrable initially deferred for each row execute function recora_private.p4_validate_current_event_alignment();
+create constraint trigger p4_invitation_current_event_alignment after insert or update on recora_private.p4_invitations deferrable initially deferred for each row execute function recora_private.p4_validate_current_event_alignment();
+create constraint trigger p4_contract_current_event_alignment after insert or update on recora_private.p4_contract_projections deferrable initially deferred for each row execute function recora_private.p4_validate_current_event_alignment();
+create constraint trigger p4_receipt_current_event_alignment after insert or update on recora_private.p4_billing_receipts deferrable initially deferred for each row execute function recora_private.p4_validate_current_event_alignment();
+create constraint trigger p4_checkpoint_current_event_alignment after insert or update on recora_private.p4_downstream_checkpoints deferrable initially deferred for each row execute function recora_private.p4_validate_current_event_alignment();
+create constraint trigger p4_outbox_current_event_alignment after insert or update on recora_private.p4_durable_outbox deferrable initially deferred for each row execute function recora_private.p4_validate_current_event_alignment();
+
+create or replace function public.recora_p4_record_command_receipt(p_organization_id uuid,p_project_id uuid,p_command_type text,p_source_kind recora_private.p4_source_kind,p_source_namespace text,p_source_reference text,p_source_sequence bigint,p_payload_fingerprint text,p_request_id uuid,p_correlation_id uuid,p_idempotency_key text,p_operator_audit_event_id uuid default null,p_operator_command_receipt_id uuid default null)
+returns table(command_receipt_id uuid,outcome recora_private.p4_command_outcome,stable_reason recora_private.p4_reason)
+language plpgsql security definer set search_path='' as $$
+declare prior recora_private.p4_command_receipts%rowtype; scope text; created_id uuid;
+begin
+  if p_organization_id is null or not exists(select 1 from public.organizations where id=p_organization_id) or (p_project_id is not null and not exists(select 1 from public.projects where id=p_project_id and organization_id=p_organization_id)) then return query select null::uuid,'rejected'::recora_private.p4_command_outcome,'invalid_scope'::recora_private.p4_reason; return; end if;
+  if p_command_type is null or not recora_private.p4_opaque(p_command_type) or p_source_kind is null or not recora_private.p4_opaque(p_source_namespace) or not recora_private.p4_opaque(p_source_reference) or p_source_sequence is null or p_source_sequence<=0 or p_payload_fingerprint is null or p_payload_fingerprint !~ '^[0-9a-f]{64}$' or p_request_id is null or p_correlation_id is null or not recora_private.p4_opaque(p_idempotency_key) or (p_operator_audit_event_id is null) <> (p_operator_command_receipt_id is null) or (p_source_kind='manual' and p_operator_command_receipt_id is null) then return query select null::uuid,'rejected'::recora_private.p4_command_outcome,'invalid_reference'::recora_private.p4_reason; return; end if;
+  begin perform recora_private.p4_assert_legacy_inventory(); exception when raise_exception then return query select null::uuid,'rejected'::recora_private.p4_command_outcome,'invalid_legacy_inventory'::recora_private.p4_reason; return; end;
+  scope:='organization:'||p_organization_id::text||coalesce(':project:'||p_project_id::text,'');
+  perform pg_advisory_xact_lock(hashtextextended(scope||':'||p_command_type||':'||p_idempotency_key,0));
+  select * into prior from recora_private.p4_command_receipts where scope_key=scope and command_type=p_command_type and idempotency_key=p_idempotency_key;
+  if found then
+    if prior.source_kind=p_source_kind and prior.source_namespace=p_source_namespace and prior.source_reference=p_source_reference and prior.source_sequence=p_source_sequence and prior.payload_fingerprint=p_payload_fingerprint then return query select prior.id,'replayed'::recora_private.p4_command_outcome,'duplicate_command'::recora_private.p4_reason; return; end if;
+    begin insert into recora_private.p4_command_conflicts(prior_receipt_id,organization_id,project_id,command_type,source_namespace,source_reference,source_sequence,payload_fingerprint,request_id,correlation_id) values(prior.id,p_organization_id,p_project_id,p_command_type,p_source_namespace,p_source_reference,p_source_sequence,p_payload_fingerprint,p_request_id,p_correlation_id); exception when foreign_key_violation or check_violation or not_null_violation or raise_exception then null; end;
+    return query select prior.id,'rejected'::recora_private.p4_command_outcome,'idempotency_conflict'::recora_private.p4_reason; return;
+  end if;
+  begin
+    insert into recora_private.p4_command_receipts(organization_id,project_id,command_type,source_kind,source_namespace,source_reference,source_sequence,payload_fingerprint,request_id,correlation_id,idempotency_key,operator_audit_event_id,operator_command_receipt_id) values(p_organization_id,p_project_id,p_command_type,p_source_kind,p_source_namespace,p_source_reference,p_source_sequence,p_payload_fingerprint,p_request_id,p_correlation_id,p_idempotency_key,p_operator_audit_event_id,p_operator_command_receipt_id) returning id into created_id;
+  exception when unique_violation then
+    select * into prior from recora_private.p4_command_receipts where scope_key=scope and command_type=p_command_type and idempotency_key=p_idempotency_key;
+    if found and prior.source_kind=p_source_kind and prior.source_namespace=p_source_namespace and prior.source_reference=p_source_reference and prior.source_sequence=p_source_sequence and prior.payload_fingerprint=p_payload_fingerprint then return query select prior.id,'replayed'::recora_private.p4_command_outcome,'duplicate_command'::recora_private.p4_reason; end if;
+    return query select coalesce(prior.id,null::uuid),'rejected'::recora_private.p4_command_outcome,'idempotency_conflict'::recora_private.p4_reason;
+  when foreign_key_violation or check_violation or not_null_violation or invalid_text_representation or raise_exception then return query select null::uuid,'rejected'::recora_private.p4_command_outcome,'invalid_reference'::recora_private.p4_reason;
+  end;
+  return query select created_id,'accepted'::recora_private.p4_command_outcome,'ok'::recora_private.p4_reason;
+end; $$;
+
+do $p4_object_local_exec_revoke$
+declare fn record;
+begin
+  for fn in select p.oid::regprocedure as signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='recora_private' and p.proname like 'p4!_%' escape '!' loop
+    execute format('revoke all on function %s from public, anon, authenticated',fn.signature);
+  end loop;
+end $p4_object_local_exec_revoke$;
+revoke all on function public.recora_p4_resolve_checkpoint_gate(uuid,uuid),public.recora_p4_record_command_receipt(uuid,uuid,text,recora_private.p4_source_kind,text,text,bigint,text,uuid,uuid,text,uuid,uuid) from public,anon,authenticated;
+grant execute on function public.recora_p4_resolve_checkpoint_gate(uuid,uuid),public.recora_p4_record_command_receipt(uuid,uuid,text,recora_private.p4_source_kind,text,text,bigint,text,uuid,uuid,text,uuid,uuid) to service_role;
+create or replace function recora_private.p4_assert_current_immutable()
+returns trigger language plpgsql set search_path='' as $$
+declare o jsonb:=to_jsonb(old); n jsonb:=to_jsonb(new); key text; protected text[];
+begin
+  if tg_table_name='p4_invitations' then
+    foreach key in array array['organization_id','recipient_binding_hash','issuer_command_receipt_id','expires_at','intended_role'] loop if o->key is distinct from n->key then raise exception 'P4 immutable invitation field changed: %',key; end if; end loop;
+    if o->>'state'='pending' and n->>'state'='accepted' then if o->>'accepted_user_id' is not null or o->>'accepted_membership_id' is not null then raise exception 'P4 invitation acceptance already bound'; end if;
+    elsif o->>'state'='pending' and n->>'state'='superseded' then if o->>'superseded_by_invitation_id' is not null then raise exception 'P4 invitation supersession already bound'; end if;
+    elsif o->>'state'='superseded' and n->>'state'='superseded' and o->>'superseded_by_invitation_id' is null and n->>'superseded_by_invitation_id' is not null then null;
+    elsif o->'accepted_user_id' is distinct from n->'accepted_user_id' or o->'accepted_membership_id' is distinct from n->'accepted_membership_id' or o->'superseded_by_invitation_id' is distinct from n->'superseded_by_invitation_id' then raise exception 'P4 invitation causal fields are immutable'; end if;
+    return new;
+  end if;
+  protected:=case tg_table_name when 'p4_contract_projections' then array['organization_id','project_id','contract_reference','source_namespace'] when 'p4_billing_receipts' then array['organization_id','project_id','contract_id','source_kind','source_namespace','source_reference','source_sequence','payload_fingerprint'] when 'p4_downstream_checkpoints' then array['organization_id','project_id','command_receipt_id','required_effect','phase3_lifecycle_id','expected_lifecycle_version','blocks_customer_access'] else array['checkpoint_id','command_receipt_id','organization_id','project_id','effect_kind','ordering_key','idempotency_key'] end;
+  foreach key in array protected loop if o->key is distinct from n->key then raise exception 'P4 immutable identity field changed: %',key; end if; end loop;
+  if tg_table_name='p4_downstream_checkpoints' then
+    if o->'superseded_by_checkpoint_id' is distinct from n->'superseded_by_checkpoint_id' and (o->>'superseded_by_checkpoint_id' is not null or n->>'superseded_by_checkpoint_id' is null) then raise exception 'P4 checkpoint supersession pointer immutable'; end if;
+    if o->'correction_of_checkpoint_id' is distinct from n->'correction_of_checkpoint_id' then raise exception 'P4 checkpoint correction pointer immutable'; end if;
+  elsif tg_table_name='p4_durable_outbox' then
+    if o->'superseded_by_outbox_id' is distinct from n->'superseded_by_outbox_id' and (o->>'superseded_by_outbox_id' is not null or n->>'superseded_by_outbox_id' is null) then raise exception 'P4 outbox supersession pointer immutable'; end if;
+    if o->'correction_of_outbox_id' is distinct from n->'correction_of_outbox_id' then raise exception 'P4 outbox correction pointer immutable'; end if;
+  end if;
+  return new;
+end; $$;
+
+create or replace function recora_private.p4_validate_correction_chain()
+returns trigger language plpgsql set search_path='' as $$
+declare next_id uuid; seen uuid[]:=array[new.id];
+begin
+  if tg_table_name='p4_downstream_checkpoints' then
+    next_id:=new.superseded_by_checkpoint_id;
+    while next_id is not null loop
+      if next_id=any(seen) then raise exception 'P4 checkpoint supersession cycle'; end if;
+      seen:=array_append(seen,next_id);
+      select superseded_by_checkpoint_id into next_id from recora_private.p4_downstream_checkpoints where id=next_id;
+    end loop;
+  else
+    next_id:=new.superseded_by_outbox_id;
+    while next_id is not null loop
+      if next_id=any(seen) then raise exception 'P4 outbox supersession cycle'; end if;
+      seen:=array_append(seen,next_id);
+      select superseded_by_outbox_id into next_id from recora_private.p4_durable_outbox where id=next_id;
+    end loop;
+  end if;
+  return null;
+end; $$;
+create constraint trigger p4_checkpoint_correction_chain after insert or update on recora_private.p4_downstream_checkpoints deferrable initially deferred for each row execute function recora_private.p4_validate_correction_chain();
+create constraint trigger p4_outbox_correction_chain after insert or update on recora_private.p4_durable_outbox deferrable initially deferred for each row execute function recora_private.p4_validate_correction_chain();
+
+do $p4_object_local_exec_revoke_final$
+declare fn record;
+begin
+  for fn in select p.oid::regprocedure as signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='recora_private' and p.proname like 'p4!_%' escape '!' loop
+    execute format('revoke all on function %s from public, anon, authenticated',fn.signature);
+  end loop;
+end $p4_object_local_exec_revoke_final$;
+create or replace function recora_private.p4_validate_membership_episode_event_alignment()
+returns trigger language plpgsql set search_path='' as $$
+declare e recora_private.p4_membership_episode_events%rowtype;
+begin
+  if not exists(select 1 from recora_private.p4_membership_episodes where id=new.id and state=new.state and command_receipt_id=new.command_receipt_id and request_id=new.request_id and correlation_id=new.correlation_id) then return null; end if;
+  select * into e from recora_private.p4_membership_episode_events where episode_id=new.id order by event_sequence desc limit 1;
+  if not found or e.organization_id is distinct from new.organization_id or e.next_state is distinct from new.state or e.command_receipt_id is distinct from new.command_receipt_id or e.request_id is distinct from new.request_id or e.correlation_id is distinct from new.correlation_id then raise exception 'P4 membership episode requires matching event'; end if;
+  return null;
+end; $$;
+create constraint trigger p4_membership_episode_event_alignment after insert or update on recora_private.p4_membership_episodes deferrable initially deferred for each row execute function recora_private.p4_validate_membership_episode_event_alignment();
+do $p4_object_local_exec_revoke_membership_final$
+declare fn record;
+begin
+  for fn in select p.oid::regprocedure as signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='recora_private' and p.proname like 'p4!_%' escape '!' loop
+    execute format('revoke all on function %s from public, anon, authenticated',fn.signature);
+  end loop;
+end $p4_object_local_exec_revoke_membership_final$;

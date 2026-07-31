@@ -92,3 +92,44 @@ The invitation current row permits exactly two causal-field transitions: `pendin
 Organization-level access-blocking checkpoints are hard ceilings for every project. Project checkpoints add only their project restriction. Retry is `failed` or `reconciliation_required → pending → applying → completed`; only a same-chain completed checkpoint can supersede an old blocker. Contract identity remains immutable, while an entitlement pointer may advance only when the latest matching append-only event carries the same receipt, state, policy and snapshot. Payment corrections are constrained to one same organization/project/contract/source lineage and cannot be chained. Command-conflict evidence preserves the safe opaque source/fingerprint boundary and project scope.
 
 The P4-A verifier now covers resend/supersession, organization-level hard-ceiling denial and retry-to-completed recovery. Phase 3 3A–3H runs are retargeted only to the Issue #121 isolated DB with a 360-second orchestrator limit; timeout is not considered a pass.
+## OWNER remediation 5145421314
+
+The final P4-A migration now has one retained `p4_validate_current` contract for all
+business, invitation, contract, billing, checkpoint, and outbox current rows. It
+checks initial states, table-specific permitted transitions, version/scope/receipt
+causality, immutable source identities, and entitlement policy/snapshot scope.
+Deferred constraint triggers validate only the authoritative final projection version
+and require a matching append-only event; a state-only or pointer-only write cannot
+bypass that evidence.
+
+Membership episodes start only at `invited`, bind the invitation's fixed role, and
+can move only through `invited -> active -> revoked`. Active and revoked states are
+accepted only when the invitation's immutable acceptance user/membership binding and
+the corresponding active/revoked membership agree. Membership events have consecutive
+sequences, predecessor/transition checks, tenant receipt/request/correlation checks,
+and a deferred current-event match. No Auth row is created or changed by P4-A.
+
+Checkpoint/outbox retry remains an update of the same causal row with append-only
+attempt evidence. A correction is a distinct command receipt and a new row, linked
+bidirectionally to one failed/reconciliation predecessor with the same scope/effect
+causal root; pointers are one-time, target changes/self-reference/cycles are rejected,
+and only a completed/delivered correction supersedes an old access blocker. The
+customer gate evaluates only unsuperseded `blocks_customer_access` rows, so a valid
+correction restores access without hiding unresolved current work.
+
+Contract projection state/source sequence/receipt/pointer values must equal the latest
+contract event. Billing receipt process state must likewise equal its latest receipt
+event. Payment facts preserve a separate opaque `payment_chain_key`: a correction is
+one-time, uses a later distinct source event, cannot correct a correction, and cannot
+cross organization/project/contract chain boundaries. All P4 private helpers are
+individually revoked from `PUBLIC`, `anon`, and `authenticated`; Phase 3 helper grants
+and `recora_private` schema usage remain unchanged. The public P4 RPCs remain
+service-role-only.
+
+The dedicated verifier now uses the Issue #121 isolated seeded database to force
+current/event alignment, all P4 table/function/trigger/grant/search-path inventory,
+business/invitation/membership negatives, contract and receipt transitions, payment
+correction, outbox retry, checkpoint correction/supersession/access restoration, and
+TypeScript exact plain-object/Proxy/accessor/symbol denial. Its TypeScript module is
+transpiled and run directly with `server-only` stubbed only for this local contract
+verifier; no browser, provider, Auth, remote, or production operation is used.
