@@ -547,16 +547,16 @@ begin
   select * into receipt from recora_private.p4_command_receipts where id=receipt_id;
   if not found or receipt.organization_id is distinct from new.organization_id or receipt.project_id is distinct from nullif(n->>'project_id','')::uuid then raise exception 'P4 current command receipt scope mismatch'; end if;
   if tg_table_name='p4_business_lifecycle_current' then
-    select * into episode from recora_private.p4_business_lifecycle_episodes where id=new.episode_id;
-    if not found or episode.organization_id is distinct from new.organization_id or episode.start_command_receipt_id is distinct from new.last_command_receipt_id then raise exception 'P4 business current episode mismatch'; end if;
+    select * into episode from recora_private.p4_business_lifecycle_episodes where id=(n->>'episode_id')::uuid;
+    if not found or episode.organization_id is distinct from (n->>'organization_id')::uuid or episode.start_command_receipt_id is distinct from (n->>'last_command_receipt_id')::uuid then raise exception 'P4 business current episode mismatch'; end if;
   elsif tg_table_name='p4_invitations' then
     if receipt.request_id is distinct from new.request_id or receipt.correlation_id is distinct from new.correlation_id then raise exception 'P4 invitation receipt causal mismatch'; end if;
     select * into receipt from recora_private.p4_command_receipts where id=new.issuer_command_receipt_id;
     if not found or receipt.organization_id is distinct from new.organization_id or receipt.project_id is not null then raise exception 'P4 invitation issuer scope mismatch'; end if;
   elsif tg_table_name='p4_contract_projections' then
-    if new.entitlement_snapshot_id is not null then
-      select * into snapshot from recora_private.entitlement_snapshots where id=new.entitlement_snapshot_id;
-      if not found or snapshot.organization_id is distinct from new.organization_id or snapshot.project_id is distinct from new.project_id or snapshot.plan_policy_version_id is distinct from new.plan_policy_version_id then raise exception 'P4 contract snapshot scope mismatch'; end if;
+    if (n->>'entitlement_snapshot_id') is not null then
+      select * into snapshot from recora_private.entitlement_snapshots where id=(n->>'entitlement_snapshot_id')::uuid;
+      if not found or snapshot.organization_id is distinct from (n->>'organization_id')::uuid or snapshot.project_id is distinct from nullif(n->>'project_id','')::uuid or snapshot.plan_policy_version_id is distinct from nullif(n->>'plan_policy_version_id','')::uuid then raise exception 'P4 contract snapshot scope mismatch'; end if;
     end if;
   elsif tg_table_name='p4_billing_receipts' then
     if receipt.request_id is distinct from new.request_id or receipt.correlation_id is distinct from new.correlation_id then raise exception 'P4 billing receipt causal mismatch'; end if;
@@ -786,3 +786,118 @@ begin
     execute format('revoke all on function %s from public, anon, authenticated',fn.signature);
   end loop;
 end $p4_object_local_exec_revoke_membership_final$;
+-- OWNER 5146069373: DB command/source binding, authoritative delete protection, and payment receipt lineage.
+create unique index p4_one_normalized_payment_fact_per_receipt on recora_private.p4_normalized_payment_facts(receipt_id);
+create or replace function recora_private.p4_reject_authoritative_delete()
+returns trigger language plpgsql set search_path='' as $$ begin
+  raise exception 'P4 authoritative row may not be deleted: %',tg_table_name;
+end; $$;
+create trigger p4_business_current_delete_protected before delete on recora_private.p4_business_lifecycle_current for each row execute function recora_private.p4_reject_authoritative_delete();
+create trigger p4_invitation_delete_protected before delete on recora_private.p4_invitations for each row execute function recora_private.p4_reject_authoritative_delete();
+create trigger p4_contract_projection_delete_protected before delete on recora_private.p4_contract_projections for each row execute function recora_private.p4_reject_authoritative_delete();
+create trigger p4_billing_receipt_delete_protected before delete on recora_private.p4_billing_receipts for each row execute function recora_private.p4_reject_authoritative_delete();
+create trigger p4_checkpoint_delete_protected before delete on recora_private.p4_downstream_checkpoints for each row execute function recora_private.p4_reject_authoritative_delete();
+create trigger p4_outbox_delete_protected before delete on recora_private.p4_durable_outbox for each row execute function recora_private.p4_reject_authoritative_delete();
+
+create or replace function recora_private.p4_validate_domain_command_binding()
+returns trigger language plpgsql set search_path='' as $$
+declare j jsonb:=to_jsonb(new); r recora_private.p4_command_receipts%rowtype; b recora_private.p4_billing_receipts%rowtype;
+  command_id uuid; org_id uuid:=(j->>'organization_id')::uuid; project_id uuid:=nullif(j->>'project_id','')::uuid; expected text;
+begin
+  command_id:=case when tg_table_name='p4_business_lifecycle_episodes' then (j->>'start_command_receipt_id')::uuid else (j->>'command_receipt_id')::uuid end;
+  command_id:=coalesce(command_id,nullif(j->>'last_command_receipt_id','')::uuid);
+  select * into r from recora_private.p4_command_receipts where id=command_id;
+  expected:=case
+    when tg_table_name in('p4_business_lifecycle_episodes','p4_business_lifecycle_current','p4_business_lifecycle_events') then 'business.lifecycle'
+    when tg_table_name in('p4_invitations','p4_invitation_events','p4_membership_episodes','p4_membership_episode_events') then 'invitation.lifecycle'
+    when tg_table_name in('p4_contract_projections','p4_contract_events') then 'contract.projection'
+    when tg_table_name in('p4_billing_receipts','p4_billing_receipt_events') then 'billing.receipt'
+    when tg_table_name='p4_normalized_payment_facts' then 'billing.payment_fact'
+    else 'lifecycle.checkpoint' end;
+  if not found or r.command_type is distinct from expected or r.organization_id is distinct from org_id or r.project_id is distinct from project_id then
+    raise exception 'P4 domain command type or scope mismatch';
+  end if;
+  if expected in('business.lifecycle','invitation.lifecycle') and r.project_id is not null then raise exception 'P4 organization domain command project mismatch'; end if;
+  if tg_table_name='p4_invitations' then
+    select * into b from recora_private.p4_billing_receipts where false;
+    if r.request_id is distinct from (j->>'request_id')::uuid or r.correlation_id is distinct from (j->>'correlation_id')::uuid
+      or not exists(select 1 from recora_private.p4_command_receipts i where i.id=(j->>'issuer_command_receipt_id')::uuid and i.command_type='invitation.lifecycle' and i.organization_id=org_id and i.project_id is null) then
+      raise exception 'P4 invitation command causal binding mismatch';
+    end if;
+  elsif tg_table_name in('p4_contract_projections','p4_contract_events') then
+    if r.source_namespace is distinct from j->>'source_namespace' or r.source_reference is distinct from coalesce(j->>'contract_reference',j->>'source_reference') or r.source_sequence is distinct from (coalesce(j->>'latest_source_sequence',j->>'source_sequence'))::bigint or (tg_table_name='p4_contract_events' and r.payload_fingerprint is distinct from j->>'payload_fingerprint') then raise exception 'P4 contract command source semantic identity mismatch'; end if;
+  elsif tg_table_name='p4_billing_receipts' then
+    if r.source_kind::text is distinct from j->>'source_kind' or r.source_namespace is distinct from j->>'source_namespace' or r.source_reference is distinct from j->>'source_reference' or r.source_sequence is distinct from (j->>'source_sequence')::bigint or r.payload_fingerprint is distinct from j->>'payload_fingerprint' or r.request_id is distinct from (j->>'request_id')::uuid or r.correlation_id is distinct from (j->>'correlation_id')::uuid then raise exception 'P4 billing receipt command source semantic identity mismatch'; end if;
+  elsif tg_table_name in('p4_billing_receipt_events','p4_normalized_payment_facts') then
+    select * into b from recora_private.p4_billing_receipts where id=coalesce((j->>'receipt_id')::uuid,null);
+    if not found or b.organization_id is distinct from org_id or b.project_id is distinct from project_id or r.source_kind is distinct from b.source_kind or r.source_namespace is distinct from b.source_namespace or r.source_reference is distinct from b.source_reference or r.source_sequence is distinct from b.source_sequence or r.payload_fingerprint is distinct from b.payload_fingerprint then raise exception 'P4 billing command source semantic identity mismatch'; end if;
+    if tg_table_name='p4_normalized_payment_facts' and (b.contract_id is distinct from nullif(j->>'contract_id','')::uuid or b.source_namespace is distinct from j->>'source_namespace' or b.source_reference is distinct from j->>'source_reference' or b.source_sequence is distinct from (j->>'source_sequence')::bigint or b.request_id is distinct from (j->>'request_id')::uuid or b.correlation_id is distinct from (j->>'correlation_id')::uuid or r.request_id is distinct from (j->>'request_id')::uuid or r.correlation_id is distinct from (j->>'correlation_id')::uuid) then raise exception 'P4 payment fact command lineage mismatch'; end if;
+  elsif j ? 'request_id' and (r.request_id is distinct from (j->>'request_id')::uuid or r.correlation_id is distinct from (j->>'correlation_id')::uuid) then
+    raise exception 'P4 domain command causal binding mismatch';
+  end if;
+  return new;
+end; $$;
+create trigger p4_business_episode_command_binding before insert on recora_private.p4_business_lifecycle_episodes for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_business_current_command_binding before insert or update on recora_private.p4_business_lifecycle_current for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_business_event_command_binding before insert on recora_private.p4_business_lifecycle_events for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_invitation_command_binding before insert or update on recora_private.p4_invitations for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_invitation_event_command_binding before insert on recora_private.p4_invitation_events for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_membership_command_binding before insert or update on recora_private.p4_membership_episodes for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_membership_event_command_binding before insert on recora_private.p4_membership_episode_events for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_contract_command_binding before insert or update on recora_private.p4_contract_projections for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_contract_event_command_binding before insert on recora_private.p4_contract_events for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_billing_command_binding before insert or update on recora_private.p4_billing_receipts for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_billing_event_command_binding before insert on recora_private.p4_billing_receipt_events for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_payment_fact_command_binding before insert on recora_private.p4_normalized_payment_facts for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_checkpoint_command_binding before insert or update on recora_private.p4_downstream_checkpoints for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_checkpoint_event_command_binding before insert on recora_private.p4_checkpoint_events for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_outbox_command_binding before insert or update on recora_private.p4_durable_outbox for each row execute function recora_private.p4_validate_domain_command_binding();
+create trigger p4_outbox_event_command_binding before insert on recora_private.p4_outbox_events for each row execute function recora_private.p4_validate_domain_command_binding();
+-- A terminal business episode is immutable history. Renewal changes the sole current pointer to a new lead episode.
+create or replace function recora_private.p4_validate_current()
+returns trigger language plpgsql set search_path='' as $$
+declare o jsonb:=to_jsonb(old); n jsonb:=to_jsonb(new); old_state text:=coalesce(o->>'state',o->>'processing_state'); new_state text:=coalesce(n->>'state',n->>'processing_state');
+  episode recora_private.p4_business_lifecycle_episodes%rowtype; old_episode recora_private.p4_business_lifecycle_episodes%rowtype; snapshot recora_private.entitlement_snapshots%rowtype;
+begin
+  if tg_op='INSERT' then
+    if (tg_table_name='p4_business_lifecycle_current' and (new_state<>'lead' or new.version<>1))
+      or (tg_table_name='p4_invitations' and (new_state<>'pending' or new.version<>1))
+      or (tg_table_name='p4_contract_projections' and (new_state<>'draft' or new.version<>1))
+      or (tg_table_name='p4_billing_receipts' and (new_state<>'received' or new.version<>1))
+      or (tg_table_name='p4_downstream_checkpoints' and (new_state<>'pending' or new.version<>1))
+      or (tg_table_name='p4_durable_outbox' and (new_state<>'pending' or new.version<>1)) then raise exception 'P4 current initial state invalid'; end if;
+  else
+    if o->>'organization_id' is distinct from n->>'organization_id' or o->>'project_id' is distinct from n->>'project_id' then raise exception 'P4 current scope immutable'; end if;
+    if (n->>'version')::bigint=(o->>'version')::bigint then new.version:=(o->>'version')::bigint+1; elsif (n->>'version')::bigint<>(o->>'version')::bigint+1 then raise exception 'P4 version invalid'; end if;
+    if tg_table_name='p4_business_lifecycle_current' and nullif(o->>'episode_id','')::uuid is distinct from nullif(n->>'episode_id','')::uuid then
+      if old_state not in('closed','rejected') or new_state<>'lead' then raise exception 'P4 business renewal requires terminal old episode and new lead episode'; end if;
+      select * into old_episode from recora_private.p4_business_lifecycle_episodes where id=(o->>'episode_id')::uuid;
+      select * into episode from recora_private.p4_business_lifecycle_episodes where id=(n->>'episode_id')::uuid;
+      if not found or old_episode.organization_id is distinct from (n->>'organization_id')::uuid or episode.organization_id is distinct from (n->>'organization_id')::uuid or episode.episode_number<=old_episode.episode_number or episode.initial_state<>'lead' or episode.start_command_receipt_id is distinct from (n->>'last_command_receipt_id')::uuid then raise exception 'P4 business renewal episode mismatch'; end if;
+    elsif old_state is distinct from new_state and (
+      (tg_table_name='p4_business_lifecycle_current' and not((old_state='lead' and new_state in('onboarding','rejected'))or(old_state='onboarding' and new_state in('serving','paused','closed','rejected'))or(old_state='serving' and new_state in('paused','closed'))or(old_state='paused' and new_state in('serving','closed'))))
+      or (tg_table_name='p4_invitations' and not(old_state='pending' and new_state in('accepted','expired','revoked','superseded')))
+      or (tg_table_name='p4_contract_projections' and not((old_state='draft' and new_state in('pending_activation','canceled'))or(old_state='pending_activation' and new_state in('active','paused','canceled','ended'))or(old_state='active' and new_state in('paused','canceled','ended'))or(old_state='paused' and new_state in('active','canceled','ended'))))
+      or (tg_table_name='p4_billing_receipts' and not((old_state='received' and new_state in('validated','rejected','reconciliation_required'))or(old_state='validated' and new_state in('applying','rejected','reconciliation_required'))or(old_state='applying' and new_state in('applied','ignored_duplicate','rejected','reconciliation_required'))))
+      or (tg_table_name='p4_downstream_checkpoints' and not((old_state='pending' and new_state in('applying','failed','reconciliation_required'))or(old_state='applying' and new_state in('completed','failed','reconciliation_required'))or(old_state='failed' and new_state in('pending','reconciliation_required'))or(old_state='reconciliation_required' and new_state='pending')))
+      or (tg_table_name='p4_durable_outbox' and not((old_state='pending' and new_state in('delivered','failed','reconciliation_required'))or(old_state='failed' and new_state in('pending','reconciliation_required'))or(old_state='reconciliation_required' and new_state='pending')))) then raise exception 'P4 current transition invalid'; end if;
+    new.updated_at=now();
+  end if;
+  if tg_table_name='p4_business_lifecycle_current' then
+    select * into episode from recora_private.p4_business_lifecycle_episodes where id=(n->>'episode_id')::uuid;
+    if not found or episode.organization_id is distinct from (n->>'organization_id')::uuid then raise exception 'P4 business current episode mismatch'; end if;
+    if tg_op='INSERT' and episode.start_command_receipt_id is distinct from (n->>'last_command_receipt_id')::uuid then raise exception 'P4 business initial episode receipt mismatch'; end if;
+  elsif tg_table_name='p4_contract_projections' and (n->>'entitlement_snapshot_id') is not null then
+    select * into snapshot from recora_private.entitlement_snapshots where id=(n->>'entitlement_snapshot_id')::uuid;
+    if not found or snapshot.organization_id is distinct from (n->>'organization_id')::uuid or snapshot.project_id is distinct from nullif(n->>'project_id','')::uuid or snapshot.plan_policy_version_id is distinct from nullif(n->>'plan_policy_version_id','')::uuid then raise exception 'P4 contract snapshot scope mismatch'; end if;
+  end if;
+  return new;
+end; $$;
+
+do $p4_object_local_exec_revoke_5146069373$
+declare fn record;
+begin
+  for fn in select p.oid::regprocedure as signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='recora_private' and p.proname like 'p4!_%' escape '!' loop
+    execute format('revoke all on function %s from public, anon, authenticated',fn.signature);
+  end loop;
+end $p4_object_local_exec_revoke_5146069373$;

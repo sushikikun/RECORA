@@ -133,3 +133,29 @@ correction, outbox retry, checkpoint correction/supersession/access restoration,
 TypeScript exact plain-object/Proxy/accessor/symbol denial. Its TypeScript module is
 transpiled and run directly with `server-only` stubbed only for this local contract
 verifier; no browser, provider, Auth, remote, or production operation is used.
+## OWNER remediation 5146069373
+
+Every P4-A domain write is now checked in the database against its one expected
+command type: `business.lifecycle`, `invitation.lifecycle`,
+`contract.projection`, `billing.receipt`, `billing.payment_fact`, or
+`lifecycle.checkpoint`. Contract events/projections and billing
+receipt/event/fact rows must also equal the authorized receipt's opaque source
+namespace, reference, sequence, and (where stored) fingerprint. A command from
+another domain, or a source/fingerprint mismatch, is rejected before it can
+become current/history evidence.
+
+A normalized payment fact has one immutable billing receipt/source-event
+parent. The new one-fact-per-receipt uniqueness contract prevents one source
+receipt from producing contradictory payment facts; corrections remain distinct
+later receipt events under the pre-existing lineage checks. Authoritative
+business/invitation current rows, contract projections, billing receipts,
+checkpoints, and outbox rows all reject direct `DELETE`.
+
+A closed or rejected business episode remains append-only history. Renewal is
+only an atomic current-pointer change from that terminal episode to a strictly
+later, newly inserted `lead` episode, whose authorized business command receipt
+also starts that episode and its first immutable event. Reusing the old episode,
+reviving it in place, or deleting it is denied. The dedicated verifier now
+exercises wrong command types, wrong source/fingerprint, conflicting payment
+facts, direct deletes, renewal history/pointer preservation, and two concurrent
+semantic retries that return one accepted receipt plus one replay.
