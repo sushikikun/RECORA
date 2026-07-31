@@ -70,10 +70,11 @@ const commandTypes = new Set<Phase4CommandType>([
 ]);
 
 const opaqueReference = /^[a-z][a-z0-9_.:-]{2,127}$/;
+const sensitiveOpaque = /(^|[_.:-])(token|secret|password|credential|authorization|cookie|session|email|phone|jwt|claim|access|refresh|payload|webhook|signature|payment_method|database|private|api)([_.:-]|$)/;
 const fingerprint = /^[0-9a-f]{64}$/;
 
 export function isPhase4CommandFixture(value: unknown): value is Phase4CommandFixture {
-  if (!isRecord(value)) return false;
+  if (!isExactPlainObject(value, ["schemaVersion", "commandType", "sourceKind", "sourceNamespace", "sourceReference", "sourceSequence", "payloadFingerprint", "idempotencyKey", "requestId", "correlationId"])) return false;
   return (
     value.schemaVersion === phase4CommandSchemaVersion &&
     typeof value.commandType === "string" &&
@@ -93,7 +94,7 @@ export function isPhase4CommandFixture(value: unknown): value is Phase4CommandFi
 }
 
 export function normalizePhase4CommandResult(value: unknown): Phase4CommandResult {
-  if (!isRecord(value)) return unavailableResult();
+  if (!isExactPlainObject(value, ["command_receipt_id", "outcome", "stable_reason"]) && !isExactPlainObject(value, ["commandReceiptId", "outcome", "stableReason"])) return unavailableResult();
   const outcome = value.outcome;
   const stableReason = value.stable_reason ?? value.stableReason;
   const commandReceiptId = value.command_receipt_id ?? value.commandReceiptId;
@@ -102,7 +103,7 @@ export function normalizePhase4CommandResult(value: unknown): Phase4CommandResul
     (outcome !== "accepted" && outcome !== "replayed" && outcome !== "rejected" && outcome !== "reconciliation_required") ||
     typeof stableReason !== "string" ||
     !reasonCodes.has(stableReason as Phase4StableReason) ||
-    (commandReceiptId !== null && typeof commandReceiptId !== "string")
+    (commandReceiptId !== null && (!isUuid(commandReceiptId) || (outcome === "rejected" && commandReceiptId !== null))) || !isResultCombination(outcome, stableReason as Phase4StableReason)
   ) {
     return unavailableResult();
   }
@@ -127,7 +128,7 @@ function unavailableResult(): Phase4CommandResult {
 }
 
 function isOpaque(value: unknown): value is string {
-  return typeof value === "string" && opaqueReference.test(value);
+  return typeof value === "string" && opaqueReference.test(value) && !sensitiveOpaque.test(value);
 }
 
 function isUuid(value: unknown): value is string {
@@ -136,4 +137,14 @@ function isUuid(value: unknown): value is string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isExactPlainObject(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  if (!isRecord(value) || Object.getPrototypeOf(value) !== Object.prototype || Object.getOwnPropertySymbols(value).length !== 0) return false;
+  const own = Object.keys(value);
+  if (own.length !== keys.length || own.some((key) => !keys.includes(key))) return false;
+  return own.every((key) => { const descriptor = Object.getOwnPropertyDescriptor(value, key); return Boolean(descriptor && "value" in descriptor && descriptor.enumerable); });
+}
+function isResultCombination(outcome: unknown, reason: Phase4StableReason): boolean {
+  return (outcome === "accepted" && reason === "ok") || (outcome === "replayed" && reason === "duplicate_command") || (outcome === "reconciliation_required" && reason === "reconciliation_required") || (outcome === "rejected" && reason !== "ok" && reason !== "duplicate_command");
 }

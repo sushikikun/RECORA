@@ -79,3 +79,9 @@ refund, invite/signup route, final UI, provider call, webhook, Auth operation, o
 production/remote DB action is selected or executed. Stop for any requirement to
 weaken Phase 3, make legacy data authoritative, persist raw payment/provider data,
 or bypass the local-only boundary.
+
+## OWNER remediation (comment 5140661305)
+
+P4-A preserves Phase 3 `recora_private` schema usage and the customer RLS helper grants; only P4-A relations/functions are revoked from browser roles. The shared foundation now carries immutable invitation role binding, acceptance/user/membership causal links, append-only membership episodes/events, a single pending invitation per organization/recipient, and supersession validation. Command receipts use an advisory transaction lock for semantic idempotency, excluding transport request/correlation telemetry from replay identity and recording conflicts as append-only evidence. Checkpoint gating evaluates only the current unsuperseded, access-blocking causal checkpoint so a retry/correction completion can restore access. All current identity/source/causal fields are immutable outside explicit state transitions.
+
+The dedicated verifier covers P4 private catalog/grants/search path, semantic retry/conflict, invitation/membership invariants, state/event/fact/order/recovery negatives, and invokes the needed Phase 3 matrix from the same isolated seeded DB. No provider, Auth flow, or product decision is introduced.
