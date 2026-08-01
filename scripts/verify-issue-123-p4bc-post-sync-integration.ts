@@ -12,6 +12,8 @@ const supabase = path.join(root, "node_modules", "supabase", "dist", "supabase.j
 const tsx = path.join(root, "node_modules", "tsx", "dist", "cli.mjs");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const base = process.env.RECORA_PHASE4_BASE_REF ?? "origin/master";
+const expectedHead = env("RECORA_PHASE4_EXPECTED_HEAD");
+const expectedBase = env("RECORA_PHASE4_EXPECTED_BASE");
 const p4b = "20260731203135_p4b_account_invitation_membership_rpcs.sql";
 const p4c = "20260731210957_p4c_contract_billing_entitlement_rpc.sql";
 const p4bPath = path.join(root, "supabase", "migrations", p4b);
@@ -25,6 +27,8 @@ const allowed = new Set([
 ]);
 
 for (const file of [supabase, tsx, p4bPath, p4cPath]) assert.ok(fs.existsSync(file), `Missing required file: ${file}`);
+assert.match(expectedHead, /^[0-9a-f]{40}$/, "RECORA_PHASE4_EXPECTED_HEAD must be an exact lowercase commit SHA.");
+assert.match(expectedBase, /^[0-9a-f]{40}$/, "RECORA_PHASE4_EXPECTED_BASE must be an exact lowercase commit SHA.");
 assert.ok(p4b < p4c, "P4-B migration must sort before P4-C.");
 const p4bSql = fs.readFileSync(p4bPath, "utf8");
 const p4cSql = fs.readFileSync(p4cPath, "utf8");
@@ -93,6 +97,22 @@ function sync(s: Stack): void {
 function sb(s: Stack, name: string, args: string[]): string {
   return pass(`${s.label} ${name}`, run(process.execPath, [supabase, "--workdir", s.workdir, ...args], { timeout: 720_000 }));
 }
+function assertApplied(s: Stack): void {
+  const output = sb(s, "local migration list", ["migration", "list", "--local"]);
+  const p4bIndex = output.indexOf("20260731203135");
+  const p4cIndex = output.indexOf("20260731210957");
+  assert.ok(p4bIndex >= 0, `${s.label} applied migration list is missing P4-B.`);
+  assert.ok(p4cIndex >= 0, `${s.label} applied migration list is missing P4-C.`);
+  assert.ok(p4bIndex < p4cIndex, `${s.label} applied migration order is not P4-B before P4-C.`);
+}
+function dbGate(s: Stack, name: string, args: string[]): void {
+  const output = sb(s, name, args);
+  assert.doesNotMatch(
+    output,
+    /(?:^|\n)\s*(?:\[(?:WARN|ERROR|FATAL)\]|WARN(?:ING)?\b|ERROR\b|FATAL\b|FAIL(?:ED|URE)?\b)/im,
+    `${s.label} ${name} reported a warning or error.`,
+  );
+}
 function verifier(name: string, file: string, environment: Record<string, string>): string {
   return pass(name, run(process.execPath, [tsx, path.join(root, file)], { env: environment, timeout: 1_200_000 }));
 }
@@ -106,17 +126,21 @@ function git(args: string[]): string {
   return pass(`git ${args.join(" ")}`, run("git", args, { timeout: 180_000 }));
 }
 function scope(): void {
-  git(["merge-base", "--is-ancestor", base, "HEAD"]);
+  const head = lines(git(["rev-parse", "HEAD"]))[0];
+  const resolvedBase = lines(git(["rev-parse", base]))[0];
+  assert.equal(head, expectedHead, `Checked-out HEAD ${head} does not match OWNER-approved ${expectedHead}.`);
+  assert.equal(resolvedBase, expectedBase, `${base} resolved to ${resolvedBase}, expected ${expectedBase}.`);
+  git(["merge-base", "--is-ancestor", expectedBase, expectedHead]);
+  assert.deepEqual(lines(git(["status", "--porcelain=v1", "--untracked-files=all"])), [], "The verifier requires a clean worktree with no staged, unstaged, or untracked files.");
   const files = new Set<string>();
-  for (const args of [["diff", "--name-only", `${base}...HEAD`], ["diff", "--name-only"], ["diff", "--cached", "--name-only"], ["ls-files", "--others", "--exclude-standard"]]) {
-    for (const file of lines(git(args))) files.add(file.replace(/\\/g, "/"));
-  }
+  for (const file of lines(git(["diff", "--name-only", `${expectedBase}...${expectedHead}`]))) files.add(file.replace(/\\/g, "/"));
   assert.deepEqual(Array.from(files).sort(), Array.from(allowed).sort(), "PR #126 must contain exactly the approved five files.");
-  const diff = `${git(["diff", "--no-ext-diff", "--unified=0", `${base}...HEAD`])}\n${git(["diff", "--no-ext-diff", "--unified=0"])}`;
+  const diff = git(["diff", "--no-ext-diff", "--unified=0", `${expectedBase}...${expectedHead}`]);
   for (const pattern of [/postgres(?:ql)?:\/\/[^\s]+/i, /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i, /\bsk-[A-Za-z0-9_-]{20,}\b/, /(?:OPENAI_API_KEY|SUPABASE_SERVICE_ROLE_KEY)\s*[:=]\s*["']?[A-Za-z0-9_-]{12,}/i]) {
     assert.doesNotMatch(diff, pattern, `PR diff contains a secret or DB URL: ${pattern}`);
   }
-  git(["diff", "--check"]);
+  git(["diff", "--check", expectedBase, expectedHead]);
+  console.log(`Git identity: head=${head} base=${resolvedBase} worktree=clean`);
 }
 
 const actorProof = `
@@ -196,14 +220,18 @@ function main(): void {
   sb(i123,"seeded replay reset",["db","reset","--local","--yes"]);
   sql(i123,"combined actor proof",actorProof);
   verifier("Issue #123 verifier","scripts/verify-issue-123-p4c-contract-billing-entitlement.ts",{RECORA_ISSUE_123_DB_CONTAINER:i123.container,RECORA_ISSUE_123_SUPABASE_WORKDIR:i123.workdir});
+  assertApplied(i123);
   sb(i122,"combined reset",["db","reset","--local","--yes"]);
   verifier("Issue #122 verifier","scripts/verify-issue-122-p4b-account-access.ts",{RECORA_ISSUE_122_DB_CONTAINER:i122.container});
+  assertApplied(i122);
   sb(i121,"combined reset",["db","reset","--local","--yes"]);
   verifier("Issue #121 verifier","scripts/verify-issue-121-p4a-common-contract-state-events.ts",{RECORA_ISSUE_121_DB_CONTAINER:i121.container});
+  assertApplied(i121);
   sb(i117,"combined reset",["db","reset","--local","--yes"]);
   verifier("Issue #117 verifier","scripts/verify-issue-117-phase3-integration-security.ts",{RECORA_ISSUE_117_DB_CONTAINER:i117.container,RECORA_ISSUE_117_SUPABASE_WORKDIR:i117.workdir});
-  sb(i123,"DB advisors",["db","advisors","--local"]);
-  sb(i123,"DB lint",["db","lint","--local"]);
+  assertApplied(i117);
+  dbGate(i123,"DB advisors",["db","advisors","--local"]);
+  dbGate(i123,"DB lint",["db","lint","--local"]);
   appChecks(); scope();
   console.log("Issue #123 P4-B/P4-C post-sync integration verifier passed.");
 }
