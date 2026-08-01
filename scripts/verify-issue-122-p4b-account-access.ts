@@ -43,6 +43,7 @@ assert.match(moduleSource, /import "server-only";/, "P4-B module must be server-
 assert.doesNotMatch(moduleSource, /process\.env|createRecoraSupabaseServiceRoleClient|from\(|recora_private/i, "P4-B module must use injected RPC transport and no direct SQL/private-table access.");
 assert.match(moduleSource, /Phase4CustomerAccessDto/, "customer-safe DTO type is missing.");
 const domainDenialFunctionSql = extractSqlFunction(migrationSql, "recora_private.p4b_record_operator_domain_denial");
+const createFunctionSql = extractSqlFunction(migrationSql, "public.recora_p4b_invitation_create");
 const acceptFunctionSql = extractSqlFunction(migrationSql, "public.recora_p4b_invitation_accept");
 const customerSessionFunctionSql = extractSqlFunction(migrationSql, "recora_private.p4b_record_customer_session_p4_command");
 const authEmailFunctionSql = extractSqlFunction(migrationSql, "recora_private.p4b_confirmed_auth_email_hash");
@@ -56,6 +57,17 @@ assert.match(migrationSql, /p4b_record_operator_domain_denial\(uuid, uuid, text,
 assert.match(migrationSql, /operator_receipt_conflict[\s\S]*'failed'::recora_audit\.operator_audit_outcome/i, "operator receipt failures must retain failed audit evidence.");
 assert.match(authEmailFunctionSql, /email_confirmed_at is not null/i, "accept RPC helper must require email_confirmed_at.");
 assert.doesNotMatch(authEmailFunctionSql, /user_row\.confirmed_at is not null/i, "accept RPC helper must not trust confirmed_at.");
+const createValidationOffset = createFunctionSql.indexOf("p_recipient_binding_hash is null");
+const createAuthorizationOffset = createFunctionSql.indexOf("p4b_operator_replay_guard");
+assert.ok(createValidationOffset >= 0 && createValidationOffset < createAuthorizationOffset, "create recipient/expiry validation must run before operator authorization.");
+assert.equal(createFunctionSql.match(/p_recipient_binding_hash !~ '\^\[0-9a-f\]\{64\}\$'/g)?.length ?? 0, 1, "create recipient validation must have one pre-authorization gate.");
+assert.match(createFunctionSql, /p_expires_at is null[\s\S]*p_expires_at <= pg_catalog\.clock_timestamp\(\)/, "create expiry validation must be explicit and pre-authorization.");
+assert.match(customerSessionFunctionSql, /return query select null::uuid,replay_result\.outcome,replay_result\.reason_code,false/, "customer-session rejected results must hide command receipt ids.");
+assert.match(acceptFunctionSql, /return query select null::uuid,replay_result\.outcome,replay_result\.reason_code/, "customer accept replay rejection must hide command receipt ids.");
+assert.match(acceptFunctionSql, /return query select null::uuid,command_result\.outcome,command_result\.reason_code/, "customer accept receipt-helper rejection must hide command receipt ids.");
+assert.match(moduleSource, /rejectedEntityShape: "none"/, "customer accept must have a none-entity rejection contract.");
+assert.match(moduleSource, /rejectedEvidenceShape: "customer-none"/, "customer accept must have a customer-safe rejection evidence contract.");
+assert.match(moduleSource, /assertCommandRejectedShape/, "rejected command rows must be runtime-validated.");
 assert.doesNotMatch(acceptFunctionSql, /p_verified_auth_user_id|p_recipient_binding_hash/, "accept RPC must not take claimed user id or binding hash.");
 assert.doesNotMatch(acceptWrapperSource, /verifiedAuthUserId|recipientBindingHash|p_verified_auth_user_id|p_recipient_binding_hash/, "accept wrapper must not accept claimed user id or binding hash.");
 
@@ -243,6 +255,76 @@ begin
   if command_row.outcome <> 'accepted' or command_row.reason_code <> 'ok' or command_row.invitation_state <> 'pending' or command_row.audit_event_id is null or command_row.operator_command_receipt_id is null then raise exception 'invitation create failed'; end if;
   invitation_one := command_row.invitation_id;
   initial_create_command_receipt_id := command_row.command_receipt_id;
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_invitation_count from recora_private.p4_invitations;
+  select count(*) into before_invitation_event_count from recora_private.p4_invitation_events;
+  select count(*) into before_membership_count from public.organization_members;
+  select count(*) into before_episode_count from recora_private.p4_membership_episodes;
+  select count(*) into before_episode_event_count from recora_private.p4_membership_episode_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row
+  from public.recora_p4b_invitation_create(
+    operator_user,org_a,'not-a-recipient-hash','member',now()+interval '7 days','issue122.create.invalid-hash',
+    '12240000-0000-4000-8000-000000000109','12250000-0000-4000-8000-000000000109','issue122.create.invalid-hash'
+  );
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'invalid_reference'
+    or replay_row.command_receipt_id is not null
+    or replay_row.invitation_id is not null
+    or replay_row.invitation_state is not null
+    or replay_row.membership_id is not null
+    or replay_row.membership_status is not null
+    or replay_row.membership_episode_id is not null
+    or replay_row.membership_episode_state is not null
+    or replay_row.audit_event_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from recora_private.p4_invitations) <> before_invitation_count
+    or (select count(*) from recora_private.p4_invitation_events) <> before_invitation_event_count
+    or (select count(*) from public.organization_members) <> before_membership_count
+    or (select count(*) from recora_private.p4_membership_episodes) <> before_episode_count
+    or (select count(*) from recora_private.p4_membership_episode_events) <> before_episode_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count then
+    raise exception 'invalid recipient create validation was not pre-authorization and mutation-free';
+  end if;
+
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_invitation_count from recora_private.p4_invitations;
+  select count(*) into before_invitation_event_count from recora_private.p4_invitation_events;
+  select count(*) into before_membership_count from public.organization_members;
+  select count(*) into before_episode_count from recora_private.p4_membership_episodes;
+  select count(*) into before_episode_event_count from recora_private.p4_membership_episode_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row
+  from public.recora_p4b_invitation_create(
+    operator_user,org_a,hash_a,'member',now()-interval '1 minute','issue122.create.invalid-expiry',
+    '12240000-0000-4000-8000-000000000110','12250000-0000-4000-8000-000000000110','issue122.create.invalid-expiry'
+  );
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'invalid_reference'
+    or replay_row.command_receipt_id is not null
+    or replay_row.invitation_id is not null
+    or replay_row.invitation_state is not null
+    or replay_row.membership_id is not null
+    or replay_row.membership_status is not null
+    or replay_row.membership_episode_id is not null
+    or replay_row.membership_episode_state is not null
+    or replay_row.audit_event_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from recora_private.p4_invitations) <> before_invitation_count
+    or (select count(*) from recora_private.p4_invitation_events) <> before_invitation_event_count
+    or (select count(*) from public.organization_members) <> before_membership_count
+    or (select count(*) from recora_private.p4_membership_episodes) <> before_episode_count
+    or (select count(*) from recora_private.p4_membership_episode_events) <> before_episode_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count then
+    raise exception 'invalid expiry create validation was not pre-authorization and mutation-free';
+  end if;
+
   select count(*) into before_receipt_count from recora_private.p4_command_receipts;
   select count(*) into before_invitation_count from recora_private.p4_invitations;
   select count(*) into before_invitation_event_count from recora_private.p4_invitation_events;
@@ -692,6 +774,17 @@ begin
   end if;
   select * into replay_row from public.recora_p4b_invitation_accept(invitation_expired,'12240000-0000-4000-8000-000000000042','12250000-0000-4000-8000-000000000042','issue122.accept.expired');
   if replay_row.reason_code <> 'invitation_unavailable' then raise exception 'expired invitation accept was not rejected'; end if;
+  if replay_row.command_receipt_id is not null
+    or replay_row.invitation_id is not null
+    or replay_row.invitation_state is not null
+    or replay_row.membership_id is not null
+    or replay_row.membership_status is not null
+    or replay_row.membership_episode_id is not null
+    or replay_row.membership_episode_state is not null
+    or replay_row.audit_event_id is not null
+    or replay_row.operator_command_receipt_id is not null then
+    raise exception 'expired customer rejection leaked entity or evidence';
+  end if;
   select * into replay_row from public.recora_p4b_invitation_create(operator_user,org_a,hash_d,'member',now()+interval '7 days','issue122.expired.reinvite','12240000-0000-4000-8000-000000000044','12250000-0000-4000-8000-000000000044','issue122.expired.reinvite');
   if replay_row.outcome <> 'accepted' or replay_row.invitation_id = invitation_expired or (select state from recora_private.p4_invitations where id=invitation_expired) <> 'expired'::recora_private.p4_invitation_state or not exists(select 1 from recora_private.p4_invitation_events where invitation_id=invitation_expired and next_state='expired') then raise exception 'expired pending reinvite did not finalize old row and create new id'; end if;
 
@@ -700,13 +793,46 @@ begin
   perform set_config('request.jwt.claim.sub', other_user::text, true);
   select * into replay_row from public.recora_p4b_invitation_accept(invitation_accept,'12240000-0000-4000-8000-000000000052','12250000-0000-4000-8000-000000000052','issue122.accept.mismatch');
   if replay_row.reason_code <> 'invitation_unavailable' then raise exception 'recipient mismatch negative failed'; end if;
+  if replay_row.command_receipt_id is not null
+    or replay_row.invitation_id is not null
+    or replay_row.invitation_state is not null
+    or replay_row.membership_id is not null
+    or replay_row.membership_status is not null
+    or replay_row.membership_episode_id is not null
+    or replay_row.membership_episode_state is not null
+    or replay_row.audit_event_id is not null
+    or replay_row.operator_command_receipt_id is not null then
+    raise exception 'recipient mismatch customer rejection leaked entity or evidence';
+  end if;
   perform set_config('request.jwt.claim.sub', '12200000-0000-4000-8000-000000009999', true);
   select * into replay_row from public.recora_p4b_invitation_accept(invitation_accept,'12240000-0000-4000-8000-000000000053','12250000-0000-4000-8000-000000000053','issue122.accept.identity');
   if replay_row.reason_code <> 'identity_unverified' then raise exception 'unverified identity negative failed'; end if;
+  if replay_row.command_receipt_id is not null
+    or replay_row.invitation_id is not null
+    or replay_row.invitation_state is not null
+    or replay_row.membership_id is not null
+    or replay_row.membership_status is not null
+    or replay_row.membership_episode_id is not null
+    or replay_row.membership_episode_state is not null
+    or replay_row.audit_event_id is not null
+    or replay_row.operator_command_receipt_id is not null then
+    raise exception 'unverified customer rejection leaked entity or evidence';
+  end if;
   select * into replay_row from public.recora_p4b_invitation_create(operator_user,org_a,hash_unconfirmed,'member',now()+interval '7 days','issue122.unconfirmed.create','12240000-0000-4000-8000-000000000056','12250000-0000-4000-8000-000000000056','issue122.unconfirmed.create');
   perform set_config('request.jwt.claim.sub', unconfirmed_user::text, true);
   select * into replay_row from public.recora_p4b_invitation_accept(replay_row.invitation_id,'12240000-0000-4000-8000-000000000057','12250000-0000-4000-8000-000000000057','issue122.unconfirmed.accept');
   if replay_row.reason_code <> 'identity_unverified' then raise exception 'matching but unconfirmed Auth email was not rejected'; end if;
+  if replay_row.command_receipt_id is not null
+    or replay_row.invitation_id is not null
+    or replay_row.invitation_state is not null
+    or replay_row.membership_id is not null
+    or replay_row.membership_status is not null
+    or replay_row.membership_episode_id is not null
+    or replay_row.membership_episode_state is not null
+    or replay_row.audit_event_id is not null
+    or replay_row.operator_command_receipt_id is not null then
+    raise exception 'unconfirmed customer rejection leaked entity or evidence';
+  end if;
   select * into command_row
   from public.recora_p4b_invitation_create(
     operator_user,org_a,hash_confirmed_only,'member',now()+interval '7 days','issue122.confirmed-only.create',
@@ -723,6 +849,15 @@ begin
   );
   if replay_row.outcome <> 'rejected'
     or replay_row.reason_code <> 'identity_unverified'
+    or replay_row.command_receipt_id is not null
+    or replay_row.invitation_id is not null
+    or replay_row.invitation_state is not null
+    or replay_row.membership_id is not null
+    or replay_row.membership_status is not null
+    or replay_row.membership_episode_id is not null
+    or replay_row.membership_episode_state is not null
+    or replay_row.audit_event_id is not null
+    or replay_row.operator_command_receipt_id is not null
     or (select state from recora_private.p4_invitations where id = invitation_confirmed_only) <> 'pending'::recora_private.p4_invitation_state
     or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
     or (select count(*) from public.organization_members) <> before_membership_count
@@ -738,6 +873,20 @@ begin
   perform set_config('request.jwt.claim.sub', customer_user::text, true);
   select * into replay_row from public.recora_p4b_invitation_accept(invitation_accept,'12240000-0000-4000-8000-000000000055','12250000-0000-4000-8000-000000000055','issue122.accept');
   if replay_row.outcome <> 'replayed' or replay_row.membership_id <> membership_one then raise exception 'accept replay failed'; end if;
+  select * into replay_row from public.recora_p4b_invitation_accept(invitation_two,'12240000-0000-4000-8000-000000000060','12250000-0000-4000-8000-000000000060','issue122.accept');
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'idempotency_conflict'
+    or replay_row.command_receipt_id is not null
+    or replay_row.invitation_id is not null
+    or replay_row.invitation_state is not null
+    or replay_row.membership_id is not null
+    or replay_row.membership_status is not null
+    or replay_row.membership_episode_id is not null
+    or replay_row.membership_episode_state is not null
+    or replay_row.audit_event_id is not null
+    or replay_row.operator_command_receipt_id is not null then
+    raise exception 'customer idempotency conflict leaked receipt, entity, or operator evidence';
+  end if;
 
   select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_a,null,'measurement');
   if not access_row.customer_access_allowed or access_row.reason_code <> 'ok' or access_row.membership_role <> 'member' or access_row.entitlement_capabilities ? 'snapshot_id' then raise exception 'derived access positive/customer-safe DTO failed'; end if;
@@ -989,6 +1138,15 @@ begin
   );
   if replay_row.outcome <> 'rejected'
     or replay_row.reason_code <> 'invalid_legacy_inventory'
+    or replay_row.command_receipt_id is not null
+    or replay_row.invitation_id is not null
+    or replay_row.invitation_state is not null
+    or replay_row.membership_id is not null
+    or replay_row.membership_status is not null
+    or replay_row.membership_episode_id is not null
+    or replay_row.membership_episode_state is not null
+    or replay_row.audit_event_id is not null
+    or replay_row.operator_command_receipt_id is not null
     or (select state from recora_private.p4_invitations where id = invitation_legacy) <> 'pending'::recora_private.p4_invitation_state
     or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
     or (select count(*) from public.organization_members) <> before_membership_count
@@ -1176,6 +1334,38 @@ async function verifyTypeScriptDtos() {
   assert.equal(accepted.membership?.status, "active");
   assert.equal(accepted.membershipEpisode?.state, "active");
   assert.equal(accepted.auditEventId, null);
+
+  for (const reasonCode of ["identity_unverified", "invalid_legacy_inventory", "invitation_unavailable", "idempotency_conflict"]) {
+    const rejected = await acceptPhase4Invitation(
+      transportReturning([validCustomerRejectedCommandRow(reasonCode)]),
+      { invitationId: randomUUID(), requestId: randomUUID(), correlationId: randomUUID(), idempotencyKey: "issue122.accept.rejected." + reasonCode },
+    );
+    assert.equal(rejected.outcome, "rejected");
+    assert.equal(rejected.commandReceiptId, null);
+    assert.equal(rejected.invitation, null);
+    assert.equal(rejected.membership, null);
+    assert.equal(rejected.membershipEpisode, null);
+    assert.equal(rejected.auditEventId, null);
+    assert.equal(rejected.operatorCommandReceiptId, null);
+  }
+
+  for (const [label, patch] of [
+    ["customer rejection command receipt", { command_receipt_id: randomUUID() }],
+    ["customer rejection invitation entity", { invitation_id: randomUUID(), invitation_state: "pending" }],
+    ["customer rejection membership entity", { membership_id: randomUUID(), membership_status: "active" }],
+    ["customer rejection episode entity", { membership_episode_id: randomUUID(), membership_episode_state: "active" }],
+    ["customer rejection operator evidence", { audit_event_id: randomUUID(), operator_command_receipt_id: randomUUID() }],
+  ] as const) {
+    await assert.rejects(
+      () => acceptPhase4Invitation(
+        transportReturning([{ ...validCustomerRejectedCommandRow("invitation_unavailable"), ...patch }]),
+        { invitationId: randomUUID(), requestId: randomUUID(), correlationId: randomUUID(), idempotencyKey: "issue122.accept.malformed." + label },
+      ),
+      /invalid response/,
+      label,
+    );
+  }
+
   await assert.rejects(() => acceptPhase4Invitation(transportReturning([{ ...validCustomerAccept, audit_event_id: randomUUID() }]), { invitationId: randomUUID(), requestId: randomUUID(), correlationId: randomUUID(), idempotencyKey: "issue122.accept.audit.dto" }), /invalid response/, "customer accept with operator audit evidence must fail closed");
   await assert.rejects(() => acceptPhase4Invitation(transportReturning([{ ...validCustomerAccept, membership_status: "suspended" }]), { invitationId: randomUUID(), requestId: randomUUID(), correlationId: randomUUID(), idempotencyKey: "issue122.accept.shape.dto" }), /invalid response/, "customer accept with wrong membership state must fail closed");
 
@@ -1278,6 +1468,22 @@ function validCustomerAcceptCommandRow() {
     membership_status: "active",
     membership_episode_id: randomUUID(),
     membership_episode_state: "active",
+    audit_event_id: null,
+    operator_command_receipt_id: null,
+  };
+}
+
+function validCustomerRejectedCommandRow(reasonCode: string) {
+  return {
+    command_receipt_id: null,
+    outcome: "rejected",
+    reason_code: reasonCode,
+    invitation_id: null,
+    invitation_state: null,
+    membership_id: null,
+    membership_status: null,
+    membership_episode_id: null,
+    membership_episode_state: null,
     audit_event_id: null,
     operator_command_receipt_id: null,
   };

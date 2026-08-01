@@ -901,7 +901,7 @@ begin
     p_request_id,p_correlation_id,p_idempotency_key
   );
   if not replay_result.should_apply then
-    return query select replay_result.command_receipt_id,replay_result.outcome,replay_result.reason_code,false;
+    return query select null::uuid,replay_result.outcome,replay_result.reason_code,false;
     return;
   end if;
 
@@ -951,7 +951,15 @@ declare
   new_invitation_id uuid := extensions.gen_random_uuid();
   next_event_sequence bigint;
 begin
-  source_reference := 'invite.create.' || pg_catalog.substr(coalesce(p_recipient_binding_hash, ''), 1, 32);
+  if p_recipient_binding_hash is null
+    or p_recipient_binding_hash !~ '^[0-9a-f]{64}$'
+    or p_expires_at is null
+    or p_expires_at <= pg_catalog.clock_timestamp() then
+    return query select null::uuid,'rejected'::text,'invalid_reference'::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid;
+    return;
+  end if;
+
+  source_reference := 'invite.create.' || pg_catalog.substr(p_recipient_binding_hash, 1, 32);
   source_sequence := recora_private.p4b_source_sequence('invite.create:' || p_organization_id::text || ':' || coalesce(p_recipient_binding_hash, '') || ':' || p_idempotency_key);
   payload_fingerprint := recora_private.p4b_payload_fingerprint(pg_catalog.jsonb_build_object('action','create','organization_id',p_organization_id,'recipient_binding_hash',p_recipient_binding_hash,'intended_role',p_intended_role::text,'expires_at',p_expires_at,'reason',p_reason));
 
@@ -980,10 +988,6 @@ begin
   end if;
   if p_organization_id is null or not exists(select 1 from public.organizations organization_row where organization_row.id = p_organization_id) then
     return query select null::uuid,'rejected'::text,'invalid_scope'::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid;
-    return;
-  end if;
-  if p_recipient_binding_hash !~ '^[0-9a-f]{64}$' or p_expires_at is null or p_expires_at <= pg_catalog.clock_timestamp() then
-    return query select null::uuid,'rejected'::text,'invalid_reference'::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid;
     return;
   end if;
 
@@ -1315,7 +1319,7 @@ begin
         recorded_result.invitation_id,recorded_result.invitation_state,recorded_result.membership_id,recorded_result.membership_status,
         recorded_result.membership_episode_id,recorded_result.membership_episode_state,null::uuid,null::uuid;
     else
-      return query select replay_result.command_receipt_id,replay_result.outcome,replay_result.reason_code,
+      return query select null::uuid,replay_result.outcome,replay_result.reason_code,
         null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid;
     end if;
     return;
@@ -1343,7 +1347,7 @@ begin
         recorded_result.invitation_id,recorded_result.invitation_state,recorded_result.membership_id,recorded_result.membership_status,
         recorded_result.membership_episode_id,recorded_result.membership_episode_state,null::uuid,null::uuid;
     else
-      return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,
+      return query select null::uuid,command_result.outcome,command_result.reason_code,
         null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid;
     end if;
     return;

@@ -28,10 +28,22 @@ export type Phase4OperatorAccountCommandResult = Phase4AccountCommandResult & {
   operatorCommandReceiptId: string | null;
 };
 
-export type Phase4CustomerAccountCommandResult = Phase4AccountCommandResult & {
-  auditEventId: null;
-  operatorCommandReceiptId: null;
-};
+export type Phase4CustomerAccountCommandResult =
+  | (Phase4AccountCommandResult & {
+      outcome: "accepted" | "replayed";
+      commandReceiptId: string;
+      auditEventId: null;
+      operatorCommandReceiptId: null;
+    })
+  | (Phase4AccountCommandResult & {
+      outcome: "rejected";
+      commandReceiptId: null;
+      invitation: null;
+      membership: null;
+      membershipEpisode: null;
+      auditEventId: null;
+      operatorCommandReceiptId: null;
+    });
 
 type CommandRpcName =
   | "recora_p4b_invitation_create"
@@ -44,6 +56,9 @@ type CommandRpcName =
 
 type MembershipCommandRpcName = Extract<CommandRpcName, "recora_p4b_membership_suspend" | "recora_p4b_membership_reactivate" | "recora_p4b_membership_revoke">;
 
+type CommandRejectedEntityShape = "none" | "invitation" | "membership";
+type CommandRejectedEvidenceShape = "customer-none" | "operator-optional";
+
 type CommandResultContract = {
   actorKind: "operator" | "customer";
   successShape: {
@@ -51,6 +66,8 @@ type CommandResultContract = {
     membershipStatus: Phase4MembershipStatus | null;
     membershipEpisodeState: Phase4MembershipEpisodeState | null;
   };
+  rejectedEntityShape: CommandRejectedEntityShape;
+  rejectedEvidenceShape: CommandRejectedEvidenceShape;
 };
 
 export type Phase4CustomerAccessDto = {
@@ -192,30 +209,44 @@ const commandContracts = {
   recora_p4b_invitation_create: {
     actorKind: "operator",
     successShape: { invitationState: "pending", membershipStatus: null, membershipEpisodeState: null },
+    rejectedEntityShape: "invitation",
+    rejectedEvidenceShape: "operator-optional",
   },
   recora_p4b_invitation_resend: {
     actorKind: "operator",
     successShape: { invitationState: "pending", membershipStatus: null, membershipEpisodeState: null },
+    rejectedEntityShape: "invitation",
+    rejectedEvidenceShape: "operator-optional",
   },
   recora_p4b_invitation_revoke: {
     actorKind: "operator",
     successShape: { invitationState: "revoked", membershipStatus: null, membershipEpisodeState: null },
+    rejectedEntityShape: "invitation",
+    rejectedEvidenceShape: "operator-optional",
   },
   recora_p4b_invitation_accept: {
     actorKind: "customer",
     successShape: { invitationState: "accepted", membershipStatus: "active", membershipEpisodeState: "active" },
+    rejectedEntityShape: "none",
+    rejectedEvidenceShape: "customer-none",
   },
   recora_p4b_membership_suspend: {
     actorKind: "operator",
     successShape: { invitationState: null, membershipStatus: "suspended", membershipEpisodeState: "active" },
+    rejectedEntityShape: "membership",
+    rejectedEvidenceShape: "operator-optional",
   },
   recora_p4b_membership_reactivate: {
     actorKind: "operator",
     successShape: { invitationState: null, membershipStatus: "active", membershipEpisodeState: "active" },
+    rejectedEntityShape: "membership",
+    rejectedEvidenceShape: "operator-optional",
   },
   recora_p4b_membership_revoke: {
     actorKind: "operator",
     successShape: { invitationState: null, membershipStatus: "revoked", membershipEpisodeState: "revoked" },
+    rejectedEntityShape: "membership",
+    rejectedEvidenceShape: "operator-optional",
   },
 } as const satisfies Record<CommandRpcName, CommandResultContract>;
 
@@ -446,10 +477,33 @@ function assertCommandActorEvidence(
 }
 
 function assertCommandSuccessShape(result: Phase4AccountCommandResult, contract: CommandResultContract): void {
-  if (result.outcome === "rejected") return;
+  if (result.outcome === "rejected") {
+    assertCommandRejectedShape(result, contract);
+    return;
+  }
   assertEntityState(result.invitation, contract.successShape.invitationState, "state");
   assertEntityState(result.membership, contract.successShape.membershipStatus, "status");
   assertEntityState(result.membershipEpisode, contract.successShape.membershipEpisodeState, "state");
+}
+
+function assertCommandRejectedShape(result: Phase4AccountCommandResult, contract: CommandResultContract): void {
+  if (contract.rejectedEntityShape === "none") {
+    if (result.invitation !== null || result.membership !== null || result.membershipEpisode !== null) throw invalidCommandResponse();
+  } else if (contract.rejectedEntityShape === "invitation") {
+    if (result.membership !== null || result.membershipEpisode !== null) throw invalidCommandResponse();
+  } else if (result.invitation !== null) {
+    throw invalidCommandResponse();
+  }
+
+  if (contract.rejectedEvidenceShape === "customer-none") {
+    if (
+      result.commandReceiptId !== null
+      || result.auditEventId !== null
+      || result.operatorCommandReceiptId !== null
+    ) {
+      throw invalidCommandResponse();
+    }
+  }
 }
 
 function assertEntityState<T extends string, K extends "state" | "status">(
