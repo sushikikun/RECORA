@@ -823,6 +823,7 @@ where organization_id = ${sqlUuid(orgId)}
   and project_id is not distinct from ${sqlUuid(projectId)}
   and blocks_customer_access
   and superseded_by_checkpoint_id is null
+  and state <> 'completed'
 order by created_at desc
 limit 1;
 `);
@@ -849,6 +850,154 @@ limit 1;
 `);
 }
 
+type CheckpointOutboxEventCounts = { checkpointEvents: number; outboxEvents: number };
+
+type ReceiptEffectTrace = {
+  checkpointEventCount: number;
+  outboxEventCount: number;
+  otherCheckpointEventCount: number;
+  otherOutboxEventCount: number;
+  requestCorrelationMismatchCount: number;
+  currentCheckpointReceiptId: string | null;
+  currentOutboxReceiptId: string | null;
+  currentCheckpointState: string | null;
+  currentOutboxState: string | null;
+};
+
+function checkpointOutboxEventCounts(checkpointId: string): CheckpointOutboxEventCounts {
+  return queryJson<CheckpointOutboxEventCounts>(`
+select jsonb_build_object(
+  'checkpointEvents', (select count(*) from recora_private.p4_checkpoint_events where checkpoint_id = ${sqlUuid(checkpointId)}),
+  'outboxEvents', (
+    select count(*)
+    from recora_private.p4_outbox_events event_row
+    join recora_private.p4_durable_outbox outbox_row on outbox_row.id = event_row.outbox_id
+    where outbox_row.checkpoint_id = ${sqlUuid(checkpointId)}
+  )
+)::text;
+`);
+}
+function orgEffectEventCounts(orgId: string, projectId: string | null): CheckpointOutboxEventCounts {
+  return queryJson<CheckpointOutboxEventCounts>(`
+select jsonb_build_object(
+  'checkpointEvents', (
+    select count(*)
+    from recora_private.p4_checkpoint_events event_row
+    join recora_private.p4_downstream_checkpoints checkpoint_row on checkpoint_row.id = event_row.checkpoint_id
+    where checkpoint_row.organization_id = ${sqlUuid(orgId)}
+      and checkpoint_row.project_id is not distinct from ${sqlUuid(projectId)}
+  ),
+  'outboxEvents', (
+    select count(*)
+    from recora_private.p4_outbox_events event_row
+    join recora_private.p4_durable_outbox outbox_row on outbox_row.id = event_row.outbox_id
+    where outbox_row.organization_id = ${sqlUuid(orgId)}
+      and outbox_row.project_id is not distinct from ${sqlUuid(projectId)}
+  )
+)::text;
+`);
+}
+
+function commandReceiptIdForIdempotency(orgId: string, projectId: string | null, idempotencyKey: string): string {
+  return queryValue(`
+select id::text
+from recora_private.p4_command_receipts
+where organization_id = ${sqlUuid(orgId)}
+  and project_id is not distinct from ${sqlUuid(projectId)}
+  and idempotency_key = ${sqlText(idempotencyKey)};
+`);
+}
+
+function receiptEffectTrace(input: { orgId: string; projectId: string | null; checkpointId: string; receiptId: string; requestId: string; correlationId: string }): ReceiptEffectTrace {
+  return queryJson<ReceiptEffectTrace>(`
+with target_outbox as (
+  select id, command_receipt_id, state
+  from recora_private.p4_durable_outbox
+  where checkpoint_id = ${sqlUuid(input.checkpointId)}
+    and superseded_by_outbox_id is null
+  order by created_at desc
+  limit 1
+)
+select jsonb_build_object(
+  'checkpointEventCount', (
+    select count(*)
+    from recora_private.p4_checkpoint_events event_row
+    where event_row.checkpoint_id = ${sqlUuid(input.checkpointId)}
+      and event_row.command_receipt_id = ${sqlUuid(input.receiptId)}
+  ),
+  'outboxEventCount', (
+    select count(*)
+    from recora_private.p4_outbox_events event_row
+    join target_outbox outbox_row on outbox_row.id = event_row.outbox_id
+    where event_row.command_receipt_id = ${sqlUuid(input.receiptId)}
+  ),
+  'otherCheckpointEventCount', (
+    select count(*)
+    from recora_private.p4_checkpoint_events event_row
+    join recora_private.p4_downstream_checkpoints checkpoint_row on checkpoint_row.id = event_row.checkpoint_id
+    where checkpoint_row.organization_id = ${sqlUuid(input.orgId)}
+      and checkpoint_row.project_id is not distinct from ${sqlUuid(input.projectId)}
+      and event_row.command_receipt_id = ${sqlUuid(input.receiptId)}
+      and event_row.checkpoint_id <> ${sqlUuid(input.checkpointId)}
+  ),
+  'otherOutboxEventCount', (
+    select count(*)
+    from recora_private.p4_outbox_events event_row
+    join recora_private.p4_durable_outbox outbox_row on outbox_row.id = event_row.outbox_id
+    where outbox_row.organization_id = ${sqlUuid(input.orgId)}
+      and outbox_row.project_id is not distinct from ${sqlUuid(input.projectId)}
+      and event_row.command_receipt_id = ${sqlUuid(input.receiptId)}
+      and outbox_row.checkpoint_id <> ${sqlUuid(input.checkpointId)}
+  ),
+  'requestCorrelationMismatchCount', (
+    (select count(*) from recora_private.p4_checkpoint_events event_row where event_row.checkpoint_id = ${sqlUuid(input.checkpointId)} and event_row.command_receipt_id = ${sqlUuid(input.receiptId)} and (event_row.request_id is distinct from ${sqlUuid(input.requestId)} or event_row.correlation_id is distinct from ${sqlUuid(input.correlationId)}))
+    +
+    (select count(*) from recora_private.p4_outbox_events event_row join target_outbox outbox_row on outbox_row.id = event_row.outbox_id where event_row.command_receipt_id = ${sqlUuid(input.receiptId)} and (event_row.request_id is distinct from ${sqlUuid(input.requestId)} or event_row.correlation_id is distinct from ${sqlUuid(input.correlationId)}))
+  ),
+  'currentCheckpointReceiptId', (select checkpoint_row.command_receipt_id::text from recora_private.p4_downstream_checkpoints checkpoint_row where checkpoint_row.id = ${sqlUuid(input.checkpointId)}),
+  'currentOutboxReceiptId', (select command_receipt_id::text from target_outbox),
+  'currentCheckpointState', (select checkpoint_row.state::text from recora_private.p4_downstream_checkpoints checkpoint_row where checkpoint_row.id = ${sqlUuid(input.checkpointId)}),
+  'currentOutboxState', (select state::text from target_outbox)
+)::text;
+`);
+}
+
+function assertActionReceiptTrace(input: { label: string; orgId: string; projectId: string | null; checkpointId: string; receiptId: string; requestId: string; correlationId: string; checkpointState: string; outboxState: string; checkpointEventCount?: number; outboxEventCount?: number }): void {
+  const trace = receiptEffectTrace(input);
+  assert.equal(trace.checkpointEventCount, input.checkpointEventCount ?? 1, `${input.label} checkpoint event count for the accepted receipt`);
+  assert.equal(trace.outboxEventCount, input.outboxEventCount ?? 1, `${input.label} outbox event count for the accepted receipt`);
+  assert.equal(trace.otherCheckpointEventCount, 0, `${input.label} receipt must not affect another checkpoint`);
+  assert.equal(trace.otherOutboxEventCount, 0, `${input.label} receipt must not affect another outbox`);
+  assert.equal(trace.requestCorrelationMismatchCount, 0, `${input.label} effect events must use the action request/correlation`);
+  assert.equal(trace.currentCheckpointReceiptId, input.receiptId, `${input.label} current checkpoint must point at the action receipt`);
+  assert.equal(trace.currentOutboxReceiptId, input.receiptId, `${input.label} current outbox must point at the action receipt`);
+  assert.equal(trace.currentCheckpointState, input.checkpointState, `${input.label} checkpoint state mismatch`);
+  assert.equal(trace.currentOutboxState, input.outboxState, `${input.label} outbox state mismatch`);
+}
+
+function assertNoFollowupEffectUsesReceipt(checkpointId: string, receiptId: string, label: string): void {
+  const counts = queryJson<{ checkpointFollowupEvents: number; outboxFollowupEvents: number }>(`
+select jsonb_build_object(
+  'checkpointFollowupEvents', (
+    select count(*)
+    from recora_private.p4_checkpoint_events
+    where checkpoint_id = ${sqlUuid(checkpointId)}
+      and command_receipt_id = ${sqlUuid(receiptId)}
+      and event_sequence > 1
+  ),
+  'outboxFollowupEvents', (
+    select count(*)
+    from recora_private.p4_outbox_events event_row
+    join recora_private.p4_durable_outbox outbox_row on outbox_row.id = event_row.outbox_id
+    where outbox_row.checkpoint_id = ${sqlUuid(checkpointId)}
+      and event_row.command_receipt_id = ${sqlUuid(receiptId)}
+      and event_row.event_sequence > 1
+  )
+)::text;
+`);
+  assert.equal(counts.checkpointFollowupEvents, 0, `${label} must not reuse the initial apply receipt for checkpoint follow-up events`);
+  assert.equal(counts.outboxFollowupEvents, 0, `${label} must not reuse the initial apply receipt for outbox follow-up events`);
+}
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1168,14 +1317,24 @@ where organization_id = ${sqlUuid(ORG_A)}
   const attemptPause = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 503, contractReference: "contract.attempt", sourceReference: "receipt.attempt.pause", idempotencyKey: "p4c.attempt.pause", nextContractState: "paused", paymentFactKind: "payment_failed" }));
   assert.equal(attemptPause.outcome, "reconciliation_required");
   assert.equal(attemptPause.stableReason, "checkpoint_pending");
-  const attemptCheckpointId = latestOpenCheckpointId(ORG_B, PROJECT_B);
+  let attemptCheckpointId = latestOpenCheckpointId(ORG_B, PROJECT_B);
+  const attemptApplyCheckpointReceiptId = commandReceiptIdForIdempotency(ORG_B, PROJECT_B, "p4c.attempt.pause.checkpoint");
   const beforeAttemptMutation = domainCounts(ORG_B, "contract.attempt");
   const failAttempt = makeAttemptCommand({ orgId: ORG_B, projectId: PROJECT_B, checkpointId: attemptCheckpointId, attemptOutcome: "failed_retryable", sequence: 510, idempotencyKey: "p4c.attempt.fail.one" });
   const concurrentFailRows = await Promise.all([callAttemptRpcProcess(failAttempt), callAttemptRpcProcess(failAttempt)]);
   const concurrentFailResults = concurrentFailRows.map(normalizeProcessResult);
   assert.deepEqual(concurrentFailResults.map((result) => result.outcome).sort(), ["reconciliation_required", "replayed"].sort());
   assert.equal(concurrentFailResults.filter((result) => result.stableReason === "checkpoint_failed").length, 1);
-  assert.equal(concurrentFailResults.filter((result) => result.stableReason === "duplicate_command").length, 1);  const tooSoonRetry = makeAttemptCommand({ orgId: ORG_B, projectId: PROJECT_B, checkpointId: attemptCheckpointId, attemptOutcome: "retry_pending", sequence: 511, idempotencyKey: "p4c.attempt.retry.too-soon" });
+  assert.equal(concurrentFailResults.filter((result) => result.stableReason === "duplicate_command").length, 1);
+  const failAttemptReceiptId = commandReceiptIdForIdempotency(ORG_B, PROJECT_B, "p4c.attempt.fail.one.checkpoint.attempt");
+  const failedAttemptRootCheckpointId = attemptCheckpointId;
+  const failEffectCheckpointId = latestOpenCheckpointId(ORG_B, PROJECT_B);
+  assert.notEqual(failEffectCheckpointId, failedAttemptRootCheckpointId);
+  assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where id = ${sqlUuid(failedAttemptRootCheckpointId)} and superseded_by_checkpoint_id is not null`), 1);
+  assertActionReceiptTrace({ label: "failed attempt", orgId: ORG_B, projectId: PROJECT_B, checkpointId: failEffectCheckpointId, receiptId: failAttemptReceiptId, requestId: failAttempt.requestId, correlationId: failAttempt.correlationId, checkpointState: "failed", outboxState: "failed", checkpointEventCount: 2, outboxEventCount: 2 });
+  assertNoFollowupEffectUsesReceipt(failedAttemptRootCheckpointId, attemptApplyCheckpointReceiptId, "failed attempt");
+  attemptCheckpointId = failEffectCheckpointId;
+  const tooSoonRetry = makeAttemptCommand({ orgId: ORG_B, projectId: PROJECT_B, checkpointId: attemptCheckpointId, attemptOutcome: "retry_pending", sequence: 511, idempotencyKey: "p4c.attempt.retry.too-soon" });
   const tooSoonRetryResult = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, tooSoonRetry);
   assert.equal(tooSoonRetryResult.outcome, "rejected");
   assert.equal(tooSoonRetryResult.stableReason, "invalid_reference");
@@ -1186,29 +1345,51 @@ where organization_id = ${sqlUuid(ORG_A)}
   assert.equal(attemptState.attemptCount, 1);
   assert.notEqual(attemptState.nextAttemptAt, null);
   assert.equal(attemptState.exhaustedAt, null);
-  assertNoDomainChange(beforeAttemptMutation, domainCounts(ORG_B, "contract.attempt"), ["billingReceipts", "paymentFacts", "contractEvents", "snapshots", "checkpoints", "outbox", "projectionVersion"]);
+  assertNoDomainChange(beforeAttemptMutation, domainCounts(ORG_B, "contract.attempt"), ["billingReceipts", "paymentFacts", "contractEvents", "snapshots", "projectionVersion"]);
+  const failReplayEventCounts = orgEffectEventCounts(ORG_B, PROJECT_B);
   const failReplay = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, failAttempt);
   assert.equal(failReplay.outcome, "replayed");
+  assert.deepEqual(orgEffectEventCounts(ORG_B, PROJECT_B), failReplayEventCounts, "failed attempt replay must not add checkpoint/outbox events");
   assert.equal(checkpointAttemptState(attemptCheckpointId).attemptCount, 1);
 
+  const failConflictEventCounts = orgEffectEventCounts(ORG_B, PROJECT_B);
   const failConflict = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, makeAttemptCommand({ orgId: ORG_B, projectId: PROJECT_B, checkpointId: attemptCheckpointId, attemptOutcome: "exhausted", sequence: 512, idempotencyKey: "p4c.attempt.fail.one" }));
   assert.equal(failConflict.outcome, "rejected");
   assert.equal(failConflict.stableReason, "idempotency_conflict");
+  assert.deepEqual(orgEffectEventCounts(ORG_B, PROJECT_B), failConflictEventCounts, "attempt conflict must not add checkpoint/outbox events");
   await delay(5200);
   const retryResult = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, tooSoonRetry);
   assert.equal(retryResult.outcome, "reconciliation_required");
   assert.equal(retryResult.stableReason, "checkpoint_pending");
+  const retryReceiptId = commandReceiptIdForIdempotency(ORG_B, PROJECT_B, "p4c.attempt.retry.too-soon.checkpoint.attempt");
+  const retryRootCheckpointId = attemptCheckpointId;
+  const retryEffectCheckpointId = latestOpenCheckpointId(ORG_B, PROJECT_B);
+  assert.notEqual(retryEffectCheckpointId, retryRootCheckpointId);
+  assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where id = ${sqlUuid(retryRootCheckpointId)} and superseded_by_checkpoint_id is not null`), 1);
+  assertActionReceiptTrace({ label: "retry pending attempt", orgId: ORG_B, projectId: PROJECT_B, checkpointId: retryEffectCheckpointId, receiptId: retryReceiptId, requestId: tooSoonRetry.requestId, correlationId: tooSoonRetry.correlationId, checkpointState: "pending", outboxState: "pending" });
+  assertNoFollowupEffectUsesReceipt(failedAttemptRootCheckpointId, attemptApplyCheckpointReceiptId, "retry pending attempt");
+  attemptCheckpointId = retryEffectCheckpointId;
   attemptState = checkpointAttemptState(attemptCheckpointId);
   assert.equal(attemptState.checkpointState, "pending");
   assert.equal(attemptState.outboxState, "pending");
   assert.equal(attemptState.attemptCount, 1);
   assert.equal(attemptState.nextAttemptAt, null);
+  const retryReplayEventCounts = orgEffectEventCounts(ORG_B, PROJECT_B);
   const retryReplay = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, tooSoonRetry);
   assert.equal(retryReplay.outcome, "replayed");
+  assert.deepEqual(orgEffectEventCounts(ORG_B, PROJECT_B), retryReplayEventCounts, "retry pending replay must not add checkpoint/outbox events");
   const failAttemptTwo = makeAttemptCommand({ orgId: ORG_B, projectId: PROJECT_B, checkpointId: attemptCheckpointId, attemptOutcome: "failed_retryable", sequence: 513, idempotencyKey: "p4c.attempt.fail.two" });
   const failTwoResult = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, failAttemptTwo);
   assert.equal(failTwoResult.outcome, "reconciliation_required");
   assert.equal(failTwoResult.stableReason, "checkpoint_failed");
+  const failTwoReceiptId = commandReceiptIdForIdempotency(ORG_B, PROJECT_B, "p4c.attempt.fail.two.checkpoint.attempt");
+  const failTwoRootCheckpointId = attemptCheckpointId;
+  const failTwoEffectCheckpointId = latestOpenCheckpointId(ORG_B, PROJECT_B);
+  assert.notEqual(failTwoEffectCheckpointId, failTwoRootCheckpointId);
+  assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where id = ${sqlUuid(failTwoRootCheckpointId)} and superseded_by_checkpoint_id is not null`), 1);
+  assertActionReceiptTrace({ label: "second failed attempt", orgId: ORG_B, projectId: PROJECT_B, checkpointId: failTwoEffectCheckpointId, receiptId: failTwoReceiptId, requestId: failAttemptTwo.requestId, correlationId: failAttemptTwo.correlationId, checkpointState: "failed", outboxState: "failed", checkpointEventCount: 2, outboxEventCount: 2 });
+  assertNoFollowupEffectUsesReceipt(failTwoEffectCheckpointId, attemptApplyCheckpointReceiptId, "second failed attempt");
+  attemptCheckpointId = failTwoEffectCheckpointId;
   attemptState = checkpointAttemptState(attemptCheckpointId);
   assert.equal(attemptState.checkpointState, "failed");
   assert.equal(attemptState.outboxState, "failed");
@@ -1217,15 +1398,25 @@ where organization_id = ${sqlUuid(ORG_A)}
   const exhaustedResult = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, exhaustedAttempt);
   assert.equal(exhaustedResult.outcome, "reconciliation_required");
   assert.equal(exhaustedResult.stableReason, "reconciliation_required");
+  const exhaustedReceiptId = commandReceiptIdForIdempotency(ORG_B, PROJECT_B, "p4c.attempt.exhausted.checkpoint.attempt");
+  const exhaustedRootCheckpointId = attemptCheckpointId;
+  const exhaustedEffectCheckpointId = latestOpenCheckpointId(ORG_B, PROJECT_B);
+  assert.notEqual(exhaustedEffectCheckpointId, exhaustedRootCheckpointId);
+  assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where id = ${sqlUuid(exhaustedRootCheckpointId)} and superseded_by_checkpoint_id is not null`), 1);
+  assertActionReceiptTrace({ label: "exhausted attempt", orgId: ORG_B, projectId: PROJECT_B, checkpointId: exhaustedEffectCheckpointId, receiptId: exhaustedReceiptId, requestId: exhaustedAttempt.requestId, correlationId: exhaustedAttempt.correlationId, checkpointState: "reconciliation_required", outboxState: "reconciliation_required", checkpointEventCount: 2, outboxEventCount: 2 });
+  assertNoFollowupEffectUsesReceipt(exhaustedEffectCheckpointId, attemptApplyCheckpointReceiptId, "exhausted attempt");
+  attemptCheckpointId = exhaustedEffectCheckpointId;
   attemptState = checkpointAttemptState(attemptCheckpointId);
   assert.equal(attemptState.checkpointState, "reconciliation_required");
   assert.equal(attemptState.outboxState, "reconciliation_required");
   assert.equal(attemptState.attemptCount, 2);
   assert.notEqual(attemptState.exhaustedAt, null);
   assert.equal(attemptState.nextAttemptAt, null);
+  const exhaustedReplayEventCounts = orgEffectEventCounts(ORG_B, PROJECT_B);
   const exhaustedReplay = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, exhaustedAttempt);
   assert.equal(exhaustedReplay.outcome, "replayed");
-  assertNoDomainChange(beforeAttemptMutation, domainCounts(ORG_B, "contract.attempt"), ["billingReceipts", "paymentFacts", "contractEvents", "snapshots", "checkpoints", "outbox", "projectionVersion"]);
+  assert.deepEqual(orgEffectEventCounts(ORG_B, PROJECT_B), exhaustedReplayEventCounts, "exhausted attempt replay must not add checkpoint/outbox events");
+  assertNoDomainChange(beforeAttemptMutation, domainCounts(ORG_B, "contract.attempt"), ["billingReceipts", "paymentFacts", "contractEvents", "snapshots", "projectionVersion"]);
   const lifecycleBeforeExhaustedConfirm = currentLifecycle(ORG_B, PROJECT_B);
   const exhaustedSuspend = transitionLifecycle({ orgId: ORG_B, projectId: PROJECT_B, expectedState: lifecycleBeforeExhaustedConfirm.state, expectedVersion: lifecycleBeforeExhaustedConfirm.version, nextState: "access_suspended", sequence: 515, reason: checkpointReason(attemptCheckpointId) });
   assert.equal(exhaustedSuspend.outcome, "success");
@@ -1298,7 +1489,8 @@ where organization_id = ${sqlUuid(ORG_A)}
   const pauseResult = await execute(makeCommand({ sequence: 105, sourceReference: "receipt.pause.pending", idempotencyKey: "p4c.pause.pending", nextContractState: "paused", paymentFactKind: "payment_failed" }));
   assert.equal(pauseResult.outcome, "reconciliation_required");
   assert.equal(pauseResult.stableReason, "checkpoint_pending");
-  const reconcileCheckpointId = latestOpenCheckpointId(ORG_A, PROJECT_A);
+  let reconcileCheckpointId = latestOpenCheckpointId(ORG_A, PROJECT_A);
+  const reconcileApplyCheckpointReceiptId = commandReceiptIdForIdempotency(ORG_A, PROJECT_A, "p4c.pause.pending.checkpoint");
   const lifecycleBeforeDenied = currentLifecycle(ORG_A, PROJECT_A);
   const deniedLifecycle = transitionLifecycle({ orgId: ORG_A, projectId: PROJECT_A, expectedState: lifecycleBeforeDenied.state, expectedVersion: lifecycleBeforeDenied.version + 99, nextState: "access_suspended", sequence: 160, reason: checkpointReason(reconcileCheckpointId) });
   assert.equal(deniedLifecycle.outcome, "denied");
@@ -1316,15 +1508,27 @@ where organization_id = ${sqlUuid(ORG_A)}
   assert.equal(reconcileResult.stableReason, "reconciliation_required");
   assert.equal(reconcileResult.customerAccessAllowed, false);
   assert.equal(reconcileResult.reasonCode, "reconciliation_required");
+  const reconcileReceiptId = commandReceiptIdForIdempotency(ORG_A, PROJECT_A, "p4c.reconcile.denied.checkpoint.reconcile");
+  const reconcileRootCheckpointId = reconcileCheckpointId;
+  const reconcileEffectCheckpointId = latestOpenCheckpointId(ORG_A, PROJECT_A);
+  assert.notEqual(reconcileEffectCheckpointId, reconcileRootCheckpointId);
+  assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where id = ${sqlUuid(reconcileRootCheckpointId)} and superseded_by_checkpoint_id is not null`), 1);
+  assertActionReceiptTrace({ label: "lifecycle reconcile", orgId: ORG_A, projectId: PROJECT_A, checkpointId: reconcileEffectCheckpointId, receiptId: reconcileReceiptId, requestId: reconcileCommand.requestId, correlationId: reconcileCommand.correlationId, checkpointState: "reconciliation_required", outboxState: "reconciliation_required", checkpointEventCount: 2, outboxEventCount: 2 });
+  assertNoFollowupEffectUsesReceipt(reconcileRootCheckpointId, reconcileApplyCheckpointReceiptId, "lifecycle reconcile");
+  reconcileCheckpointId = reconcileEffectCheckpointId;
+  const reconcileReplayEventCounts = orgEffectEventCounts(ORG_A, PROJECT_A);
   const reconcileReplay = await p4c.executePhase4ReconcileLifecycleCheckpointCommand(rpcClient, reconcileCommand);
   assert.equal(reconcileReplay.outcome, "replayed");
   assert.equal(reconcileReplay.stableReason, "duplicate_command");
+  assert.deepEqual(orgEffectEventCounts(ORG_A, PROJECT_A), reconcileReplayEventCounts, "reconcile replay must not add checkpoint/outbox events");
   const secondDeniedLifecycle = transitionLifecycle({ orgId: ORG_A, projectId: PROJECT_A, expectedState: lifecycleBeforeDenied.state, expectedVersion: lifecycleBeforeDenied.version + 98, nextState: "access_suspended", sequence: 163, reason: checkpointReason(reconcileCheckpointId) });
   assert.equal(secondDeniedLifecycle.outcome, "denied");
   const reconcileConflictCommand = makeReconcileCommand({ orgId: ORG_A, projectId: PROJECT_A, checkpointId: reconcileCheckpointId, phase3LifecycleAuditEventId: operatorAuditEventIdForRequest(requestId(163)), sequence: 164, idempotencyKey: "p4c.reconcile.denied" });
+  const reconcileConflictEventCounts = orgEffectEventCounts(ORG_A, PROJECT_A);
   const reconcileConflict = await p4c.executePhase4ReconcileLifecycleCheckpointCommand(rpcClient, reconcileConflictCommand);
   assert.equal(reconcileConflict.outcome, "rejected");
   assert.equal(reconcileConflict.stableReason, "idempotency_conflict");
+  assert.deepEqual(orgEffectEventCounts(ORG_A, PROJECT_A), reconcileConflictEventCounts, "reconcile conflict must not add checkpoint/outbox events");
 
   const rollbackBefore = domainCounts(ORG_A);
   const rollbackFailure = makeCommand({ sequence: 171, requestSequence: 162, sourceReference: "receipt.rollback", idempotencyKey: "p4c.rollback", nextContractState: "active", paymentFactKind: "payment_reversed", correctsPaymentFactId: "12399999-0000-4000-8000-000000000999" });
