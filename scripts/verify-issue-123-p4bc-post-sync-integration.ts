@@ -55,7 +55,7 @@ const i117 = stack("Issue #117", "RECORA_ISSUE_117_SUPABASE_WORKDIR", "RECORA_IS
 function clean(text: string): string {
   return text.replace(/postgres(?:ql)?:\/\/[^\s]+/gi, "[redacted-local-db-url]").replace(/(?:service_role|anon)_key\s*[:=]\s*[^\s]+/gi, "[redacted-key]");
 }
-function run(command: string, args: string[], options: { input?: string; env?: NodeJS.ProcessEnv; timeout?: number } = {}): Result {
+function run(command: string, args: string[], options: { input?: string; env?: Record<string, string>; timeout?: number } = {}): Result {
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: "utf8",
@@ -93,7 +93,7 @@ function sync(s: Stack): void {
 function sb(s: Stack, name: string, args: string[]): string {
   return pass(`${s.label} ${name}`, run(process.execPath, [supabase, "--workdir", s.workdir, ...args], { timeout: 720_000 }));
 }
-function verifier(name: string, file: string, environment: NodeJS.ProcessEnv): string {
+function verifier(name: string, file: string, environment: Record<string, string>): string {
   return pass(name, run(process.execPath, [tsx, path.join(root, file)], { env: environment, timeout: 1_200_000 }));
 }
 function sql(s: Stack, name: string, input: string): string {
@@ -111,7 +111,7 @@ function scope(): void {
   for (const args of [["diff", "--name-only", `${base}...HEAD`], ["diff", "--name-only"], ["diff", "--cached", "--name-only"], ["ls-files", "--others", "--exclude-standard"]]) {
     for (const file of lines(git(args))) files.add(file.replace(/\\/g, "/"));
   }
-  assert.deepEqual([...files].sort(), [...allowed].sort(), "PR #126 must contain exactly the approved five files.");
+  assert.deepEqual(Array.from(files).sort(), Array.from(allowed).sort(), "PR #126 must contain exactly the approved five files.");
   const diff = `${git(["diff", "--no-ext-diff", "--unified=0", `${base}...HEAD`])}\n${git(["diff", "--no-ext-diff", "--unified=0"])}`;
   for (const pattern of [/postgres(?:ql)?:\/\/[^\s]+/i, /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i, /\bsk-[A-Za-z0-9_-]{20,}\b/, /(?:OPENAI_API_KEY|SUPABASE_SERVICE_ROLE_KEY)\s*[:=]\s*["']?[A-Za-z0-9_-]{12,}/i]) {
     assert.doesNotMatch(diff, pattern, `PR diff contains a secret or DB URL: ${pattern}`);
