@@ -42,6 +42,7 @@ assert.doesNotMatch(configSource, /schemas\s*=\s*\[[^\]]*recora_private/i, "reco
 assert.match(moduleSource, /import "server-only";/, "P4-B module must be server-only.");
 assert.doesNotMatch(moduleSource, /process\.env|createRecoraSupabaseServiceRoleClient|from\(|recora_private/i, "P4-B module must use injected RPC transport and no direct SQL/private-table access.");
 assert.match(moduleSource, /Phase4CustomerAccessDto/, "customer-safe DTO type is missing.");
+const domainDenialFunctionSql = extractSqlFunction(migrationSql, "recora_private.p4b_record_operator_domain_denial");
 const acceptFunctionSql = extractSqlFunction(migrationSql, "public.recora_p4b_invitation_accept");
 const customerSessionFunctionSql = extractSqlFunction(migrationSql, "recora_private.p4b_record_customer_session_p4_command");
 const authEmailFunctionSql = extractSqlFunction(migrationSql, "recora_private.p4b_confirmed_auth_email_hash");
@@ -49,6 +50,10 @@ const acceptWrapperSource = extractSourceFunction(moduleSource, "acceptPhase4Inv
 assert.match(acceptFunctionSql, /auth\.uid\(\)/, "accept RPC must use auth.uid().");
 assert.match(acceptFunctionSql, /p4b_confirmed_auth_email_hash/, "accept RPC must delegate recipient verification to the DB email-binding helper.");
 assert.match(customerSessionFunctionSql, /p4_assert_legacy_inventory\(\)/, "customer-session receipt helper must enforce the P4-A legacy inventory gate.");
+assert.match(domainDenialFunctionSql, /p4b_authorize_operator/);
+assert.match(domainDenialFunctionSql, /p4b_record_operator_denial/);
+assert.match(migrationSql, /p4b_record_operator_domain_denial\(uuid, uuid, text, text, text, uuid, text, text, uuid, uuid, jsonb, jsonb\) from public, anon, authenticated, service_role/i, "domain denial helper must be private to the migration.");
+assert.match(migrationSql, /operator_receipt_conflict[\s\S]*'failed'::recora_audit\.operator_audit_outcome/i, "operator receipt failures must retain failed audit evidence.");
 assert.match(authEmailFunctionSql, /email_confirmed_at is not null/i, "accept RPC helper must require email_confirmed_at.");
 assert.doesNotMatch(authEmailFunctionSql, /user_row\.confirmed_at is not null/i, "accept RPC helper must not trust confirmed_at.");
 assert.doesNotMatch(acceptFunctionSql, /p_verified_auth_user_id|p_recipient_binding_hash/, "accept RPC must not take claimed user id or binding hash.");
@@ -128,6 +133,7 @@ declare
   invitation_resend_old uuid;
   invitation_revoked uuid;
   invitation_expired uuid;
+  invitation_cross_tenant uuid;
   invitation_accept uuid;
   invitation_confirmed_only uuid;
   invitation_temporal_one uuid;
@@ -144,6 +150,11 @@ declare
   before_receipt_count bigint;
   before_membership_count bigint;
   before_episode_count bigint;
+  before_invitation_count bigint;
+  before_invitation_event_count bigint;
+  before_episode_event_count bigint;
+  before_audit_event_count bigint;
+  before_operator_receipt_count bigint;
   legacy_plan_config uuid := '12280000-0000-4000-8000-000000000001';
   legacy_subscription_one uuid := '12290000-0000-4000-8000-000000000001';
   legacy_subscription_two uuid := '12290000-0000-4000-8000-000000000002';
@@ -183,10 +194,10 @@ begin
     (org_b,null,'active','12240000-0000-4000-8000-000000000002','12250000-0000-4000-8000-000000000002');
 
   insert into recora_private.plan_policy_versions(id,policy_key,policy_schema_version,effective_from,policy_document) values(
-    '12260000-0000-4000-8000-000000000001','issue122.policy',1,now()-interval '1 day','{"capabilities":{"report.view":true,"export.data":false},"limits":{"projects":1}}'::jsonb
+    '12260000-0000-4000-8000-000000000001','issue122.policy',1,now()-interval '1 day','{"capabilities":{"measurement":true,"analysis":false,"prompts":true},"limits":{}}'::jsonb
   );
   insert into recora_private.entitlement_snapshots(id,organization_id,project_id,source_contract_reference,plan_policy_version_id,entitlement_schema_version,resolved_document,effective_from,resolver_version,idempotency_key) values(
-    '12270000-0000-4000-8000-000000000001',org_a,null,'issue122.contract','12260000-0000-4000-8000-000000000001',1,'{"capabilities":{"report.view":true,"export.data":false},"limits":{"projects":1}}'::jsonb,now()-interval '1 hour','issue122.verifier','issue122.snapshot'
+    '12270000-0000-4000-8000-000000000001',org_a,null,'issue122.contract','12260000-0000-4000-8000-000000000001',1,'{"capabilities":{"measurement":true,"analysis":false,"prompts":true},"limits":{}}'::jsonb,now()-interval '1 hour','issue122.verifier','issue122.snapshot'
   );
   insert into recora_private.current_entitlement_snapshots(organization_id,project_id,snapshot_id) values(org_a,null,'12270000-0000-4000-8000-000000000001');
 
@@ -232,6 +243,79 @@ begin
   if command_row.outcome <> 'accepted' or command_row.reason_code <> 'ok' or command_row.invitation_state <> 'pending' or command_row.audit_event_id is null or command_row.operator_command_receipt_id is null then raise exception 'invitation create failed'; end if;
   invitation_one := command_row.invitation_id;
   initial_create_command_receipt_id := command_row.command_receipt_id;
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_invitation_count from recora_private.p4_invitations;
+  select count(*) into before_invitation_event_count from recora_private.p4_invitation_events;
+  select count(*) into before_membership_count from public.organization_members;
+  select count(*) into before_episode_count from recora_private.p4_membership_episodes;
+  select count(*) into before_episode_event_count from recora_private.p4_membership_episode_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row
+  from public.recora_p4b_invitation_create(
+    operator_user,org_a,hash_a,'member',now()+interval '7 days','issue122.create.pending',
+    '12240000-0000-4000-8000-000000000105','12250000-0000-4000-8000-000000000105','issue122.create.pending'
+  );
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'pending_invitation_exists'
+    or replay_row.invitation_id <> invitation_one
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from recora_private.p4_invitations) <> before_invitation_count
+    or (select count(*) from recora_private.p4_invitation_events) <> before_invitation_event_count
+    or (select count(*) from public.organization_members) <> before_membership_count
+    or (select count(*) from recora_private.p4_membership_episodes) <> before_episode_count
+    or (select count(*) from recora_private.p4_membership_episode_events) <> before_episode_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count + 1
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.actor_operator_id = operator_id
+        and event_row.organization_id = org_a
+        and event_row.action = 'account.invitation.create'
+        and event_row.target_type = 'invitation'
+        and event_row.target_id = invitation_one
+        and event_row.permission_used = 'account.invitation.create'
+        and event_row.reason = 'issue122.create.pending'
+        and event_row.request_id = '12240000-0000-4000-8000-000000000105'
+        and event_row.correlation_id = '12250000-0000-4000-8000-000000000105'
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+        and event_row.failure_reason_code = 'pending_invitation_exists'
+    ) then
+    raise exception 'pending invitation rejection did not retain exact denial audit without mutation';
+  end if;
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_invitation_event_count from recora_private.p4_invitation_events;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row
+  from public.recora_p4b_invitation_create(
+    operator_user,org_a,hash_a,'member',now()+interval '7 days','issue122.create.pending',
+    '12240000-0000-4000-8000-000000000106','12250000-0000-4000-8000-000000000106','issue122.create.pending'
+  );
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'pending_invitation_exists'
+    or replay_row.invitation_id <> invitation_one
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from recora_private.p4_invitation_events) <> before_invitation_event_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count + 1
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.target_id = invitation_one
+        and event_row.reason = 'issue122.create.pending'
+        and event_row.request_id = '12240000-0000-4000-8000-000000000106'
+        and event_row.correlation_id = '12250000-0000-4000-8000-000000000106'
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+        and event_row.failure_reason_code = 'pending_invitation_exists'
+    ) then
+    raise exception 'pending invitation rejection replay was not stable and mutation-free';
+  end if;
   insert into recora_audit.operator_events(
     actor_operator_id,organization_id,project_id,action,target_type,target_id,permission_used,
     reason,before_summary,after_summary,request_id,correlation_id,outcome,failure_reason_code
@@ -382,6 +466,50 @@ begin
   if replay_row.outcome <> 'accepted' or replay_row.invitation_state <> 'pending' then raise exception 'explicit admin create permission failed'; end if;
   select * into replay_row from public.recora_p4b_invitation_create(operator_user,org_b,hash_b,'member',now()+interval '7 days','issue122.cross','12240000-0000-4000-8000-000000000015','12250000-0000-4000-8000-000000000015','issue122.cross');
   if replay_row.outcome <> 'rejected' or replay_row.reason_code <> 'permission_denied' or replay_row.audit_event_id is null or replay_row.operator_command_receipt_id is not null or not exists(select 1 from recora_audit.operator_events event_row where event_row.id = replay_row.audit_event_id and event_row.target_type = 'invitation' and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome) then raise exception 'operator permission negative failed'; end if;
+  select command_receipt_id into direct_command
+  from public.recora_p4_record_command_receipt(
+    org_b,null,'invitation.lifecycle','provider_fixture'::recora_private.p4_source_kind,'issue122.cross.tenant',
+    'cross.tenant.fixture',9107,repeat('a',64),'12240000-0000-4000-8000-000000000107','12250000-0000-4000-8000-000000000107','issue122.cross.tenant.fixture'
+  );
+  invitation_cross_tenant := extensions.gen_random_uuid();
+  insert into recora_private.p4_invitations(id,organization_id,recipient_binding_hash,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at,created_at)
+  values(invitation_cross_tenant,org_b,hash_f,direct_command,direct_command,'12240000-0000-4000-8000-000000000107','12250000-0000-4000-8000-000000000107',now()+interval '7 days',now());
+  insert into recora_private.p4_invitation_events(invitation_id,organization_id,event_sequence,next_state,command_receipt_id,request_id,correlation_id)
+  values(invitation_cross_tenant,org_b,1,'pending',direct_command,'12240000-0000-4000-8000-000000000107','12250000-0000-4000-8000-000000000107');
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_invitation_count from recora_private.p4_invitations;
+  select count(*) into before_invitation_event_count from recora_private.p4_invitation_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row from public.recora_p4b_invitation_revoke(operator_user,invitation_cross_tenant,'issue122.cross.tenant','12240000-0000-4000-8000-000000000108','12250000-0000-4000-8000-000000000108','issue122.cross.tenant');
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'permission_denied'
+    or replay_row.invitation_id <> invitation_cross_tenant
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from recora_private.p4_invitations) <> before_invitation_count
+    or (select count(*) from recora_private.p4_invitation_events) <> before_invitation_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count + 1
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.actor_operator_id = operator_id
+        and event_row.organization_id = org_b
+        and event_row.action = 'account.invitation.revoke'
+        and event_row.target_type = 'invitation'
+        and event_row.target_id = invitation_cross_tenant
+        and event_row.permission_used = 'account.invitation.revoke'
+        and event_row.reason = 'issue122.cross.tenant'
+        and event_row.request_id = '12240000-0000-4000-8000-000000000108'
+        and event_row.correlation_id = '12250000-0000-4000-8000-000000000108'
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+        and event_row.failure_reason_code = 'permission_denied'
+    ) then
+    raise exception 'cross-tenant invitation rejection did not retain exact denial audit without mutation';
+  end if;
 
   select * into command_row from public.recora_p4b_invitation_create(operator_user,org_a,hash_b,'viewer',now()+interval '7 days','issue122.resend.create','12240000-0000-4000-8000-000000000021','12250000-0000-4000-8000-000000000021','issue122.resend.create');
   invitation_resend_old := command_row.invitation_id;
@@ -393,13 +521,139 @@ begin
   perform set_config('request.jwt.claim.sub', customer_user::text, true);
   select * into replay_row from public.recora_p4b_invitation_accept(invitation_resend_old,'12240000-0000-4000-8000-000000000023','12250000-0000-4000-8000-000000000023','issue122.accept.superseded');
   if replay_row.outcome <> 'rejected' or replay_row.reason_code <> 'invitation_unavailable' then raise exception 'superseded invitation accept was not rejected'; end if;
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_invitation_count from recora_private.p4_invitations;
+  select count(*) into before_invitation_event_count from recora_private.p4_invitation_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
   select * into replay_row from public.recora_p4b_invitation_resend(operator_user,invitation_two,hash_c,now()+interval '8 days','issue122.resend.bad','12240000-0000-4000-8000-000000000024','12250000-0000-4000-8000-000000000024','issue122.resend.bad');
-  if replay_row.reason_code <> 'recipient_mismatch' then raise exception 'resend recipient mismatch negative failed'; end if;
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'recipient_mismatch'
+    or replay_row.invitation_id <> invitation_two
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from recora_private.p4_invitations) <> before_invitation_count
+    or (select count(*) from recora_private.p4_invitation_events) <> before_invitation_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count + 1
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.actor_operator_id = operator_id
+        and event_row.organization_id = org_a
+        and event_row.action = 'account.invitation.resend'
+        and event_row.target_type = 'invitation'
+        and event_row.target_id = invitation_two
+        and event_row.permission_used = 'account.invitation.resend'
+        and event_row.reason = 'issue122.resend.bad'
+        and event_row.request_id = '12240000-0000-4000-8000-000000000024'
+        and event_row.correlation_id = '12250000-0000-4000-8000-000000000024'
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+        and event_row.failure_reason_code = 'recipient_mismatch'
+    ) then
+    raise exception 'resend recipient rejection did not retain exact denial audit without mutation';
+  end if;
+
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_invitation_count from recora_private.p4_invitations;
+  select count(*) into before_invitation_event_count from recora_private.p4_invitation_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row from public.recora_p4b_invitation_resend(operator_user,invitation_two,hash_b,now()-interval '1 day','issue122.resend.expired','12240000-0000-4000-8000-000000000025','12250000-0000-4000-8000-000000000025','issue122.resend.expired');
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'invalid_reference'
+    or replay_row.invitation_id <> invitation_two
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from recora_private.p4_invitations) <> before_invitation_count
+    or (select count(*) from recora_private.p4_invitation_events) <> before_invitation_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count + 1
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.target_id = invitation_two
+        and event_row.reason = 'issue122.resend.expired'
+        and event_row.request_id = '12240000-0000-4000-8000-000000000025'
+        and event_row.correlation_id = '12250000-0000-4000-8000-000000000025'
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+        and event_row.failure_reason_code = 'invalid_reference'
+    ) then
+    raise exception 'resend expiry rejection did not retain exact denial audit without mutation';
+  end if;
+
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_invitation_count from recora_private.p4_invitations;
+  select count(*) into before_invitation_event_count from recora_private.p4_invitation_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row from public.recora_p4b_invitation_resend(operator_user,invitation_resend_old,hash_b,now()+interval '8 days','issue122.resend.state','12240000-0000-4000-8000-000000000026','12250000-0000-4000-8000-000000000026','issue122.resend.state');
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'invitation_not_pending'
+    or replay_row.invitation_id <> invitation_resend_old
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from recora_private.p4_invitations) <> before_invitation_count
+    or (select count(*) from recora_private.p4_invitation_events) <> before_invitation_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count + 1
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.target_id = invitation_resend_old
+        and event_row.reason = 'issue122.resend.state'
+        and event_row.request_id = '12240000-0000-4000-8000-000000000026'
+        and event_row.correlation_id = '12250000-0000-4000-8000-000000000026'
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+        and event_row.failure_reason_code = 'invitation_not_pending'
+    ) then
+    raise exception 'resend state rejection did not retain exact denial audit without mutation';
+  end if;
 
   select * into command_row from public.recora_p4b_invitation_create(operator_user,org_a,hash_c,'member',now()+interval '7 days','issue122.revoke.create','12240000-0000-4000-8000-000000000031','12250000-0000-4000-8000-000000000031','issue122.revoke.create');
   invitation_revoked := command_row.invitation_id;
   select * into command_row from public.recora_p4b_invitation_revoke(operator_user,invitation_revoked,'issue122.revoke','12240000-0000-4000-8000-000000000032','12250000-0000-4000-8000-000000000032','issue122.revoke');
   if command_row.outcome <> 'accepted' or command_row.invitation_state <> 'revoked' then raise exception 'invitation revoke failed'; end if;
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_invitation_count from recora_private.p4_invitations;
+  select count(*) into before_invitation_event_count from recora_private.p4_invitation_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row from public.recora_p4b_invitation_revoke(operator_user,invitation_revoked,'issue122.revoke.state','12240000-0000-4000-8000-000000000034','12250000-0000-4000-8000-000000000034','issue122.revoke.state');
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'invitation_not_pending'
+    or replay_row.invitation_id <> invitation_revoked
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from recora_private.p4_invitations) <> before_invitation_count
+    or (select count(*) from recora_private.p4_invitation_events) <> before_invitation_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count + 1
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.actor_operator_id = operator_id
+        and event_row.organization_id = org_a
+        and event_row.action = 'account.invitation.revoke'
+        and event_row.target_type = 'invitation'
+        and event_row.target_id = invitation_revoked
+        and event_row.permission_used = 'account.invitation.revoke'
+        and event_row.reason = 'issue122.revoke.state'
+        and event_row.request_id = '12240000-0000-4000-8000-000000000034'
+        and event_row.correlation_id = '12250000-0000-4000-8000-000000000034'
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+        and event_row.failure_reason_code = 'invitation_not_pending'
+    ) then
+    raise exception 'revoke state rejection did not retain exact denial audit without mutation';
+  end if;
   select * into replay_row from public.recora_p4b_invitation_accept(invitation_revoked,'12240000-0000-4000-8000-000000000033','12250000-0000-4000-8000-000000000033','issue122.accept.revoked');
   if replay_row.reason_code <> 'invitation_unavailable' then raise exception 'revoked invitation accept was not rejected'; end if;
 
@@ -407,6 +661,35 @@ begin
   insert into recora_private.p4_invitations(organization_id,recipient_binding_hash,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at,created_at)
   values(org_a,hash_d,direct_command,direct_command,'12240000-0000-4000-8000-000000000041','12250000-0000-4000-8000-000000000041',now()-interval '1 hour',now()-interval '2 hours') returning id into invitation_expired;
   insert into recora_private.p4_invitation_events(invitation_id,organization_id,event_sequence,next_state,command_receipt_id,request_id,correlation_id) values(invitation_expired,org_a,1,'pending',direct_command,'12240000-0000-4000-8000-000000000041','12250000-0000-4000-8000-000000000041');
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_invitation_count from recora_private.p4_invitations;
+  select count(*) into before_invitation_event_count from recora_private.p4_invitation_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row from public.recora_p4b_invitation_revoke(operator_user,invitation_expired,'issue122.revoke.expired','12240000-0000-4000-8000-000000000043','12250000-0000-4000-8000-000000000043','issue122.revoke.expired');
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'invitation_expired'
+    or replay_row.invitation_id <> invitation_expired
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from recora_private.p4_invitations) <> before_invitation_count
+    or (select count(*) from recora_private.p4_invitation_events) <> before_invitation_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count + 1
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.target_id = invitation_expired
+        and event_row.reason = 'issue122.revoke.expired'
+        and event_row.request_id = '12240000-0000-4000-8000-000000000043'
+        and event_row.correlation_id = '12250000-0000-4000-8000-000000000043'
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+        and event_row.failure_reason_code = 'invitation_expired'
+    ) then
+    raise exception 'revoke expiry rejection did not retain exact denial audit without mutation';
+  end if;
   select * into replay_row from public.recora_p4b_invitation_accept(invitation_expired,'12240000-0000-4000-8000-000000000042','12250000-0000-4000-8000-000000000042','issue122.accept.expired');
   if replay_row.reason_code <> 'invitation_unavailable' then raise exception 'expired invitation accept was not rejected'; end if;
   select * into replay_row from public.recora_p4b_invitation_create(operator_user,org_a,hash_d,'member',now()+interval '7 days','issue122.expired.reinvite','12240000-0000-4000-8000-000000000044','12250000-0000-4000-8000-000000000044','issue122.expired.reinvite');
@@ -456,23 +739,97 @@ begin
   select * into replay_row from public.recora_p4b_invitation_accept(invitation_accept,'12240000-0000-4000-8000-000000000055','12250000-0000-4000-8000-000000000055','issue122.accept');
   if replay_row.outcome <> 'replayed' or replay_row.membership_id <> membership_one then raise exception 'accept replay failed'; end if;
 
-  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_a,null,'report.view');
+  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_a,null,'measurement');
   if not access_row.customer_access_allowed or access_row.reason_code <> 'ok' or access_row.membership_role <> 'member' or access_row.entitlement_capabilities ? 'snapshot_id' then raise exception 'derived access positive/customer-safe DTO failed'; end if;
-  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_a,project_a,'report.view');
+  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_a,project_a,'measurement');
   if not access_row.customer_access_allowed or access_row.reason_code <> 'ok' then raise exception 'explicit project scope did not inherit organization entitlement'; end if;
-  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_a,project_b,'report.view');
+  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_a,project_b,'measurement');
   if access_row.customer_access_allowed or access_row.reason_code <> 'invalid_scope' then raise exception 'cross-project explicit scope did not fail closed'; end if;
-  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_a,null,'export.data');
+  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_a,null,'analysis');
   if access_row.customer_access_allowed or access_row.reason_code <> 'capability_unavailable' then raise exception 'capability negative failed'; end if;
-  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_b,null,'report.view');
+  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_b,null,'measurement');
   if access_row.customer_access_allowed or access_row.reason_code <> 'membership_required' then raise exception 'cross-tenant derived access failed'; end if;
 
   select * into command_row from public.recora_p4b_membership_suspend(operator_user,membership_one,'issue122.suspend','12240000-0000-4000-8000-000000000061','12250000-0000-4000-8000-000000000061','issue122.suspend');
   if command_row.outcome <> 'accepted' or command_row.membership_status <> 'suspended' then raise exception 'membership suspend failed'; end if;
-  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_a,null,'report.view');
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_membership_count from public.organization_members;
+  select count(*) into before_episode_count from recora_private.p4_membership_episodes;
+  select count(*) into before_episode_event_count from recora_private.p4_membership_episode_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row from public.recora_p4b_membership_suspend(operator_user,membership_one,'issue122.suspend.state','12240000-0000-0000-0000-000000000066','12250000-0000-0000-0000-000000000066','issue122.suspend.state');
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'membership_not_active'
+    or replay_row.membership_id <> membership_one
+    or replay_row.membership_status <> 'suspended'
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from public.organization_members) <> before_membership_count
+    or (select count(*) from recora_private.p4_membership_episodes) <> before_episode_count
+    or (select count(*) from recora_private.p4_membership_episode_events) <> before_episode_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count + 1
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.actor_operator_id = operator_id
+        and event_row.organization_id = org_a
+        and event_row.action = 'account.membership.suspend'
+        and event_row.target_type = 'membership'
+        and event_row.target_id = membership_one
+        and event_row.permission_used = 'account.membership.suspend'
+        and event_row.reason = 'issue122.suspend.state'
+        and event_row.request_id = '12240000-0000-0000-0000-000000000066'
+        and event_row.correlation_id = '12250000-0000-0000-0000-000000000066'
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+        and event_row.failure_reason_code = 'membership_not_active'
+    ) then
+    raise exception 'suspend state rejection did not retain exact denial audit without mutation';
+  end if;
+  select * into access_row from public.recora_p4b_resolve_customer_access(customer_user,org_a,null,'measurement');
   if access_row.customer_access_allowed or access_row.reason_code <> 'membership_required' then raise exception 'suspended membership retained access'; end if;
   select * into command_row from public.recora_p4b_membership_reactivate(operator_user,membership_one,'issue122.reactivate','12240000-0000-4000-8000-000000000062','12250000-0000-4000-8000-000000000062','issue122.reactivate');
   if command_row.outcome <> 'accepted' or command_row.membership_status <> 'active' then raise exception 'membership reactivate failed'; end if;
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_membership_count from public.organization_members;
+  select count(*) into before_episode_count from recora_private.p4_membership_episodes;
+  select count(*) into before_episode_event_count from recora_private.p4_membership_episode_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row from public.recora_p4b_membership_reactivate(operator_user,membership_one,'issue122.reactivate.state','12240000-0000-0000-0000-000000000067','12250000-0000-0000-0000-000000000067','issue122.reactivate.state');
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'membership_not_suspended'
+    or replay_row.membership_id <> membership_one
+    or replay_row.membership_status <> 'active'
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from public.organization_members) <> before_membership_count
+    or (select count(*) from recora_private.p4_membership_episodes) <> before_episode_count
+    or (select count(*) from recora_private.p4_membership_episode_events) <> before_episode_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count + 1
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.actor_operator_id = operator_id
+        and event_row.organization_id = org_a
+        and event_row.action = 'account.membership.reactivate'
+        and event_row.target_type = 'membership'
+        and event_row.target_id = membership_one
+        and event_row.permission_used = 'account.membership.reactivate'
+        and event_row.reason = 'issue122.reactivate.state'
+        and event_row.request_id = '12240000-0000-0000-0000-000000000067'
+        and event_row.correlation_id = '12250000-0000-0000-0000-000000000067'
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+        and event_row.failure_reason_code = 'membership_not_suspended'
+    ) then
+    raise exception 'reactivate state rejection did not retain exact denial audit without mutation';
+  end if;
   select * into replay_row
   from public.recora_p4b_membership_suspend(
     operator_user,membership_one,'issue122.suspend',
@@ -488,6 +845,44 @@ begin
   select * into command_row from public.recora_p4b_membership_revoke(operator_user,membership_one,'issue122.member.revoke','12240000-0000-4000-8000-000000000063','12250000-0000-4000-8000-000000000063','issue122.member.revoke');
   if command_row.outcome <> 'accepted' or command_row.membership_status <> 'revoked' or command_row.membership_episode_state <> 'revoked' then raise exception 'membership revoke failed'; end if;
   if (select user_id from public.organization_members where id = membership_one) is not null then raise exception 'revoked membership user identity was not freed'; end if;
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_membership_count from public.organization_members;
+  select count(*) into before_episode_count from recora_private.p4_membership_episodes;
+  select count(*) into before_episode_event_count from recora_private.p4_membership_episode_events;
+  select count(*) into before_operator_receipt_count from recora_operator.operator_command_receipts;
+  select count(*) into before_audit_event_count from recora_audit.operator_events;
+  select * into replay_row from public.recora_p4b_membership_revoke(operator_user,membership_one,'issue122.member.revoke.state','12240000-0000-0000-0000-000000000068','12250000-0000-0000-0000-000000000068','issue122.member.revoke.state');
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'membership_not_revocable'
+    or replay_row.membership_id <> membership_one
+    or replay_row.membership_status <> 'revoked'
+    or replay_row.membership_episode_state <> 'revoked'
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from public.organization_members) <> before_membership_count
+    or (select count(*) from recora_private.p4_membership_episodes) <> before_episode_count
+    or (select count(*) from recora_private.p4_membership_episode_events) <> before_episode_event_count
+    or (select count(*) from recora_operator.operator_command_receipts) <> before_operator_receipt_count
+    or (select count(*) from recora_audit.operator_events) <> before_audit_event_count + 1
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.actor_operator_id = operator_id
+        and event_row.organization_id = org_a
+        and event_row.action = 'account.membership.revoke'
+        and event_row.target_type = 'membership'
+        and event_row.target_id = membership_one
+        and event_row.permission_used = 'account.membership.revoke'
+        and event_row.reason = 'issue122.member.revoke.state'
+        and event_row.request_id = '12240000-0000-0000-0000-000000000068'
+        and event_row.correlation_id = '12250000-0000-0000-0000-000000000068'
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+        and event_row.failure_reason_code = 'membership_not_revocable'
+    ) then
+    raise exception 'revoke membership state rejection did not retain exact denial audit without mutation';
+  end if;
   select * into replay_row from public.recora_p4b_membership_reactivate(operator_user,membership_one,'issue122.bad.reactivate','12240000-0000-4000-8000-000000000064','12250000-0000-4000-8000-000000000064','issue122.bad.reactivate');
   if replay_row.outcome <> 'rejected' or replay_row.reason_code <> 'membership_not_suspended' then raise exception 'direct revoked reactivation was not rejected'; end if;
 
@@ -791,9 +1186,25 @@ async function verifyTypeScriptDtos() {
   assert.equal(capturedCall.functionName, "recora_p4b_invitation_accept");
   assert.deepEqual(Object.keys(capturedCall.args).sort(), ["p_correlation_id", "p_idempotency_key", "p_invitation_id", "p_request_id"]);
 
-  const accessInput = { verifiedAuthUserId: randomUUID(), organizationId: randomUUID(), requiredCapability: "report.view" };
+  const accessInput = { verifiedAuthUserId: randomUUID(), organizationId: randomUUID(), requiredCapability: "measurement" };
   const validAccess = validAccessRow();
-  assert.equal((await resolvePhase4CustomerAccess(transportReturning([validAccess]), accessInput)).customerAccessAllowed, true);
+  const p4cSafeAccess = await resolvePhase4CustomerAccess(transportReturning([validAccess]), accessInput);
+  assert.equal(p4cSafeAccess.customerAccessAllowed, true, "P4-C-shaped safe entitlement must resolve access");
+  assert.equal(p4cSafeAccess.reasonCode, "ok");
+  assert.equal(p4cSafeAccess.entitlement.capabilityAllowed, true);
+  assert.deepEqual(Object.keys(p4cSafeAccess.entitlement), ["capabilityAllowed"], "customer DTO must expose only the minimal entitlement projection");
+  const p4cUnavailableCapability = await resolvePhase4CustomerAccess(
+    transportReturning([{ ...validAccess, customer_access_allowed: false, reason_code: "capability_unavailable" }]),
+    { ...accessInput, requiredCapability: "analysis" },
+  );
+  assert.equal(p4cUnavailableCapability.customerAccessAllowed, false);
+  assert.equal(p4cUnavailableCapability.reasonCode, "capability_unavailable");
+  assert.equal(p4cUnavailableCapability.entitlement.capabilityAllowed, false);
+  assert.equal(
+    (await resolvePhase4CustomerAccess(transportReturning([validAccess]), { ...accessInput, requiredCapability: "billing.admin" })).reasonCode,
+    "resolver_unavailable",
+    "reserved entitlement namespaces must fail closed",
+  );
   for (const [label, data] of [
     ["malformed access row", { ...validAccess }],
     ["extra access row", [validAccess, validAccess]],
@@ -801,7 +1212,7 @@ async function verifyTypeScriptDtos() {
     ["proxy access row", [new Proxy(validAccess, { ownKeys: () => { throw new Error("proxy"); } })]],
     ["accessor access row", [Object.create(Object.prototype, { ...Object.getOwnPropertyDescriptors(validAccess), reason_code: { get: () => "ok", enumerable: true } })]],
     ["unknown access reason", [{ ...validAccess, reason_code: "unknown" }]],
-    ["forbidden capability", [{ ...validAccess, entitlement_capabilities: { "report.view": true, "billing.admin": true } }]],
+    ["forbidden capability", [{ ...validAccess, entitlement_capabilities: { "measurement": true, "billing.admin": true } }]],
     ["evidence mismatch", [{ ...validAccess, lifecycle_reason_code: "retained" }]],
   ] as const) {
     const result = await resolvePhase4CustomerAccess(transportReturning(data), accessInput);
@@ -908,8 +1319,8 @@ function validAccessRow() {
     customer_access_allowed: true,
     reason_code: "ok",
     membership_role: "member",
-    entitlement_capabilities: { "report.view": true, "export.data": false },
-    entitlement_limits: { projects: 1 },
+    entitlement_capabilities: { "measurement": true, "analysis": false, "prompts": true },
+    entitlement_limits: {},
     lifecycle_reason_code: "active",
     entitlement_reason_code: "ok",
     checkpoint_reason_code: "ok",

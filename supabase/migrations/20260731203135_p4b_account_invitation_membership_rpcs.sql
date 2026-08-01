@@ -247,6 +247,47 @@ begin
 end;
 $$;
 
+create or replace function recora_private.p4b_record_operator_domain_denial(
+  p_operator_auth_user_id uuid,
+  p_organization_id uuid,
+  p_permission text,
+  p_action text,
+  p_target_type text,
+  p_target_id uuid,
+  p_reason text,
+  p_failure_reason_code text,
+  p_request_id uuid,
+  p_correlation_id uuid,
+  p_before_summary jsonb default '{}'::jsonb,
+  p_after_summary jsonb default '{}'::jsonb
+)
+returns table(audit_event_id uuid,outcome text,failure_reason_code text)
+language plpgsql security definer set search_path = '' as $$
+declare
+  authorization_result record;
+  denial_result record;
+begin
+  select *
+  into authorization_result
+  from recora_private.p4b_authorize_operator(
+    p_operator_auth_user_id,p_organization_id,p_permission,p_action,p_target_type,p_target_id,
+    p_reason,p_request_id,p_correlation_id,p_before_summary,p_after_summary
+  );
+
+  select *
+  into denial_result
+  from recora_private.p4b_record_operator_denial(
+    authorization_result.operator_id,p_organization_id,p_permission,p_action,p_target_type,p_target_id,
+    p_reason,coalesce(authorization_result.failure_reason_code,p_failure_reason_code),
+    p_request_id,p_correlation_id,p_before_summary,p_after_summary
+  );
+
+  return query select
+    denial_result.audit_event_id,
+    'denied'::text,
+    coalesce(authorization_result.failure_reason_code,p_failure_reason_code);
+end;
+$$;
 create or replace function recora_private.p4b_recorded_account_result(
   p_command_receipt_id uuid,
   p_organization_id uuid,
@@ -707,7 +748,13 @@ begin
     ) returning id into created_receipt_id;
   exception
     when unique_violation then
-      return query select null::uuid,null::uuid,'failed'::text,'operator_receipt_conflict'::text;
+      insert into recora_audit.operator_events(
+        actor_operator_id,organization_id,project_id,action,target_type,target_id,permission_used,reason,before_summary,after_summary,request_id,correlation_id,outcome,failure_reason_code
+      ) values(
+        resolved_operator_id,p_organization_id,null,p_action,p_target_type,p_target_id,p_permission,p_reason,safe_before_summary,safe_after_summary,
+        p_request_id,p_correlation_id,'failed'::recora_audit.operator_audit_outcome,'operator_receipt_conflict'
+      ) returning id into created_audit_event_id;
+      return query select created_audit_event_id,null::uuid,'failed'::text,'operator_receipt_conflict'::text;
       return;
     when others then
       insert into recora_audit.operator_events(
@@ -894,6 +941,7 @@ language plpgsql security definer set search_path = '' as $$
 declare
   command_result record;
   recorded_result record;
+  domain_denial_result record;
   invitation_row recora_private.p4_invitations%rowtype;
   pending_invitation recora_private.p4_invitations%rowtype;
   source_reference text;
@@ -959,7 +1007,15 @@ begin
   limit 1;
 
   if found and pending_invitation.expires_at > pg_catalog.clock_timestamp() then
-    return query select null::uuid,'rejected'::text,'pending_invitation_exists'::text,pending_invitation.id,pending_invitation.state::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid;
+    select *
+    into domain_denial_result
+    from recora_private.p4b_record_operator_domain_denial(
+      p_operator_auth_user_id,p_organization_id,create_permission,'account.invitation.create','invitation',pending_invitation.id,
+      p_reason,'pending_invitation_exists',p_request_id,p_correlation_id,
+      pg_catalog.jsonb_build_object('invitation_state',pending_invitation.state::text),
+      pg_catalog.jsonb_build_object('rejection','pending_invitation_exists')
+    );
+    return query select null::uuid,'rejected'::text,'pending_invitation_exists'::text,pending_invitation.id,pending_invitation.state::text,null::uuid,null::text,null::uuid,null::text,domain_denial_result.audit_event_id,null::uuid;
     return;
   end if;
 
@@ -1010,6 +1066,7 @@ language plpgsql security definer set search_path = '' as $$
 declare
   command_result record;
   recorded_result record;
+  domain_denial_result record;
   old_invitation recora_private.p4_invitations%rowtype;
   new_invitation recora_private.p4_invitations%rowtype;
   source_reference text;
@@ -1044,9 +1101,39 @@ begin
     end if;
     return;
   end if;
-  if old_invitation.state <> 'pending'::recora_private.p4_invitation_state then return query select null::uuid,'rejected'::text,'invitation_not_pending'::text,old_invitation.id,old_invitation.state::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
-  if p_recipient_binding_hash is distinct from old_invitation.recipient_binding_hash then return query select null::uuid,'rejected'::text,'recipient_mismatch'::text,old_invitation.id,old_invitation.state::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
-  if p_expires_at is null or p_expires_at <= pg_catalog.clock_timestamp() then return query select null::uuid,'rejected'::text,'invalid_reference'::text,old_invitation.id,old_invitation.state::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
+  if old_invitation.state <> 'pending'::recora_private.p4_invitation_state then
+    select * into domain_denial_result
+    from recora_private.p4b_record_operator_domain_denial(
+      p_operator_auth_user_id,old_invitation.organization_id,resend_permission,'account.invitation.resend','invitation',old_invitation.id,
+      p_reason,'invitation_not_pending',p_request_id,p_correlation_id,
+      pg_catalog.jsonb_build_object('invitation_state',old_invitation.state::text),
+      pg_catalog.jsonb_build_object('rejection','invitation_not_pending')
+    );
+    return query select null::uuid,'rejected'::text,'invitation_not_pending'::text,old_invitation.id,old_invitation.state::text,null::uuid,null::text,null::uuid,null::text,domain_denial_result.audit_event_id,null::uuid;
+    return;
+  end if;
+  if p_recipient_binding_hash is distinct from old_invitation.recipient_binding_hash then
+    select * into domain_denial_result
+    from recora_private.p4b_record_operator_domain_denial(
+      p_operator_auth_user_id,old_invitation.organization_id,resend_permission,'account.invitation.resend','invitation',old_invitation.id,
+      p_reason,'recipient_mismatch',p_request_id,p_correlation_id,
+      pg_catalog.jsonb_build_object('invitation_state',old_invitation.state::text),
+      pg_catalog.jsonb_build_object('rejection','recipient_mismatch')
+    );
+    return query select null::uuid,'rejected'::text,'recipient_mismatch'::text,old_invitation.id,old_invitation.state::text,null::uuid,null::text,null::uuid,null::text,domain_denial_result.audit_event_id,null::uuid;
+    return;
+  end if;
+  if p_expires_at is null or p_expires_at <= pg_catalog.clock_timestamp() then
+    select * into domain_denial_result
+    from recora_private.p4b_record_operator_domain_denial(
+      p_operator_auth_user_id,old_invitation.organization_id,resend_permission,'account.invitation.resend','invitation',old_invitation.id,
+      p_reason,'invalid_reference',p_request_id,p_correlation_id,
+      pg_catalog.jsonb_build_object('invitation_state',old_invitation.state::text),
+      pg_catalog.jsonb_build_object('rejection','invalid_reference')
+    );
+    return query select null::uuid,'rejected'::text,'invalid_reference'::text,old_invitation.id,old_invitation.state::text,null::uuid,null::text,null::uuid,null::text,domain_denial_result.audit_event_id,null::uuid;
+    return;
+  end if;
   if old_invitation.intended_role = 'admin'::public.recora_organization_member_role then resend_permission := 'account.invitation.resend.admin'; end if;
 
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('p4b:invite:' || old_invitation.organization_id::text || ':' || old_invitation.recipient_binding_hash, 0));
@@ -1111,7 +1198,7 @@ create or replace function public.recora_p4b_invitation_revoke(
 )
 returns table(command_receipt_id uuid,outcome text,reason_code text,invitation_id uuid,invitation_state text,membership_id uuid,membership_status text,membership_episode_id uuid,membership_episode_state text,audit_event_id uuid,operator_command_receipt_id uuid)
 language plpgsql security definer set search_path = '' as $$
-declare command_result record; recorded_result record; invitation_row recora_private.p4_invitations%rowtype; source_reference text; source_sequence bigint; payload_fingerprint text;
+declare command_result record; recorded_result record; domain_denial_result record; invitation_row recora_private.p4_invitations%rowtype; source_reference text; source_sequence bigint; payload_fingerprint text;
 begin
   select * into invitation_row from recora_private.p4_invitations current_row where current_row.id = p_invitation_id for update;
   if not found then return query select null::uuid,'rejected'::text,'invalid_reference'::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
@@ -1132,8 +1219,28 @@ begin
     end if;
     return;
   end if;
-  if invitation_row.state <> 'pending'::recora_private.p4_invitation_state then return query select null::uuid,'rejected'::text,'invitation_not_pending'::text,invitation_row.id,invitation_row.state::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
-  if invitation_row.expires_at <= pg_catalog.clock_timestamp() then return query select null::uuid,'rejected'::text,'invitation_expired'::text,invitation_row.id,invitation_row.state::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
+  if invitation_row.state <> 'pending'::recora_private.p4_invitation_state then
+    select * into domain_denial_result
+    from recora_private.p4b_record_operator_domain_denial(
+      p_operator_auth_user_id,invitation_row.organization_id,'account.invitation.revoke','account.invitation.revoke','invitation',invitation_row.id,
+      p_reason,'invitation_not_pending',p_request_id,p_correlation_id,
+      pg_catalog.jsonb_build_object('invitation_state',invitation_row.state::text),
+      pg_catalog.jsonb_build_object('rejection','invitation_not_pending')
+    );
+    return query select null::uuid,'rejected'::text,'invitation_not_pending'::text,invitation_row.id,invitation_row.state::text,null::uuid,null::text,null::uuid,null::text,domain_denial_result.audit_event_id,null::uuid;
+    return;
+  end if;
+  if invitation_row.expires_at <= pg_catalog.clock_timestamp() then
+    select * into domain_denial_result
+    from recora_private.p4b_record_operator_domain_denial(
+      p_operator_auth_user_id,invitation_row.organization_id,'account.invitation.revoke','account.invitation.revoke','invitation',invitation_row.id,
+      p_reason,'invitation_expired',p_request_id,p_correlation_id,
+      pg_catalog.jsonb_build_object('invitation_state',invitation_row.state::text),
+      pg_catalog.jsonb_build_object('rejection','invitation_expired')
+    );
+    return query select null::uuid,'rejected'::text,'invitation_expired'::text,invitation_row.id,invitation_row.state::text,null::uuid,null::text,null::uuid,null::text,domain_denial_result.audit_event_id,null::uuid;
+    return;
+  end if;
   select * into command_result from recora_private.p4b_record_operator_p4_command(
     p_operator_auth_user_id,invitation_row.organization_id,'account.invitation.revoke','account.invitation.revoke','invitation',invitation_row.id,p_reason,p_request_id,p_correlation_id,p_idempotency_key,source_reference,source_sequence,payload_fingerprint,
     pg_catalog.jsonb_build_object('invitation_state',invitation_row.state::text),pg_catalog.jsonb_build_object('invitation_state','revoked')
@@ -1276,7 +1383,7 @@ create or replace function public.recora_p4b_membership_suspend(
 )
 returns table(command_receipt_id uuid,outcome text,reason_code text,invitation_id uuid,invitation_state text,membership_id uuid,membership_status text,membership_episode_id uuid,membership_episode_state text,audit_event_id uuid,operator_command_receipt_id uuid)
 language plpgsql security definer set search_path = '' as $$
-declare command_result record; recorded_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; source_reference text; source_sequence bigint; payload_fingerprint text;
+declare command_result record; recorded_result record; domain_denial_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; source_reference text; source_sequence bigint; payload_fingerprint text;
 begin
   select * into member_row from public.organization_members current_member where current_member.id = p_membership_id for update;
   if not found then return query select null::uuid,'rejected'::text,'invalid_reference'::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
@@ -1299,7 +1406,14 @@ begin
     return;
   end if;
   if member_row.membership_status <> 'active'::public.recora_organization_membership_status or member_row.user_id is null or member_row.accepted_at is null or episode_row.id is null or episode_row.state <> 'active'::recora_private.p4_membership_episode_state then
-    return query select null::uuid,'rejected'::text,'membership_not_active'::text,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,null::uuid,null::uuid;
+    select * into domain_denial_result
+    from recora_private.p4b_record_operator_domain_denial(
+      p_operator_auth_user_id,member_row.organization_id,'account.membership.suspend','account.membership.suspend','membership',member_row.id,
+      p_reason,'membership_not_active',p_request_id,p_correlation_id,
+      pg_catalog.jsonb_build_object('membership_state',member_row.membership_status::text,'episode_state',coalesce(episode_row.state::text,'missing')),
+      pg_catalog.jsonb_build_object('rejection','membership_not_active')
+    );
+    return query select null::uuid,'rejected'::text,'membership_not_active'::text,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,domain_denial_result.audit_event_id,null::uuid;
     return;
   end if;
   select * into command_result from recora_private.p4b_record_operator_p4_command(
@@ -1322,7 +1436,7 @@ create or replace function public.recora_p4b_membership_reactivate(
 )
 returns table(command_receipt_id uuid,outcome text,reason_code text,invitation_id uuid,invitation_state text,membership_id uuid,membership_status text,membership_episode_id uuid,membership_episode_state text,audit_event_id uuid,operator_command_receipt_id uuid)
 language plpgsql security definer set search_path = '' as $$
-declare command_result record; recorded_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; source_reference text; source_sequence bigint; payload_fingerprint text;
+declare command_result record; recorded_result record; domain_denial_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; source_reference text; source_sequence bigint; payload_fingerprint text;
 begin
   select * into member_row from public.organization_members current_member where current_member.id = p_membership_id for update;
   if not found then return query select null::uuid,'rejected'::text,'invalid_reference'::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
@@ -1345,7 +1459,14 @@ begin
     return;
   end if;
   if member_row.membership_status <> 'suspended'::public.recora_organization_membership_status or member_row.user_id is null or member_row.accepted_at is null or episode_row.id is null or episode_row.state <> 'active'::recora_private.p4_membership_episode_state then
-    return query select null::uuid,'rejected'::text,'membership_not_suspended'::text,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,null::uuid,null::uuid;
+    select * into domain_denial_result
+    from recora_private.p4b_record_operator_domain_denial(
+      p_operator_auth_user_id,member_row.organization_id,'account.membership.reactivate','account.membership.reactivate','membership',member_row.id,
+      p_reason,'membership_not_suspended',p_request_id,p_correlation_id,
+      pg_catalog.jsonb_build_object('membership_state',member_row.membership_status::text,'episode_state',coalesce(episode_row.state::text,'missing')),
+      pg_catalog.jsonb_build_object('rejection','membership_not_suspended')
+    );
+    return query select null::uuid,'rejected'::text,'membership_not_suspended'::text,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,domain_denial_result.audit_event_id,null::uuid;
     return;
   end if;
   select * into command_result from recora_private.p4b_record_operator_p4_command(
@@ -1368,7 +1489,7 @@ create or replace function public.recora_p4b_membership_revoke(
 )
 returns table(command_receipt_id uuid,outcome text,reason_code text,invitation_id uuid,invitation_state text,membership_id uuid,membership_status text,membership_episode_id uuid,membership_episode_state text,audit_event_id uuid,operator_command_receipt_id uuid)
 language plpgsql security definer set search_path = '' as $$
-declare command_result record; recorded_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; next_event_sequence bigint; source_reference text; source_sequence bigint; payload_fingerprint text;
+declare command_result record; recorded_result record; domain_denial_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; next_event_sequence bigint; source_reference text; source_sequence bigint; payload_fingerprint text;
 begin
   select * into member_row from public.organization_members current_member where current_member.id = p_membership_id for update;
   if not found then return query select null::uuid,'rejected'::text,'invalid_reference'::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
@@ -1391,7 +1512,14 @@ begin
     return;
   end if;
   if member_row.membership_status not in ('active'::public.recora_organization_membership_status,'suspended'::public.recora_organization_membership_status) or member_row.user_id is null or member_row.accepted_at is null or episode_row.id is null or episode_row.state <> 'active'::recora_private.p4_membership_episode_state then
-    return query select null::uuid,'rejected'::text,'membership_not_revocable'::text,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,null::uuid,null::uuid;
+    select * into domain_denial_result
+    from recora_private.p4b_record_operator_domain_denial(
+      p_operator_auth_user_id,member_row.organization_id,'account.membership.revoke','account.membership.revoke','membership',member_row.id,
+      p_reason,'membership_not_revocable',p_request_id,p_correlation_id,
+      pg_catalog.jsonb_build_object('membership_state',member_row.membership_status::text,'episode_state',coalesce(episode_row.state::text,'missing')),
+      pg_catalog.jsonb_build_object('rejection','membership_not_revocable')
+    );
+    return query select null::uuid,'rejected'::text,'membership_not_revocable'::text,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,domain_denial_result.audit_event_id,null::uuid;
     return;
   end if;
   select * into command_result from recora_private.p4b_record_operator_p4_command(
@@ -1482,6 +1610,7 @@ comment on function public.recora_p4b_resolve_customer_access(uuid, uuid, uuid, 
 
 revoke all on function recora_private.p4b_authorize_operator(uuid, uuid, text, text, text, uuid, text, uuid, uuid, jsonb, jsonb) from public, anon, authenticated, service_role;
 revoke all on function recora_private.p4b_record_operator_denial(uuid, uuid, text, text, text, uuid, text, text, uuid, uuid, jsonb, jsonb) from public, anon, authenticated, service_role;
+revoke all on function recora_private.p4b_record_operator_domain_denial(uuid, uuid, text, text, text, uuid, text, text, uuid, uuid, jsonb, jsonb) from public, anon, authenticated, service_role;
 revoke all on function recora_private.p4b_recorded_account_result(uuid, uuid, text) from public, anon, authenticated, service_role;
 revoke all on function recora_private.p4b_operator_replay_guard(uuid, uuid, text, text, text, uuid, text, uuid, uuid, text, text, bigint, text) from public, anon, authenticated, service_role;
 revoke all on function recora_private.p4b_source_sequence(text) from public, anon, authenticated, service_role;

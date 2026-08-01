@@ -58,8 +58,7 @@ export type Phase4CustomerAccessDto = {
   reasonCode: string;
   membershipRole: Phase4AccountRole | null;
   entitlement: {
-    capabilities: Partial<Record<Phase4CustomerCapability, boolean>>;
-    limits: Partial<Record<Phase4CustomerLimit, number>>;
+    capabilityAllowed: boolean | null;
   };
   evidence: {
     lifecycleReasonCode: string | null;
@@ -67,9 +66,6 @@ export type Phase4CustomerAccessDto = {
     checkpointReasonCode: string | null;
   };
 };
-
-type Phase4CustomerCapability = "report.view" | "export.data";
-type Phase4CustomerLimit = "projects";
 
 type CommandRpcRow = Record<(typeof commandRowKeys)[number], unknown>;
 type AccessRpcRow = Record<(typeof accessRowKeys)[number], unknown>;
@@ -166,8 +162,7 @@ const evidenceReasonCodes = new Set([
   "reconciliation_required",
 ]);
 
-const customerCapabilities = new Set<Phase4CustomerCapability>(["report.view", "export.data"]);
-const customerLimits = new Set<Phase4CustomerLimit>(["projects"]);
+
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const commandRowKeys = [
@@ -344,15 +339,18 @@ export async function resolvePhase4CustomerAccess(
     requiredCapability?: string | null;
   },
 ): Promise<Phase4CustomerAccessDto> {
+  const requiredCapability = input.requiredCapability ?? null;
+  if (requiredCapability !== null && !isSafeTechnicalEntitlementKey(requiredCapability)) return unavailableAccess();
+
   const { data, error } = await transport.rpc("recora_p4b_resolve_customer_access", {
     p_verified_auth_user_id: input.verifiedAuthUserId,
     p_organization_id: input.organizationId,
     p_project_id: input.projectId ?? null,
-    p_required_capability: input.requiredCapability ?? null,
+    p_required_capability: requiredCapability,
   });
 
   if (error) return unavailableAccess();
-  return normalizeAccessRows(data);
+  return normalizeAccessRows(data, requiredCapability);
 }
 
 type OperatorMembershipCommandInput = {
@@ -466,13 +464,14 @@ function assertEntityState<T extends string, K extends "state" | "status">(
   if (entity === null || entity[stateKey] !== expectedState) throw invalidCommandResponse();
 }
 
-function normalizeAccessRows(data: unknown): Phase4CustomerAccessDto {
+function normalizeAccessRows(data: unknown, requiredCapability: string | null): Phase4CustomerAccessDto {
+  if (requiredCapability !== null && !isSafeTechnicalEntitlementKey(requiredCapability)) return unavailableAccess();
   const row = exactSingleRow(data, accessRowKeys);
   if (!row) return unavailableAccess();
-  return normalizeAccess(row as AccessRpcRow);
+  return normalizeAccess(row as AccessRpcRow, requiredCapability);
 }
 
-function normalizeAccess(row: AccessRpcRow): Phase4CustomerAccessDto {
+function normalizeAccess(row: AccessRpcRow, requiredCapability: string | null): Phase4CustomerAccessDto {
   if (typeof row.customer_access_allowed !== "boolean" || typeof row.reason_code !== "string" || !accessReasonCodes.has(row.reason_code)) {
     return unavailableAccess();
   }
@@ -480,8 +479,8 @@ function normalizeAccess(row: AccessRpcRow): Phase4CustomerAccessDto {
   const membershipRole = nullableEnum(row.membership_role, roles);
   if (row.membership_role !== null && membershipRole === null) return unavailableAccess();
 
-  const capabilities = normalizeBooleanRecord(row.entitlement_capabilities, customerCapabilities);
-  const limits = normalizeNumberRecord(row.entitlement_limits, customerLimits);
+  const capabilities = normalizeTechnicalBooleanRecord(row.entitlement_capabilities);
+  const limits = normalizeTechnicalNumberRecord(row.entitlement_limits);
   if (capabilities === null || limits === null) return unavailableAccess();
 
   const lifecycleReasonCode = nullableReason(row.lifecycle_reason_code);
@@ -489,8 +488,14 @@ function normalizeAccess(row: AccessRpcRow): Phase4CustomerAccessDto {
   const checkpointReasonCode = nullableReason(row.checkpoint_reason_code);
   if (lifecycleReasonCode === undefined || entitlementReasonCode === undefined || checkpointReasonCode === undefined) return unavailableAccess();
 
+  const capabilityAllowed = requiredCapability === null
+    ? null
+    : Object.prototype.hasOwnProperty.call(capabilities, requiredCapability)
+      ? capabilities[requiredCapability] ?? null
+      : null;
+
   if (row.customer_access_allowed) {
-    if (row.reason_code !== "ok" || membershipRole === null || lifecycleReasonCode !== "active" || entitlementReasonCode !== "ok" || checkpointReasonCode !== "ok") {
+    if (row.reason_code !== "ok" || membershipRole === null || lifecycleReasonCode !== "active" || entitlementReasonCode !== "ok" || checkpointReasonCode !== "ok" || (requiredCapability !== null && capabilityAllowed !== true)) {
       return unavailableAccess();
     }
   }
@@ -499,7 +504,7 @@ function normalizeAccess(row: AccessRpcRow): Phase4CustomerAccessDto {
     customerAccessAllowed: row.customer_access_allowed,
     reasonCode: row.reason_code,
     membershipRole,
-    entitlement: { capabilities, limits },
+    entitlement: { capabilityAllowed },
     evidence: { lifecycleReasonCode, entitlementReasonCode, checkpointReasonCode },
   };
 }
@@ -509,9 +514,14 @@ function unavailableAccess(): Phase4CustomerAccessDto {
     customerAccessAllowed: false,
     reasonCode: "resolver_unavailable",
     membershipRole: null,
-    entitlement: { capabilities: {}, limits: {} },
+    entitlement: { capabilityAllowed: null },
     evidence: { lifecycleReasonCode: null, entitlementReasonCode: null, checkpointReasonCode: null },
   };
+}
+
+function isSafeTechnicalEntitlementKey(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z][a-z0-9_.-]{0,127}$/.test(value)
+    && !/(^|[._-])(provider|billing|audit|pointer|internal|raw|payload|secret|token|credential|authorization|private)([._-]|$)/i.test(value);
 }
 
 function invalidCommandResponse(): Error {
@@ -573,32 +583,22 @@ function normalizeEntity<T extends string, K extends "state" | "status">(
   throw invalidCommandResponse();
 }
 
-function normalizeBooleanRecord<K extends string>(value: unknown, allowedKeys: Set<K>): Partial<Record<K, boolean>> | null {
-  const record = exactAllowedValueRecord(value, allowedKeys);
-  if (!record) return null;
-  const normalized: Partial<Record<K, boolean>> = {};
-  for (const [key, entryValue] of Object.entries(record)) {
-    if (typeof entryValue !== "boolean") return null;
-    normalized[key as K] = entryValue;
-  }
-  return normalized;
-}
-
-function normalizeNumberRecord<K extends string>(value: unknown, allowedKeys: Set<K>): Partial<Record<K, number>> | null {
-  const record = exactAllowedValueRecord(value, allowedKeys);
-  if (!record) return null;
-  const normalized: Partial<Record<K, number>> = {};
-  for (const [key, entryValue] of Object.entries(record)) {
-    if (typeof entryValue !== "number" || !Number.isFinite(entryValue) || entryValue < 0) return null;
-    normalized[key as K] = entryValue;
-  }
-  return normalized;
-}
-
-function exactAllowedValueRecord<K extends string>(value: unknown, allowedKeys: Set<K>): Partial<Record<K, unknown>> | null {
+function normalizeTechnicalBooleanRecord(value: unknown): Record<string, boolean> | null {
   if (!isPlainDataRecord(value)) return null;
-  for (const key of Object.keys(value)) {
-    if (!allowedKeys.has(key as K)) return null;
+  const normalized: Record<string, boolean> = {};
+  for (const [key, entryValue] of Object.entries(value)) {
+    if (!isSafeTechnicalEntitlementKey(key) || typeof entryValue !== "boolean") return null;
+    normalized[key] = entryValue;
   }
-  return value as Partial<Record<K, unknown>>;
+  return normalized;
+}
+
+function normalizeTechnicalNumberRecord(value: unknown): Record<string, number> | null {
+  if (!isPlainDataRecord(value)) return null;
+  const normalized: Record<string, number> = {};
+  for (const [key, entryValue] of Object.entries(value)) {
+    if (!isSafeTechnicalEntitlementKey(key) || typeof entryValue !== "number" || !Number.isFinite(entryValue) || entryValue < 0) return null;
+    normalized[key] = entryValue;
+  }
+  return normalized;
 }

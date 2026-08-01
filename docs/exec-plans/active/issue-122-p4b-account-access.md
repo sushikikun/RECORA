@@ -3,7 +3,7 @@
 ## Authority
 
 - Parent: Issue #119 P4 customer lifecycle/account/contract/billing.
-- Execute authority: OWNER comment `5147037668` authorized the additive P4-B RPC migration; OWNER comment `5149714147` authorized the current-migration customer-session actor evidence and authenticated accept split; latest OWNER comment `5150122269` authorizes the PR #127 corrections recorded here; review record `5150482336` adds the provider-fixture/operator-evidence, email-confirmation, legacy-gate, replay, and documentation checks.
+- Execute authority: OWNER comment `5147037668` authorized the additive P4-B RPC migration; OWNER comment `5149714147` authorized the current-migration customer-session actor evidence and authenticated accept split; latest OWNER comments `5150122269`, `5150482336`, and `5151116159` authorize the PR #127 corrections recorded here, including provider-fixture/operator-evidence compatibility, email-confirmation, legacy-gate, replay, documentation, minimal customer-safe projection, P4-C-shaped entitlement integration, and post-authorization rejection audit evidence.
 - Baseline: `565dab92f065c608fbdf0ee62c423186fc2994ed` / `origin/master`.
 - Risk: R3. Execution lane: Local Codex only. Spec level: Full Spec. Approval: OWNER Execute comment. Ready: yes for the narrow P4-B additive RPC migration and server-only wrapper.
 
@@ -16,6 +16,7 @@ Implement P4-B account access over the existing P4-A and Phase 3 contracts:
 - Service-role-only operator commands for membership suspend, audited reactivate, and revoke.
 - Revoked membership re-entry requires a new invitation and new membership episode; direct revoked-row reactivation is rejected.
 - Derived customer access returns a customer-safe DTO from active accepted membership, lifecycle hard ceiling, entitlement snapshot, and P4 checkpoint gate.
+- The customer-safe entitlement DTO is a minimal projection: it returns only `capabilityAllowed`, never the resolver capability/limit maps. It accepts safe technical P4-C-shaped keys such as `measurement`, `analysis`, and `prompts`, while provider, billing, audit, pointer, internal, raw, payload, secret, token, credential, authorization, and private namespaces fail closed.
 
 ## Non-Scope
 
@@ -31,6 +32,7 @@ P4-A membership episode state is `invited`, `active`, `revoked`. Therefore suspe
 Customer invitation acceptance is not operator or provider evidence: command receipts use `customer_session`, store the `auth.uid()` user in `customer_auth_user_id`, require `email_confirmed_at`, and pass the P4-A legacy-inventory gate. Operator commands continue to require explicit current identity, permission, scope, paired Phase 3 audit evidence, and service-role-only execution.
 
 Expired pending invitations are finalized to `expired` with an append-only event before a new invitation ID is created for the same tenant recipient hash. Live resend creates a new pending ID and terminally invalidates the prior invitation as `superseded`, with `superseded_by_invitation_id` pointing at the replacement invitation. Expired pending resend/reinvite first finalizes the old row as `expired` with an append-only event, then creates a replacement pending ID. Operator replay revalidates current identity/permission/scope and target evidence, while recorded results are reconstructed from append-only evidence so replay remains stable after later accept, supersede, suspend, reactivate, revoke, or rejoin transitions.
+After replay authorization succeeds, pending/state/expiry/recipient and membership-state rejections revalidate the current operator identity, permission, scope, and real invitation or membership target, then append one `denied` audit event containing the command reason, failure reason, request ID, and correlation ID. These rejection paths return no accepted P4 receipt, operator command receipt, invitation/membership event, current-row mutation, or membership episode mutation. Unexpected operator receipt failures retain a `failed` audit event.
 
 ## Verification Plan
 
@@ -41,6 +43,7 @@ Run the Issue #122 verifier against an isolated local Supabase project/container
 
 - Isolated Issue #122 Supabase stack `supabase_db_recoraissue122p4b`: migration-only reset, seeded reset, and seeded reset idempotency all passed.
 - `RECORA_ISSUE_122_DB_CONTAINER=supabase_db_recoraissue122p4b npx tsx scripts/verify-issue-122-p4b-account-access.ts` passed, covering authenticated accept positive, anon/service_role denial, no claimed user ID argument, unverified/mismatched/unconfirmed/cross-tenant/expired/revoked negatives, replay/conflict/concurrency, stale expired reinvite, admin permission, owner rejection, audit target consistency, actor-shape checks, and TypeScript DTO fail-closed cases.
+- Latest OWNER comment `5151116159` is covered by the same formal verifier: P4-C-shaped `measurement`/`analysis`/`prompts` safe entitlement resolution, minimal `capabilityAllowed` DTO projection, exact post-authorization denial audits for pending/state/expiry/recipient/membership and cross-tenant rejection, temporal replay stability, and no accepted receipt or domain mutation on rejection.
 - P4-A regression passed on the seeded Issue #121-only local stack with `RECORA_ISSUE_121_DB_CONTAINER=supabase_db_recoraissue121 npx tsx scripts/verify-issue-121-p4a-common-contract-state-events.ts`; the unseeded attempt was correctly rejected by the verifier prerequisite because its project fixture was absent.
 - Phase 3 3A-3H regression now uses the tracked `scripts/verify-issue-117-phase3-integration-security.ts`, which allowlists only `public.recora_p4b_invitation_accept(uuid,uuid,uuid,text)` for authenticated execution and asserts anon/service_role denial plus service-role-only grants on all other P4-B public RPCs.
 - `npx supabase --workdir C:\tmp\recoraissue122p4b db advisors --local` passed with no issues. `npx supabase --workdir C:\tmp\recoraissue122p4b db lint --local` exited 0 with pre-existing volatility warnings in `recora_private.canonicalize_deletion_manifest_summary` and `recora_private.resolve_data_lifecycle_access`, both outside P4-B scope.
