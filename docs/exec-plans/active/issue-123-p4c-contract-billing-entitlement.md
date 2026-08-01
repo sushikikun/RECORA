@@ -1,126 +1,168 @@
 # Exec Plan: Issue #123 - P4-C contract billing entitlement integration
 
-> Status: **Draft PR / Human review**
+> Status: **Draft PR / post-P4-B combined verification correction implemented; local full regression pending**
 > Issue: [#123](https://github.com/sushikikun/RECORA/issues/123)
 > Parent: [#119](https://github.com/sushikikun/RECORA/issues/119)
-> OWNER Execute record: [5146829541](https://github.com/sushikikun/RECORA/issues/123#issuecomment-5146829541)
-> Scope clarification: [5147041024](https://github.com/sushikikun/RECORA/issues/123#issuecomment-5147041024)
-> PR review authority: [5147396871](https://github.com/sushikikun/RECORA/issues/123#issuecomment-5147396871)
-> Latest OWNER blocking authority: [5151017104](https://github.com/sushikikun/RECORA/issues/123#issuecomment-5151017104)
-> Risk: R3 / Execution: Local Codex / Specification: Full
-> Baseline: `origin/master` = `565dab92f065c608fbdf0ee62c423186fc2994ed`
-> Branch: `codex/issue-123-p4-c`
 > PR: [#126](https://github.com/sushikikun/RECORA/pull/126) Draft
+> Risk: R3 / Execution: Local Codex / Specification: Full
+> Branch: `codex/issue-123-p4-c`
+> Original P4-A baseline: `565dab92f065c608fbdf0ee62c423186fc2994ed`
+> P4-B merge baseline: `2c2a6fba70b75e858abc71a7447840bf32f3507d`
+> Post-P4-B synchronization parent head: `c8567c60f196ecf27e0c70753693ca1daec7c103`
 
-## Authority and scope
+## 1. Authority
 
-Issue #123 is authorized by OWNER Execute comment `5146829541`, narrowed by
-`5147041024`, remediated for PR #126 by `5147396871`, corrected for the six
-blocking items in `5149660032`, updated for the confirm/reconcile blocking
-items in `5150078684`, the recovery/retry/transitive-supersession blockers in
-`5150556826`, and the attempt/reconcile receipt-to-effect causal binding
-blockers in `5151017104`. P4-A migration,
-`lib/recora/phase4-command-contract.ts`, and the merged Phase 3 entitlement,
-lifecycle, tenant, and operator contracts remain read-only authorities.
+The authority order for this work is:
 
-Allowed changes remain limited to this Exec Plan, the P4-C function-only additive
-migration, the P4-C server-only RPC client/DTO module, and the Issue #123 local
-verifier. Out of scope: editing existing migrations, schema/table/column/RLS/type
-changes, `recora_private` exposure, generic mutation RPCs, P4-B files, live
-providers/webhooks, pricing/product decisions, direct SQL drivers in runtime code,
-package/lockfile changes, remote/production DB writes, Ready conversion, merge,
-Issue close, and #124 start.
+1. OWNER Execute record `5146829541`.
+2. P4-C function-only migration clarification `5147041024`.
+3. P4-C correction records `5147396871`, `5149660032`, `5150078684`, `5150556826`, and `5151017104`.
+4. P4-B merge and post-merge synchronization approval `5153841336`.
+5. Post-sync blocking review `4836053412` and OWNER correction `5153935800`.
+6. Five-file scope amendment `5153978894`.
+7. Merge済みPhase 3、P4-A、P4-B contracts.
 
-## Implementation result
+P4-A migration, P4-B migration, `lib/recora/phase4-command-contract.ts`, and the merged Phase 3 tenant, membership, entitlement, lifecycle, operator authorization, and audit contracts remain read-only authorities.
 
-- The provider-neutral command no longer accepts `downstreamEffectResult`, caller
-  policy keys, caller fingerprints, resolved entitlements, capabilities/limits, or
-  access flags. Provider fixture input cannot decide downstream completion or
-  customer access.
-- `public.recora_p4c_apply_contract_billing_entitlement_command` is an
-  action-specific service-role-only SECURITY DEFINER RPC. It derives policy from
-  authorized operator evidence, builds or checks the canonical fingerprint inside
-  Postgres, locks authoritative P4 contract rows, and performs dedupe, ordering,
-  projection, billing receipt/payment fact, immutable entitlement snapshot/pointer,
-  and pending checkpoint/outbox creation in one transaction.
-- Apply now stops at pending checkpoint/outbox for lifecycle-affecting effects.
-  Completion is separated into `public.recora_p4c_confirm_lifecycle_checkpoint_command`,
-  which requires actual Phase 3 lifecycle event/current evidence and records a
-  completed correction checkpoint/outbox with an independent command receipt.
-- Failed or denied lifecycle evidence is separated into
-  `public.recora_p4c_reconcile_lifecycle_checkpoint_command`, which verifies the
-  Phase 3 operator audit event before superseding the prior blocker with a P4-A
-  correction row and creating a new `reconciliation_required` checkpoint/outbox
-  bound to the action-specific reconcile receipt, request, and correlation.
-- `public.recora_p4c_record_lifecycle_checkpoint_attempt_command` records
-  action-specific retry evidence for lifecycle checkpoint attempts: retryable
-  failure, failed-to-pending retry scheduling, retry exhaustion, and recovery
-  after exhaustion. Because P4-A checkpoint/outbox command receipt identities are
-  immutable, each accepted attempt safely supersedes the prior blocker with a
-  correction row and creates a new current blocker whose events are bound to the
-  attempt receipt, request, and correlation.
-- A later correct Phase 3 lifecycle success event can now confirm a previously
-  reconciled or exhausted checkpoint/outbox, producing a completed correction and
-  superseding the original blocker.
-- Confirm/reconcile now check their idempotency receipts before mutable checkpoint
-  state filters, bind operator evidence exactly to the checkpoint and Phase 3
-  evidence command, require causal Phase 3 reason evidence derived from the
-  checkpoint id, and replay the same command after supersession/recovery without
-  turning failed commands into accepted replays.
-- Plan policy resolution is bounded to the currently effective authoritative
-  policy head across the full supersession chain. Unauthorized policy
-  substitution, future policy, expired policy, direct superseded-current policy,
-  and transitive non-head policy paths fail closed.
-- Billing receipts remain `applied` while lifecycle effects are pending;
-  checkpoint/outbox completion is only produced by the confirm RPC after actual
-  Phase 3 lifecycle evidence. A later authoritative payment success compensates
-  pending suspension effects by creating completed correction checkpoint/outbox
-  rows and superseding the pending effect.
-- The TypeScript server-only module now exposes apply, confirm, and reconcile
-  wrappers with the same exact-result fail-closed validation contract.
-- The customer-safe result is generated only after committed RPC work re-evaluates
-  the real Phase 3 entitlement resolver, Phase 3 lifecycle hard ceiling, and P4
-  checkpoint gate. Plan-stage and uncommitted envelopes remain fail-closed.
-- The TypeScript boundary validates exact one-row RPC results, exact keys, strict
-  primitive types, known outcome/reason enums, plain capabilities/limits objects,
-  and rejects extra rows/keys, string booleans, accessors, Proxy traps, and
-  customer-unsafe internal keys.
+## 2. Approved file scope
 
-## Isolation
+The PR diff after the post-sync correction is limited to exactly these five files:
 
-Issue #123 uses the Codex worktree at:
+- `docs/exec-plans/active/issue-123-p4c-contract-billing-entitlement.md`
+- `lib/recora/phase4-contract-billing-entitlement.ts`
+- `scripts/verify-issue-123-p4bc-post-sync-integration.ts`
+- `scripts/verify-issue-123-p4c-contract-billing-entitlement.ts`
+- `supabase/migrations/20260731210957_p4c_contract_billing_entitlement_rpc.sql`
 
-`C:/Users/nakan/.codex/worktrees/22f6/recora-main`
+The new `verify-issue-123-p4bc-post-sync-integration.ts` file is verification orchestration only. It does not add product runtime behavior.
 
-The isolated local Supabase stack uses:
+Out of scope:
 
-- Workdir: `C:/tmp/recora-issue-123-p4c-supabase`
-- Guarded DB container: `supabase_db_recoraissue123`
+- editing the merged P4-B migration;
+- editing P4-A or Phase 3 migrations/contracts;
+- schema/table/column/type/index/RLS changes beyond the already approved P4-C function-only migration;
+- `recora_private` Data API exposure or a generic mutation RPC;
+- signup, login, invitation UI, pricing, plan, provider, webhook, or product-policy decisions;
+- package or lockfile changes, new dependencies, `.env` access, remote/production DB, deploy, email, live Auth/provider writes;
+- Ready conversion, merge, Issue close, or Issue #124 start.
 
-No Issue #122 Supabase stack, linked remote, production database, live provider,
-or webhook path was used.
+## 3. P4-C implementation
 
-## Verification record
+- Provider-neutral input cannot decide resolved entitlement, capabilities, limits, customer access, downstream completion, policy identity, or payload fingerprint.
+- `public.recora_p4c_apply_contract_billing_entitlement_command` is an action-specific service-role-only `SECURITY DEFINER` RPC with an empty fixed `search_path`.
+- It derives policy authority from exact operator evidence and performs dedupe, ordering, contract projection, billing receipt/payment fact, immutable entitlement snapshot/current pointer, and required checkpoint/outbox creation atomically.
+- Lifecycle-affecting work remains pending until a separate evidence-bound checkpoint command confirms or reconciles the Phase 3 effect.
+- Confirm, reconcile, and attempt commands use independent action receipts. They do not rebind immutable P4-A receipt identity or reuse the initial apply receipt for later effects.
+- Retryable failure, delayed retry, exhaustion, reconciliation, correction, and recovery are append-only and idempotent.
+- Customer-safe output is produced only after committed work re-evaluates Phase 3 entitlement, lifecycle hard ceiling, and P4 checkpoint gate.
+- The TypeScript boundary accepts exactly one plain RPC row with exact keys and known scalar/reason types. Extra rows/keys, accessors, Proxy traps, malformed primitives, and customer-unsafe internal keys fail closed.
 
-Completed on 2026-08-01 against latest local head after OWNER `5151017104`:
+## 4. Post-P4-B combined-verification correction
 
-- Supabase reset matrix on the Issue #123 workdir passed: `db reset --local --yes --no-seed`, `db reset --local --yes`, and seeded re-reset `db reset --local --yes`.
-- Issue #123 full matrix passed after the final attempt/reconcile receipt-to-effect fix: `RECORA_ISSUE_123_DB_CONTAINER=supabase_db_recoraissue123 RECORA_ISSUE_123_SUPABASE_WORKDIR=C:/tmp/recora-issue-123-p4c-supabase npx tsx scripts/verify-issue-123-p4c-contract-billing-entitlement.ts`.
-- The Issue #123 matrix includes provider-neutral fixture checks; billing receipt/payment fact projection; immutable entitlement snapshot/pointer derivation; pending checkpoint/outbox creation; recovery from `reconciliation_required` and exhausted checkpoints by later correct Phase 3 success evidence; retryable failure, too-early failed-to-pending retry without an accepted receipt, later same-retry success after `next_attempt_at`, attempt count, retry exhaustion, exhaustion recovery, accepted receipt tracing to exact checkpoint/outbox effects and action request/correlation, replay without extra checkpoint/outbox events, conflict/concurrency, rollback, double snapshot/effect prevention, and customer access recovery.
-- Negative coverage includes malformed RPC rows, extra rows/keys, string `false`, accessors, Proxy traps, unknown outcome/reason, failed-command same retry, unauthorized policy substitution, future/expired/superseded/direct and transitive non-head policies, lifecycle hard ceiling, and checkpoint completed with lifecycle suspended.
-- P4-A regression passed on the Issue #123 isolated container via a `C:/tmp` retargeted copy of `scripts/verify-issue-121-p4a-common-contract-state-events.ts`.
-- Phase 3 3A-3H integration/security suite passed on the Issue #123 isolated container via a `C:/tmp` retargeted copy of `scripts/verify-issue-117-phase3-integration-security.ts`; its reset matrix also reported migration-only, seeded, and seeded-idempotency passed.
-- Supabase advisors passed: `node node_modules/supabase/dist/supabase.js --workdir C:/tmp/recora-issue-123-p4c-supabase db advisors --local` reported `No issues found`.
-- `npm run recora:preflight:full` passed. Local warnings only: `.env.local` missing, mixed migration naming style, known mock/static dashboard fallback refs, uncommitted/important-area changes for 3 files within the approved file set, and LF/CRLF notices.
-- `npm run typecheck` passed.
-- `npm run lint` passed with no ESLint warnings or errors.
-- `npm run build` passed. Existing warning: `metadataBase` fallback to localhost.
-- `git diff --check` passed with LF/CRLF notices only.
-- `npm run recora:commit-check`: nested `recora:preflight:full` and typecheck passed; it exited 1 only on the repository-wide manual migration gate `supabase migrations: migration commits are not auto-allowed yet`. This is expected for the OWNER-authorized P4-C function-only migration and is recorded as the manual R3 commit gate.
+The previous Issue #123 verifier copied only the P4-C migration into its temporary Supabase workdir. That allowed a stale workdir to pass without proving that merged P4-B actor evidence was installed.
 
-## Stop conditions
+The formal post-sync authority is now:
 
-Stop at Draft PR / Human review. Do not mark Ready, merge, close Issue #123, close
-parent #119, or start #124. Stop and record evidence if any remote/production
-write, product/provider decision, package/lockfile change, generic mutation RPC,
-or broader schema/RLS change becomes necessary.
+`scripts/verify-issue-123-p4bc-post-sync-integration.ts`
+
+It must fail closed unless all of the following are true:
+
+1. The checked-out head contains both exact migrations:
+   - `20260731203135_p4b_account_invitation_membership_rpcs.sql`
+   - `20260731210957_p4c_contract_billing_entitlement_rpc.sql`
+2. P4-B sorts before P4-C.
+3. Byte-identical copies of both migrations are synchronized into every isolated Phase 4/Phase 3 verification workdir before reset.
+4. No stale duplicate P4-B/P4-C migration variant exists in those workdirs.
+5. The real catalog includes `customer_session`, `customer_auth_user_id` with its `auth.users(id) ON DELETE RESTRICT` FK, and one active replacement `p4_command_receipt_actor_shape` constraint.
+6. Real inserts prove the actor matrix:
+   - provider fixture with no actor evidence: accepted;
+   - provider fixture with a complete operator pair: accepted;
+   - manual command with a complete operator pair: accepted;
+   - customer-session command with customer Auth evidence only: accepted;
+   - provider/manual half-pairs: rejected;
+   - provider/manual commands containing customer evidence: rejected;
+   - customer-session commands containing operator evidence or missing customer evidence: rejected.
+7. The existing Issue #123, Issue #122, P4-A, and Phase 3 3A-3H verifiers all pass against synchronized workdirs containing both migrations.
+8. Advisors, DB lint, application checks, exact diff scope, secret/DB-URL scan, whitespace, and the migration manual commit gate pass.
+
+The orchestrator does not weaken or replace the existing dedicated matrices. It composes them and proves that each is running from the same synchronized repository head.
+
+## 5. Isolation contract
+
+All workdirs must be absolute temporary paths and all containers must match their exact guard names.
+
+| Scope | Workdir environment | Container environment | Required container |
+| --- | --- | --- | --- |
+| Issue #123 | `RECORA_ISSUE_123_SUPABASE_WORKDIR` | `RECORA_ISSUE_123_DB_CONTAINER` | `supabase_db_recoraissue123` |
+| Issue #122 | `RECORA_ISSUE_122_SUPABASE_WORKDIR` | `RECORA_ISSUE_122_DB_CONTAINER` | `supabase_db_recoraissue122p4b` |
+| Issue #121 | `RECORA_ISSUE_121_SUPABASE_WORKDIR` | `RECORA_ISSUE_121_DB_CONTAINER` | `supabase_db_recoraissue121` |
+| Issue #117 | `RECORA_ISSUE_117_SUPABASE_WORKDIR` | `RECORA_ISSUE_117_DB_CONTAINER` | `supabase_db_recoraissue117` |
+
+The comparison baseline defaults to `RECORA_PHASE4_BASE_REF=origin/master` and must be an ancestor of the tested `HEAD`.
+
+No linked, remote, or production database is permitted. No external provider/network operation is part of the verifier.
+
+## 6. Formal execution command
+
+Run from the clean P4-C worktree after fetching the current branch head:
+
+```powershell
+$env:RECORA_PHASE4_BASE_REF = "origin/master"
+$env:RECORA_ISSUE_123_SUPABASE_WORKDIR = "C:\tmp\recora-issue-123-p4c-supabase"
+$env:RECORA_ISSUE_123_DB_CONTAINER = "supabase_db_recoraissue123"
+$env:RECORA_ISSUE_122_SUPABASE_WORKDIR = "C:\tmp\recoraissue122p4b"
+$env:RECORA_ISSUE_122_DB_CONTAINER = "supabase_db_recoraissue122p4b"
+$env:RECORA_ISSUE_121_SUPABASE_WORKDIR = "C:\tmp\recora-issue-121-p4a-supabase"
+$env:RECORA_ISSUE_121_DB_CONTAINER = "supabase_db_recoraissue121"
+$env:RECORA_ISSUE_117_SUPABASE_WORKDIR = "C:\tmp\recora-issue-117-supabase"
+$env:RECORA_ISSUE_117_DB_CONTAINER = "supabase_db_recoraissue117"
+npx tsx scripts/verify-issue-123-p4bc-post-sync-integration.ts
+```
+
+The operator must record `git rev-parse HEAD`, `git rev-parse origin/master`, both migration SHA-256 values, all four workdirs/containers, and the final command result in Issue #123 and parent Issue #119.
+
+## 7. Verification state
+
+### Historical pre-sync evidence
+
+The pre-P4-B-sync P4-C matrix passed at head `f084ca2022317389f1a23d581eb9575effec7ba2`, including P4-C reset, the Issue #123 verifier, P4-A, Phase 3 3A-3H, advisors, preflight, typecheck, lint, build, diff, and the known migration manual gate.
+
+This historical evidence is retained, but it is not post-sync integration proof.
+
+### Current post-sync evidence
+
+- Git synchronization parent `c8567c60f196ecf27e0c70753693ca1daec7c103` includes P4-B merge commit `2c2a6fba70b75e858abc71a7447840bf32f3507d` without rebase, force push, or history rewrite.
+- Hosted Recora CI #232 and Vercel preview passed for the synchronization head.
+- Static review found the combined-verifier gap and blocked Ready/merge.
+- The combined orchestrator correction is implemented in the commit containing this plan.
+- **Local four-stack full regression remains pending.** Do not mark this section PASS until the formal command above succeeds on the exact committed head and its evidence is recorded.
+
+Required final gates:
+
+- Issue #123 migration-only, seeded, and seeded-replay resets with both migrations;
+- real catalog/actor-shape matrix;
+- Issue #123 P4-C formal verifier;
+- Issue #122 P4-B formal verifier;
+- Issue #121 P4-A formal verifier;
+- Issue #117 Phase 3 3A-3H formal verifier;
+- Supabase advisors and DB lint;
+- `npm run recora:preflight:full`;
+- `npm run typecheck`;
+- `npm run lint`;
+- `npm run build`;
+- `npm run recora:dashboard-read-model:check`;
+- `git diff --check` and exact five-file scope;
+- secret/env/DB URL/package/lockfile inspection;
+- `npm run recora:commit-check`, allowing only the known OWNER-authorized migration manual gate.
+
+## 8. Stop conditions
+
+Stop and record evidence if:
+
+- either migration is missing, altered, duplicated, or ordered incorrectly in any isolated workdir;
+- catalog actor evidence differs from the P4-B contract;
+- any dedicated verifier or reset fails;
+- commit-check reports anything beyond the known migration manual gate;
+- a sixth changed file, package/lockfile change, remote/production access, provider/product decision, or wider schema/RLS change becomes necessary.
+
+PR #126 remains Draft / Human review. Do not mark Ready, merge, close Issue #123 or parent #119, start Issue #124, deploy, or delete the branch/worktree without a later explicit OWNER approval.
