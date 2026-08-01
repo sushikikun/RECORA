@@ -6,9 +6,10 @@ import path from "node:path";
 
 import type {
   Phase4ProviderNeutralBillingCommand,
+  Phase4ConfirmLifecycleCheckpointCommand,
+  Phase4ReconcileLifecycleCheckpointCommand,
   Phase4CustomerSafeContractResult
 } from "../lib/recora/phase4-contract-billing-entitlement";
-
 type CommandResult = { stdout: string; stderr: string; status: number | null };
 type OperatorEvidence = { auditEventId: string; commandReceiptId: string; outcome: string; failure: string | null };
 
@@ -54,6 +55,8 @@ const applyRpcHeader = migrationSql.match(/create or replace function public\.re
 assert.doesNotMatch(applyRpcHeader, /p_authoritative_plan_policy_key|p_payload_fingerprint|p_downstream_effect_result/i);
 assert.match(moduleSqlBoundary, /import "server-only"/);
 assert.match(moduleSqlBoundary, /recora_p4c_apply_contract_billing_entitlement_command/);
+assert.match(moduleSqlBoundary, /executePhase4ConfirmLifecycleCheckpointCommand/);
+assert.match(moduleSqlBoundary, /executePhase4ReconcileLifecycleCheckpointCommand/);
 assert.doesNotMatch(moduleSqlBoundary, /from\s+["'](?:postgres|pg|drizzle-orm|kysely|slonik)["']/i);
 const commandTypeBoundary = moduleSqlBoundary.match(/export type Phase4ProviderNeutralBillingCommand = \{[\s\S]*?\};/)?.[0] ?? "";
 const runtimeRpcBoundary = moduleSqlBoundary.match(/client\.rpc\("recora_p4c_apply_contract_billing_entitlement_command", \{[\s\S]*?\}\);/)?.[0] ?? "";
@@ -198,9 +201,7 @@ function callReconcileRpcSql(args: Record<string, unknown>): string {
 function callReconcileRpc(args: Record<string, unknown>): unknown[] {
   return queryJson<unknown[]>(callReconcileRpcSql(args));
 }
-function callP4cRpcProcess(command: Phase4ProviderNeutralBillingCommand): Promise<unknown[]> {
-  const args = commandToRpcArgs(command);
-  const sql = callP4cRpcSql(args);
+function callRpcSqlProcess(sql: string): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     const child = spawn("docker", ["exec", "--interactive", dbContainer!, "psql", "--username", "postgres", "--dbname", "postgres", "--no-psqlrc", "--set", "ON_ERROR_STOP=1", "--quiet", "--tuples-only", "--no-align"], {
       cwd: repoRoot,
@@ -231,6 +232,17 @@ function callP4cRpcProcess(command: Phase4ProviderNeutralBillingCommand): Promis
   });
 }
 
+function callP4cRpcProcess(command: Phase4ProviderNeutralBillingCommand): Promise<unknown[]> {
+  return callRpcSqlProcess(callP4cRpcSql(commandToRpcArgs(command)));
+}
+
+function callConfirmRpcProcess(command: Phase4ConfirmLifecycleCheckpointCommand): Promise<unknown[]> {
+  return callRpcSqlProcess(callConfirmRpcSql(confirmCommandToRpcArgs(command)));
+}
+
+function callReconcileRpcProcess(command: Phase4ReconcileLifecycleCheckpointCommand): Promise<unknown[]> {
+  return callRpcSqlProcess(callReconcileRpcSql(reconcileCommandToRpcArgs(command)));
+}
 function commandToRpcArgs(command: Phase4ProviderNeutralBillingCommand): Record<string, unknown> {
   return {
     p_organization_id: command.organizationId,
@@ -252,11 +264,41 @@ function commandToRpcArgs(command: Phase4ProviderNeutralBillingCommand): Record<
   };
 }
 
+function confirmCommandToRpcArgs(command: Phase4ConfirmLifecycleCheckpointCommand): Record<string, unknown> {
+  return {
+    p_organization_id: command.organizationId,
+    p_project_id: command.projectId,
+    p_checkpoint_id: command.checkpointId,
+    p_phase3_lifecycle_event_id: command.phase3LifecycleEventId,
+    p_idempotency_key: command.idempotencyKey,
+    p_request_id: command.requestId,
+    p_correlation_id: command.correlationId,
+    p_operator_audit_event_id: command.operatorEvidence.auditEventId,
+    p_operator_command_receipt_id: command.operatorEvidence.commandReceiptId
+  };
+}
+
+function reconcileCommandToRpcArgs(command: Phase4ReconcileLifecycleCheckpointCommand): Record<string, unknown> {
+  return {
+    p_organization_id: command.organizationId,
+    p_project_id: command.projectId,
+    p_checkpoint_id: command.checkpointId,
+    p_phase3_lifecycle_audit_event_id: command.phase3LifecycleAuditEventId,
+    p_idempotency_key: command.idempotencyKey,
+    p_request_id: command.requestId,
+    p_correlation_id: command.correlationId,
+    p_operator_audit_event_id: command.operatorEvidence.auditEventId,
+    p_operator_command_receipt_id: command.operatorEvidence.commandReceiptId
+  };
+}
+
 const rpcClient = {
   async rpc(name: string, args: Record<string, unknown>) {
-    assert.equal(name, "recora_p4c_apply_contract_billing_entitlement_command");
     try {
-      return { data: callP4cRpc(args), error: null };
+      if (name === "recora_p4c_apply_contract_billing_entitlement_command") return { data: callP4cRpc(args), error: null };
+      if (name === "recora_p4c_confirm_lifecycle_checkpoint_command") return { data: callConfirmRpc(args), error: null };
+      if (name === "recora_p4c_reconcile_lifecycle_checkpoint_command") return { data: callReconcileRpc(args), error: null };
+      throw new Error(`Unexpected RPC ${name}`);
     } catch (error) {
       return { data: null, error };
     }
@@ -273,7 +315,11 @@ const OPERATOR_USER = "12300000-0000-4000-8000-000000000001";
 const OPERATOR_ID = "12330000-0000-4000-8000-000000000001";
 const WEAK_POLICY_ID = "12360000-0000-4000-8000-000000000001";
 const STRONG_POLICY_ID = "12360000-0000-4000-8000-000000000002";
+const FUTURE_POLICY_ID = "12360000-0000-4000-8000-000000000003";
+const EXPIRED_POLICY_ID = "12360000-0000-4000-8000-000000000004";
 const POLICY_KEY = "issue.123.p4c.policy";
+const FUTURE_POLICY_KEY = "issue.123.p4c.future.policy";
+const EXPIRED_POLICY_KEY = "issue.123.p4c.expired.policy";
 
 function requestId(sequence: number): string {
   return `12340000-0000-4000-8000-${sequence.toString().padStart(12, "0")}`;
@@ -322,6 +368,10 @@ insert into recora_private.plan_policy_versions(id,policy_key,policy_schema_vers
 values (${sqlUuid(WEAK_POLICY_ID)}, ${sqlText(POLICY_KEY)}, 1, now() - interval '2 days', ${sqlJson({ capabilities: { measurement: true }, limits: { prompts: 6 } })});
 insert into recora_private.plan_policy_versions(id,policy_key,policy_schema_version,effective_from,policy_document,supersedes_policy_version_id)
 values (${sqlUuid(STRONG_POLICY_ID)}, ${sqlText(POLICY_KEY)}, 1, now() - interval '1 day', ${sqlJson({ capabilities: { measurement: true, analysis: true }, limits: { prompts: 12 } })}, ${sqlUuid(WEAK_POLICY_ID)});
+insert into recora_private.plan_policy_versions(id,policy_key,policy_schema_version,effective_from,policy_document)
+values (${sqlUuid(FUTURE_POLICY_ID)}, ${sqlText(FUTURE_POLICY_KEY)}, 1, now() + interval '2 days', ${sqlJson({ capabilities: { measurement: true, future: true }, limits: { prompts: 99 } })});
+insert into recora_private.plan_policy_versions(id,policy_key,policy_schema_version,effective_from,effective_until,policy_document)
+values (${sqlUuid(EXPIRED_POLICY_ID)}, ${sqlText(EXPIRED_POLICY_KEY)}, 1, now() - interval '4 days', now() - interval '2 days', ${sqlJson({ capabilities: { measurement: true, expired: true }, limits: { prompts: 1 } })});
 commit;
 `;
 }
@@ -334,16 +384,30 @@ where id = ${sqlUuid(policyId)};
   return { key: row.key, hash_chars: row.hash.split(""), schema_version: row.schema_version };
 }
 
+type PolicySummary = { key: string; hash_chars: string[]; schema_version: number };
+type ApplyCommandEvidenceSummary = {
+  source_kind: Phase4ProviderNeutralBillingCommand["sourceKind"];
+  source_namespace: string;
+  source_reference: string;
+  source_sequence: number;
+  contract_reference: string;
+  next_contract_state: Phase4ProviderNeutralBillingCommand["nextContractState"];
+  payment_fact_kind: Phase4ProviderNeutralBillingCommand["paymentFactKind"];
+  payment_chain_key: string;
+  corrects_payment_fact_id_chars: string[] | null;
+};
+
 function createOperatorEvidence(
   orgId: string,
-  projectId: string,
+  projectId: string | null,
   sequence: number,
-  input: { action?: string; policyId?: string; afterSummary?: unknown } = {}
+  input: { action?: string; afterSummary: unknown } = { afterSummary: { state: "approved" } }
 ): OperatorEvidence {
   const action = input.action ?? "p4c.contract.billing.apply";
   const request = requestId(sequence);
   const correlation = correlationId(sequence);
-  const afterSummary = input.afterSummary ?? (action === "p4c.contract.billing.apply" ? { policy: readPolicySummary(input.policyId) } : { state: "approved" });
+  const targetType = projectId === null ? "organization" : "project";
+  const targetId = projectId ?? orgId;
   const audit = queryJson<{ auditEventId: string; outcome: string; failure: string | null }>(`
 begin;
 set local role service_role;
@@ -358,13 +422,13 @@ from public.recora_operator_execute_authorized_command_receipt(
   ${sqlUuid(orgId)},
   ${sqlUuid(projectId)},
   ${sqlText(action)},
-  'project',
-  ${sqlUuid(projectId)},
+  ${sqlText(targetType)},
+  ${sqlUuid(targetId)},
   'issue 123 p4c rpc evidence',
   ${sqlUuid(request)},
   ${sqlUuid(correlation)},
   ${sqlJson({ state: "before" })},
-  ${sqlJson(afterSummary)}
+  ${sqlJson(input.afterSummary)}
 ) audit;
 commit;
 `);
@@ -377,41 +441,159 @@ where audit_event_id = ${sqlUuid(audit.auditEventId)};
   return { ...audit, commandReceiptId };
 }
 
+function uuidChars(value: string | null): string[] | null {
+  return value === null ? null : value.split("");
+}
+
+function applyCommandEvidenceSummary(input: ApplyCommandEvidenceSummary): ApplyCommandEvidenceSummary {
+  return {
+    source_kind: input.source_kind,
+    source_namespace: input.source_namespace,
+    source_reference: input.source_reference,
+    source_sequence: input.source_sequence,
+    contract_reference: input.contract_reference,
+    next_contract_state: input.next_contract_state,
+    payment_fact_kind: input.payment_fact_kind,
+    payment_chain_key: input.payment_chain_key,
+    corrects_payment_fact_id_chars: input.corrects_payment_fact_id_chars
+  };
+}
+
 function makeCommand(input: {
   orgId?: string;
-  projectId?: string;
+  projectId?: string | null;
   sequence: number;
   requestSequence?: number;
   sourceReference: string;
   idempotencyKey: string;
+  sourceNamespace?: string;
   contractReference?: string;
   nextContractState: Phase4ProviderNeutralBillingCommand["nextContractState"];
   paymentFactKind?: Phase4ProviderNeutralBillingCommand["paymentFactKind"];
+  paymentChainKey?: string;
   policyId?: string;
+  policySummary?: PolicySummary;
   afterSummary?: unknown;
   correctsPaymentFactId?: string | null;
 }): Phase4ProviderNeutralBillingCommand {
   const orgId = input.orgId ?? ORG_A;
-  const projectId = input.projectId ?? PROJECT_A;
+  const projectId = input.projectId === undefined ? PROJECT_A : input.projectId;
+  const sourceNamespace = input.sourceNamespace ?? "fixture.p4c";
+  const contractReference = input.contractReference ?? "contract.p4c";
+  const paymentFactKind = input.paymentFactKind ?? "payment_unknown";
+  const paymentChainKey = input.paymentChainKey ?? "chain.primary";
+  const correctsPaymentFactId = input.correctsPaymentFactId ?? null;
   const evidenceSequence = input.requestSequence ?? input.sequence;
-  const evidence = createOperatorEvidence(orgId, projectId, evidenceSequence, { policyId: input.policyId, afterSummary: input.afterSummary });
+  const commandSummary = applyCommandEvidenceSummary({
+    source_kind: "provider_fixture",
+    source_namespace: sourceNamespace,
+    source_reference: input.sourceReference,
+    source_sequence: input.sequence,
+    contract_reference: contractReference,
+    next_contract_state: input.nextContractState,
+    payment_fact_kind: paymentFactKind,
+    payment_chain_key: paymentChainKey,
+    corrects_payment_fact_id_chars: uuidChars(correctsPaymentFactId)
+  });
+  const afterSummary = input.afterSummary ?? { policy: input.policySummary ?? readPolicySummary(input.policyId), command: commandSummary };
+  const evidence = createOperatorEvidence(orgId, projectId, evidenceSequence, { afterSummary });
   return {
     schemaVersion: p4c.phase4ContractBillingIntegrationSchemaVersion,
     organizationId: orgId,
     projectId,
     sourceKind: "provider_fixture",
-    sourceNamespace: "fixture.p4c",
+    sourceNamespace,
     sourceReference: input.sourceReference,
     sourceSequence: input.sequence,
-    contractReference: input.contractReference ?? "contract.p4c",
+    contractReference,
     nextContractState: input.nextContractState,
-    paymentFactKind: input.paymentFactKind ?? "payment_unknown",
-    paymentChainKey: "chain.primary",
+    paymentFactKind,
+    paymentChainKey,
     idempotencyKey: input.idempotencyKey,
     requestId: requestId(evidenceSequence),
     correlationId: correlationId(evidenceSequence),
     operatorEvidence: { auditEventId: evidence.auditEventId, commandReceiptId: evidence.commandReceiptId },
-    correctsPaymentFactId: input.correctsPaymentFactId ?? null
+    correctsPaymentFactId
+  };
+}
+
+function checkpointReason(checkpointId: string): string {
+  const encoded = checkpointId.replace(/[0-9-]/g, (char) => {
+    if (char === "-") return "z";
+    return String.fromCharCode("a".charCodeAt(0) + Number(char));
+  });
+  return `p4c.checkpoint.${encoded}`;
+}
+
+function confirmOperatorSummary(checkpointId: string, lifecycleEventId: string): Record<string, unknown> {
+  return {
+    checkpoint: {
+      checkpoint_id_chars: uuidChars(checkpointId),
+      phase3_lifecycle_event_id_chars: uuidChars(lifecycleEventId),
+      required_effect: "lifecycle.suspend"
+    }
+  };
+}
+
+function reconcileOperatorSummary(checkpointId: string, auditEventId: string): Record<string, unknown> {
+  return {
+    checkpoint: {
+      checkpoint_id_chars: uuidChars(checkpointId),
+      phase3_lifecycle_audit_event_id_chars: uuidChars(auditEventId),
+      required_effect: "lifecycle.suspend"
+    }
+  };
+}
+
+function makeConfirmCommand(input: {
+  orgId: string;
+  projectId: string | null;
+  checkpointId: string;
+  phase3LifecycleEventId: string;
+  sequence: number;
+  idempotencyKey: string;
+  afterSummary?: unknown;
+}): Phase4ConfirmLifecycleCheckpointCommand {
+  const evidence = createOperatorEvidence(input.orgId, input.projectId, input.sequence, {
+    action: "p4c.lifecycle.checkpoint.confirm",
+    afterSummary: input.afterSummary ?? confirmOperatorSummary(input.checkpointId, input.phase3LifecycleEventId)
+  });
+  return {
+    schemaVersion: p4c.phase4ContractBillingIntegrationSchemaVersion,
+    organizationId: input.orgId,
+    projectId: input.projectId,
+    checkpointId: input.checkpointId,
+    phase3LifecycleEventId: input.phase3LifecycleEventId,
+    idempotencyKey: input.idempotencyKey,
+    requestId: requestId(input.sequence),
+    correlationId: correlationId(input.sequence),
+    operatorEvidence: { auditEventId: evidence.auditEventId, commandReceiptId: evidence.commandReceiptId }
+  };
+}
+
+function makeReconcileCommand(input: {
+  orgId: string;
+  projectId: string | null;
+  checkpointId: string;
+  phase3LifecycleAuditEventId: string;
+  sequence: number;
+  idempotencyKey: string;
+  afterSummary?: unknown;
+}): Phase4ReconcileLifecycleCheckpointCommand {
+  const evidence = createOperatorEvidence(input.orgId, input.projectId, input.sequence, {
+    action: "p4c.lifecycle.checkpoint.reconcile",
+    afterSummary: input.afterSummary ?? reconcileOperatorSummary(input.checkpointId, input.phase3LifecycleAuditEventId)
+  });
+  return {
+    schemaVersion: p4c.phase4ContractBillingIntegrationSchemaVersion,
+    organizationId: input.orgId,
+    projectId: input.projectId,
+    checkpointId: input.checkpointId,
+    phase3LifecycleAuditEventId: input.phase3LifecycleAuditEventId,
+    idempotencyKey: input.idempotencyKey,
+    requestId: requestId(input.sequence),
+    correlationId: correlationId(input.sequence),
+    operatorEvidence: { auditEventId: evidence.auditEventId, commandReceiptId: evidence.commandReceiptId }
   };
 }
 async function execute(command: Phase4ProviderNeutralBillingCommand): Promise<Phase4CustomerSafeContractResult> {
@@ -500,7 +682,7 @@ where organization_id = ${sqlUuid(orgId)} and project_id is not distinct from ${
 `);
 }
 
-function transitionLifecycle(input: { orgId: string; projectId: string; expectedState: string; expectedVersion: number; nextState: string; sequence: number }): LifecycleTransitionResult {
+function transitionLifecycle(input: { orgId: string; projectId: string; expectedState: string; expectedVersion: number; nextState: string; sequence: number; reason?: string }): LifecycleTransitionResult {
   const request = requestId(input.sequence);
   const correlation = correlationId(input.sequence);
   return queryJson<LifecycleTransitionResult>(`
@@ -519,7 +701,7 @@ from public.recora_transition_data_lifecycle(
   ${sqlText(input.expectedState)},
   ${input.expectedVersion.toString()}::bigint,
   ${sqlText(input.nextState)},
-  'issue 123 p4c lifecycle evidence',
+  ${sqlText(input.reason ?? "issue 123 p4c lifecycle evidence")},
   ${sqlUuid(request)},
   ${sqlUuid(correlation)}
 );
@@ -556,13 +738,23 @@ limit 1;
 `);
 }
 
-async function expectMalformedRpcRowsRejected(command: Phase4ProviderNeutralBillingCommand, rows: unknown[], label: string): Promise<void> {
+async function expectMalformedRpcRowsRejectedWith(
+  executor: (client: { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> }, value: unknown) => Promise<Phase4CustomerSafeContractResult>,
+  command: unknown,
+  rows: unknown[],
+  label: string
+): Promise<void> {
   await assert.rejects(
-    () => p4c.executePhase4ContractBillingCommand({ async rpc() { return { data: rows, error: null }; } }, command),
-    /P4-C RPC/,
+    () => executor({ async rpc() { return { data: rows, error: null }; } }, command),
+    /P4-C .*RPC|P4-C RPC/,
     label
   );
 }
+
+async function expectMalformedRpcRowsRejected(command: Phase4ProviderNeutralBillingCommand, rows: unknown[], label: string): Promise<void> {
+  await expectMalformedRpcRowsRejectedWith(p4c.executePhase4ContractBillingCommand, command, rows, label);
+}
+
 async function main(): Promise<void> {
   runSupabase("issue-123 isolated db reset", ["db", "reset", "--local", "--yes"]);
   queryLocal(setupSql());
@@ -655,19 +847,53 @@ rollback;
     capabilities: { measurement: true },
     limits: { prompts: 1 }
   };
+  const confirmShapeCommand: Phase4ConfirmLifecycleCheckpointCommand = {
+    schemaVersion: p4c.phase4ContractBillingIntegrationSchemaVersion,
+    organizationId: ORG_A,
+    projectId: PROJECT_A,
+    checkpointId: "12370000-0000-4000-8000-000000000001",
+    phase3LifecycleEventId: "12370000-0000-4000-8000-000000000002",
+    idempotencyKey: "p4c.confirm.shape",
+    requestId: requestId(81),
+    correlationId: correlationId(81),
+    operatorEvidence: { auditEventId: OPERATOR_ID, commandReceiptId: OPERATOR_ID }
+  };
+  const reconcileShapeCommand: Phase4ReconcileLifecycleCheckpointCommand = {
+    schemaVersion: p4c.phase4ContractBillingIntegrationSchemaVersion,
+    organizationId: ORG_A,
+    projectId: PROJECT_A,
+    checkpointId: "12370000-0000-4000-8000-000000000003",
+    phase3LifecycleAuditEventId: "12370000-0000-4000-8000-000000000004",
+    idempotencyKey: "p4c.reconcile.shape",
+    requestId: requestId(82),
+    correlationId: correlationId(82),
+    operatorEvidence: { auditEventId: OPERATOR_ID, commandReceiptId: OPERATOR_ID }
+  };
   const accessorRow = { ...goodRpcRow };
   Object.defineProperty(accessorRow, "outcome", { enumerable: true, get() { return "applied"; } });
   const proxyRow = new Proxy(goodRpcRow, { ownKeys() { throw new Error("proxy trap"); } });
-  await expectMalformedRpcRowsRejected(active, [], "empty RPC result must fail closed");
-  await expectMalformedRpcRowsRejected(active, [goodRpcRow, goodRpcRow], "extra RPC row must fail closed");
-  await expectMalformedRpcRowsRejected(active, [{ ...goodRpcRow, extra_key: true }], "extra RPC key must fail closed");
-  await expectMalformedRpcRowsRejected(active, [{ ...goodRpcRow, customer_access_allowed: "false" }], "string false must fail closed");
-  await expectMalformedRpcRowsRejected(active, [accessorRow], "accessor RPC row must fail closed");
-  await expectMalformedRpcRowsRejected(active, [proxyRow], "Proxy RPC row must fail closed");
-  await expectMalformedRpcRowsRejected(active, [{ ...goodRpcRow, outcome: "accepted" }], "unknown outcome must fail closed");
-  await expectMalformedRpcRowsRejected(active, [{ ...goodRpcRow, stable_reason: "unknown_reason" }], "unknown stable reason must fail closed");
-  await expectMalformedRpcRowsRejected(active, [{ ...goodRpcRow, reason_code: "unknown_reason" }], "unknown customer reason must fail closed");
-  await expectMalformedRpcRowsRejected(active, [{ ...goodRpcRow, capabilities: { provider: true } }], "forbidden capability key must fail closed");
+  const malformedRowCases: Array<[unknown[], string]> = [
+    [[], "empty RPC result must fail closed"],
+    [[goodRpcRow, goodRpcRow], "extra RPC row must fail closed"],
+    [[{ ...goodRpcRow, extra_key: true }], "extra RPC key must fail closed"],
+    [[{ ...goodRpcRow, customer_access_allowed: "false" }], "string false must fail closed"],
+    [[accessorRow], "accessor RPC row must fail closed"],
+    [[proxyRow], "Proxy RPC row must fail closed"],
+    [[{ ...goodRpcRow, outcome: "accepted" }], "unknown outcome must fail closed"],
+    [[{ ...goodRpcRow, stable_reason: "unknown_reason" }], "unknown stable reason must fail closed"],
+    [[{ ...goodRpcRow, reason_code: "unknown_reason" }], "unknown customer reason must fail closed"],
+    [[{ ...goodRpcRow, capabilities: { provider: true } }], "forbidden capability key must fail closed"]
+  ];
+  const malformedBoundaries: Array<[string, (client: { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> }, value: unknown) => Promise<Phase4CustomerSafeContractResult>, unknown]> = [
+    ["apply", p4c.executePhase4ContractBillingCommand, active],
+    ["confirm", p4c.executePhase4ConfirmLifecycleCheckpointCommand, confirmShapeCommand],
+    ["reconcile", p4c.executePhase4ReconcileLifecycleCheckpointCommand, reconcileShapeCommand]
+  ];
+  for (const [boundary, executor, command] of malformedBoundaries) {
+    for (const [rows, label] of malformedRowCases) {
+      await expectMalformedRpcRowsRejectedWith(executor, command, rows, `${boundary}: ${label}`);
+    }
+  }
 
   assert.equal((await execute(draft)).customerAccessAllowed, false);
   assert.equal((await execute(pending)).customerAccessAllowed, false);
@@ -727,13 +953,36 @@ where pointer.organization_id = ${sqlUuid(ORG_A)} and pointer.project_id = ${sql
   assert.equal(invalidPolicyResult.stableReason, "invalid_reference");
   assertNoDomainChange(invalidPolicyBefore, domainCounts(ORG_A), ["billingReceipts", "paymentFacts", "contractEvents", "snapshots", "checkpoints", "outbox", "projectionVersion"]);
 
+  const activePaymentFactId = queryValue(`
+select id::text
+from recora_private.p4_normalized_payment_facts
+where organization_id = ${sqlUuid(ORG_A)}
+  and project_id is not distinct from ${sqlUuid(PROJECT_A)}
+  and source_reference = 'receipt.activate'
+  and fact_kind = 'payment_succeeded';
+`);
+  for (const correctionNegative of [
+    makeCommand({ sequence: 117, sourceReference: "receipt.reversed.missing", idempotencyKey: "p4c.reversed.missing", nextContractState: "paused", paymentFactKind: "payment_reversed" }),
+    makeCommand({ sequence: 118, sourceReference: "receipt.disputed.missing", idempotencyKey: "p4c.disputed.missing", nextContractState: "paused", paymentFactKind: "payment_disputed" }),
+    makeCommand({ sequence: 119, sourceReference: "receipt.normal.corrects", idempotencyKey: "p4c.normal.corrects", nextContractState: "paused", paymentFactKind: "payment_failed", correctsPaymentFactId: activePaymentFactId })
+  ]) {
+    const correctionNegativeResult = await execute(correctionNegative);
+    assert.equal(correctionNegativeResult.outcome, "rejected");
+    assert.equal(correctionNegativeResult.stableReason, "invalid_reference");
+  }
+
   const conflictBefore = domainCounts(ORG_A);
-  const conflictingCanonical = { ...active, sourceReference: "receipt.activate.conflict", sourceSequence: 104, nextContractState: "paused" as const, paymentFactKind: "payment_failed" as const };
+  const duplicateSource = makeCommand({ sequence: 103, requestSequence: 115, sourceReference: "receipt.activate", idempotencyKey: "p4c.activate.other", nextContractState: "active", paymentFactKind: "payment_succeeded" });
+  const duplicateSourceResult = await execute(duplicateSource);
+  assert.equal(duplicateSourceResult.outcome, "rejected");
+  assert.equal(duplicateSourceResult.stableReason, "idempotency_conflict");
+
+  const conflictingCanonical = makeCommand({ sequence: 104, requestSequence: 116, sourceReference: "receipt.activate.conflict", idempotencyKey: "p4c.activate", nextContractState: "paused", paymentFactKind: "payment_failed" });
   const conflictResult = await execute(conflictingCanonical);
   assert.equal(conflictResult.outcome, "rejected");
   assert.equal(conflictResult.stableReason, "idempotency_conflict");
   assert.equal(conflictResult.customerAccessAllowed, false);
-  assert.equal(countValue(`select count(*) from recora_private.p4_command_conflicts where organization_id = ${sqlUuid(ORG_A)}`), 1);
+  assert.equal(countValue(`select count(*) from recora_private.p4_command_conflicts where organization_id = ${sqlUuid(ORG_A)}`), 2);
   assertNoDomainChange(conflictBefore, domainCounts(ORG_A), ["billingReceipts", "paymentFacts", "contractEvents", "snapshots", "checkpoints", "outbox", "projectionVersion"]);
 
   const concurrentDraft = makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 301, contractReference: "contract.concurrent", sourceReference: "receipt.concurrent.draft", idempotencyKey: "p4c.concurrent.draft", nextContractState: "draft" });
@@ -743,17 +992,34 @@ where pointer.organization_id = ${sqlUuid(ORG_A)} and pointer.project_id = ${sql
   assert.equal(countValue(`select count(*) from recora_private.p4_billing_receipts where organization_id = ${sqlUuid(ORG_B)} and contract_id = (select id from recora_private.p4_contract_projections where organization_id = ${sqlUuid(ORG_B)} and contract_reference = 'contract.concurrent')`), 1);
 
   const concurrentA = makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 302, contractReference: "contract.concurrent", sourceReference: "receipt.concurrent.pending", idempotencyKey: "p4c.concurrent.conflict", nextContractState: "pending_activation" });
-  const concurrentB: Phase4ProviderNeutralBillingCommand = { ...concurrentA, sourceReference: "receipt.concurrent.cancel", nextContractState: "canceled" };
+  const concurrentB = makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 302, requestSequence: 303, contractReference: "contract.concurrent", sourceReference: "receipt.concurrent.cancel", idempotencyKey: "p4c.concurrent.conflict", nextContractState: "canceled" });
   const conflictRows = await Promise.all([callP4cRpcProcess(concurrentA), callP4cRpcProcess(concurrentB)]);
   const conflictResults = conflictRows.map(normalizeProcessResult);
   assert.equal(conflictResults.filter((result) => result.outcome === "rejected" && result.stableReason === "idempotency_conflict").length, 1);
   assert.equal(countValue(`select count(*) from recora_private.p4_command_conflicts where organization_id = ${sqlUuid(ORG_B)}`), 1);
 
-  const weakActivated = await seedActiveContract(ORG_B, PROJECT_B, 330, "contract.weak", WEAK_POLICY_ID);
-  assert.equal(weakActivated.customerAccessAllowed, true);
-  assert.deepEqual(weakActivated.capabilities, { measurement: true });
-  assert.deepEqual(weakActivated.limits, { prompts: 6 });
+  const supersededPolicy = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 330, contractReference: "contract.superseded", sourceReference: "receipt.superseded.policy", idempotencyKey: "p4c.superseded.policy", nextContractState: "draft", policyId: WEAK_POLICY_ID }));
+  assert.equal(supersededPolicy.outcome, "rejected");
+  assert.equal(supersededPolicy.stableReason, "invalid_reference");
+  const futurePolicy = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 331, contractReference: "contract.future", sourceReference: "receipt.future.policy", idempotencyKey: "p4c.future.policy", nextContractState: "draft", policyId: FUTURE_POLICY_ID }));
+  assert.equal(futurePolicy.outcome, "rejected");
+  assert.equal(futurePolicy.stableReason, "invalid_reference");
+  const expiredPolicy = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 332, contractReference: "contract.expired", sourceReference: "receipt.expired.policy", idempotencyKey: "p4c.expired.policy", nextContractState: "draft", policyId: EXPIRED_POLICY_ID }));
+  assert.equal(expiredPolicy.outcome, "rejected");
+  assert.equal(expiredPolicy.stableReason, "invalid_reference");
   assert.equal(p4c.isProviderNeutralBillingEnvelope({ ...makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 333, contractReference: "contract.rejected.caller.policy", sourceReference: "receipt.rejected.caller.policy", idempotencyKey: "p4c.rejected.caller.policy", nextContractState: "draft", policyId: WEAK_POLICY_ID }), authoritativePlanPolicyKey: POLICY_KEY }), false);
+
+  await seedActiveContract(ORG_B, PROJECT_B, 340, "contract.compensate");
+  const compensationPause = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 343, contractReference: "contract.compensate", sourceReference: "receipt.comp.pause", idempotencyKey: "p4c.comp.pause", nextContractState: "paused", paymentFactKind: "payment_failed" }));
+  assert.equal(compensationPause.outcome, "reconciliation_required");
+  assert.equal(compensationPause.stableReason, "checkpoint_pending");
+  const compensationCheckpointId = latestOpenCheckpointId(ORG_B, PROJECT_B);
+  assert.equal(queryValue(`select processing_state::text from recora_private.p4_billing_receipts where organization_id = ${sqlUuid(ORG_B)} and source_reference = 'receipt.comp.pause';`), "applied");
+  const compensationRecover = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 344, contractReference: "contract.compensate", sourceReference: "receipt.comp.recover", idempotencyKey: "p4c.comp.recover", nextContractState: "active", paymentFactKind: "payment_succeeded" }));
+  assert.equal(compensationRecover.outcome, "applied");
+  assert.equal(compensationRecover.customerAccessAllowed, true);
+  assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where id = ${sqlUuid(compensationCheckpointId)} and superseded_by_checkpoint_id is not null`), 1);
+  assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where correction_of_checkpoint_id = ${sqlUuid(compensationCheckpointId)} and state = 'completed'`), 1);
 
   await seedActiveContract(ORG_C, PROJECT_C, 401, "contract.pending");
   const pendingCheckpoint = makeCommand({ orgId: ORG_C, projectId: PROJECT_C, sequence: 404, contractReference: "contract.pending", sourceReference: "receipt.pending.pause", idempotencyKey: "p4c.pending.pause", nextContractState: "paused", paymentFactKind: "payment_failed" });
@@ -765,23 +1031,21 @@ where pointer.organization_id = ${sqlUuid(ORG_A)} and pointer.project_id = ${sql
   const pendingCheckpointId = latestOpenCheckpointId(ORG_C, PROJECT_C);
   assert.equal(countValue(`select count(*) from recora_private.p4_durable_outbox where organization_id = ${sqlUuid(ORG_C)} and project_id = ${sqlUuid(PROJECT_C)} and state = 'pending' and correction_of_outbox_id is null`), 1);
   assert.equal(countValue(`select count(*) from recora_private.p4_durable_outbox where organization_id = ${sqlUuid(ORG_C)} and project_id = ${sqlUuid(PROJECT_C)} and state = 'delivered'`), 0);
+  assert.equal(queryValue(`select processing_state::text from recora_private.p4_billing_receipts where organization_id = ${sqlUuid(ORG_C)} and project_id is not distinct from ${sqlUuid(PROJECT_C)} and source_reference = 'receipt.pending.pause';`), "applied");
 
   const lifecycleBeforeSuspend = currentLifecycle(ORG_C, PROJECT_C);
-  const suspended = transitionLifecycle({ orgId: ORG_C, projectId: PROJECT_C, expectedState: lifecycleBeforeSuspend.state, expectedVersion: lifecycleBeforeSuspend.version, nextState: "access_suspended", sequence: 450 });
+  const suspended = transitionLifecycle({ orgId: ORG_C, projectId: PROJECT_C, expectedState: lifecycleBeforeSuspend.state, expectedVersion: lifecycleBeforeSuspend.version, nextState: "access_suspended", sequence: 450, reason: checkpointReason(pendingCheckpointId) });
   assert.equal(suspended.outcome, "success");
   const suspendEventId = lifecycleEventIdForRequest(requestId(450));
-  const confirmEvidence = createOperatorEvidence(ORG_C, PROJECT_C, 451, { action: "p4c.lifecycle.checkpoint.confirm" });
-  const confirmResult = normalizeProcessResult(callConfirmRpc({
-    p_organization_id: ORG_C,
-    p_project_id: PROJECT_C,
-    p_checkpoint_id: pendingCheckpointId,
-    p_phase3_lifecycle_event_id: suspendEventId,
-    p_idempotency_key: "p4c.confirm.suspend",
-    p_request_id: requestId(451),
-    p_correlation_id: correlationId(451),
-    p_operator_audit_event_id: confirmEvidence.auditEventId,
-    p_operator_command_receipt_id: confirmEvidence.commandReceiptId
-  }));
+  const confirmCommand = makeConfirmCommand({
+    orgId: ORG_C,
+    projectId: PROJECT_C,
+    checkpointId: pendingCheckpointId,
+    phase3LifecycleEventId: suspendEventId,
+    sequence: 451,
+    idempotencyKey: "p4c.confirm.suspend"
+  });
+  const confirmResult = await p4c.executePhase4ConfirmLifecycleCheckpointCommand(rpcClient, confirmCommand);
   assert.equal(confirmResult.outcome, "applied");
   assert.equal(confirmResult.customerAccessAllowed, false);
   assert.equal(confirmResult.reasonCode, "lifecycle_access_suspended");
@@ -797,31 +1061,48 @@ where pointer.organization_id = ${sqlUuid(ORG_A)} and pointer.project_id = ${sql
   assert.equal(recoveryResult.outcome, "applied");
   assert.equal(recoveryResult.customerAccessAllowed, true);
   assert.equal(recoveryResult.reasonCode, "ok");
+  const confirmReplayAfterSupersession = await p4c.executePhase4ConfirmLifecycleCheckpointCommand(rpcClient, confirmCommand);
+  assert.equal(confirmReplayAfterSupersession.outcome, "replayed");
+  assert.equal(confirmReplayAfterSupersession.stableReason, "duplicate_command");
+  assert.equal(confirmReplayAfterSupersession.reasonCode, "ok");
+  const lifecycleBeforeConfirmConflict = currentLifecycle(ORG_C, PROJECT_C);
+  const secondSuspend = transitionLifecycle({ orgId: ORG_C, projectId: PROJECT_C, expectedState: lifecycleBeforeConfirmConflict.state, expectedVersion: lifecycleBeforeConfirmConflict.version, nextState: "access_suspended", sequence: 453, reason: checkpointReason(pendingCheckpointId) });
+  assert.equal(secondSuspend.outcome, "success");
+  const confirmConflictCommand = makeConfirmCommand({ orgId: ORG_C, projectId: PROJECT_C, checkpointId: pendingCheckpointId, phase3LifecycleEventId: lifecycleEventIdForRequest(requestId(453)), sequence: 454, idempotencyKey: "p4c.confirm.suspend" });
+  const confirmConflict = await p4c.executePhase4ConfirmLifecycleCheckpointCommand(rpcClient, confirmConflictCommand);
+  assert.equal(confirmConflict.outcome, "rejected");
+  assert.equal(confirmConflict.stableReason, "idempotency_conflict");
 
   const pauseResult = await execute(makeCommand({ sequence: 105, sourceReference: "receipt.pause.pending", idempotencyKey: "p4c.pause.pending", nextContractState: "paused", paymentFactKind: "payment_failed" }));
   assert.equal(pauseResult.outcome, "reconciliation_required");
   assert.equal(pauseResult.stableReason, "checkpoint_pending");
   const reconcileCheckpointId = latestOpenCheckpointId(ORG_A, PROJECT_A);
   const lifecycleBeforeDenied = currentLifecycle(ORG_A, PROJECT_A);
-  const deniedLifecycle = transitionLifecycle({ orgId: ORG_A, projectId: PROJECT_A, expectedState: lifecycleBeforeDenied.state, expectedVersion: lifecycleBeforeDenied.version + 99, nextState: "access_suspended", sequence: 160 });
+  const deniedLifecycle = transitionLifecycle({ orgId: ORG_A, projectId: PROJECT_A, expectedState: lifecycleBeforeDenied.state, expectedVersion: lifecycleBeforeDenied.version + 99, nextState: "access_suspended", sequence: 160, reason: checkpointReason(reconcileCheckpointId) });
   assert.equal(deniedLifecycle.outcome, "denied");
   const deniedAuditEventId = operatorAuditEventIdForRequest(requestId(160));
-  const reconcileEvidence = createOperatorEvidence(ORG_A, PROJECT_A, 161, { action: "p4c.lifecycle.checkpoint.reconcile" });
-  const reconcileResult = normalizeProcessResult(callReconcileRpc({
-    p_organization_id: ORG_A,
-    p_project_id: PROJECT_A,
-    p_checkpoint_id: reconcileCheckpointId,
-    p_phase3_lifecycle_audit_event_id: deniedAuditEventId,
-    p_idempotency_key: "p4c.reconcile.denied",
-    p_request_id: requestId(161),
-    p_correlation_id: correlationId(161),
-    p_operator_audit_event_id: reconcileEvidence.auditEventId,
-    p_operator_command_receipt_id: reconcileEvidence.commandReceiptId
-  }));
+  const reconcileCommand = makeReconcileCommand({
+    orgId: ORG_A,
+    projectId: PROJECT_A,
+    checkpointId: reconcileCheckpointId,
+    phase3LifecycleAuditEventId: deniedAuditEventId,
+    sequence: 161,
+    idempotencyKey: "p4c.reconcile.denied"
+  });
+  const reconcileResult = await p4c.executePhase4ReconcileLifecycleCheckpointCommand(rpcClient, reconcileCommand);
   assert.equal(reconcileResult.outcome, "reconciliation_required");
   assert.equal(reconcileResult.stableReason, "reconciliation_required");
   assert.equal(reconcileResult.customerAccessAllowed, false);
   assert.equal(reconcileResult.reasonCode, "reconciliation_required");
+  const reconcileReplay = await p4c.executePhase4ReconcileLifecycleCheckpointCommand(rpcClient, reconcileCommand);
+  assert.equal(reconcileReplay.outcome, "replayed");
+  assert.equal(reconcileReplay.stableReason, "duplicate_command");
+  const secondDeniedLifecycle = transitionLifecycle({ orgId: ORG_A, projectId: PROJECT_A, expectedState: lifecycleBeforeDenied.state, expectedVersion: lifecycleBeforeDenied.version + 98, nextState: "access_suspended", sequence: 163, reason: checkpointReason(reconcileCheckpointId) });
+  assert.equal(secondDeniedLifecycle.outcome, "denied");
+  const reconcileConflictCommand = makeReconcileCommand({ orgId: ORG_A, projectId: PROJECT_A, checkpointId: reconcileCheckpointId, phase3LifecycleAuditEventId: operatorAuditEventIdForRequest(requestId(163)), sequence: 164, idempotencyKey: "p4c.reconcile.denied" });
+  const reconcileConflict = await p4c.executePhase4ReconcileLifecycleCheckpointCommand(rpcClient, reconcileConflictCommand);
+  assert.equal(reconcileConflict.outcome, "rejected");
+  assert.equal(reconcileConflict.stableReason, "idempotency_conflict");
 
   const rollbackBefore = domainCounts(ORG_A);
   const rollbackFailure = makeCommand({ sequence: 107, requestSequence: 162, sourceReference: "receipt.rollback", idempotencyKey: "p4c.rollback", nextContractState: "active", paymentFactKind: "payment_reversed", correctsPaymentFactId: "12399999-0000-4000-8000-000000000999" });

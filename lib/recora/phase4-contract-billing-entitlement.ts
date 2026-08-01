@@ -43,6 +43,30 @@ export type Phase4ProviderNeutralBillingCommand = {
 
 export type Phase4ProviderNeutralBillingEnvelope = Phase4ProviderNeutralBillingCommand;
 
+export type Phase4ConfirmLifecycleCheckpointCommand = {
+  schemaVersion: typeof phase4ContractBillingIntegrationSchemaVersion;
+  organizationId: string;
+  projectId: string | null;
+  checkpointId: string;
+  phase3LifecycleEventId: string;
+  idempotencyKey: string;
+  requestId: string;
+  correlationId: string;
+  operatorEvidence: Phase4OperatorEvidence;
+};
+
+export type Phase4ReconcileLifecycleCheckpointCommand = {
+  schemaVersion: typeof phase4ContractBillingIntegrationSchemaVersion;
+  organizationId: string;
+  projectId: string | null;
+  checkpointId: string;
+  phase3LifecycleAuditEventId: string;
+  idempotencyKey: string;
+  requestId: string;
+  correlationId: string;
+  operatorEvidence: Phase4OperatorEvidence;
+};
+
 export type Phase4ContractBillingValidationReason =
   | "ok"
   | "invalid_command"
@@ -134,6 +158,28 @@ const commandKeys = [
   "correlationId",
   "operatorEvidence",
   "correctsPaymentFactId"
+] as const;
+const confirmCommandKeys = [
+  "schemaVersion",
+  "organizationId",
+  "projectId",
+  "checkpointId",
+  "phase3LifecycleEventId",
+  "idempotencyKey",
+  "requestId",
+  "correlationId",
+  "operatorEvidence"
+] as const;
+const reconcileCommandKeys = [
+  "schemaVersion",
+  "organizationId",
+  "projectId",
+  "checkpointId",
+  "phase3LifecycleAuditEventId",
+  "idempotencyKey",
+  "requestId",
+  "correlationId",
+  "operatorEvidence"
 ] as const;
 const operatorEvidenceKeys = ["auditEventId", "commandReceiptId"] as const;
 const customerSafeKeys = [
@@ -280,6 +326,46 @@ export async function executePhase4ContractBillingCommand(
   return normalizeRpcResult(data);
 }
 
+export async function executePhase4ConfirmLifecycleCheckpointCommand(
+  client: Phase4ContractBillingRpcClient,
+  value: unknown
+): Promise<Phase4CustomerSafeContractResult> {
+  const command = validateConfirmLifecycleCheckpointCommand(value);
+  const { data, error } = await client.rpc("recora_p4c_confirm_lifecycle_checkpoint_command", {
+    p_organization_id: command.organizationId,
+    p_project_id: command.projectId,
+    p_checkpoint_id: command.checkpointId,
+    p_phase3_lifecycle_event_id: command.phase3LifecycleEventId,
+    p_idempotency_key: command.idempotencyKey,
+    p_request_id: command.requestId,
+    p_correlation_id: command.correlationId,
+    p_operator_audit_event_id: command.operatorEvidence.auditEventId,
+    p_operator_command_receipt_id: command.operatorEvidence.commandReceiptId
+  });
+  if (error) throw new Error(`P4-C confirm RPC failed: ${formatRpcError(error)}`);
+  return normalizeRpcResult(data);
+}
+
+export async function executePhase4ReconcileLifecycleCheckpointCommand(
+  client: Phase4ContractBillingRpcClient,
+  value: unknown
+): Promise<Phase4CustomerSafeContractResult> {
+  const command = validateReconcileLifecycleCheckpointCommand(value);
+  const { data, error } = await client.rpc("recora_p4c_reconcile_lifecycle_checkpoint_command", {
+    p_organization_id: command.organizationId,
+    p_project_id: command.projectId,
+    p_checkpoint_id: command.checkpointId,
+    p_phase3_lifecycle_audit_event_id: command.phase3LifecycleAuditEventId,
+    p_idempotency_key: command.idempotencyKey,
+    p_request_id: command.requestId,
+    p_correlation_id: command.correlationId,
+    p_operator_audit_event_id: command.operatorEvidence.auditEventId,
+    p_operator_command_receipt_id: command.operatorEvidence.commandReceiptId
+  });
+  if (error) throw new Error(`P4-C reconcile RPC failed: ${formatRpcError(error)}`);
+  return normalizeRpcResult(data);
+}
+
 export function createPendingCustomerSafeContractResult(reasonCode: Exclude<Phase4CustomerSafeReason, "ok"> = "command_unavailable"): Phase4CustomerSafeContractResult {
   const result: Phase4CustomerSafeContractResult = {
     schemaVersion: phase4ContractBillingIntegrationSchemaVersion,
@@ -372,6 +458,54 @@ function normalizeBooleanRecord(value: unknown): Record<string, boolean> {
 function normalizeNumberRecord(value: unknown): Record<string, number> {
   if (!isPlainDataRecord(value, "number")) throw new Error("P4-C RPC limits field is invalid.");
   return { ...value } as Record<string, number>;
+}
+
+function validateConfirmLifecycleCheckpointCommand(value: unknown): Phase4ConfirmLifecycleCheckpointCommand {
+  try {
+    if (!isExactPlainObject(value, confirmCommandKeys)) throw new Error("shape");
+    if (Object.keys(value).some((key) => forbiddenInputAuthorityKeys.test(key))) throw new Error("authority");
+    if (
+      value.schemaVersion !== phase4ContractBillingIntegrationSchemaVersion ||
+      !isUuid(value.organizationId) ||
+      !isNullableUuid(value.projectId) ||
+      !isUuid(value.checkpointId) ||
+      !isUuid(value.phase3LifecycleEventId) ||
+      !isOpaque(value.idempotencyKey) ||
+      value.idempotencyKey.length > 96 ||
+      !isUuid(value.requestId) ||
+      !isUuid(value.correlationId) ||
+      !isOperatorEvidence(value.operatorEvidence)
+    ) {
+      throw new Error("invalid");
+    }
+    return value as Phase4ConfirmLifecycleCheckpointCommand;
+  } catch {
+    throw new Error("Invalid P4-C confirm checkpoint command.");
+  }
+}
+
+function validateReconcileLifecycleCheckpointCommand(value: unknown): Phase4ReconcileLifecycleCheckpointCommand {
+  try {
+    if (!isExactPlainObject(value, reconcileCommandKeys)) throw new Error("shape");
+    if (Object.keys(value).some((key) => forbiddenInputAuthorityKeys.test(key))) throw new Error("authority");
+    if (
+      value.schemaVersion !== phase4ContractBillingIntegrationSchemaVersion ||
+      !isUuid(value.organizationId) ||
+      !isNullableUuid(value.projectId) ||
+      !isUuid(value.checkpointId) ||
+      !isUuid(value.phase3LifecycleAuditEventId) ||
+      !isOpaque(value.idempotencyKey) ||
+      value.idempotencyKey.length > 96 ||
+      !isUuid(value.requestId) ||
+      !isUuid(value.correlationId) ||
+      !isOperatorEvidence(value.operatorEvidence)
+    ) {
+      throw new Error("invalid");
+    }
+    return value as Phase4ReconcileLifecycleCheckpointCommand;
+  } catch {
+    throw new Error("Invalid P4-C reconcile checkpoint command.");
+  }
 }
 
 function isOperatorEvidence(value: unknown): value is Phase4OperatorEvidence {
