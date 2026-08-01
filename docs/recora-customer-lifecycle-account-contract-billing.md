@@ -1,6 +1,6 @@
 # Recora Customer Lifecycle, Account, Contract, and Billing Specification
 
-Status: **Stage 1 Human review approved; Stage 2 child Execute unapproved**
+Status: **Stage 1 Human review approved; P4-B child Execute approved and Draft PR in Human review; other Stage 2 children unapproved**
 Issue: [#119](https://github.com/sushikikun/RECORA/issues/119)
 OWNER review record: [5135247884](https://github.com/sushikikun/RECORA/issues/119#issuecomment-5135247884)
 Approved baseline: `origin/master` at `787fe84b48456bab569b6b5c043d6852271a674f` (PR #118 merge)
@@ -19,7 +19,7 @@ A lower source never overrides a higher source. The post-launch operations archi
 
 The following remain undecided: registration/invite channel, payment provider, merchant/tax/invoice model, marketed plan names, price, currency, free period, billing cadence, proration, refund, grace, dunning, cancellation/reactivation policy, contract template, seat/usage measure, retention duration, and final UI. A later approved product decision supplies those values without changing the technical boundaries here.
 
-This Stage 1 baseline authorizes no schema/migration, Auth/signup/invitation implementation, RLS, DB/Supabase, provider/webhook/API, package/lockfile, deploy, child-Issue, or Stage 2 Execute work.
+This Stage 1 baseline authorized no schema/migration, Auth/signup/invitation implementation, RLS, DB/Supabase, provider/webhook/API, package/lockfile, deploy, child-Issue, or Stage 2 Execute work. Later Issue #122 OWNER comments `5147037668` and `5149714147` separately authorize P4-B only, limited to one current additive P4-B migration, server-only wrapper, verifier, and documentation updates.
 
 ## 2. Phase 3 contracts consumed unchanged
 
@@ -61,7 +61,7 @@ The following domains are separate. P4-A is the proposed owner of new Phase 4 cu
 
 ### 4.1 Invitation and history rules
 
-Acceptance is tenant-bound and one-time. Replay returns the recorded outcome only for the same verified identity and command key; it never creates another membership. Resend never reopens an old invitation: it supersedes it and creates a new ID. Expired, revoked, superseded, canceled, and cross-tenant attempts fail closed. Revoked membership and ended/canceled contract episodes are not silently resurrected: a later authorized relationship uses new invitation, membership episode, contract event, or contract episode. Event, snapshot, audit, and lifecycle evidence remains append-only.
+Acceptance is tenant-bound and one-time. Replay returns the recorded outcome only for the same verified identity and command key; it never creates another membership. Resend never reopens an old invitation: it creates a new ID and terminally invalidates the old invitation. Expired pending invitations must be finalized with an expired event before same-recipient reinvite. Expired, revoked, superseded, canceled, and cross-tenant attempts fail closed. Revoked membership and ended/canceled contract episodes are not silently resurrected: a later authorized relationship uses new invitation, membership episode, contract event, or contract episode. Event, snapshot, audit, and lifecycle evidence remains append-only.`r`n`r`nP4-B PR #127 implements customer invitation accept as an authenticated-only `SECURITY DEFINER` RPC that derives actor identity from `auth.uid()`, confirms the Auth email in DB, hashes the normalized email, and compares it to the tenant-bound invitation recipient binding. Customer accept command receipts use `customer_session` actor evidence, while operator create/resend/revoke/membership commands remain service-role-only and require operator audit evidence. Active resend uses the existing P4-A terminal `revoked` state for the prior row because the current P4-A partial pending unique index plus supersession FK/initial-state rules do not permit safe active `superseded` construction without a forbidden P4-A schema edit.
 
 ### 4.2 Customer-access predicate
 
@@ -127,7 +127,7 @@ Wave 1
 | Wave | Proposed child Issue | Scope owned by the child | Parallel/decision boundary |
 | --- | --- | --- | --- |
 | 1 | P4-A: common canonical authority/state/event foundation | Sole Phase 4 additive persistence owner: business lifecycle current plus append-only history; invitation current/history or one-time contract; provider-neutral contract current plus append-only events; normalized billing receipt/dedupe/order/reconciliation; causal references to Phase 3 policy/snapshot/lifecycle/audit; server-only command interfaces; compatibility-inventory gate. | No provider, price, registration, or live-cutover decision. Stable shared schema/interface and fixture boundary complete before Wave 2. |
-| 2 | P4-B: account/invitation/membership and derived access | Auth-adjacent server commands, invitation acceptance, membership commands, explicit scope selection, and derived customer-access gate using P4-A/Phase 3 contracts. | Depends on P4-A; OWNER comment `5147037668` on Issue #122 allows exactly one narrow additive P4-B RPC migration. No P4-C contract/billing file edits. No final UI/registration decision. |
+| 2 | P4-B: account/invitation/membership and derived access | Auth-adjacent server commands, authenticated invitation acceptance, membership commands, explicit scope selection, and derived customer-access gate using P4-A/Phase 3 contracts. | Depends on P4-A; OWNER comments `5147037668` and `5149714147` on Issue #122 allow exactly one narrow additive P4-B RPC migration plus minimal customer-session actor evidence inside that migration. No P4-C contract/billing file edits. No final UI/registration decision. |
 | 2 | P4-C: provider-neutral fixture, billing normalization, and projection | Manual fixture plus provider-neutral normalized-event adapter; contract projection; atomic snapshot/pointer effect; lifecycle checkpoint/outbox recovery; negative/idempotency tests. | Depends on P4-A; edits no migration/Auth flow; no live provider call. Interface, fixture, and fail-closed policy hooks can precede provider/price/trial/cadence choice; policy activation/live cutover cannot. |
 | 3 | P4-D: compatibility cutover and release proof | End-to-end security/recovery/compatibility/customer-safe/operator-audit proof and release/cutover gate. | Depends on P4-B/P4-C. It alone proposes compatibility cutover and does not expand into Phase 5-10. |
 
@@ -141,4 +141,8 @@ Stop for Human review if a product decision is required; a proposal weakens Phas
 
 - OWNER record 5135247884 approved this Stage 1 baseline after these five documentation corrections.
 - Authority order, real evidence paths, transition matrix, invitation rules, billing separation, atomic/recovery contract, three-Wave boundary, deferred product decisions, and customer-safe allowlists are synchronized with the Exec Plan.
-- Stage 2 child Execute remains unapproved. No child Issue, product implementation, migration, Auth/DB/Supabase/provider action, or UI decision is created by this document.
+- Other Stage 2 child Execute remains unapproved. This document itself creates no child Issue, product implementation, Auth/DB/Supabase/provider action, package change, deploy, or UI decision; Issue #122 P4-B is separately authorized by later OWNER comments and remains Draft PR / Human review.
+
+## 10. P4-B PR #127 validation record
+
+2026-08-01: Issue #122 P4-B changes are in Draft PR #127 on `codex/issue-122-p4b-account-access` and remain stopped for Human review. Local validations passed for the Issue #122 P4-B matrix, P4-A regression, reset 3 kinds, Supabase advisors, preflight, typecheck, lint, build, dashboard read-model, diff validation; `npm run recora:commit-check` re-ran preflight successfully but stopped on the generic migration auto-allow guard. Supabase `db lint --local` returned exit 0 with existing non-P4-B volatility warnings in retention/lifecycle functions. Phase 3 3A-3H passed with an untracked P4-B-aware temp verifier that adds only the newly approved authenticated accept RPC to the browser EXECUTE allowlist; the tracked pre-P4-B verifier stops on that expected new grant.

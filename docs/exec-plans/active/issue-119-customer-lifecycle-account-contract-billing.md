@@ -1,6 +1,6 @@
 # Exec Plan: Issue #119 - Phase 4 customer lifecycle, account, contract, and billing
 
-> Status: **Stage 1 Human review approved; Stage 2 child Execute unapproved**
+> Status: **Stage 1 Human review approved; P4-B child Execute approved and Draft PR in Human review; other Stage 2 children unapproved**
 > Issue: [#119](https://github.com/sushikikun/RECORA/issues/119)
 > OWNER review record: [5135247884](https://github.com/sushikikun/RECORA/issues/119#issuecomment-5135247884)
 > Risk: R3 / Execution: Local Codex / Specification: Full
@@ -58,7 +58,7 @@ Wave 1: P4-A common canonical authority/state/event persistence + command bounda
 | Proposed child | Wave | Required scope | Dependency and anti-conflict boundary |
 | --- | --- | --- | --- |
 | P4-A: common Phase 4 authority/state/event foundation | 1 | Sole additive persistence owner: business lifecycle current/history; invitation current/history or one-time contract; provider-neutral contract current/events; normalized billing receipt/dedupe/order/reconciliation; Phase 3 policy/snapshot/lifecycle/audit causal links; server-only command interfaces; compatibility inventory gate. | No provider/price/registration/live-cutover decision. Stable shared schema/interface/fixture boundary completes before Wave 2. |
-| P4-B: account, invitation, membership, derived access | 2 | Auth-adjacent server commands and derived access using P4-A/Phase 3. | Depends on P4-A; OWNER comment `5147037668` on Issue #122 allows exactly one narrow additive P4-B RPC migration. No P4-C contract/billing file edits. No final UI/registration decision. |
+| P4-B: account, invitation, membership, derived access | 2 | Auth-adjacent server commands, authenticated invitation accept, membership commands, and derived access using P4-A/Phase 3. | Depends on P4-A; OWNER comments `5147037668` and `5149714147` on Issue #122 allow exactly one narrow additive P4-B RPC migration plus minimal customer-session actor evidence inside that same migration. No P4-C contract/billing file edits. No final UI/registration decision. |
 | P4-C: provider-neutral fixture, projection, lifecycle integration | 2 | Manual fixture/normalized-event adapter; projection; immutable snapshot/pointer effect; lifecycle checkpoint/outbox; negative/idempotency tests. | Depends on P4-A; no migration/Auth flow/live provider call. It may run parallel with P4-B. |
 | P4-D: cutover and release proof | 3 | End-to-end security/recovery/compatibility/customer-safe/operator-audit proof and release gate. | Depends on P4-B/P4-C; alone proposes compatibility cutover after separate approval. |
 
@@ -70,7 +70,7 @@ Wave 1: P4-A common canonical authority/state/event persistence + command bounda
 | M2: Formal authority/transition contract | Complete | Authority order, real evidence paths, ten domains, invitation semantics, billing separation, recovery, safe surfaces, and Waves are in companion spec. |
 | M3: Stage 1 Human review approval | Complete | OWNER comment 5135247884 approved corrected baseline subject to three-document change, validation, master merge, and CI gates. |
 | M4: Revalidation and merge gate | In progress | Required local/link/scope/secret checks, conflict-free non-force master merge, CI/thread/Vercel gates remain. |
-| M5: Stage 2 child Execute | Unapproved | No child Issue/implementation starts without individual later approval. |
+| M5: Stage 2 child Execute | Partial | P4-B Issue #122 has Execute authority and remains Draft PR #127 / Human review. P4-C/P4-D remain unapproved and must not start without later approval. |
 
 ## 7. Verification and stop conditions
 
@@ -85,3 +85,4 @@ Future work is additive: retain compatible reads until P4-D proof; preserve heal
 - 2026-07-31: Static audit from PR #118 baseline completed without DB/Supabase/Auth/provider/environment use.
 - 2026-07-31: Stage 1 documentation PR #120 opened.
 - 2026-07-31: OWNER record 5135247884 approved the Stage 1 baseline and five documentation corrections; Stage 2 remains unapproved.
+- 2026-08-01: P4-B Issue #122 resumed under OWNER comment 5149714147 on branch `codex/issue-122-p4b-account-access`; PR #127 remains Draft/Human review after local P4-B, P4-A, Phase 3, reset, lint/advisor, preflight, typecheck, lint, build, read-model, diff validation; `npm run recora:commit-check` re-ran preflight successfully but stopped on the generic migration auto-allow guard. The only noted validation nuance is the tracked pre-P4-B Issue #117 verifier allowlist; an untracked P4-B-aware temp copy passed 3A-3H, while the tracked verifier stops on the newly approved authenticated accept RPC grant.

@@ -29,8 +29,8 @@ export type Phase4CustomerAccessDto = {
   reasonCode: string;
   membershipRole: Phase4AccountRole | null;
   entitlement: {
-    capabilities: Record<string, boolean>;
-    limits: Record<string, number>;
+    capabilities: Partial<Record<Phase4CustomerCapability, boolean>>;
+    limits: Partial<Record<Phase4CustomerLimit, number>>;
   };
   evidence: {
     lifecycleReasonCode: string | null;
@@ -39,36 +39,130 @@ export type Phase4CustomerAccessDto = {
   };
 };
 
-type CommandRpcRow = {
-  command_receipt_id: unknown;
-  outcome: unknown;
-  reason_code: unknown;
-  invitation_id: unknown;
-  invitation_state: unknown;
-  membership_id: unknown;
-  membership_status: unknown;
-  membership_episode_id: unknown;
-  membership_episode_state: unknown;
-  audit_event_id: unknown;
-  operator_command_receipt_id: unknown;
-};
+type Phase4CustomerCapability = "report.view" | "export.data";
+type Phase4CustomerLimit = "projects";
 
-type AccessRpcRow = {
-  customer_access_allowed: unknown;
-  reason_code: unknown;
-  membership_role: unknown;
-  entitlement_capabilities: unknown;
-  entitlement_limits: unknown;
-  lifecycle_reason_code: unknown;
-  entitlement_reason_code: unknown;
-  checkpoint_reason_code: unknown;
-};
+type CommandRpcRow = Record<(typeof commandRowKeys)[number], unknown>;
+type AccessRpcRow = Record<(typeof accessRowKeys)[number], unknown>;
 
 const roles = new Set<Phase4AccountRole>(["owner", "admin", "member", "viewer"]);
 const invitationStates = new Set<Phase4InvitationState>(["pending", "accepted", "expired", "revoked", "superseded"]);
 const membershipStatuses = new Set<Phase4MembershipStatus>(["invited", "active", "suspended", "revoked"]);
 const episodeStates = new Set<Phase4MembershipEpisodeState>(["invited", "active", "revoked"]);
 const outcomes = new Set<Phase4CommandOutcome>(["accepted", "replayed", "rejected"]);
+
+const commandReasonCodes = new Set([
+  "ok",
+  "duplicate_command",
+  "idempotency_conflict",
+  "invalid_scope",
+  "invalid_reference",
+  "target_organization_not_found",
+  "target_scope_mismatch",
+  "target_type_not_supported",
+  "operator_identity_required",
+  "operator_not_registered",
+  "operator_not_active",
+  "action_invalid",
+  "reason_required",
+  "reason_unsafe",
+  "summary_unsafe",
+  "permission_denied",
+  "operator_authorization_denied",
+  "operator_boundary_unavailable",
+  "operator_receipt_missing",
+  "operator_receipt_conflict",
+  "operator_command_failed",
+  "pending_invitation_exists",
+  "invitation_not_pending",
+  "invitation_expired",
+  "recipient_mismatch",
+  "identity_unverified",
+  "invitation_unavailable",
+  "membership_relation_exists",
+  "membership_not_active",
+  "membership_not_suspended",
+  "membership_not_revocable",
+]);
+
+const accessReasonCodes = new Set([
+  "ok",
+  "invalid_scope",
+  "capability_unavailable",
+  "membership_required",
+  "ambiguous_membership",
+  "lifecycle_unavailable",
+  "lifecycle_invalid_scope",
+  "lifecycle_no_lifecycle_state",
+  "lifecycle_ambiguous_lifecycle_state",
+  "lifecycle_retained_restore_eligible",
+  "lifecycle_access_suspended",
+  "lifecycle_retained",
+  "lifecycle_deletion_scheduled",
+  "lifecycle_deleting",
+  "lifecycle_deleted",
+  "lifecycle_deletion_failed",
+  "entitlement_unavailable",
+  "entitlement_invalid_scope",
+  "entitlement_no_snapshot",
+  "entitlement_ambiguous_snapshot",
+  "entitlement_expired_snapshot",
+  "checkpoint_unavailable",
+  "checkpoint_invalid_scope",
+  "checkpoint_checkpoint_pending",
+  "checkpoint_checkpoint_failed",
+  "checkpoint_reconciliation_required",
+  "resolver_unavailable",
+]);
+
+const evidenceReasonCodes = new Set([
+  "ok",
+  "active",
+  "invalid_scope",
+  "no_lifecycle_state",
+  "ambiguous_lifecycle_state",
+  "retained_restore_eligible",
+  "access_suspended",
+  "retained",
+  "deletion_scheduled",
+  "deleting",
+  "deleted",
+  "deletion_failed",
+  "no_snapshot",
+  "ambiguous_snapshot",
+  "expired_snapshot",
+  "checkpoint_pending",
+  "checkpoint_failed",
+  "reconciliation_required",
+]);
+
+const customerCapabilities = new Set<Phase4CustomerCapability>(["report.view", "export.data"]);
+const customerLimits = new Set<Phase4CustomerLimit>(["projects"]);
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const commandRowKeys = [
+  "command_receipt_id",
+  "outcome",
+  "reason_code",
+  "invitation_id",
+  "invitation_state",
+  "membership_id",
+  "membership_status",
+  "membership_episode_id",
+  "membership_episode_state",
+  "audit_event_id",
+  "operator_command_receipt_id",
+] as const;
+const accessRowKeys = [
+  "customer_access_allowed",
+  "reason_code",
+  "membership_role",
+  "entitlement_capabilities",
+  "entitlement_limits",
+  "lifecycle_reason_code",
+  "entitlement_reason_code",
+  "checkpoint_reason_code",
+] as const;
 
 export async function createPhase4Invitation(
   transport: Phase4AccountAccessRpcTransport,
@@ -147,8 +241,6 @@ export async function acceptPhase4Invitation(
   transport: Phase4AccountAccessRpcTransport,
   input: {
     invitationId: string;
-    verifiedAuthUserId: string;
-    recipientBindingHash: string;
     requestId: string;
     correlationId: string;
     idempotencyKey: string;
@@ -156,8 +248,6 @@ export async function acceptPhase4Invitation(
 ): Promise<Phase4AccountCommandResult> {
   return callCommand(transport, "recora_p4b_invitation_accept", {
     p_invitation_id: input.invitationId,
-    p_verified_auth_user_id: input.verifiedAuthUserId,
-    p_recipient_binding_hash: input.recipientBindingHash,
     p_request_id: input.requestId,
     p_correlation_id: input.correlationId,
     p_idempotency_key: input.idempotencyKey,
@@ -202,8 +292,7 @@ export async function resolvePhase4CustomerAccess(
   });
 
   if (error) return unavailableAccess();
-  const row = Array.isArray(data) ? (data[0] as AccessRpcRow | undefined) : undefined;
-  return normalizeAccess(row);
+  return normalizeAccessRows(data);
 }
 
 type OperatorMembershipCommandInput = {
@@ -238,58 +327,80 @@ async function callCommand(
   const { data, error } = await transport.rpc(functionName, args);
   if (error) throw new Error("The Phase 4 account command boundary could not record the command.");
 
-  const row = Array.isArray(data) ? (data[0] as CommandRpcRow | undefined) : undefined;
-  return normalizeCommand(row);
+  return normalizeCommandRows(data);
 }
 
-function normalizeCommand(row: CommandRpcRow | undefined): Phase4AccountCommandResult {
-  if (!row || typeof row.outcome !== "string" || !outcomes.has(row.outcome as Phase4CommandOutcome) || typeof row.reason_code !== "string") {
-    throw new Error("The Phase 4 account command boundary returned an invalid response.");
-  }
+function normalizeCommandRows(data: unknown): Phase4AccountCommandResult {
+  const row = exactSingleRow(data, commandRowKeys);
+  if (!row) throw invalidCommandResponse();
+  return normalizeCommand(row as CommandRpcRow);
+}
 
-  const invitationState = nullableEnum(row.invitation_state, invitationStates);
-  const membershipStatus = nullableEnum(row.membership_status, membershipStatuses);
-  const episodeState = nullableEnum(row.membership_episode_state, episodeStates);
+function normalizeCommand(row: CommandRpcRow): Phase4AccountCommandResult {
+  if (typeof row.outcome !== "string" || !outcomes.has(row.outcome as Phase4CommandOutcome)) throw invalidCommandResponse();
+  if (typeof row.reason_code !== "string" || !commandReasonCodes.has(row.reason_code)) throw invalidCommandResponse();
+  const outcome = row.outcome as Phase4CommandOutcome;
+
+  if ((outcome === "accepted" && row.reason_code !== "ok") || (outcome === "replayed" && row.reason_code !== "duplicate_command")) {
+    throw invalidCommandResponse();
+  }
+  if (outcome === "rejected" && (row.reason_code === "ok" || row.reason_code === "duplicate_command")) throw invalidCommandResponse();
+
+  const commandReceiptId = nullableUuid(row.command_receipt_id);
+  if ((outcome === "accepted" || outcome === "replayed") && !commandReceiptId) throw invalidCommandResponse();
+  if (outcome === "rejected" && commandReceiptId && row.reason_code !== "idempotency_conflict") throw invalidCommandResponse();
+
+  const auditEventId = nullableUuid(row.audit_event_id);
+  const operatorCommandReceiptId = nullableUuid(row.operator_command_receipt_id);
+  if ((auditEventId === null) !== (operatorCommandReceiptId === null)) throw invalidCommandResponse();
 
   return {
-    commandReceiptId: nullableString(row.command_receipt_id),
-    outcome: row.outcome as Phase4CommandOutcome,
+    commandReceiptId,
+    outcome,
     reasonCode: row.reason_code,
-    invitation:
-      nullableString(row.invitation_id) && invitationState
-        ? { id: nullableString(row.invitation_id)!, state: invitationState }
-        : null,
-    membership:
-      nullableString(row.membership_id) && membershipStatus
-        ? { id: nullableString(row.membership_id)!, status: membershipStatus }
-        : null,
-    membershipEpisode:
-      nullableString(row.membership_episode_id) && episodeState
-        ? { id: nullableString(row.membership_episode_id)!, state: episodeState }
-        : null,
-    auditEventId: nullableString(row.audit_event_id),
-    operatorCommandReceiptId: nullableString(row.operator_command_receipt_id),
+    invitation: normalizeEntity(row.invitation_id, row.invitation_state, invitationStates, "state"),
+    membership: normalizeEntity(row.membership_id, row.membership_status, membershipStatuses, "status"),
+    membershipEpisode: normalizeEntity(row.membership_episode_id, row.membership_episode_state, episodeStates, "state"),
+    auditEventId,
+    operatorCommandReceiptId,
   };
 }
 
-function normalizeAccess(row: AccessRpcRow | undefined): Phase4CustomerAccessDto {
-  if (!row || typeof row.customer_access_allowed !== "boolean" || typeof row.reason_code !== "string") {
+function normalizeAccessRows(data: unknown): Phase4CustomerAccessDto {
+  const row = exactSingleRow(data, accessRowKeys);
+  if (!row) return unavailableAccess();
+  return normalizeAccess(row as AccessRpcRow);
+}
+
+function normalizeAccess(row: AccessRpcRow): Phase4CustomerAccessDto {
+  if (typeof row.customer_access_allowed !== "boolean" || typeof row.reason_code !== "string" || !accessReasonCodes.has(row.reason_code)) {
     return unavailableAccess();
+  }
+
+  const membershipRole = nullableEnum(row.membership_role, roles);
+  if (row.membership_role !== null && membershipRole === null) return unavailableAccess();
+
+  const capabilities = normalizeBooleanRecord(row.entitlement_capabilities, customerCapabilities);
+  const limits = normalizeNumberRecord(row.entitlement_limits, customerLimits);
+  if (capabilities === null || limits === null) return unavailableAccess();
+
+  const lifecycleReasonCode = nullableReason(row.lifecycle_reason_code);
+  const entitlementReasonCode = nullableReason(row.entitlement_reason_code);
+  const checkpointReasonCode = nullableReason(row.checkpoint_reason_code);
+  if (lifecycleReasonCode === undefined || entitlementReasonCode === undefined || checkpointReasonCode === undefined) return unavailableAccess();
+
+  if (row.customer_access_allowed) {
+    if (row.reason_code !== "ok" || membershipRole === null || lifecycleReasonCode !== "active" || entitlementReasonCode !== "ok" || checkpointReasonCode !== "ok") {
+      return unavailableAccess();
+    }
   }
 
   return {
     customerAccessAllowed: row.customer_access_allowed,
     reasonCode: row.reason_code,
-    membershipRole: typeof row.membership_role === "string" && roles.has(row.membership_role as Phase4AccountRole) ? (row.membership_role as Phase4AccountRole) : null,
-    entitlement: {
-      capabilities: normalizeBooleanRecord(row.entitlement_capabilities),
-      limits: normalizeNumberRecord(row.entitlement_limits),
-    },
-    evidence: {
-      lifecycleReasonCode: nullableString(row.lifecycle_reason_code),
-      entitlementReasonCode: nullableString(row.entitlement_reason_code),
-      checkpointReasonCode: nullableString(row.checkpoint_reason_code),
-    },
+    membershipRole,
+    entitlement: { capabilities, limits },
+    evidence: { lifecycleReasonCode, entitlementReasonCode, checkpointReasonCode },
   };
 }
 
@@ -303,24 +414,91 @@ function unavailableAccess(): Phase4CustomerAccessDto {
   };
 }
 
-function nullableString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
+function invalidCommandResponse(): Error {
+  return new Error("The Phase 4 account command boundary returned an invalid response.");
+}
+
+function exactSingleRow<T extends readonly string[]>(data: unknown, expectedKeys: T): Record<T[number], unknown> | null {
+  if (!Array.isArray(data) || data.length !== 1) return null;
+  return exactPlainRecord(data[0], expectedKeys);
+}
+
+function exactPlainRecord<T extends readonly string[]>(value: unknown, expectedKeys: T): Record<T[number], unknown> | null {
+  if (!isPlainDataRecord(value)) return null;
+  const actualKeys = Object.keys(value);
+  if (actualKeys.length !== expectedKeys.length) return null;
+  for (const key of expectedKeys) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) return null;
+  }
+  return value as Record<T[number], unknown>;
+}
+
+function isPlainDataRecord(value: unknown): value is Record<string, unknown> {
+  try {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+    if (Object.getOwnPropertySymbols(value).length !== 0) return false;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    return Object.values(descriptors).every((descriptor) => "value" in descriptor && descriptor.enumerable);
+  } catch {
+    return false;
+  }
+}
+
+function nullableUuid(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value === "string" && uuidPattern.test(value)) return value;
+  throw invalidCommandResponse();
+}
+
+function nullableReason(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  return typeof value === "string" && evidenceReasonCodes.has(value) ? value : undefined;
 }
 
 function nullableEnum<T extends string>(value: unknown, allowed: Set<T>): T | null {
   return typeof value === "string" && allowed.has(value as T) ? (value as T) : null;
 }
 
-function normalizeBooleanRecord(value: unknown): Record<string, boolean> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
+function normalizeEntity<T extends string, K extends "state" | "status">(
+  idValue: unknown,
+  stateValue: unknown,
+  allowedStates: Set<T>,
+  stateKey: K,
+): ({ id: string } & Record<K, T>) | null {
+  const id = nullableUuid(idValue);
+  const state = nullableEnum(stateValue, allowedStates);
+  if (id === null && stateValue === null) return null;
+  if (id !== null && state !== null) return { id, [stateKey]: state } as { id: string } & Record<K, T>;
+  throw invalidCommandResponse();
 }
 
-function normalizeNumberRecord(value: unknown): Record<string, number> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value).filter(
-      (entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0,
-    ),
-  );
+function normalizeBooleanRecord<K extends string>(value: unknown, allowedKeys: Set<K>): Partial<Record<K, boolean>> | null {
+  const record = exactAllowedValueRecord(value, allowedKeys);
+  if (!record) return null;
+  const normalized: Partial<Record<K, boolean>> = {};
+  for (const [key, entryValue] of Object.entries(record)) {
+    if (typeof entryValue !== "boolean") return null;
+    normalized[key as K] = entryValue;
+  }
+  return normalized;
+}
+
+function normalizeNumberRecord<K extends string>(value: unknown, allowedKeys: Set<K>): Partial<Record<K, number>> | null {
+  const record = exactAllowedValueRecord(value, allowedKeys);
+  if (!record) return null;
+  const normalized: Partial<Record<K, number>> = {};
+  for (const [key, entryValue] of Object.entries(record)) {
+    if (typeof entryValue !== "number" || !Number.isFinite(entryValue) || entryValue < 0) return null;
+    normalized[key as K] = entryValue;
+  }
+  return normalized;
+}
+
+function exactAllowedValueRecord<K extends string>(value: unknown, allowedKeys: Set<K>): Partial<Record<K, unknown>> | null {
+  if (!isPlainDataRecord(value)) return null;
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key as K)) return null;
+  }
+  return value as Partial<Record<K, unknown>>;
 }
