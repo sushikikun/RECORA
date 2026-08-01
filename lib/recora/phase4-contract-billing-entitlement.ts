@@ -1,7 +1,5 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
-
 export const phase4ContractBillingIntegrationSchemaVersion = 1 as const;
 
 export type Phase4ContractState =
@@ -18,8 +16,6 @@ export type Phase4PaymentFactKind =
   | "payment_reversed"
   | "payment_disputed"
   | "payment_unknown";
-
-export type Phase4DownstreamEffectResult = "pending" | "completed" | "reconciliation_required";
 
 export type Phase4OperatorEvidence = {
   auditEventId: string;
@@ -38,14 +34,11 @@ export type Phase4ProviderNeutralBillingCommand = {
   nextContractState: Phase4ContractState;
   paymentFactKind: Phase4PaymentFactKind;
   paymentChainKey: string;
-  authoritativePlanPolicyKey: string;
   idempotencyKey: string;
   requestId: string;
   correlationId: string;
   operatorEvidence: Phase4OperatorEvidence;
-  payloadFingerprint: string | null;
   correctsPaymentFactId: string | null;
-  downstreamEffectResult: Phase4DownstreamEffectResult;
 };
 
 export type Phase4ProviderNeutralBillingEnvelope = Phase4ProviderNeutralBillingCommand;
@@ -57,7 +50,6 @@ export type Phase4ContractBillingValidationReason =
   | "invalid_source"
   | "invalid_contract"
   | "invalid_payment_fact"
-  | "invalid_policy"
   | "invalid_operator_evidence";
 
 export type Phase4ContractBillingValidation =
@@ -72,8 +64,16 @@ export type Phase4CustomerSafeReason =
   | "expired_snapshot"
   | "checkpoint_pending"
   | "checkpoint_failed"
+  | "ordering_conflict"
   | "reconciliation_required"
-  | "command_unavailable";
+  | "command_unavailable"
+  | "lifecycle_access_suspended"
+  | "lifecycle_retained"
+  | "lifecycle_deletion_scheduled"
+  | "lifecycle_deleting"
+  | "lifecycle_deleted"
+  | "lifecycle_deletion_failed"
+  | "lifecycle_unavailable";
 
 export type Phase4ContractBillingRpcOutcome =
   | "applied"
@@ -81,10 +81,22 @@ export type Phase4ContractBillingRpcOutcome =
   | "rejected"
   | "reconciliation_required";
 
+export type Phase4ContractBillingStableReason =
+  | "ok"
+  | "invalid_scope"
+  | "invalid_reference"
+  | "duplicate_command"
+  | "idempotency_conflict"
+  | "ordering_conflict"
+  | "checkpoint_pending"
+  | "checkpoint_failed"
+  | "reconciliation_required"
+  | "command_unavailable";
+
 export type Phase4CustomerSafeContractResult = {
   schemaVersion: typeof phase4ContractBillingIntegrationSchemaVersion;
   outcome: Phase4ContractBillingRpcOutcome;
-  stableReason: string;
+  stableReason: Phase4ContractBillingStableReason;
   customerAccessAllowed: boolean;
   reasonCode: Phase4CustomerSafeReason;
   effectiveFrom: string | null;
@@ -93,9 +105,14 @@ export type Phase4CustomerSafeContractResult = {
   limits: Record<string, number>;
 };
 
+type Phase4ContractBillingRpcName =
+  | "recora_p4c_apply_contract_billing_entitlement_command"
+  | "recora_p4c_confirm_lifecycle_checkpoint_command"
+  | "recora_p4c_reconcile_lifecycle_checkpoint_command";
+
 export type Phase4ContractBillingRpcClient = {
   rpc: (
-    name: "recora_p4c_apply_contract_billing_entitlement_command",
+    name: Phase4ContractBillingRpcName,
     args: Record<string, unknown>
   ) => Promise<{ data: unknown; error: unknown }>;
 };
@@ -112,14 +129,11 @@ const commandKeys = [
   "nextContractState",
   "paymentFactKind",
   "paymentChainKey",
-  "authoritativePlanPolicyKey",
   "idempotencyKey",
   "requestId",
   "correlationId",
   "operatorEvidence",
-  "payloadFingerprint",
-  "correctsPaymentFactId",
-  "downstreamEffectResult"
+  "correctsPaymentFactId"
 ] as const;
 const operatorEvidenceKeys = ["auditEventId", "commandReceiptId"] as const;
 const customerSafeKeys = [
@@ -133,19 +147,57 @@ const customerSafeKeys = [
   "capabilities",
   "limits"
 ] as const;
+const rpcRowKeys = [
+  "schema_version",
+  "outcome",
+  "stable_reason",
+  "customer_access_allowed",
+  "reason_code",
+  "effective_from",
+  "effective_until",
+  "capabilities",
+  "limits"
+] as const;
 
-const forbiddenInputAuthorityKeys = /^(entitlement|capabilities|limits|resolvedDocument|blocksCustomerAccess|currentContractState|latestSourceSequence|existingReceipt|receipt|contract|paymentFact|lifecycleCheckpoint)$/;
+const forbiddenInputAuthorityKeys = /^(entitlement|capabilities|limits|resolvedDocument|blocksCustomerAccess|currentContractState|latestSourceSequence|existingReceipt|receipt|contract|paymentFact|lifecycleCheckpoint|authoritativePlanPolicyKey|policyKey|payloadFingerprint|downstreamEffectResult)$/;
 const forbiddenCustomerSafeKeys = /provider|billing|receipt|payment|audit|payload|webhook|signature|pointer|snapshot|policy|command|correlation|request|source/i;
 const opaqueReference = /^[a-z][a-z0-9_.:-]{2,127}$/;
 const sensitiveOpaque = /(^|[_.:-])(token|secret|password|credential|authorization|cookie|session|email|phone|jwt|claim|access|refresh|payload|webhook|signature|payment_method|database|private|api)([_.:-]|$)/i;
-const fingerprint = /^[0-9a-f]{64}$/;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const contractStates = new Set<Phase4ContractState>(["draft", "pending_activation", "active", "paused", "canceled", "ended"]);
 const paymentFactKinds = new Set<Phase4PaymentFactKind>(["payment_succeeded", "payment_failed", "payment_reversed", "payment_disputed", "payment_unknown"]);
-const effectResults = new Set<Phase4DownstreamEffectResult>(["pending", "completed", "reconciliation_required"]);
-const safeReasons = new Set<Phase4CustomerSafeReason>(["ok", "invalid_scope", "no_snapshot", "ambiguous_snapshot", "expired_snapshot", "checkpoint_pending", "checkpoint_failed", "reconciliation_required", "command_unavailable"]);
+const safeReasons = new Set<Phase4CustomerSafeReason>([
+  "ok",
+  "invalid_scope",
+  "no_snapshot",
+  "ambiguous_snapshot",
+  "expired_snapshot",
+  "checkpoint_pending",
+  "checkpoint_failed",
+  "ordering_conflict",
+  "reconciliation_required",
+  "command_unavailable",
+  "lifecycle_access_suspended",
+  "lifecycle_retained",
+  "lifecycle_deletion_scheduled",
+  "lifecycle_deleting",
+  "lifecycle_deleted",
+  "lifecycle_deletion_failed",
+  "lifecycle_unavailable"
+]);
 const rpcOutcomes = new Set<Phase4ContractBillingRpcOutcome>(["applied", "replayed", "rejected", "reconciliation_required"]);
-
+const stableReasons = new Set<Phase4ContractBillingStableReason>([
+  "ok",
+  "invalid_scope",
+  "invalid_reference",
+  "duplicate_command",
+  "idempotency_conflict",
+  "ordering_conflict",
+  "checkpoint_pending",
+  "checkpoint_failed",
+  "reconciliation_required",
+  "command_unavailable"
+]);
 export function validateProviderNeutralBillingEnvelope(value: unknown): Phase4ContractBillingValidation {
   try {
     if (!isExactPlainObject(value, commandKeys)) return invalid("invalid_command");
@@ -161,17 +213,13 @@ export function validateProviderNeutralBillingEnvelope(value: unknown): Phase4Co
       !isOpaque(value.idempotencyKey) ||
       value.idempotencyKey.length > 96 ||
       !isUuid(value.requestId) ||
-      !isUuid(value.correlationId) ||
-      !(value.payloadFingerprint === null || (typeof value.payloadFingerprint === "string" && fingerprint.test(value.payloadFingerprint)))
+      !isUuid(value.correlationId)
     ) {
       return invalid("invalid_source");
     }
     if (!isOpaque(value.contractReference) || !isContractState(value.nextContractState)) return invalid("invalid_contract");
     if (!isPaymentFactKind(value.paymentFactKind) || !isOpaque(value.paymentChainKey) || !isNullableUuid(value.correctsPaymentFactId)) {
       return invalid("invalid_payment_fact");
-    }
-    if (!isOpaque(value.authoritativePlanPolicyKey) || !effectResults.has(value.downstreamEffectResult as Phase4DownstreamEffectResult)) {
-      return invalid("invalid_policy");
     }
     if (!isOperatorEvidence(value.operatorEvidence)) return invalid("invalid_operator_evidence");
     return { ok: true, command: value as Phase4ProviderNeutralBillingCommand };
@@ -183,6 +231,7 @@ export function validateProviderNeutralBillingEnvelope(value: unknown): Phase4Co
 export function isProviderNeutralBillingEnvelope(value: unknown): value is Phase4ProviderNeutralBillingCommand {
   return validateProviderNeutralBillingEnvelope(value).ok;
 }
+
 export function createCanonicalPhase4ContractBillingPayload(command: Phase4ProviderNeutralBillingCommand): Record<string, unknown> {
   const validation = validateProviderNeutralBillingEnvelope(command);
   if (!validation.ok) throw new Error(`Invalid P4-C command: ${validation.reasonCode}`);
@@ -198,15 +247,8 @@ export function createCanonicalPhase4ContractBillingPayload(command: Phase4Provi
     nextContractState: command.nextContractState,
     paymentFactKind: command.paymentFactKind,
     paymentChainKey: command.paymentChainKey,
-    correctsPaymentFactId: command.correctsPaymentFactId,
-    authoritativePlanPolicyKey: command.authoritativePlanPolicyKey
+    correctsPaymentFactId: command.correctsPaymentFactId
   };
-}
-
-export function createPhase4ContractBillingPayloadFingerprint(command: Phase4ProviderNeutralBillingCommand): string {
-  return createHash("sha256")
-    .update(stableStringify(createCanonicalPhase4ContractBillingPayload(command)))
-    .digest("hex");
 }
 
 export async function executePhase4ContractBillingCommand(
@@ -227,27 +269,22 @@ export async function executePhase4ContractBillingCommand(
     p_next_contract_state: command.nextContractState,
     p_payment_fact_kind: command.paymentFactKind,
     p_payment_chain_key: command.paymentChainKey,
-    p_authoritative_plan_policy_key: command.authoritativePlanPolicyKey,
     p_idempotency_key: command.idempotencyKey,
     p_request_id: command.requestId,
     p_correlation_id: command.correlationId,
     p_operator_audit_event_id: command.operatorEvidence.auditEventId,
     p_operator_command_receipt_id: command.operatorEvidence.commandReceiptId,
-    p_payload_fingerprint: command.payloadFingerprint,
-    p_corrects_payment_fact_id: command.correctsPaymentFactId,
-    p_downstream_effect_result: command.downstreamEffectResult
+    p_corrects_payment_fact_id: command.correctsPaymentFactId
   });
   if (error) throw new Error(`P4-C RPC failed: ${formatRpcError(error)}`);
-  const result = normalizeRpcResult(data);
-  assertCustomerSafeContractResult(result);
-  return result;
+  return normalizeRpcResult(data);
 }
 
 export function createPendingCustomerSafeContractResult(reasonCode: Exclude<Phase4CustomerSafeReason, "ok"> = "command_unavailable"): Phase4CustomerSafeContractResult {
   const result: Phase4CustomerSafeContractResult = {
     schemaVersion: phase4ContractBillingIntegrationSchemaVersion,
     outcome: "rejected",
-    stableReason: reasonCode,
+    stableReason: reasonCode === "invalid_scope" ? "invalid_scope" : "command_unavailable",
     customerAccessAllowed: false,
     reasonCode,
     effectiveFrom: null,
@@ -267,10 +304,23 @@ export function planPhase4ContractBillingEffects(value: unknown): { ok: boolean;
 
 export function assertCustomerSafeContractResult(result: Phase4CustomerSafeContractResult): void {
   if (!isExactPlainObject(result, customerSafeKeys)) throw new Error("P4-C customer-safe result shape is not exact.");
-  if (!rpcOutcomes.has(result.outcome) || !safeReasons.has(result.reasonCode)) throw new Error("P4-C customer-safe result has an unknown outcome or reason.");
-  if (typeof result.stableReason !== "string" || result.stableReason.trim() === "") throw new Error("P4-C customer-safe result requires a stable reason.");
-  if (result.customerAccessAllowed && result.reasonCode !== "ok") throw new Error("P4-C customer access cannot be allowed for a non-ok reason.");
+  if (!rpcOutcomes.has(result.outcome) || !stableReasons.has(result.stableReason) || !safeReasons.has(result.reasonCode)) {
+    throw new Error("P4-C customer-safe result has an unknown outcome or reason.");
+  }
+  const isCommittedOk =
+    result.reasonCode === "ok" &&
+    ((result.outcome === "applied" && result.stableReason === "ok") ||
+      (result.outcome === "replayed" && result.stableReason === "duplicate_command"));
+  if (result.customerAccessAllowed && !isCommittedOk) {
+    throw new Error("P4-C customer access cannot be allowed without committed ok evidence.");
+  }
   if (!result.customerAccessAllowed && result.reasonCode === "ok") throw new Error("P4-C ok reason must allow access.");
+  if (result.outcome === "replayed" && result.stableReason !== "duplicate_command") throw new Error("P4-C replay requires duplicate_command.");
+  if (result.outcome === "applied" && result.stableReason !== "ok") throw new Error("P4-C applied result requires ok.");
+  if (result.outcome === "rejected" && result.stableReason === "ok") throw new Error("P4-C rejected result cannot be ok.");
+  if (result.outcome === "reconciliation_required" && result.stableReason !== "checkpoint_pending" && result.stableReason !== "checkpoint_failed" && result.stableReason !== "reconciliation_required") {
+    throw new Error("P4-C reconciliation result has an invalid stable reason.");
+  }
   if (!(result.effectiveFrom === null || isIsoTimestamp(result.effectiveFrom)) || !(result.effectiveUntil === null || isIsoTimestamp(result.effectiveUntil))) {
     throw new Error("P4-C customer-safe effective window is invalid.");
   }
@@ -285,48 +335,43 @@ export function assertCustomerSafeContractResult(result: Phase4CustomerSafeContr
     throw new Error("P4-C customer-safe result contains an internal key.");
   }
 }
-
 function normalizeRpcResult(data: unknown): Phase4CustomerSafeContractResult {
-  const row = Array.isArray(data) ? data[0] : data;
-  if (!isRecord(row)) throw new Error("P4-C RPC did not return a result row.");
+  if (!Array.isArray(data) || data.length !== 1) throw new Error("P4-C RPC must return exactly one result row.");
+  const row = data[0];
+  if (!isExactPlainObject(row, rpcRowKeys)) throw new Error("P4-C RPC result row shape is not exact.");
+  if (row.schema_version !== phase4ContractBillingIntegrationSchemaVersion) throw new Error("P4-C RPC schema version is invalid.");
+  if (!isRpcOutcome(row.outcome) || !isStableReason(row.stable_reason) || typeof row.customer_access_allowed !== "boolean" || !isSafeReason(row.reason_code)) {
+    throw new Error("P4-C RPC result row contains invalid scalar fields.");
+  }
   const result: Phase4CustomerSafeContractResult = {
-    schemaVersion: phase4ContractBillingIntegrationSchemaVersion,
-    outcome: String(row.outcome) as Phase4ContractBillingRpcOutcome,
-    stableReason: String(row.stable_reason ?? row.stableReason),
-    customerAccessAllowed: Boolean(row.customer_access_allowed ?? row.customerAccessAllowed),
-    reasonCode: String(row.reason_code ?? row.reasonCode) as Phase4CustomerSafeReason,
-    effectiveFrom: normalizeNullableTimestamp(row.effective_from ?? row.effectiveFrom),
-    effectiveUntil: normalizeNullableTimestamp(row.effective_until ?? row.effectiveUntil),
+    schemaVersion: row.schema_version,
+    outcome: row.outcome,
+    stableReason: row.stable_reason,
+    customerAccessAllowed: row.customer_access_allowed,
+    reasonCode: row.reason_code,
+    effectiveFrom: normalizeNullableTimestamp(row.effective_from),
+    effectiveUntil: normalizeNullableTimestamp(row.effective_until),
     capabilities: normalizeBooleanRecord(row.capabilities),
     limits: normalizeNumberRecord(row.limits)
   };
+  assertCustomerSafeContractResult(result);
   return result;
 }
 
 function normalizeNullableTimestamp(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "string") return value;
+  if (value === null) return null;
+  if (typeof value === "string" && isIsoTimestamp(value)) return value;
   throw new Error("P4-C RPC timestamp field is invalid.");
 }
 
 function normalizeBooleanRecord(value: unknown): Record<string, boolean> {
-  if (!isRecord(value)) return {};
-  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
+  if (!isPlainDataRecord(value, "boolean")) throw new Error("P4-C RPC capabilities field is invalid.");
+  return { ...value } as Record<string, boolean>;
 }
 
 function normalizeNumberRecord(value: unknown): Record<string, number> {
-  if (!isRecord(value)) return {};
-  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])));
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
-  return `{${Object.keys(value as Record<string, unknown>)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`)
-    .join(",")}}`;
+  if (!isPlainDataRecord(value, "number")) throw new Error("P4-C RPC limits field is invalid.");
+  return { ...value } as Record<string, number>;
 }
 
 function isOperatorEvidence(value: unknown): value is Phase4OperatorEvidence {
@@ -339,6 +384,18 @@ function isContractState(value: unknown): value is Phase4ContractState {
 
 function isPaymentFactKind(value: unknown): value is Phase4PaymentFactKind {
   return typeof value === "string" && paymentFactKinds.has(value as Phase4PaymentFactKind);
+}
+
+function isRpcOutcome(value: unknown): value is Phase4ContractBillingRpcOutcome {
+  return typeof value === "string" && rpcOutcomes.has(value as Phase4ContractBillingRpcOutcome);
+}
+
+function isStableReason(value: unknown): value is Phase4ContractBillingStableReason {
+  return typeof value === "string" && stableReasons.has(value as Phase4ContractBillingStableReason);
+}
+
+function isSafeReason(value: unknown): value is Phase4CustomerSafeReason {
+  return typeof value === "string" && safeReasons.has(value as Phase4CustomerSafeReason);
 }
 
 function isOpaque(value: unknown): value is string {
@@ -363,7 +420,10 @@ function isIsoTimestamp(value: unknown): value is string {
 
 function isPlainDataRecord(value: unknown, primitive: "boolean" | "number"): value is Record<string, boolean | number> {
   if (!isRecord(value) || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  if (Object.getOwnPropertySymbols(value).length !== 0) return false;
   return Object.entries(value).every(([key, entry]) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return false;
     if (!/^[a-z][a-z0-9_.-]*$/.test(key) || forbiddenCustomerSafeKeys.test(key)) return false;
     return primitive === "boolean" ? typeof entry === "boolean" : typeof entry === "number" && Number.isFinite(entry) && entry >= 0;
   });
