@@ -43,8 +43,14 @@ assert.match(moduleSource, /import "server-only";/, "P4-B module must be server-
 assert.doesNotMatch(moduleSource, /process\.env|createRecoraSupabaseServiceRoleClient|from\(|recora_private/i, "P4-B module must use injected RPC transport and no direct SQL/private-table access.");
 assert.match(moduleSource, /Phase4CustomerAccessDto/, "customer-safe DTO type is missing.");
 const acceptFunctionSql = extractSqlFunction(migrationSql, "public.recora_p4b_invitation_accept");
+const customerSessionFunctionSql = extractSqlFunction(migrationSql, "recora_private.p4b_record_customer_session_p4_command");
+const authEmailFunctionSql = extractSqlFunction(migrationSql, "recora_private.p4b_confirmed_auth_email_hash");
 const acceptWrapperSource = extractSourceFunction(moduleSource, "acceptPhase4Invitation");
 assert.match(acceptFunctionSql, /auth\.uid\(\)/, "accept RPC must use auth.uid().");
+assert.match(acceptFunctionSql, /p4b_confirmed_auth_email_hash/, "accept RPC must delegate recipient verification to the DB email-binding helper.");
+assert.match(customerSessionFunctionSql, /p4_assert_legacy_inventory\(\)/, "customer-session receipt helper must enforce the P4-A legacy inventory gate.");
+assert.match(authEmailFunctionSql, /email_confirmed_at is not null/i, "accept RPC helper must require email_confirmed_at.");
+assert.doesNotMatch(authEmailFunctionSql, /user_row\.confirmed_at is not null/i, "accept RPC helper must not trust confirmed_at.");
 assert.doesNotMatch(acceptFunctionSql, /p_verified_auth_user_id|p_recipient_binding_hash/, "accept RPC must not take claimed user id or binding hash.");
 assert.doesNotMatch(acceptWrapperSource, /verifiedAuthUserId|recipientBindingHash|p_verified_auth_user_id|p_recipient_binding_hash/, "accept wrapper must not accept claimed user id or binding hash.");
 
@@ -94,7 +100,12 @@ declare
   customer_user uuid := '12200000-0000-4000-8000-000000000002';
   other_user uuid := '12200000-0000-4000-8000-000000000003';
   unconfirmed_user uuid := '12200000-0000-4000-8000-000000000004';
+  confirmed_only_user uuid := '12200000-0000-4000-8000-000000000005';
+  replay_operator_user uuid := '12200000-0000-4000-8000-000000000006';
+  temporal_user_one uuid := '12200000-0000-4000-8000-000000000007';
+  temporal_user_two uuid := '12200000-0000-4000-8000-000000000008';
   operator_id uuid := '12230000-0000-4000-8000-000000000001';
+  replay_operator_id uuid := '12230000-0000-4000-8000-000000000002';
   org_a uuid := '12210000-0000-4000-8000-000000000001';
   org_b uuid := '12210000-0000-4000-8000-000000000002';
   project_a uuid := '12220000-0000-4000-8000-000000000001';
@@ -106,6 +117,9 @@ declare
   hash_e text := pg_catalog.encode(extensions.digest(pg_catalog.convert_to('issue-122-customer@example.invalid', 'utf8'), 'sha256'), 'hex');
   hash_f text := pg_catalog.encode(extensions.digest(pg_catalog.convert_to('issue-122-other@example.invalid', 'utf8'), 'sha256'), 'hex');
   hash_unconfirmed text := pg_catalog.encode(extensions.digest(pg_catalog.convert_to('issue-122-unconfirmed@example.invalid', 'utf8'), 'sha256'), 'hex');
+  hash_confirmed_only text := pg_catalog.encode(extensions.digest(pg_catalog.convert_to('issue-122-confirmed-only@example.invalid', 'utf8'), 'sha256'), 'hex');
+  hash_temporal_one text := pg_catalog.encode(extensions.digest(pg_catalog.convert_to('issue-122-temporal-one@example.invalid', 'utf8'), 'sha256'), 'hex');
+  hash_temporal_two text := pg_catalog.encode(extensions.digest(pg_catalog.convert_to('issue-122-temporal-two@example.invalid', 'utf8'), 'sha256'), 'hex');
   command_row record;
   replay_row record;
   access_row record;
@@ -115,27 +129,46 @@ declare
   invitation_revoked uuid;
   invitation_expired uuid;
   invitation_accept uuid;
+  invitation_confirmed_only uuid;
+  invitation_temporal_one uuid;
+  invitation_temporal_two uuid;
+  invitation_temporal_resend_new uuid;
+  invitation_legacy uuid;
   membership_one uuid;
   episode_one uuid;
   membership_two uuid;
   episode_two uuid;
+  provider_audit_event_id uuid;
+  provider_operator_receipt_id uuid;
+  provider_command_receipt_id uuid;
+  before_receipt_count bigint;
+  before_membership_count bigint;
+  before_episode_count bigint;
+  legacy_plan_config uuid := '12280000-0000-4000-8000-000000000001';
+  legacy_subscription_one uuid := '12290000-0000-4000-8000-000000000001';
+  legacy_subscription_two uuid := '12290000-0000-4000-8000-000000000002';
   direct_command uuid;
+  initial_create_command_receipt_id uuid;
   manual_receipt_mismatch_count integer;
   private_relation text;
   p4b_function record;
 begin
-  insert into auth.users(id,email,email_confirmed_at,created_at,updated_at) values
-    (operator_user,'issue-122-operator@example.invalid',now(),now(),now()),
-    (customer_user,'issue-122-customer@example.invalid',now(),now(),now()),
-    (other_user,'issue-122-other@example.invalid',now(),now(),now()),
-    (unconfirmed_user,'issue-122-unconfirmed@example.invalid',null,now(),now());
-
+  insert into auth.users(id,email,email_confirmed_at,phone_confirmed_at,created_at,updated_at) values
+    (operator_user,'issue-122-operator@example.invalid',now(),null,now(),now()),
+    (customer_user,'issue-122-customer@example.invalid',now(),null,now(),now()),
+    (other_user,'issue-122-other@example.invalid',now(),null,now(),now()),
+    (unconfirmed_user,'issue-122-unconfirmed@example.invalid',null,null,now(),now()),
+    (confirmed_only_user,'issue-122-confirmed-only@example.invalid',null,now(),now(),now()),
+    (replay_operator_user,'issue-122-replay-operator@example.invalid',now(),null,now(),now()),
+    (temporal_user_one,'issue-122-temporal-one@example.invalid',now(),null,now(),now()),
+    (temporal_user_two,'issue-122-temporal-two@example.invalid',now(),null,now(),now());
   insert into public.organizations(id,slug,name,organization_type,data_environment,is_internal,is_demo) values
     (org_a,'issue-122-organization-a','Issue 122 Organization A','client','local',false,false),
     (org_b,'issue-122-organization-b','Issue 122 Organization B','client','local',false,false);
   insert into public.projects(id,organization_id,slug,name) values(project_a,org_a,'issue-122-project-a','Issue 122 Project A'),(project_b,org_b,'issue-122-project-b','Issue 122 Project B');
 
   insert into recora_operator.operator_identities(id,auth_user_id,status,display_label) values(operator_id,operator_user,'active','issue122 operator fixture');
+  insert into recora_operator.operator_identities(id,auth_user_id,status,display_label) values(replay_operator_id,replay_operator_user,'active','issue122 replay operator fixture');
   insert into recora_operator.operator_action_grants(operator_id,permission,organization_id,project_id) values
     (operator_id,'account.invitation.create',org_a,null),
     (operator_id,'account.invitation.resend',org_a,null),
@@ -143,6 +176,7 @@ begin
     (operator_id,'account.membership.suspend',org_a,null),
     (operator_id,'account.membership.reactivate',org_a,null),
     (operator_id,'account.membership.revoke',org_a,null);
+  insert into recora_operator.operator_action_grants(operator_id,permission,organization_id,project_id) values(replay_operator_id,'account.invitation.create',org_a,null);
 
   insert into recora_private.data_lifecycle_current(organization_id,project_id,state,last_request_id,last_correlation_id) values
     (org_a,null,'active','12240000-0000-4000-8000-000000000001','12250000-0000-4000-8000-000000000001'),
@@ -197,8 +231,146 @@ begin
   select * into command_row from public.recora_p4b_invitation_create(operator_user,org_a,hash_a,'member',now()+interval '7 days','issue122.create','12240000-0000-4000-8000-000000000011','12250000-0000-4000-8000-000000000011','issue122.create.one');
   if command_row.outcome <> 'accepted' or command_row.reason_code <> 'ok' or command_row.invitation_state <> 'pending' or command_row.audit_event_id is null or command_row.operator_command_receipt_id is null then raise exception 'invitation create failed'; end if;
   invitation_one := command_row.invitation_id;
+  initial_create_command_receipt_id := command_row.command_receipt_id;
+  insert into recora_audit.operator_events(
+    actor_operator_id,organization_id,project_id,action,target_type,target_id,permission_used,
+    reason,before_summary,after_summary,request_id,correlation_id,outcome,failure_reason_code
+  ) values(
+    operator_id,org_a,null,'account.fixture.apply','invitation',invitation_one,'account.invitation.create',
+    'fixture','{}'::jsonb,'{}'::jsonb,'12240000-0000-4000-8000-000000000101','12250000-0000-4000-8000-000000000101',
+    'success'::recora_audit.operator_audit_outcome,null
+  ) returning id into provider_audit_event_id;
+  insert into recora_operator.operator_command_receipts(
+    audit_event_id,operator_id,organization_id,project_id,action,target_type,target_id,request_id,correlation_id
+  ) values(
+    provider_audit_event_id,operator_id,org_a,null,'account.fixture.apply','invitation',invitation_one,
+    '12240000-0000-4000-8000-000000000101','12250000-0000-4000-8000-000000000101'
+  ) returning id into provider_operator_receipt_id;
+  select command_receipt_id into provider_command_receipt_id
+  from public.recora_p4_record_command_receipt(
+    org_a,null,'invitation.lifecycle','provider_fixture'::recora_private.p4_source_kind,'p4b.account',
+    'fixture.compatible',9104,repeat('4',64),'12240000-0000-4000-8000-000000000101',
+    '12250000-0000-4000-8000-000000000101','fixture.compatible',provider_audit_event_id,provider_operator_receipt_id
+  );
+  if provider_command_receipt_id is null
+    or not exists(
+      select 1 from recora_private.p4_command_receipts receipt_row
+      where receipt_row.id = provider_command_receipt_id
+        and receipt_row.source_kind = 'provider_fixture'::recora_private.p4_source_kind
+        and receipt_row.customer_auth_user_id is null
+        and receipt_row.operator_audit_event_id = provider_audit_event_id
+        and receipt_row.operator_command_receipt_id = provider_operator_receipt_id
+    ) then
+    raise exception 'provider fixture paired operator evidence compatibility failed';
+  end if;
+  begin
+    insert into recora_private.p4_command_receipts(
+      organization_id,command_type,source_kind,source_namespace,source_reference,source_sequence,
+      payload_fingerprint,request_id,correlation_id,idempotency_key,operator_audit_event_id
+    ) values(
+      org_a,'invitation.lifecycle','provider_fixture','p4b.account','shape.provider.half.audit',9105,
+      repeat('5',64),'12240000-0000-4000-8000-000000000102','12250000-0000-4000-8000-000000000102',
+      'shape.provider.half.audit',provider_audit_event_id
+    );
+    raise exception 'provider fixture audit-only evidence was accepted';
+  exception when check_violation then null; end;
+  begin
+    insert into recora_private.p4_command_receipts(
+      organization_id,command_type,source_kind,source_namespace,source_reference,source_sequence,
+      payload_fingerprint,request_id,correlation_id,idempotency_key,operator_command_receipt_id
+    ) values(
+      org_a,'invitation.lifecycle','provider_fixture','p4b.account','shape.provider.half.receipt',9106,
+      repeat('6',64),'12240000-0000-4000-8000-000000000101','12250000-0000-4000-8000-000000000101',
+      'shape.provider.half.receipt',provider_operator_receipt_id
+    );
+    raise exception 'provider fixture receipt-only evidence was accepted';
+  exception when others then
+    if sqlstate not in ('23514','P0001') then raise; end if;
+  end;
+  insert into recora_operator.operator_action_grants(operator_id,permission,organization_id,project_id)
+  values(operator_id,'p4c.contract.billing.apply',org_a,project_a);
+  select * into command_row
+  from public.recora_operator_execute_authorized_command_receipt(
+    operator_user,'p4c.contract.billing.apply',org_a,project_a,'p4c.contract.billing.apply','project',project_a,
+    'issue 122 p4c compatibility evidence','12240000-0000-4000-8000-000000000104','12250000-0000-4000-8000-000000000104',
+    '{}'::jsonb,
+    pg_catalog.jsonb_build_object(
+      'policy',pg_catalog.jsonb_build_object(
+        'key','issue122.compat.policy',
+        'hash_chars',pg_catalog.to_jsonb(pg_catalog.string_to_array(repeat('7',64),null)),
+        'schema_version',1
+      ),
+      'command',pg_catalog.jsonb_build_object(
+        'source_kind','provider_fixture','source_namespace','fixture.p4c','source_reference','p4c.compatibility',
+        'source_sequence',9201,'contract_reference','contract.compatibility','next_contract_state','draft',
+        'payment_fact_kind','payment_unknown','payment_chain_key','chain.compatibility',
+        'corrects_payment_fact_id_chars',null
+      )
+    )
+  );
+  if command_row.outcome <> 'success' or command_row.audit_event_id is null then raise exception 'P4-C provider fixture operator evidence could not be installed'; end if;
+  provider_audit_event_id := command_row.audit_event_id;
+  select id into provider_operator_receipt_id
+  from recora_operator.operator_command_receipts
+  where audit_event_id = provider_audit_event_id;
+  select command_receipt_id into provider_command_receipt_id
+  from public.recora_p4_record_command_receipt(
+    org_a,project_a,'billing.receipt','provider_fixture'::recora_private.p4_source_kind,'fixture.p4c','p4c.compatibility',9201,
+    repeat('7',64),'12240000-0000-4000-8000-000000000104','12250000-0000-4000-8000-000000000104','p4c.compatibility',
+    provider_audit_event_id,provider_operator_receipt_id
+  );
+  if provider_command_receipt_id is null
+    or not exists(
+      select 1 from recora_private.p4_command_receipts receipt_row
+      where receipt_row.id = provider_command_receipt_id
+        and receipt_row.organization_id = org_a
+        and receipt_row.project_id = project_a
+        and receipt_row.source_kind = 'provider_fixture'::recora_private.p4_source_kind
+        and receipt_row.customer_auth_user_id is null
+        and receipt_row.operator_audit_event_id = provider_audit_event_id
+        and receipt_row.operator_command_receipt_id = provider_operator_receipt_id
+    ) then
+    raise exception 'P4-C provider fixture receipt pattern was not compatible with P4-B actor shape';
+  end if;
   select * into replay_row from public.recora_p4b_invitation_create(operator_user,org_a,hash_a,'member',now()+interval '7 days','issue122.create','12240000-0000-4000-8000-000000000012','12250000-0000-4000-8000-000000000012','issue122.create.one');
-  if replay_row.outcome <> 'replayed' or replay_row.command_receipt_id <> command_row.command_receipt_id then raise exception 'create replay failed'; end if;
+  if replay_row.outcome <> 'replayed' or replay_row.command_receipt_id <> initial_create_command_receipt_id then raise exception 'create replay failed'; end if;
+  select * into replay_row
+  from public.recora_p4b_invitation_create(
+    replay_operator_user,org_a,hash_a,'member',now()+interval '7 days','issue122.create',
+    '12240000-0000-4000-8000-000000000018','12250000-0000-4000-8000-000000000018','issue122.create.one'
+  );
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'operator_authorization_denied'
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null
+    or not exists(
+      select 1 from recora_audit.operator_events event_row
+      where event_row.id = replay_row.audit_event_id
+        and event_row.target_type = 'invitation'
+        and event_row.target_id = invitation_one
+        and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome
+    ) then
+    raise exception 'different operator replay was not denied with original invitation target';
+  end if;
+  update recora_operator.operator_action_grants grant_row
+  set revoked_at=now(),revoked_reason_code='issue122.replay.revoked'
+  where grant_row.operator_id = replay_operator_id
+    and permission = 'account.invitation.create'
+    and organization_id = org_a
+    and revoked_at is null;
+  select * into replay_row
+  from public.recora_p4b_invitation_create(
+    replay_operator_user,org_a,hash_a,'member',now()+interval '7 days','issue122.create',
+    '12240000-0000-4000-8000-000000000019','12250000-0000-4000-8000-000000000019','issue122.create.one'
+  );
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'permission_denied'
+    or replay_row.command_receipt_id is not null
+    or replay_row.operator_command_receipt_id is not null
+    or replay_row.audit_event_id is null then
+    raise exception 'revoked replay operator grant was not revalidated';
+  end if;
   select * into replay_row from public.recora_p4b_invitation_create(operator_user,org_a,hash_b,'member',now()+interval '7 days','issue122.create','12240000-0000-4000-8000-000000000013','12250000-0000-4000-8000-000000000013','issue122.create.one');
   if replay_row.outcome <> 'rejected' or replay_row.reason_code <> 'idempotency_conflict' then raise exception 'create idempotency conflict failed'; end if;
   select * into replay_row from public.recora_p4b_invitation_create(operator_user,org_a,repeat('9',64),'owner',now()+interval '7 days','issue122.owner','12240000-0000-4000-8000-000000000014','12250000-0000-4000-8000-000000000014','issue122.owner');
@@ -252,6 +424,28 @@ begin
   perform set_config('request.jwt.claim.sub', unconfirmed_user::text, true);
   select * into replay_row from public.recora_p4b_invitation_accept(replay_row.invitation_id,'12240000-0000-4000-8000-000000000057','12250000-0000-4000-8000-000000000057','issue122.unconfirmed.accept');
   if replay_row.reason_code <> 'identity_unverified' then raise exception 'matching but unconfirmed Auth email was not rejected'; end if;
+  select * into command_row
+  from public.recora_p4b_invitation_create(
+    operator_user,org_a,hash_confirmed_only,'member',now()+interval '7 days','issue122.confirmed-only.create',
+    '12240000-0000-4000-8000-000000000058','12250000-0000-4000-8000-000000000058','issue122.confirmed-only.create'
+  );
+  invitation_confirmed_only := command_row.invitation_id;
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_membership_count from public.organization_members;
+  select count(*) into before_episode_count from recora_private.p4_membership_episodes;
+  perform set_config('request.jwt.claim.sub', confirmed_only_user::text, true);
+  select * into replay_row
+  from public.recora_p4b_invitation_accept(
+    invitation_confirmed_only,'12240000-0000-4000-8000-000000000059','12250000-0000-4000-8000-000000000059','issue122.confirmed-only.accept'
+  );
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'identity_unverified'
+    or (select state from recora_private.p4_invitations where id = invitation_confirmed_only) <> 'pending'::recora_private.p4_invitation_state
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from public.organization_members) <> before_membership_count
+    or (select count(*) from recora_private.p4_membership_episodes) <> before_episode_count then
+    raise exception 'confirmed_at-only Auth identity was not rejected without mutation';
+  end if;
   perform set_config('request.jwt.claim.sub', customer_user::text, true);
   select * into command_row from public.recora_p4b_invitation_accept(invitation_accept,'12240000-0000-4000-8000-000000000054','12250000-0000-4000-8000-000000000054','issue122.accept');
   if command_row.outcome <> 'accepted' or command_row.invitation_state <> 'accepted' or command_row.membership_status <> 'active' or command_row.membership_episode_state <> 'active' then raise exception 'invitation accept activation failed'; end if;
@@ -279,6 +473,18 @@ begin
   if access_row.customer_access_allowed or access_row.reason_code <> 'membership_required' then raise exception 'suspended membership retained access'; end if;
   select * into command_row from public.recora_p4b_membership_reactivate(operator_user,membership_one,'issue122.reactivate','12240000-0000-4000-8000-000000000062','12250000-0000-4000-8000-000000000062','issue122.reactivate');
   if command_row.outcome <> 'accepted' or command_row.membership_status <> 'active' then raise exception 'membership reactivate failed'; end if;
+  select * into replay_row
+  from public.recora_p4b_membership_suspend(
+    operator_user,membership_one,'issue122.suspend',
+    '12240000-0000-4000-8000-000000000065','12250000-0000-4000-8000-000000000065','issue122.suspend'
+  );
+  if replay_row.outcome <> 'replayed'
+    or replay_row.membership_id <> membership_one
+    or replay_row.membership_status <> 'suspended'
+    or replay_row.membership_episode_state <> 'active'
+    or (select membership_status from public.organization_members where id = membership_one) <> 'active'::public.recora_organization_membership_status then
+    raise exception 'suspend replay after reactivate was not immutable';
+  end if;
   select * into command_row from public.recora_p4b_membership_revoke(operator_user,membership_one,'issue122.member.revoke','12240000-0000-4000-8000-000000000063','12250000-0000-4000-8000-000000000063','issue122.member.revoke');
   if command_row.outcome <> 'accepted' or command_row.membership_status <> 'revoked' or command_row.membership_episode_state <> 'revoked' then raise exception 'membership revoke failed'; end if;
   if (select user_id from public.organization_members where id = membership_one) is not null then raise exception 'revoked membership user identity was not freed'; end if;
@@ -291,6 +497,112 @@ begin
   select * into command_row from public.recora_p4b_invitation_accept(invitation_two,'12240000-0000-4000-8000-000000000072','12250000-0000-4000-8000-000000000072','issue122.rejoin.accept');
   membership_two := command_row.membership_id; episode_two := command_row.membership_episode_id;
   if command_row.outcome <> 'accepted' or membership_two = membership_one or episode_two = episode_one then raise exception 'revoked relation did not require new invitation/episode'; end if;
+
+  select * into replay_row
+  from public.recora_p4b_invitation_accept(
+    invitation_accept,'12240000-0000-4000-8000-000000000073','12250000-0000-4000-8000-000000000073','issue122.accept'
+  );
+  if replay_row.outcome <> 'replayed'
+    or replay_row.invitation_id <> invitation_accept
+    or replay_row.invitation_state <> 'accepted'
+    or replay_row.membership_id <> membership_one
+    or replay_row.membership_status <> 'active'
+    or replay_row.membership_episode_id <> episode_one
+    or replay_row.membership_episode_state <> 'active'
+    or (select membership_status from public.organization_members where id = membership_two) <> 'active'::public.recora_organization_membership_status then
+    raise exception 'accept replay after revoke/rejoin was not immutable';
+  end if;
+
+  select * into command_row
+  from public.recora_p4b_invitation_create(
+    operator_user,org_a,hash_temporal_one,'member',now()+interval '7 days','issue122.temporal.create',
+    '12240000-0000-4000-8000-000000000074','12250000-0000-4000-8000-000000000074','issue122.temporal.create'
+  );
+  invitation_temporal_one := command_row.invitation_id;
+  perform set_config('request.jwt.claim.sub', temporal_user_one::text, true);
+  select * into command_row
+  from public.recora_p4b_invitation_accept(
+    invitation_temporal_one,'12240000-0000-4000-8000-000000000075','12250000-0000-4000-8000-000000000075','issue122.temporal.accept.one'
+  );
+  if command_row.outcome <> 'accepted' then raise exception 'temporal create invitation accept failed'; end if;
+  perform set_config('request.jwt.claim.sub', customer_user::text, true);
+  select * into replay_row
+  from public.recora_p4b_invitation_create(
+    operator_user,org_a,hash_temporal_one,'member',now()+interval '7 days','issue122.temporal.create',
+    '12240000-0000-4000-8000-000000000076','12250000-0000-4000-8000-000000000076','issue122.temporal.create'
+  );
+  if replay_row.outcome <> 'replayed'
+    or replay_row.invitation_id <> invitation_temporal_one
+    or replay_row.invitation_state <> 'pending'
+    or (select state from recora_private.p4_invitations where id = invitation_temporal_one) <> 'accepted'::recora_private.p4_invitation_state then
+    raise exception 'create replay after accept was not immutable';
+  end if;
+
+  select * into command_row
+  from public.recora_p4b_invitation_create(
+    operator_user,org_a,hash_temporal_two,'viewer',now()+interval '7 days','issue122.temporal.resend.create',
+    '12240000-0000-4000-8000-000000000077','12250000-0000-4000-8000-000000000077','issue122.temporal.resend.create'
+  );
+  invitation_temporal_two := command_row.invitation_id;
+  select * into command_row
+  from public.recora_p4b_invitation_resend(
+    operator_user,invitation_temporal_two,hash_temporal_two,now()+interval '8 days','issue122.temporal.resend',
+    '12240000-0000-4000-8000-000000000078','12250000-0000-4000-8000-000000000078','issue122.temporal.resend'
+  );
+  invitation_temporal_resend_new := command_row.invitation_id;
+  if command_row.outcome <> 'accepted' or invitation_temporal_resend_new = invitation_temporal_two then raise exception 'temporal resend setup failed'; end if;
+  perform set_config('request.jwt.claim.sub', temporal_user_two::text, true);
+  select * into command_row
+  from public.recora_p4b_invitation_accept(
+    invitation_temporal_resend_new,'12240000-0000-4000-8000-000000000079','12250000-0000-4000-8000-000000000079','issue122.temporal.accept.two'
+  );
+  if command_row.outcome <> 'accepted' then raise exception 'temporal resend replacement accept failed'; end if;
+  perform set_config('request.jwt.claim.sub', customer_user::text, true);
+  select * into replay_row
+  from public.recora_p4b_invitation_resend(
+    operator_user,invitation_temporal_two,hash_temporal_two,now()+interval '8 days','issue122.temporal.resend',
+    '12240000-0000-4000-8000-000000000080','12250000-0000-4000-8000-000000000080','issue122.temporal.resend'
+  );
+  if replay_row.outcome <> 'replayed'
+    or replay_row.invitation_id <> invitation_temporal_resend_new
+    or replay_row.invitation_state <> 'pending'
+    or (select state from recora_private.p4_invitations where id = invitation_temporal_two) <> 'superseded'::recora_private.p4_invitation_state
+    or (select state from recora_private.p4_invitations where id = invitation_temporal_resend_new) <> 'accepted'::recora_private.p4_invitation_state then
+    raise exception 'resend replay after replacement accept was not immutable';
+  end if;
+
+  select * into command_row
+  from public.recora_p4b_invitation_create(
+    operator_user,org_a,hash_f,'member',now()+interval '7 days','issue122.legacy.create',
+    '12240000-0000-4000-8000-000000000081','12250000-0000-4000-8000-000000000081','issue122.legacy.create'
+  );
+  invitation_legacy := command_row.invitation_id;
+  select count(*) into before_receipt_count from recora_private.p4_command_receipts;
+  select count(*) into before_membership_count from public.organization_members;
+  select count(*) into before_episode_count from recora_private.p4_membership_episodes;
+  insert into recora_admin.plan_configs(id,plan_code,display_name,status,config)
+  values(legacy_plan_config,'issue122_legacy_plan','Issue 122 legacy plan','active','{}'::jsonb);
+  insert into recora_admin.customer_subscriptions(
+    id,organization_id,project_id,plan_config_id,plan_code,status,billing_mode,entitlement_config,metadata
+  ) values
+    (legacy_subscription_one,org_a,null,legacy_plan_config,'issue122_legacy_plan','active','manual','{}'::jsonb,'{}'::jsonb),
+    (legacy_subscription_two,org_a,null,legacy_plan_config,'issue122_legacy_plan','paused','manual','{}'::jsonb,'{}'::jsonb);
+  perform set_config('request.jwt.claim.sub', other_user::text, true);
+  select * into replay_row
+  from public.recora_p4b_invitation_accept(
+    invitation_legacy,'12240000-0000-4000-8000-000000000082','12250000-0000-4000-8000-000000000082','issue122.legacy.accept'
+  );
+  if replay_row.outcome <> 'rejected'
+    or replay_row.reason_code <> 'invalid_legacy_inventory'
+    or (select state from recora_private.p4_invitations where id = invitation_legacy) <> 'pending'::recora_private.p4_invitation_state
+    or (select count(*) from recora_private.p4_command_receipts) <> before_receipt_count
+    or (select count(*) from public.organization_members) <> before_membership_count
+    or (select count(*) from recora_private.p4_membership_episodes) <> before_episode_count then
+    raise exception 'corrupt legacy inventory did not fail closed without account mutation';
+  end if;
+  delete from recora_admin.customer_subscriptions where id in (legacy_subscription_one,legacy_subscription_two);
+  delete from recora_admin.plan_configs where id = legacy_plan_config;
+  perform set_config('request.jwt.claim.sub', customer_user::text, true);
 
   select pg_catalog.count(*) into manual_receipt_mismatch_count
   from recora_private.p4_command_receipts p4_row

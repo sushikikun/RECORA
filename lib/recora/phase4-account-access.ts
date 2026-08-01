@@ -86,6 +86,7 @@ const commandReasonCodes = new Set([
   "idempotency_conflict",
   "invalid_scope",
   "invalid_reference",
+  "invalid_legacy_inventory",
   "target_organization_not_found",
   "target_scope_mismatch",
   "target_type_not_supported",
