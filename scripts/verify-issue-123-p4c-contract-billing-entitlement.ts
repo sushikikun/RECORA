@@ -8,6 +8,7 @@ import type {
   Phase4ProviderNeutralBillingCommand,
   Phase4ConfirmLifecycleCheckpointCommand,
   Phase4ReconcileLifecycleCheckpointCommand,
+  Phase4RecordLifecycleCheckpointAttemptCommand,
   Phase4CustomerSafeContractResult
 } from "../lib/recora/phase4-contract-billing-entitlement";
 type CommandResult = { stdout: string; stderr: string; status: number | null };
@@ -45,10 +46,13 @@ const moduleSqlBoundary = fs.readFileSync(p4cModulePath, "utf8");
 assert.match(migrationSql, /public\.recora_p4c_apply_contract_billing_entitlement_command/i);
 assert.match(migrationSql, /public\.recora_p4c_confirm_lifecycle_checkpoint_command/i);
 assert.match(migrationSql, /public\.recora_p4c_reconcile_lifecycle_checkpoint_command/i);
+assert.match(migrationSql, /public\.recora_p4c_record_lifecycle_checkpoint_attempt_command/i);
 assert.match(migrationSql, /security definer\s+set search_path = ''/i);
 assert.match(migrationSql, /extensions\.digest/i);
 assert.match(migrationSql, /grant execute on function public\.recora_p4c_apply_contract_billing_entitlement_command[\s\S]*to service_role/i);
+assert.match(migrationSql, /grant execute on function public\.recora_p4c_record_lifecycle_checkpoint_attempt_command[\s\S]*to service_role/i);
 assert.match(migrationSql, /revoke all on function public\.recora_p4c_apply_contract_billing_entitlement_command[\s\S]*from public, anon, authenticated/i);
+assert.match(migrationSql, /revoke all on function public\.recora_p4c_record_lifecycle_checkpoint_attempt_command[\s\S]*from public, anon, authenticated/i);
 assert.doesNotMatch(migrationSql, /create\s+(table|type|schema)|alter\s+table|drop\s+table|create\s+policy|alter\s+policy/i);
 assert.doesNotMatch(migrationSql, /grant\s+.*recora_private\..*to\s+(anon|authenticated|public)/i);
 const applyRpcHeader = migrationSql.match(/create or replace function public\.recora_p4c_apply_contract_billing_entitlement_command[\s\S]*?\)\s*returns table/i)?.[0] ?? "";
@@ -57,6 +61,7 @@ assert.match(moduleSqlBoundary, /import "server-only"/);
 assert.match(moduleSqlBoundary, /recora_p4c_apply_contract_billing_entitlement_command/);
 assert.match(moduleSqlBoundary, /executePhase4ConfirmLifecycleCheckpointCommand/);
 assert.match(moduleSqlBoundary, /executePhase4ReconcileLifecycleCheckpointCommand/);
+assert.match(moduleSqlBoundary, /executePhase4RecordLifecycleCheckpointAttemptCommand/);
 assert.doesNotMatch(moduleSqlBoundary, /from\s+["'](?:postgres|pg|drizzle-orm|kysely|slonik)["']/i);
 const commandTypeBoundary = moduleSqlBoundary.match(/export type Phase4ProviderNeutralBillingCommand = \{[\s\S]*?\};/)?.[0] ?? "";
 const runtimeRpcBoundary = moduleSqlBoundary.match(/client\.rpc\("recora_p4c_apply_contract_billing_entitlement_command", \{[\s\S]*?\}\);/)?.[0] ?? "";
@@ -201,6 +206,23 @@ function callReconcileRpcSql(args: Record<string, unknown>): string {
 function callReconcileRpc(args: Record<string, unknown>): unknown[] {
   return queryJson<unknown[]>(callReconcileRpcSql(args));
 }
+function callAttemptRpcSql(args: Record<string, unknown>): string {
+  return collectRpcRowsSql(`public.recora_p4c_record_lifecycle_checkpoint_attempt_command(
+  ${sqlUuid(args.p_organization_id as string)},
+  ${sqlUuid(args.p_project_id as string | null)},
+  ${sqlUuid(args.p_checkpoint_id as string)},
+  ${sqlText(args.p_attempt_outcome as string)},
+  ${sqlText(args.p_idempotency_key as string)},
+  ${sqlUuid(args.p_request_id as string)},
+  ${sqlUuid(args.p_correlation_id as string)},
+  ${sqlUuid(args.p_operator_audit_event_id as string)},
+  ${sqlUuid(args.p_operator_command_receipt_id as string)}
+)`);
+}
+
+function callAttemptRpc(args: Record<string, unknown>): unknown[] {
+  return queryJson<unknown[]>(callAttemptRpcSql(args));
+}
 function callRpcSqlProcess(sql: string): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     const child = spawn("docker", ["exec", "--interactive", dbContainer!, "psql", "--username", "postgres", "--dbname", "postgres", "--no-psqlrc", "--set", "ON_ERROR_STOP=1", "--quiet", "--tuples-only", "--no-align"], {
@@ -242,6 +264,9 @@ function callConfirmRpcProcess(command: Phase4ConfirmLifecycleCheckpointCommand)
 
 function callReconcileRpcProcess(command: Phase4ReconcileLifecycleCheckpointCommand): Promise<unknown[]> {
   return callRpcSqlProcess(callReconcileRpcSql(reconcileCommandToRpcArgs(command)));
+}
+function callAttemptRpcProcess(command: Phase4RecordLifecycleCheckpointAttemptCommand): Promise<unknown[]> {
+  return callRpcSqlProcess(callAttemptRpcSql(attemptCommandToRpcArgs(command)));
 }
 function commandToRpcArgs(command: Phase4ProviderNeutralBillingCommand): Record<string, unknown> {
   return {
@@ -292,12 +317,26 @@ function reconcileCommandToRpcArgs(command: Phase4ReconcileLifecycleCheckpointCo
   };
 }
 
+function attemptCommandToRpcArgs(command: Phase4RecordLifecycleCheckpointAttemptCommand): Record<string, unknown> {
+  return {
+    p_organization_id: command.organizationId,
+    p_project_id: command.projectId,
+    p_checkpoint_id: command.checkpointId,
+    p_attempt_outcome: command.attemptOutcome,
+    p_idempotency_key: command.idempotencyKey,
+    p_request_id: command.requestId,
+    p_correlation_id: command.correlationId,
+    p_operator_audit_event_id: command.operatorEvidence.auditEventId,
+    p_operator_command_receipt_id: command.operatorEvidence.commandReceiptId
+  };
+}
 const rpcClient = {
   async rpc(name: string, args: Record<string, unknown>) {
     try {
       if (name === "recora_p4c_apply_contract_billing_entitlement_command") return { data: callP4cRpc(args), error: null };
       if (name === "recora_p4c_confirm_lifecycle_checkpoint_command") return { data: callConfirmRpc(args), error: null };
       if (name === "recora_p4c_reconcile_lifecycle_checkpoint_command") return { data: callReconcileRpc(args), error: null };
+      if (name === "recora_p4c_record_lifecycle_checkpoint_attempt_command") return { data: callAttemptRpc(args), error: null };
       throw new Error(`Unexpected RPC ${name}`);
     } catch (error) {
       return { data: null, error };
@@ -317,9 +356,13 @@ const WEAK_POLICY_ID = "12360000-0000-4000-8000-000000000001";
 const STRONG_POLICY_ID = "12360000-0000-4000-8000-000000000002";
 const FUTURE_POLICY_ID = "12360000-0000-4000-8000-000000000003";
 const EXPIRED_POLICY_ID = "12360000-0000-4000-8000-000000000004";
+const TRANSITIVE_POLICY_ROOT_ID = "12360000-0000-4000-8000-000000000005";
+const TRANSITIVE_POLICY_MID_ID = "12360000-0000-4000-8000-000000000006";
+const TRANSITIVE_POLICY_HEAD_ID = "12360000-0000-4000-8000-000000000007";
 const POLICY_KEY = "issue.123.p4c.policy";
 const FUTURE_POLICY_KEY = "issue.123.p4c.future.policy";
 const EXPIRED_POLICY_KEY = "issue.123.p4c.expired.policy";
+const TRANSITIVE_POLICY_KEY = "issue.123.p4c.transitive.policy";
 
 function requestId(sequence: number): string {
   return `12340000-0000-4000-8000-${sequence.toString().padStart(12, "0")}`;
@@ -354,6 +397,9 @@ insert into recora_operator.operator_action_grants (operator_id, permission, org
   (${sqlUuid(OPERATOR_ID)}, 'p4c.lifecycle.checkpoint.reconcile', ${sqlUuid(ORG_A)}, ${sqlUuid(PROJECT_A)}),
   (${sqlUuid(OPERATOR_ID)}, 'p4c.lifecycle.checkpoint.reconcile', ${sqlUuid(ORG_B)}, ${sqlUuid(PROJECT_B)}),
   (${sqlUuid(OPERATOR_ID)}, 'p4c.lifecycle.checkpoint.reconcile', ${sqlUuid(ORG_C)}, ${sqlUuid(PROJECT_C)}),
+  (${sqlUuid(OPERATOR_ID)}, 'p4c.lifecycle.checkpoint.attempt', ${sqlUuid(ORG_A)}, ${sqlUuid(PROJECT_A)}),
+  (${sqlUuid(OPERATOR_ID)}, 'p4c.lifecycle.checkpoint.attempt', ${sqlUuid(ORG_B)}, ${sqlUuid(PROJECT_B)}),
+  (${sqlUuid(OPERATOR_ID)}, 'p4c.lifecycle.checkpoint.attempt', ${sqlUuid(ORG_C)}, ${sqlUuid(PROJECT_C)}),
   (${sqlUuid(OPERATOR_ID)}, 'data_lifecycle.transition', ${sqlUuid(ORG_A)}, ${sqlUuid(PROJECT_A)}),
   (${sqlUuid(OPERATOR_ID)}, 'data_lifecycle.transition', ${sqlUuid(ORG_B)}, ${sqlUuid(PROJECT_B)}),
   (${sqlUuid(OPERATOR_ID)}, 'data_lifecycle.transition', ${sqlUuid(ORG_C)}, ${sqlUuid(PROJECT_C)});
@@ -372,6 +418,12 @@ insert into recora_private.plan_policy_versions(id,policy_key,policy_schema_vers
 values (${sqlUuid(FUTURE_POLICY_ID)}, ${sqlText(FUTURE_POLICY_KEY)}, 1, now() + interval '2 days', ${sqlJson({ capabilities: { measurement: true, future: true }, limits: { prompts: 99 } })});
 insert into recora_private.plan_policy_versions(id,policy_key,policy_schema_version,effective_from,effective_until,policy_document)
 values (${sqlUuid(EXPIRED_POLICY_ID)}, ${sqlText(EXPIRED_POLICY_KEY)}, 1, now() - interval '4 days', now() - interval '2 days', ${sqlJson({ capabilities: { measurement: true, expired: true }, limits: { prompts: 1 } })});
+insert into recora_private.plan_policy_versions(id,policy_key,policy_schema_version,effective_from,policy_document)
+values (${sqlUuid(TRANSITIVE_POLICY_ROOT_ID)}, ${sqlText(TRANSITIVE_POLICY_KEY)}, 1, now() - interval '5 days', ${sqlJson({ capabilities: { measurement: true }, limits: { prompts: 2 } })});
+insert into recora_private.plan_policy_versions(id,policy_key,policy_schema_version,effective_from,effective_until,policy_document,supersedes_policy_version_id)
+values (${sqlUuid(TRANSITIVE_POLICY_MID_ID)}, ${sqlText(TRANSITIVE_POLICY_KEY)}, 1, now() - interval '4 days', now() - interval '3 days', ${sqlJson({ capabilities: { measurement: true }, limits: { prompts: 4 } })}, ${sqlUuid(TRANSITIVE_POLICY_ROOT_ID)});
+insert into recora_private.plan_policy_versions(id,policy_key,policy_schema_version,effective_from,policy_document,supersedes_policy_version_id)
+values (${sqlUuid(TRANSITIVE_POLICY_HEAD_ID)}, ${sqlText(TRANSITIVE_POLICY_KEY)}, 1, now() - interval '1 day', ${sqlJson({ capabilities: { measurement: true }, limits: { prompts: 24 } })}, ${sqlUuid(TRANSITIVE_POLICY_MID_ID)});
 commit;
 `;
 }
@@ -545,6 +597,15 @@ function reconcileOperatorSummary(checkpointId: string, auditEventId: string): R
   };
 }
 
+function attemptOperatorSummary(checkpointId: string, attemptOutcome: Phase4RecordLifecycleCheckpointAttemptCommand["attemptOutcome"]): Record<string, unknown> {
+  return {
+    checkpoint: {
+      checkpoint_id_chars: uuidChars(checkpointId),
+      attempt_outcome: attemptOutcome,
+      required_effect: "lifecycle.suspend"
+    }
+  };
+}
 function makeConfirmCommand(input: {
   orgId: string;
   projectId: string | null;
@@ -590,6 +651,31 @@ function makeReconcileCommand(input: {
     projectId: input.projectId,
     checkpointId: input.checkpointId,
     phase3LifecycleAuditEventId: input.phase3LifecycleAuditEventId,
+    idempotencyKey: input.idempotencyKey,
+    requestId: requestId(input.sequence),
+    correlationId: correlationId(input.sequence),
+    operatorEvidence: { auditEventId: evidence.auditEventId, commandReceiptId: evidence.commandReceiptId }
+  };
+}
+function makeAttemptCommand(input: {
+  orgId: string;
+  projectId: string | null;
+  checkpointId: string;
+  attemptOutcome: Phase4RecordLifecycleCheckpointAttemptCommand["attemptOutcome"];
+  sequence: number;
+  idempotencyKey: string;
+  afterSummary?: unknown;
+}): Phase4RecordLifecycleCheckpointAttemptCommand {
+  const evidence = createOperatorEvidence(input.orgId, input.projectId, input.sequence, {
+    action: "p4c.lifecycle.checkpoint.attempt",
+    afterSummary: input.afterSummary ?? attemptOperatorSummary(input.checkpointId, input.attemptOutcome)
+  });
+  return {
+    schemaVersion: p4c.phase4ContractBillingIntegrationSchemaVersion,
+    organizationId: input.orgId,
+    projectId: input.projectId,
+    checkpointId: input.checkpointId,
+    attemptOutcome: input.attemptOutcome,
     idempotencyKey: input.idempotencyKey,
     requestId: requestId(input.sequence),
     correlationId: correlationId(input.sequence),
@@ -667,8 +753,12 @@ async function seedActiveContract(
   contractReference: string,
   policyId = STRONG_POLICY_ID
 ): Promise<Phase4CustomerSafeContractResult> {
-  assert.equal((await execute(makeCommand({ orgId, projectId, sequence: baseSequence, contractReference, sourceReference: `${contractReference}.receipt.draft`, idempotencyKey: `${contractReference}.draft`, nextContractState: "draft", policyId }))).customerAccessAllowed, false);
-  assert.equal((await execute(makeCommand({ orgId, projectId, sequence: baseSequence + 1, contractReference, sourceReference: `${contractReference}.receipt.pending`, idempotencyKey: `${contractReference}.pending`, nextContractState: "pending_activation", policyId }))).customerAccessAllowed, false);
+  const draftResult = await execute(makeCommand({ orgId, projectId, sequence: baseSequence, contractReference, sourceReference: `${contractReference}.receipt.draft`, idempotencyKey: `${contractReference}.draft`, nextContractState: "draft", policyId }));
+  assert.equal(draftResult.outcome, "applied");
+  assert.equal(draftResult.customerAccessAllowed, draftResult.reasonCode === "ok");
+  const pendingResult = await execute(makeCommand({ orgId, projectId, sequence: baseSequence + 1, contractReference, sourceReference: `${contractReference}.receipt.pending`, idempotencyKey: `${contractReference}.pending`, nextContractState: "pending_activation", policyId }));
+  assert.equal(pendingResult.outcome, "applied");
+  assert.equal(pendingResult.customerAccessAllowed, pendingResult.reasonCode === "ok");
   return execute(makeCommand({ orgId, projectId, sequence: baseSequence + 2, contractReference, sourceReference: `${contractReference}.receipt.activate`, idempotencyKey: `${contractReference}.activate`, nextContractState: "active", paymentFactKind: "payment_succeeded", policyId }));
 }
 
@@ -738,6 +828,30 @@ limit 1;
 `);
 }
 
+type CheckpointAttemptState = { checkpointState: string; outboxState: string; attemptCount: number; nextAttemptAt: string | null; exhaustedAt: string | null; checkpointSupersededBy: string | null; outboxSupersededBy: string | null };
+
+function checkpointAttemptState(checkpointId: string): CheckpointAttemptState {
+  return queryJson<CheckpointAttemptState>(`
+select jsonb_build_object(
+  'checkpointState', checkpoint_row.state::text,
+  'outboxState', outbox_row.state::text,
+  'attemptCount', outbox_row.attempt_count,
+  'nextAttemptAt', outbox_row.next_attempt_at,
+  'exhaustedAt', outbox_row.exhausted_at,
+  'checkpointSupersededBy', checkpoint_row.superseded_by_checkpoint_id::text,
+  'outboxSupersededBy', outbox_row.superseded_by_outbox_id::text
+)::text
+from recora_private.p4_downstream_checkpoints checkpoint_row
+join recora_private.p4_durable_outbox outbox_row on outbox_row.checkpoint_id = checkpoint_row.id
+where checkpoint_row.id = ${sqlUuid(checkpointId)}
+order by outbox_row.created_at desc
+limit 1;
+`);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 async function expectMalformedRpcRowsRejectedWith(
   executor: (client: { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> }, value: unknown) => Promise<Phase4CustomerSafeContractResult>,
   command: unknown,
@@ -770,7 +884,11 @@ begin
   end if;
   if to_regprocedure('public.recora_p4c_reconcile_lifecycle_checkpoint_command(uuid,uuid,uuid,uuid,text,uuid,uuid,uuid,uuid)') is null then
     raise exception 'Issue 123 P4-C reconcile RPC is missing';
-  end if;  if not exists (
+  end if;
+  if to_regprocedure('public.recora_p4c_record_lifecycle_checkpoint_attempt_command(uuid,uuid,uuid,text,text,uuid,uuid,uuid,uuid)') is null then
+    raise exception 'Issue 123 P4-C attempt RPC is missing';
+  end if;
+  if not exists (
     select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = 'recora_p4c_apply_contract_billing_entitlement_command'
       and p.prosecdef is true and p.proconfig @> array['search_path=""']::text[]
@@ -783,12 +901,15 @@ begin
     or has_function_privilege('authenticated', 'public.recora_p4c_confirm_lifecycle_checkpoint_command(uuid,uuid,uuid,uuid,text,uuid,uuid,uuid,uuid)', 'EXECUTE')
     or has_function_privilege('anon', 'public.recora_p4c_reconcile_lifecycle_checkpoint_command(uuid,uuid,uuid,uuid,text,uuid,uuid,uuid,uuid)', 'EXECUTE')
     or has_function_privilege('authenticated', 'public.recora_p4c_reconcile_lifecycle_checkpoint_command(uuid,uuid,uuid,uuid,text,uuid,uuid,uuid,uuid)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.recora_p4c_record_lifecycle_checkpoint_attempt_command(uuid,uuid,uuid,text,text,uuid,uuid,uuid,uuid)', 'EXECUTE')
+    or has_function_privilege('authenticated', 'public.recora_p4c_record_lifecycle_checkpoint_attempt_command(uuid,uuid,uuid,text,text,uuid,uuid,uuid,uuid)', 'EXECUTE')
   then
     raise exception 'Issue 123 P4-C RPC is executable by a browser role';
   end if;
   if not has_function_privilege('service_role', 'public.recora_p4c_apply_contract_billing_entitlement_command(uuid,uuid,recora_private.p4_source_kind,text,text,bigint,text,recora_private.p4_contract_state,recora_private.p4_payment_fact_kind,text,text,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.recora_p4c_confirm_lifecycle_checkpoint_command(uuid,uuid,uuid,uuid,text,uuid,uuid,uuid,uuid)', 'EXECUTE')
-    or not has_function_privilege('service_role', 'public.recora_p4c_reconcile_lifecycle_checkpoint_command(uuid,uuid,uuid,uuid,text,uuid,uuid,uuid,uuid)', 'EXECUTE') then
+    or not has_function_privilege('service_role', 'public.recora_p4c_reconcile_lifecycle_checkpoint_command(uuid,uuid,uuid,uuid,text,uuid,uuid,uuid,uuid)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.recora_p4c_record_lifecycle_checkpoint_attempt_command(uuid,uuid,uuid,text,text,uuid,uuid,uuid,uuid)', 'EXECUTE') then
     raise exception 'Issue 123 P4-C service_role grant missing';
   end if;
   if has_function_privilege('anon', 'recora_private.p4c_payload_fingerprint(jsonb)', 'EXECUTE')
@@ -869,6 +990,17 @@ rollback;
     correlationId: correlationId(82),
     operatorEvidence: { auditEventId: OPERATOR_ID, commandReceiptId: OPERATOR_ID }
   };
+  const attemptShapeCommand: Phase4RecordLifecycleCheckpointAttemptCommand = {
+    schemaVersion: p4c.phase4ContractBillingIntegrationSchemaVersion,
+    organizationId: ORG_A,
+    projectId: PROJECT_A,
+    checkpointId: "12370000-0000-4000-8000-000000000005",
+    attemptOutcome: "failed_retryable",
+    idempotencyKey: "p4c.attempt.shape",
+    requestId: requestId(83),
+    correlationId: correlationId(83),
+    operatorEvidence: { auditEventId: OPERATOR_ID, commandReceiptId: OPERATOR_ID }
+  };
   const accessorRow = { ...goodRpcRow };
   Object.defineProperty(accessorRow, "outcome", { enumerable: true, get() { return "applied"; } });
   const proxyRow = new Proxy(goodRpcRow, { ownKeys() { throw new Error("proxy trap"); } });
@@ -887,7 +1019,8 @@ rollback;
   const malformedBoundaries: Array<[string, (client: { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> }, value: unknown) => Promise<Phase4CustomerSafeContractResult>, unknown]> = [
     ["apply", p4c.executePhase4ContractBillingCommand, active],
     ["confirm", p4c.executePhase4ConfirmLifecycleCheckpointCommand, confirmShapeCommand],
-    ["reconcile", p4c.executePhase4ReconcileLifecycleCheckpointCommand, reconcileShapeCommand]
+    ["reconcile", p4c.executePhase4ReconcileLifecycleCheckpointCommand, reconcileShapeCommand],
+    ["attempt", p4c.executePhase4RecordLifecycleCheckpointAttemptCommand, attemptShapeCommand]
   ];
   for (const [boundary, executor, command] of malformedBoundaries) {
     for (const [rows, label] of malformedRowCases) {
@@ -1007,7 +1140,18 @@ where organization_id = ${sqlUuid(ORG_A)}
   const expiredPolicy = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 332, contractReference: "contract.expired", sourceReference: "receipt.expired.policy", idempotencyKey: "p4c.expired.policy", nextContractState: "draft", policyId: EXPIRED_POLICY_ID }));
   assert.equal(expiredPolicy.outcome, "rejected");
   assert.equal(expiredPolicy.stableReason, "invalid_reference");
-  assert.equal(p4c.isProviderNeutralBillingEnvelope({ ...makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 333, contractReference: "contract.rejected.caller.policy", sourceReference: "receipt.rejected.caller.policy", idempotencyKey: "p4c.rejected.caller.policy", nextContractState: "draft", policyId: WEAK_POLICY_ID }), authoritativePlanPolicyKey: POLICY_KEY }), false);
+  const transitiveRootPolicy = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 333, contractReference: "contract.transitive.root", sourceReference: "receipt.transitive.root.policy", idempotencyKey: "p4c.transitive.root.policy", nextContractState: "draft", policyId: TRANSITIVE_POLICY_ROOT_ID }));
+  assert.equal(transitiveRootPolicy.outcome, "rejected");
+  assert.equal(transitiveRootPolicy.stableReason, "invalid_reference");
+  const transitiveHeadPolicy = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 334, contractReference: "contract.transitive.head", sourceReference: "receipt.transitive.head.policy", idempotencyKey: "p4c.transitive.head.policy", nextContractState: "draft", policyId: TRANSITIVE_POLICY_HEAD_ID }));
+  assert.equal(transitiveHeadPolicy.outcome, "applied");
+  const transitiveHeadPending = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 335, contractReference: "contract.transitive.head", sourceReference: "receipt.transitive.head.pending", idempotencyKey: "p4c.transitive.head.pending", nextContractState: "pending_activation", policyId: TRANSITIVE_POLICY_HEAD_ID }));
+  assert.equal(transitiveHeadPending.outcome, "applied");
+  const transitiveHeadActivation = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 336, contractReference: "contract.transitive.head", sourceReference: "receipt.transitive.head.activate", idempotencyKey: "p4c.transitive.head.activate", nextContractState: "active", paymentFactKind: "payment_succeeded", policyId: TRANSITIVE_POLICY_HEAD_ID }));
+  assert.equal(transitiveHeadActivation.outcome, "applied");
+  assert.equal(transitiveHeadActivation.customerAccessAllowed, true);
+  assert.deepEqual(transitiveHeadActivation.limits, { prompts: 24 });
+  assert.equal(p4c.isProviderNeutralBillingEnvelope({ ...makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 337, contractReference: "contract.rejected.caller.policy", sourceReference: "receipt.rejected.caller.policy", idempotencyKey: "p4c.rejected.caller.policy", nextContractState: "draft", policyId: WEAK_POLICY_ID }), authoritativePlanPolicyKey: POLICY_KEY }), false);
 
   await seedActiveContract(ORG_B, PROJECT_B, 340, "contract.compensate");
   const compensationPause = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 343, contractReference: "contract.compensate", sourceReference: "receipt.comp.pause", idempotencyKey: "p4c.comp.pause", nextContractState: "paused", paymentFactKind: "payment_failed" }));
@@ -1020,6 +1164,84 @@ where organization_id = ${sqlUuid(ORG_A)}
   assert.equal(compensationRecover.customerAccessAllowed, true);
   assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where id = ${sqlUuid(compensationCheckpointId)} and superseded_by_checkpoint_id is not null`), 1);
   assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where correction_of_checkpoint_id = ${sqlUuid(compensationCheckpointId)} and state = 'completed'`), 1);
+  await seedActiveContract(ORG_B, PROJECT_B, 500, "contract.attempt");
+  const attemptPause = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 503, contractReference: "contract.attempt", sourceReference: "receipt.attempt.pause", idempotencyKey: "p4c.attempt.pause", nextContractState: "paused", paymentFactKind: "payment_failed" }));
+  assert.equal(attemptPause.outcome, "reconciliation_required");
+  assert.equal(attemptPause.stableReason, "checkpoint_pending");
+  const attemptCheckpointId = latestOpenCheckpointId(ORG_B, PROJECT_B);
+  const beforeAttemptMutation = domainCounts(ORG_B, "contract.attempt");
+  const failAttempt = makeAttemptCommand({ orgId: ORG_B, projectId: PROJECT_B, checkpointId: attemptCheckpointId, attemptOutcome: "failed_retryable", sequence: 510, idempotencyKey: "p4c.attempt.fail.one" });
+  const concurrentFailRows = await Promise.all([callAttemptRpcProcess(failAttempt), callAttemptRpcProcess(failAttempt)]);
+  const concurrentFailResults = concurrentFailRows.map(normalizeProcessResult);
+  assert.deepEqual(concurrentFailResults.map((result) => result.outcome).sort(), ["reconciliation_required", "replayed"].sort());
+  assert.equal(concurrentFailResults.filter((result) => result.stableReason === "checkpoint_failed").length, 1);
+  assert.equal(concurrentFailResults.filter((result) => result.stableReason === "duplicate_command").length, 1);  const tooSoonRetry = makeAttemptCommand({ orgId: ORG_B, projectId: PROJECT_B, checkpointId: attemptCheckpointId, attemptOutcome: "retry_pending", sequence: 511, idempotencyKey: "p4c.attempt.retry.too-soon" });
+  const tooSoonRetryResult = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, tooSoonRetry);
+  assert.equal(tooSoonRetryResult.outcome, "rejected");
+  assert.equal(tooSoonRetryResult.stableReason, "invalid_reference");
+  assert.equal(countValue(`select count(*) from recora_private.p4_command_receipts where organization_id = ${sqlUuid(ORG_B)} and idempotency_key = 'p4c.attempt.retry.too-soon.checkpoint.attempt';`), 0);
+  let attemptState = checkpointAttemptState(attemptCheckpointId);
+  assert.equal(attemptState.checkpointState, "failed");
+  assert.equal(attemptState.outboxState, "failed");
+  assert.equal(attemptState.attemptCount, 1);
+  assert.notEqual(attemptState.nextAttemptAt, null);
+  assert.equal(attemptState.exhaustedAt, null);
+  assertNoDomainChange(beforeAttemptMutation, domainCounts(ORG_B, "contract.attempt"), ["billingReceipts", "paymentFacts", "contractEvents", "snapshots", "checkpoints", "outbox", "projectionVersion"]);
+  const failReplay = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, failAttempt);
+  assert.equal(failReplay.outcome, "replayed");
+  assert.equal(checkpointAttemptState(attemptCheckpointId).attemptCount, 1);
+
+  const failConflict = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, makeAttemptCommand({ orgId: ORG_B, projectId: PROJECT_B, checkpointId: attemptCheckpointId, attemptOutcome: "exhausted", sequence: 512, idempotencyKey: "p4c.attempt.fail.one" }));
+  assert.equal(failConflict.outcome, "rejected");
+  assert.equal(failConflict.stableReason, "idempotency_conflict");
+  await delay(5200);
+  const retryResult = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, tooSoonRetry);
+  assert.equal(retryResult.outcome, "reconciliation_required");
+  assert.equal(retryResult.stableReason, "checkpoint_pending");
+  attemptState = checkpointAttemptState(attemptCheckpointId);
+  assert.equal(attemptState.checkpointState, "pending");
+  assert.equal(attemptState.outboxState, "pending");
+  assert.equal(attemptState.attemptCount, 1);
+  assert.equal(attemptState.nextAttemptAt, null);
+  const retryReplay = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, tooSoonRetry);
+  assert.equal(retryReplay.outcome, "replayed");
+  const failAttemptTwo = makeAttemptCommand({ orgId: ORG_B, projectId: PROJECT_B, checkpointId: attemptCheckpointId, attemptOutcome: "failed_retryable", sequence: 513, idempotencyKey: "p4c.attempt.fail.two" });
+  const failTwoResult = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, failAttemptTwo);
+  assert.equal(failTwoResult.outcome, "reconciliation_required");
+  assert.equal(failTwoResult.stableReason, "checkpoint_failed");
+  attemptState = checkpointAttemptState(attemptCheckpointId);
+  assert.equal(attemptState.checkpointState, "failed");
+  assert.equal(attemptState.outboxState, "failed");
+  assert.equal(attemptState.attemptCount, 2);
+  const exhaustedAttempt = makeAttemptCommand({ orgId: ORG_B, projectId: PROJECT_B, checkpointId: attemptCheckpointId, attemptOutcome: "exhausted", sequence: 514, idempotencyKey: "p4c.attempt.exhausted" });
+  const exhaustedResult = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, exhaustedAttempt);
+  assert.equal(exhaustedResult.outcome, "reconciliation_required");
+  assert.equal(exhaustedResult.stableReason, "reconciliation_required");
+  attemptState = checkpointAttemptState(attemptCheckpointId);
+  assert.equal(attemptState.checkpointState, "reconciliation_required");
+  assert.equal(attemptState.outboxState, "reconciliation_required");
+  assert.equal(attemptState.attemptCount, 2);
+  assert.notEqual(attemptState.exhaustedAt, null);
+  assert.equal(attemptState.nextAttemptAt, null);
+  const exhaustedReplay = await p4c.executePhase4RecordLifecycleCheckpointAttemptCommand(rpcClient, exhaustedAttempt);
+  assert.equal(exhaustedReplay.outcome, "replayed");
+  assertNoDomainChange(beforeAttemptMutation, domainCounts(ORG_B, "contract.attempt"), ["billingReceipts", "paymentFacts", "contractEvents", "snapshots", "checkpoints", "outbox", "projectionVersion"]);
+  const lifecycleBeforeExhaustedConfirm = currentLifecycle(ORG_B, PROJECT_B);
+  const exhaustedSuspend = transitionLifecycle({ orgId: ORG_B, projectId: PROJECT_B, expectedState: lifecycleBeforeExhaustedConfirm.state, expectedVersion: lifecycleBeforeExhaustedConfirm.version, nextState: "access_suspended", sequence: 515, reason: checkpointReason(attemptCheckpointId) });
+  assert.equal(exhaustedSuspend.outcome, "success");
+  const exhaustedConfirm = makeConfirmCommand({ orgId: ORG_B, projectId: PROJECT_B, checkpointId: attemptCheckpointId, phase3LifecycleEventId: lifecycleEventIdForRequest(requestId(515)), sequence: 516, idempotencyKey: "p4c.confirm.exhausted" });
+  const exhaustedConfirmResult = await p4c.executePhase4ConfirmLifecycleCheckpointCommand(rpcClient, exhaustedConfirm);
+  assert.equal(exhaustedConfirmResult.outcome, "applied");
+  assert.equal(exhaustedConfirmResult.reasonCode, "lifecycle_access_suspended");
+  assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where id = ${sqlUuid(attemptCheckpointId)} and superseded_by_checkpoint_id is not null`), 1);
+  assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where correction_of_checkpoint_id = ${sqlUuid(attemptCheckpointId)} and state = 'completed'`), 1);
+  const lifecycleBeforeAttemptRecovery = currentLifecycle(ORG_B, PROJECT_B);
+  const attemptLifecycleRecovered = transitionLifecycle({ orgId: ORG_B, projectId: PROJECT_B, expectedState: lifecycleBeforeAttemptRecovery.state, expectedVersion: lifecycleBeforeAttemptRecovery.version, nextState: "active", sequence: 517 });
+  assert.equal(attemptLifecycleRecovered.outcome, "success");
+  const attemptAccessRecovered = await execute(makeCommand({ orgId: ORG_B, projectId: PROJECT_B, sequence: 518, contractReference: "contract.attempt", sourceReference: "receipt.attempt.recover", idempotencyKey: "p4c.attempt.recover", nextContractState: "active", paymentFactKind: "payment_succeeded" }));
+  assert.equal(attemptAccessRecovered.outcome, "applied");
+  assert.equal(attemptAccessRecovered.customerAccessAllowed, true);
+  assert.equal(attemptAccessRecovered.reasonCode, "ok");
 
   await seedActiveContract(ORG_C, PROJECT_C, 401, "contract.pending");
   const pendingCheckpoint = makeCommand({ orgId: ORG_C, projectId: PROJECT_C, sequence: 404, contractReference: "contract.pending", sourceReference: "receipt.pending.pause", idempotencyKey: "p4c.pending.pause", nextContractState: "paused", paymentFactKind: "payment_failed" });
@@ -1105,7 +1327,7 @@ where organization_id = ${sqlUuid(ORG_A)}
   assert.equal(reconcileConflict.stableReason, "idempotency_conflict");
 
   const rollbackBefore = domainCounts(ORG_A);
-  const rollbackFailure = makeCommand({ sequence: 107, requestSequence: 162, sourceReference: "receipt.rollback", idempotencyKey: "p4c.rollback", nextContractState: "active", paymentFactKind: "payment_reversed", correctsPaymentFactId: "12399999-0000-4000-8000-000000000999" });
+  const rollbackFailure = makeCommand({ sequence: 171, requestSequence: 162, sourceReference: "receipt.rollback", idempotencyKey: "p4c.rollback", nextContractState: "active", paymentFactKind: "payment_reversed", correctsPaymentFactId: "12399999-0000-4000-8000-000000000999" });
   const rollbackResult = await execute(rollbackFailure);
   assert.equal(rollbackResult.outcome, "rejected");
   assert.equal(rollbackResult.stableReason, "invalid_reference");
@@ -1117,6 +1339,25 @@ where organization_id = ${sqlUuid(ORG_A)}
   assert.equal(rollbackRetry.outcome, "rejected");
   assert.equal(rollbackRetry.stableReason, "invalid_reference");
   assert.deepEqual(domainCounts(ORG_A), rollbackAfterFirstFailure);
+  const lifecycleBeforeReconciledConfirm = currentLifecycle(ORG_A, PROJECT_A);
+  const reconciledSuspend = transitionLifecycle({ orgId: ORG_A, projectId: PROJECT_A, expectedState: lifecycleBeforeReconciledConfirm.state, expectedVersion: lifecycleBeforeReconciledConfirm.version, nextState: "access_suspended", sequence: 165, reason: checkpointReason(reconcileCheckpointId) });
+  assert.equal(reconciledSuspend.outcome, "success");
+  const reconciledConfirmCommand = makeConfirmCommand({ orgId: ORG_A, projectId: PROJECT_A, checkpointId: reconcileCheckpointId, phase3LifecycleEventId: lifecycleEventIdForRequest(requestId(165)), sequence: 166, idempotencyKey: "p4c.confirm.reconciled" });
+  const reconciledConfirmRows = await Promise.all([callConfirmRpcProcess(reconciledConfirmCommand), callConfirmRpcProcess(reconciledConfirmCommand)]);
+  const reconciledConfirmResults = reconciledConfirmRows.map(normalizeProcessResult);
+  assert.deepEqual(reconciledConfirmResults.map((result) => result.outcome).sort(), ["applied", "replayed"].sort());
+  assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where id = ${sqlUuid(reconcileCheckpointId)} and superseded_by_checkpoint_id is not null`), 1);
+  assert.equal(countValue(`select count(*) from recora_private.p4_downstream_checkpoints where correction_of_checkpoint_id = ${sqlUuid(reconcileCheckpointId)} and state = 'completed'`), 1);
+  const reconciledConfirmReplay = await p4c.executePhase4ConfirmLifecycleCheckpointCommand(rpcClient, reconciledConfirmCommand);
+  assert.equal(reconciledConfirmReplay.outcome, "replayed");
+  assert.equal(reconciledConfirmReplay.stableReason, "duplicate_command");
+  const lifecycleBeforeReconciledAccessRecovery = currentLifecycle(ORG_A, PROJECT_A);
+  const reconciledLifecycleRecovered = transitionLifecycle({ orgId: ORG_A, projectId: PROJECT_A, expectedState: lifecycleBeforeReconciledAccessRecovery.state, expectedVersion: lifecycleBeforeReconciledAccessRecovery.version, nextState: "active", sequence: 167 });
+  assert.equal(reconciledLifecycleRecovered.outcome, "success");
+  const reconciledAccessRecovered = await execute(makeCommand({ sequence: 170, sourceReference: "receipt.reconcile.recover", idempotencyKey: "p4c.reconcile.recover", nextContractState: "active", paymentFactKind: "payment_succeeded" }));
+  assert.equal(reconciledAccessRecovered.outcome, "applied");
+  assert.equal(reconciledAccessRecovered.customerAccessAllowed, true);
+  assert.equal(reconciledAccessRecovered.reasonCode, "ok");
   queryLocal(`
 do $verify$
 begin

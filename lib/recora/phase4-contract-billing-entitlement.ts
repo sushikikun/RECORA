@@ -67,6 +67,20 @@ export type Phase4ReconcileLifecycleCheckpointCommand = {
   operatorEvidence: Phase4OperatorEvidence;
 };
 
+export type Phase4LifecycleCheckpointAttemptOutcome = "failed_retryable" | "retry_pending" | "exhausted";
+
+export type Phase4RecordLifecycleCheckpointAttemptCommand = {
+  schemaVersion: typeof phase4ContractBillingIntegrationSchemaVersion;
+  organizationId: string;
+  projectId: string | null;
+  checkpointId: string;
+  attemptOutcome: Phase4LifecycleCheckpointAttemptOutcome;
+  idempotencyKey: string;
+  requestId: string;
+  correlationId: string;
+  operatorEvidence: Phase4OperatorEvidence;
+};
+
 export type Phase4ContractBillingValidationReason =
   | "ok"
   | "invalid_command"
@@ -132,7 +146,8 @@ export type Phase4CustomerSafeContractResult = {
 type Phase4ContractBillingRpcName =
   | "recora_p4c_apply_contract_billing_entitlement_command"
   | "recora_p4c_confirm_lifecycle_checkpoint_command"
-  | "recora_p4c_reconcile_lifecycle_checkpoint_command";
+  | "recora_p4c_reconcile_lifecycle_checkpoint_command"
+  | "recora_p4c_record_lifecycle_checkpoint_attempt_command";
 
 export type Phase4ContractBillingRpcClient = {
   rpc: (
@@ -181,6 +196,17 @@ const reconcileCommandKeys = [
   "correlationId",
   "operatorEvidence"
 ] as const;
+const attemptCommandKeys = [
+  "schemaVersion",
+  "organizationId",
+  "projectId",
+  "checkpointId",
+  "attemptOutcome",
+  "idempotencyKey",
+  "requestId",
+  "correlationId",
+  "operatorEvidence"
+] as const;
 const operatorEvidenceKeys = ["auditEventId", "commandReceiptId"] as const;
 const customerSafeKeys = [
   "schemaVersion",
@@ -212,6 +238,7 @@ const sensitiveOpaque = /(^|[_.:-])(token|secret|password|credential|authorizati
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const contractStates = new Set<Phase4ContractState>(["draft", "pending_activation", "active", "paused", "canceled", "ended"]);
 const paymentFactKinds = new Set<Phase4PaymentFactKind>(["payment_succeeded", "payment_failed", "payment_reversed", "payment_disputed", "payment_unknown"]);
+const attemptOutcomes = new Set<Phase4LifecycleCheckpointAttemptOutcome>(["failed_retryable", "retry_pending", "exhausted"]);
 const safeReasons = new Set<Phase4CustomerSafeReason>([
   "ok",
   "invalid_scope",
@@ -366,6 +393,26 @@ export async function executePhase4ReconcileLifecycleCheckpointCommand(
   return normalizeRpcResult(data);
 }
 
+export async function executePhase4RecordLifecycleCheckpointAttemptCommand(
+  client: Phase4ContractBillingRpcClient,
+  value: unknown
+): Promise<Phase4CustomerSafeContractResult> {
+  const command = validateRecordLifecycleCheckpointAttemptCommand(value);
+  const { data, error } = await client.rpc("recora_p4c_record_lifecycle_checkpoint_attempt_command", {
+    p_organization_id: command.organizationId,
+    p_project_id: command.projectId,
+    p_checkpoint_id: command.checkpointId,
+    p_attempt_outcome: command.attemptOutcome,
+    p_idempotency_key: command.idempotencyKey,
+    p_request_id: command.requestId,
+    p_correlation_id: command.correlationId,
+    p_operator_audit_event_id: command.operatorEvidence.auditEventId,
+    p_operator_command_receipt_id: command.operatorEvidence.commandReceiptId
+  });
+  if (error) throw new Error(`P4-C checkpoint attempt RPC failed: ${formatRpcError(error)}`);
+  return normalizeRpcResult(data);
+}
+
 export function createPendingCustomerSafeContractResult(reasonCode: Exclude<Phase4CustomerSafeReason, "ok"> = "command_unavailable"): Phase4CustomerSafeContractResult {
   const result: Phase4CustomerSafeContractResult = {
     schemaVersion: phase4ContractBillingIntegrationSchemaVersion,
@@ -508,6 +555,30 @@ function validateReconcileLifecycleCheckpointCommand(value: unknown): Phase4Reco
   }
 }
 
+function validateRecordLifecycleCheckpointAttemptCommand(value: unknown): Phase4RecordLifecycleCheckpointAttemptCommand {
+  try {
+    if (!isExactPlainObject(value, attemptCommandKeys)) throw new Error("shape");
+    if (Object.keys(value).some((key) => forbiddenInputAuthorityKeys.test(key))) throw new Error("authority");
+    if (
+      value.schemaVersion !== phase4ContractBillingIntegrationSchemaVersion ||
+      !isUuid(value.organizationId) ||
+      !isNullableUuid(value.projectId) ||
+      !isUuid(value.checkpointId) ||
+      !isAttemptOutcome(value.attemptOutcome) ||
+      !isOpaque(value.idempotencyKey) ||
+      value.idempotencyKey.length > 96 ||
+      !isUuid(value.requestId) ||
+      !isUuid(value.correlationId) ||
+      !isOperatorEvidence(value.operatorEvidence)
+    ) {
+      throw new Error("invalid");
+    }
+    return value as Phase4RecordLifecycleCheckpointAttemptCommand;
+  } catch {
+    throw new Error("Invalid P4-C checkpoint attempt command.");
+  }
+}
+
 function isOperatorEvidence(value: unknown): value is Phase4OperatorEvidence {
   return isExactPlainObject(value, operatorEvidenceKeys) && isUuid(value.auditEventId) && isUuid(value.commandReceiptId);
 }
@@ -518,6 +589,10 @@ function isContractState(value: unknown): value is Phase4ContractState {
 
 function isPaymentFactKind(value: unknown): value is Phase4PaymentFactKind {
   return typeof value === "string" && paymentFactKinds.has(value as Phase4PaymentFactKind);
+}
+
+function isAttemptOutcome(value: unknown): value is Phase4LifecycleCheckpointAttemptOutcome {
+  return typeof value === "string" && attemptOutcomes.has(value as Phase4LifecycleCheckpointAttemptOutcome);
 }
 
 function isRpcOutcome(value: unknown): value is Phase4ContractBillingRpcOutcome {
