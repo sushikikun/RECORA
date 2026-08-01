@@ -537,6 +537,7 @@ declare
   unsafe_public_execute text;
   unsafe_browser_execute text;
   unsafe_customer_view text;
+  unsafe_p4b_function_grant text;
 begin
   select string_agg(format('%I.%I', namespace_row.nspname, relation_row.relname), ', ' order by namespace_row.nspname, relation_row.relname)
   into unclassified_public
@@ -666,7 +667,8 @@ begin
       ('recora_private.is_customer_visible_recommendation(public.recora_recommendation_state,jsonb)'),
       ('recora_private.is_demo_organization(uuid)'),
       ('recora_private.is_organization_member(uuid)'),
-      ('recora_private.resolve_unambiguous_organization_id()')
+      ('recora_private.resolve_unambiguous_organization_id()'),
+      ('public.recora_p4b_invitation_accept(uuid,uuid,uuid,text)')
   )
   select string_agg(format('%I.%I(%s)', namespace_row.nspname, function_row.proname,
     pg_get_function_identity_arguments(function_row.oid)), ', ' order by namespace_row.nspname, function_row.proname,
@@ -687,6 +689,32 @@ begin
     raise exception 'browser EXECUTE outside signature allowlist: %', unsafe_browser_execute;
   end if;
 
+  if to_regprocedure('public.recora_p4b_invitation_accept(uuid,uuid,uuid,text)') is null then
+    raise exception 'P4-B authenticated invitation accept RPC signature missing';
+  end if;
+  if has_function_privilege('anon', 'public.recora_p4b_invitation_accept(uuid,uuid,uuid,text)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.recora_p4b_invitation_accept(uuid,uuid,uuid,text)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.recora_p4b_invitation_accept(uuid,uuid,uuid,text)', 'EXECUTE') then
+    raise exception 'P4-B accept RPC grant boundary drift';
+  end if;
+
+  select string_agg(format('%I.%I(%s)', namespace_row.nspname, function_row.proname,
+    pg_get_function_identity_arguments(function_row.oid)), ', ' order by namespace_row.nspname, function_row.proname,
+    pg_get_function_identity_arguments(function_row.oid))
+  into unsafe_p4b_function_grant
+  from pg_proc function_row
+  join pg_namespace namespace_row on namespace_row.oid = function_row.pronamespace
+  where namespace_row.nspname = 'public'
+    and function_row.proname like 'recora_p4b_%'
+    and function_row.oid <> 'public.recora_p4b_invitation_accept(uuid,uuid,uuid,text)'::regprocedure
+    and (
+      has_function_privilege('anon', function_row.oid, 'EXECUTE')
+      or has_function_privilege('authenticated', function_row.oid, 'EXECUTE')
+      or not has_function_privilege('service_role', function_row.oid, 'EXECUTE')
+    );
+  if unsafe_p4b_function_grant is not null then
+    raise exception 'P4-B service-role RPC grant boundary drift: %', unsafe_p4b_function_grant;
+  end if;
   select string_agg(format('%I.%I', namespace_row.nspname, relation_row.relname), ', ' order by namespace_row.nspname, relation_row.relname)
   into unsafe_customer_view
   from pg_class relation_row
