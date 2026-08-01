@@ -209,17 +209,18 @@ begin
   select * into replay_row from public.recora_p4b_invitation_create(operator_user,org_a,repeat('7',64),'admin',now()+interval '7 days','issue122.admin.pos','12240000-0000-4000-8000-000000000017','12250000-0000-4000-8000-000000000017','issue122.admin.pos');
   if replay_row.outcome <> 'accepted' or replay_row.invitation_state <> 'pending' then raise exception 'explicit admin create permission failed'; end if;
   select * into replay_row from public.recora_p4b_invitation_create(operator_user,org_b,hash_b,'member',now()+interval '7 days','issue122.cross','12240000-0000-4000-8000-000000000015','12250000-0000-4000-8000-000000000015','issue122.cross');
-  if replay_row.outcome <> 'rejected' or replay_row.reason_code <> 'permission_denied' then raise exception 'operator permission negative failed'; end if;
+  if replay_row.outcome <> 'rejected' or replay_row.reason_code <> 'permission_denied' or replay_row.audit_event_id is null or replay_row.operator_command_receipt_id is not null or not exists(select 1 from recora_audit.operator_events event_row where event_row.id = replay_row.audit_event_id and event_row.target_type = 'invitation' and event_row.outcome = 'denied'::recora_audit.operator_audit_outcome) then raise exception 'operator permission negative failed'; end if;
 
   select * into command_row from public.recora_p4b_invitation_create(operator_user,org_a,hash_b,'viewer',now()+interval '7 days','issue122.resend.create','12240000-0000-4000-8000-000000000021','12250000-0000-4000-8000-000000000021','issue122.resend.create');
   invitation_resend_old := command_row.invitation_id;
   select * into command_row from public.recora_p4b_invitation_resend(operator_user,invitation_resend_old,hash_b,now()+interval '8 days','issue122.resend','12240000-0000-4000-8000-000000000022','12250000-0000-4000-8000-000000000022','issue122.resend');
   if command_row.outcome <> 'accepted' or command_row.invitation_state <> 'pending' or command_row.invitation_id = invitation_resend_old then raise exception 'invitation resend failed'; end if;
   invitation_two := command_row.invitation_id;
-  if (select state from recora_private.p4_invitations where id = invitation_resend_old) <> 'revoked'::recora_private.p4_invitation_state then raise exception 'old invitation was not invalidated on resend'; end if;
+  if not exists(select 1 from recora_private.p4_invitations where id = invitation_resend_old and state = 'superseded'::recora_private.p4_invitation_state and superseded_by_invitation_id = invitation_two) then raise exception 'old invitation was not superseded on resend'; end if;
+  if not exists(select 1 from recora_private.p4_invitation_events where invitation_id = invitation_resend_old and previous_state = 'pending'::recora_private.p4_invitation_state and next_state = 'superseded'::recora_private.p4_invitation_state) then raise exception 'superseded resend event missing'; end if;
   perform set_config('request.jwt.claim.sub', customer_user::text, true);
   select * into replay_row from public.recora_p4b_invitation_accept(invitation_resend_old,'12240000-0000-4000-8000-000000000023','12250000-0000-4000-8000-000000000023','issue122.accept.superseded');
-  if replay_row.outcome <> 'rejected' or replay_row.reason_code <> 'invitation_unavailable' then raise exception 'invalidated invitation accept was not rejected'; end if;
+  if replay_row.outcome <> 'rejected' or replay_row.reason_code <> 'invitation_unavailable' then raise exception 'superseded invitation accept was not rejected'; end if;
   select * into replay_row from public.recora_p4b_invitation_resend(operator_user,invitation_two,hash_c,now()+interval '8 days','issue122.resend.bad','12240000-0000-4000-8000-000000000024','12250000-0000-4000-8000-000000000024','issue122.resend.bad');
   if replay_row.reason_code <> 'recipient_mismatch' then raise exception 'resend recipient mismatch negative failed'; end if;
 
@@ -397,7 +398,16 @@ commit;
 }
 
 async function verifyTypeScriptDtos() {
-  const { acceptPhase4Invitation, createPhase4Invitation, resolvePhase4CustomerAccess } = await loadPhase4AccountAccessModule();
+  const {
+    acceptPhase4Invitation,
+    createPhase4Invitation,
+    reactivatePhase4Membership,
+    resendPhase4Invitation,
+    resolvePhase4CustomerAccess,
+    revokePhase4Invitation,
+    revokePhase4Membership,
+    suspendPhase4Membership,
+  } = await loadPhase4AccountAccessModule();
   const commandInput = {
     operatorAuthUserId: randomUUID(),
     organizationId: randomUUID(),
@@ -409,7 +419,36 @@ async function verifyTypeScriptDtos() {
     correlationId: randomUUID(),
     idempotencyKey: "issue122.dto",
   };
-  const validCommand = validCommandRow();
+  const resendInput = { ...commandInput, invitationId: randomUUID() };
+  const revokeInput = {
+    operatorAuthUserId: commandInput.operatorAuthUserId,
+    invitationId: randomUUID(),
+    reason: commandInput.reason,
+    requestId: randomUUID(),
+    correlationId: randomUUID(),
+    idempotencyKey: "issue122.revoke.dto",
+  };
+  const membershipInput = {
+    operatorAuthUserId: commandInput.operatorAuthUserId,
+    membershipId: randomUUID(),
+    reason: commandInput.reason,
+    requestId: randomUUID(),
+    correlationId: randomUUID(),
+    idempotencyKey: "issue122.membership.dto",
+  };
+  const validCommand = validOperatorInvitationCommandRow("pending");
+  assert.equal((await createPhase4Invitation(transportReturning([validCommand]), commandInput)).invitation?.state, "pending");
+  assert.equal((await resendPhase4Invitation(transportReturning([validOperatorInvitationCommandRow("pending")]), resendInput)).invitation?.state, "pending");
+  assert.equal((await revokePhase4Invitation(transportReturning([validOperatorInvitationCommandRow("revoked")]), revokeInput)).invitation?.state, "revoked");
+  assert.equal((await suspendPhase4Membership(transportReturning([validOperatorMembershipCommandRow("suspended", "active")]), membershipInput)).membership?.status, "suspended");
+  assert.equal((await reactivatePhase4Membership(transportReturning([validOperatorMembershipCommandRow("active", "active")]), membershipInput)).membership?.status, "active");
+  assert.equal((await revokePhase4Membership(transportReturning([validOperatorMembershipCommandRow("revoked", "revoked")]), membershipInput)).membershipEpisode?.state, "revoked");
+  const denied = await createPhase4Invitation(transportReturning([operatorPermissionDeniedCommandRow()]), commandInput);
+  assert.equal(denied.outcome, "rejected");
+  assert.equal(denied.reasonCode, "permission_denied");
+  assert.ok(denied.auditEventId);
+  assert.equal(denied.operatorCommandReceiptId, null);
+
   await assert.rejects(() => createPhase4Invitation(transportReturning({ ...validCommand }), commandInput), /invalid response/, "non-array command row must fail");
   await assert.rejects(() => createPhase4Invitation(transportReturning([validCommand, validCommand]), commandInput), /invalid response/, "extra command row must fail");
   await assert.rejects(() => createPhase4Invitation(transportReturning([{ ...validCommand, extra_key: true }]), commandInput), /invalid response/, "extra command key must fail");
@@ -418,9 +457,23 @@ async function verifyTypeScriptDtos() {
   await assert.rejects(() => createPhase4Invitation(transportReturning([{ ...validCommand, outcome: "unknown" }]), commandInput), /invalid response/, "unknown outcome must fail closed");
   await assert.rejects(() => createPhase4Invitation(transportReturning([{ ...validCommand, reason_code: "unknown" }]), commandInput), /invalid response/, "unknown command reason must fail closed");
   await assert.rejects(() => createPhase4Invitation(transportReturning([{ ...validCommand, audit_event_id: null }]), commandInput), /invalid response/, "operator evidence mismatch must fail closed");
+  await assert.rejects(() => createPhase4Invitation(transportReturning([{ ...validCommand, audit_event_id: null, operator_command_receipt_id: null }]), commandInput), /invalid response/, "operator success without evidence must fail closed");
+  await assert.rejects(() => createPhase4Invitation(transportReturning([{ ...validCommand, invitation_state: "accepted" }]), commandInput), /invalid response/, "create success with wrong invitation state must fail closed");
+  await assert.rejects(() => revokePhase4Invitation(transportReturning([validOperatorInvitationCommandRow("pending")]), revokeInput), /invalid response/, "revoke success with pending invitation state must fail closed");
+  await assert.rejects(() => suspendPhase4Membership(transportReturning([validOperatorMembershipCommandRow("active", "active")]), membershipInput), /invalid response/, "suspend success with active membership status must fail closed");
+  await assert.rejects(() => suspendPhase4Membership(transportReturning([{ ...validOperatorMembershipCommandRow("suspended", "active"), invitation_id: randomUUID(), invitation_state: "accepted" }]), membershipInput), /invalid response/, "membership RPC with invitation fields must fail closed");
+
+  const validCustomerAccept = validCustomerAcceptCommandRow();
+  const accepted = await acceptPhase4Invitation(transportReturning([validCustomerAccept]), { invitationId: randomUUID(), requestId: randomUUID(), correlationId: randomUUID(), idempotencyKey: "issue122.accept.dto" });
+  assert.equal(accepted.invitation?.state, "accepted");
+  assert.equal(accepted.membership?.status, "active");
+  assert.equal(accepted.membershipEpisode?.state, "active");
+  assert.equal(accepted.auditEventId, null);
+  await assert.rejects(() => acceptPhase4Invitation(transportReturning([{ ...validCustomerAccept, audit_event_id: randomUUID() }]), { invitationId: randomUUID(), requestId: randomUUID(), correlationId: randomUUID(), idempotencyKey: "issue122.accept.audit.dto" }), /invalid response/, "customer accept with operator audit evidence must fail closed");
+  await assert.rejects(() => acceptPhase4Invitation(transportReturning([{ ...validCustomerAccept, membership_status: "suspended" }]), { invitationId: randomUUID(), requestId: randomUUID(), correlationId: randomUUID(), idempotencyKey: "issue122.accept.shape.dto" }), /invalid response/, "customer accept with wrong membership state must fail closed");
 
   const captured: Array<{ functionName: string; args: Record<string, unknown> }> = [];
-  await acceptPhase4Invitation({ rpc: async <TData = unknown>(functionName: string, args: Record<string, unknown>) => { captured.push({ functionName, args }); return { data: [validCommand] as TData, error: null }; } }, { invitationId: randomUUID(), requestId: randomUUID(), correlationId: randomUUID(), idempotencyKey: "issue122.accept.dto" });
+  await acceptPhase4Invitation({ rpc: async <TData = unknown>(functionName: string, args: Record<string, unknown>) => { captured.push({ functionName, args }); return { data: [validCustomerAccept] as TData, error: null }; } }, { invitationId: randomUUID(), requestId: randomUUID(), correlationId: randomUUID(), idempotencyKey: "issue122.accept.dto" });
   const capturedCall = captured[0];
   assert.ok(capturedCall);
   assert.equal(capturedCall.functionName, "recora_p4b_invitation_accept");
@@ -444,7 +497,6 @@ async function verifyTypeScriptDtos() {
     assert.equal(result.reasonCode, "resolver_unavailable", label);
   }
 }
-
 Promise.resolve()
   .then(verifySameInviteConcurrentAccept)
   .then(verifyDifferentUserConcurrentEpisodeNumbers)
@@ -476,13 +528,13 @@ function transportReturning(data: unknown): Phase4AccountAccessRpcTransport {
   return { rpc: async <TData = unknown>() => ({ data: data as TData, error: null }) };
 }
 
-function validCommandRow() {
+function validOperatorInvitationCommandRow(invitationState: "pending" | "revoked") {
   return {
     command_receipt_id: randomUUID(),
     outcome: "accepted",
     reason_code: "ok",
     invitation_id: randomUUID(),
-    invitation_state: "pending",
+    invitation_state: invitationState,
     membership_id: null,
     membership_status: null,
     membership_episode_id: null,
@@ -492,6 +544,53 @@ function validCommandRow() {
   };
 }
 
+function validCustomerAcceptCommandRow() {
+  return {
+    command_receipt_id: randomUUID(),
+    outcome: "accepted",
+    reason_code: "ok",
+    invitation_id: randomUUID(),
+    invitation_state: "accepted",
+    membership_id: randomUUID(),
+    membership_status: "active",
+    membership_episode_id: randomUUID(),
+    membership_episode_state: "active",
+    audit_event_id: null,
+    operator_command_receipt_id: null,
+  };
+}
+
+function validOperatorMembershipCommandRow(membershipStatus: "active" | "suspended" | "revoked", episodeState: "active" | "revoked") {
+  return {
+    command_receipt_id: randomUUID(),
+    outcome: "accepted",
+    reason_code: "ok",
+    invitation_id: null,
+    invitation_state: null,
+    membership_id: randomUUID(),
+    membership_status: membershipStatus,
+    membership_episode_id: randomUUID(),
+    membership_episode_state: episodeState,
+    audit_event_id: randomUUID(),
+    operator_command_receipt_id: randomUUID(),
+  };
+}
+
+function operatorPermissionDeniedCommandRow() {
+  return {
+    command_receipt_id: null,
+    outcome: "rejected",
+    reason_code: "permission_denied",
+    invitation_id: null,
+    invitation_state: null,
+    membership_id: null,
+    membership_status: null,
+    membership_episode_id: null,
+    membership_episode_state: null,
+    audit_event_id: randomUUID(),
+    operator_command_receipt_id: null,
+  };
+}
 function validAccessRow() {
   return {
     customer_access_allowed: true,

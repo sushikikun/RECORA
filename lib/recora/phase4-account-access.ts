@@ -23,6 +23,35 @@ export type Phase4AccountCommandResult = {
   auditEventId: string | null;
   operatorCommandReceiptId: string | null;
 };
+export type Phase4OperatorAccountCommandResult = Phase4AccountCommandResult & {
+  auditEventId: string | null;
+  operatorCommandReceiptId: string | null;
+};
+
+export type Phase4CustomerAccountCommandResult = Phase4AccountCommandResult & {
+  auditEventId: null;
+  operatorCommandReceiptId: null;
+};
+
+type CommandRpcName =
+  | "recora_p4b_invitation_create"
+  | "recora_p4b_invitation_resend"
+  | "recora_p4b_invitation_revoke"
+  | "recora_p4b_invitation_accept"
+  | "recora_p4b_membership_suspend"
+  | "recora_p4b_membership_reactivate"
+  | "recora_p4b_membership_revoke";
+
+type MembershipCommandRpcName = Extract<CommandRpcName, "recora_p4b_membership_suspend" | "recora_p4b_membership_reactivate" | "recora_p4b_membership_revoke">;
+
+type CommandResultContract = {
+  actorKind: "operator" | "customer";
+  successShape: {
+    invitationState: Phase4InvitationState | null;
+    membershipStatus: Phase4MembershipStatus | null;
+    membershipEpisodeState: Phase4MembershipEpisodeState | null;
+  };
+};
 
 export type Phase4CustomerAccessDto = {
   customerAccessAllowed: boolean;
@@ -163,6 +192,36 @@ const accessRowKeys = [
   "entitlement_reason_code",
   "checkpoint_reason_code",
 ] as const;
+const commandContracts = {
+  recora_p4b_invitation_create: {
+    actorKind: "operator",
+    successShape: { invitationState: "pending", membershipStatus: null, membershipEpisodeState: null },
+  },
+  recora_p4b_invitation_resend: {
+    actorKind: "operator",
+    successShape: { invitationState: "pending", membershipStatus: null, membershipEpisodeState: null },
+  },
+  recora_p4b_invitation_revoke: {
+    actorKind: "operator",
+    successShape: { invitationState: "revoked", membershipStatus: null, membershipEpisodeState: null },
+  },
+  recora_p4b_invitation_accept: {
+    actorKind: "customer",
+    successShape: { invitationState: "accepted", membershipStatus: "active", membershipEpisodeState: "active" },
+  },
+  recora_p4b_membership_suspend: {
+    actorKind: "operator",
+    successShape: { invitationState: null, membershipStatus: "suspended", membershipEpisodeState: "active" },
+  },
+  recora_p4b_membership_reactivate: {
+    actorKind: "operator",
+    successShape: { invitationState: null, membershipStatus: "active", membershipEpisodeState: "active" },
+  },
+  recora_p4b_membership_revoke: {
+    actorKind: "operator",
+    successShape: { invitationState: null, membershipStatus: "revoked", membershipEpisodeState: "revoked" },
+  },
+} as const satisfies Record<CommandRpcName, CommandResultContract>;
 
 export async function createPhase4Invitation(
   transport: Phase4AccountAccessRpcTransport,
@@ -177,8 +236,8 @@ export async function createPhase4Invitation(
     correlationId: string;
     idempotencyKey: string;
   },
-): Promise<Phase4AccountCommandResult> {
-  return callCommand(transport, "recora_p4b_invitation_create", {
+): Promise<Phase4OperatorAccountCommandResult> {
+  return callCommand<Phase4OperatorAccountCommandResult>(transport, "recora_p4b_invitation_create", {
     p_operator_auth_user_id: input.operatorAuthUserId,
     p_organization_id: input.organizationId,
     p_recipient_binding_hash: input.recipientBindingHash,
@@ -188,7 +247,7 @@ export async function createPhase4Invitation(
     p_request_id: input.requestId,
     p_correlation_id: input.correlationId,
     p_idempotency_key: input.idempotencyKey,
-  });
+  }, commandContracts.recora_p4b_invitation_create);
 }
 
 export async function resendPhase4Invitation(
@@ -203,8 +262,8 @@ export async function resendPhase4Invitation(
     correlationId: string;
     idempotencyKey: string;
   },
-): Promise<Phase4AccountCommandResult> {
-  return callCommand(transport, "recora_p4b_invitation_resend", {
+): Promise<Phase4OperatorAccountCommandResult> {
+  return callCommand<Phase4OperatorAccountCommandResult>(transport, "recora_p4b_invitation_resend", {
     p_operator_auth_user_id: input.operatorAuthUserId,
     p_invitation_id: input.invitationId,
     p_recipient_binding_hash: input.recipientBindingHash,
@@ -213,7 +272,7 @@ export async function resendPhase4Invitation(
     p_request_id: input.requestId,
     p_correlation_id: input.correlationId,
     p_idempotency_key: input.idempotencyKey,
-  });
+  }, commandContracts.recora_p4b_invitation_resend);
 }
 
 export async function revokePhase4Invitation(
@@ -226,15 +285,15 @@ export async function revokePhase4Invitation(
     correlationId: string;
     idempotencyKey: string;
   },
-): Promise<Phase4AccountCommandResult> {
-  return callCommand(transport, "recora_p4b_invitation_revoke", {
+): Promise<Phase4OperatorAccountCommandResult> {
+  return callCommand<Phase4OperatorAccountCommandResult>(transport, "recora_p4b_invitation_revoke", {
     p_operator_auth_user_id: input.operatorAuthUserId,
     p_invitation_id: input.invitationId,
     p_reason: input.reason,
     p_request_id: input.requestId,
     p_correlation_id: input.correlationId,
     p_idempotency_key: input.idempotencyKey,
-  });
+  }, commandContracts.recora_p4b_invitation_revoke);
 }
 
 export async function acceptPhase4Invitation(
@@ -245,33 +304,33 @@ export async function acceptPhase4Invitation(
     correlationId: string;
     idempotencyKey: string;
   },
-): Promise<Phase4AccountCommandResult> {
-  return callCommand(transport, "recora_p4b_invitation_accept", {
+): Promise<Phase4CustomerAccountCommandResult> {
+  return callCommand<Phase4CustomerAccountCommandResult>(transport, "recora_p4b_invitation_accept", {
     p_invitation_id: input.invitationId,
     p_request_id: input.requestId,
     p_correlation_id: input.correlationId,
     p_idempotency_key: input.idempotencyKey,
-  });
+  }, commandContracts.recora_p4b_invitation_accept);
 }
 
 export async function suspendPhase4Membership(
   transport: Phase4AccountAccessRpcTransport,
   input: OperatorMembershipCommandInput,
-): Promise<Phase4AccountCommandResult> {
+): Promise<Phase4OperatorAccountCommandResult> {
   return callMembershipCommand(transport, "recora_p4b_membership_suspend", input);
 }
 
 export async function reactivatePhase4Membership(
   transport: Phase4AccountAccessRpcTransport,
   input: OperatorMembershipCommandInput,
-): Promise<Phase4AccountCommandResult> {
+): Promise<Phase4OperatorAccountCommandResult> {
   return callMembershipCommand(transport, "recora_p4b_membership_reactivate", input);
 }
 
 export async function revokePhase4Membership(
   transport: Phase4AccountAccessRpcTransport,
   input: OperatorMembershipCommandInput,
-): Promise<Phase4AccountCommandResult> {
+): Promise<Phase4OperatorAccountCommandResult> {
   return callMembershipCommand(transport, "recora_p4b_membership_revoke", input);
 }
 
@@ -306,37 +365,38 @@ type OperatorMembershipCommandInput = {
 
 async function callMembershipCommand(
   transport: Phase4AccountAccessRpcTransport,
-  functionName: string,
+  functionName: MembershipCommandRpcName,
   input: OperatorMembershipCommandInput,
-): Promise<Phase4AccountCommandResult> {
-  return callCommand(transport, functionName, {
+): Promise<Phase4OperatorAccountCommandResult> {
+  return callCommand<Phase4OperatorAccountCommandResult>(transport, functionName, {
     p_operator_auth_user_id: input.operatorAuthUserId,
     p_membership_id: input.membershipId,
     p_reason: input.reason,
     p_request_id: input.requestId,
     p_correlation_id: input.correlationId,
     p_idempotency_key: input.idempotencyKey,
-  });
+  }, commandContracts[functionName]);
 }
 
-async function callCommand(
+async function callCommand<TResult extends Phase4AccountCommandResult>(
   transport: Phase4AccountAccessRpcTransport,
-  functionName: string,
+  functionName: CommandRpcName,
   args: Record<string, unknown>,
-): Promise<Phase4AccountCommandResult> {
+  contract: CommandResultContract,
+): Promise<TResult> {
   const { data, error } = await transport.rpc(functionName, args);
   if (error) throw new Error("The Phase 4 account command boundary could not record the command.");
 
-  return normalizeCommandRows(data);
+  return normalizeCommandRows(data, contract) as TResult;
 }
 
-function normalizeCommandRows(data: unknown): Phase4AccountCommandResult {
+function normalizeCommandRows(data: unknown, contract: CommandResultContract): Phase4AccountCommandResult {
   const row = exactSingleRow(data, commandRowKeys);
   if (!row) throw invalidCommandResponse();
-  return normalizeCommand(row as CommandRpcRow);
+  return normalizeCommand(row as CommandRpcRow, contract);
 }
 
-function normalizeCommand(row: CommandRpcRow): Phase4AccountCommandResult {
+function normalizeCommand(row: CommandRpcRow, contract: CommandResultContract): Phase4AccountCommandResult {
   if (typeof row.outcome !== "string" || !outcomes.has(row.outcome as Phase4CommandOutcome)) throw invalidCommandResponse();
   if (typeof row.reason_code !== "string" || !commandReasonCodes.has(row.reason_code)) throw invalidCommandResponse();
   const outcome = row.outcome as Phase4CommandOutcome;
@@ -352,9 +412,9 @@ function normalizeCommand(row: CommandRpcRow): Phase4AccountCommandResult {
 
   const auditEventId = nullableUuid(row.audit_event_id);
   const operatorCommandReceiptId = nullableUuid(row.operator_command_receipt_id);
-  if ((auditEventId === null) !== (operatorCommandReceiptId === null)) throw invalidCommandResponse();
+  assertCommandActorEvidence(contract, outcome, commandReceiptId, auditEventId, operatorCommandReceiptId);
 
-  return {
+  const result: Phase4AccountCommandResult = {
     commandReceiptId,
     outcome,
     reasonCode: row.reason_code,
@@ -364,6 +424,45 @@ function normalizeCommand(row: CommandRpcRow): Phase4AccountCommandResult {
     auditEventId,
     operatorCommandReceiptId,
   };
+  assertCommandSuccessShape(result, contract);
+  return result;
+}
+
+function assertCommandActorEvidence(
+  contract: CommandResultContract,
+  outcome: Phase4CommandOutcome,
+  commandReceiptId: string | null,
+  auditEventId: string | null,
+  operatorCommandReceiptId: string | null,
+): void {
+  if (contract.actorKind === "customer") {
+    if (auditEventId !== null || operatorCommandReceiptId !== null) throw invalidCommandResponse();
+    return;
+  }
+
+  if ((outcome === "accepted" || outcome === "replayed" || commandReceiptId !== null) && (auditEventId === null || operatorCommandReceiptId === null)) {
+    throw invalidCommandResponse();
+  }
+  if (auditEventId === null && operatorCommandReceiptId !== null) throw invalidCommandResponse();
+}
+
+function assertCommandSuccessShape(result: Phase4AccountCommandResult, contract: CommandResultContract): void {
+  if (result.outcome === "rejected") return;
+  assertEntityState(result.invitation, contract.successShape.invitationState, "state");
+  assertEntityState(result.membership, contract.successShape.membershipStatus, "status");
+  assertEntityState(result.membershipEpisode, contract.successShape.membershipEpisodeState, "state");
+}
+
+function assertEntityState<T extends string, K extends "state" | "status">(
+  entity: ({ id: string } & Record<K, T>) | null,
+  expectedState: T | null,
+  stateKey: K,
+): void {
+  if (expectedState === null) {
+    if (entity !== null) throw invalidCommandResponse();
+    return;
+  }
+  if (entity === null || entity[stateKey] !== expectedState) throw invalidCommandResponse();
 }
 
 function normalizeAccessRows(data: unknown): Phase4CustomerAccessDto {

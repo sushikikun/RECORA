@@ -438,11 +438,14 @@ begin
     values(pending_invitation.id,pending_invitation.organization_id,next_event_sequence,'pending'::recora_private.p4_invitation_state,'expired'::recora_private.p4_invitation_state,command_result.command_receipt_id,p_request_id,p_correlation_id);
   end if;
 
-  insert into recora_private.p4_invitations(id,organization_id,recipient_binding_hash,intended_role,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at)
-  values(new_invitation_id,p_organization_id,p_recipient_binding_hash,p_intended_role,command_result.command_receipt_id,command_result.command_receipt_id,p_request_id,p_correlation_id,p_expires_at)
+  insert into recora_private.p4_invitations(id,organization_id,recipient_binding_hash,intended_role,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at,created_at)
+  values(new_invitation_id,p_organization_id,p_recipient_binding_hash,p_intended_role,command_result.command_receipt_id,command_result.command_receipt_id,p_request_id,p_correlation_id,p_expires_at,pg_catalog.clock_timestamp())
   returning * into invitation_row;
   insert into recora_private.p4_invitation_events(invitation_id,organization_id,event_sequence,previous_state,next_state,command_receipt_id,request_id,correlation_id)
   values(invitation_row.id,p_organization_id,1,null,'pending'::recora_private.p4_invitation_state,command_result.command_receipt_id,p_request_id,p_correlation_id);
+
+  set constraints recora_private.p4_invitations_final_integrity, recora_private.p4_invitation_current_event_alignment immediate;
+  set constraints recora_private.p4_invitations_final_integrity, recora_private.p4_invitation_current_event_alignment deferred;
 
   return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,invitation_row.id,invitation_row.state::text,null::uuid,null::text,null::uuid,null::text,command_result.audit_event_id,command_result.operator_command_receipt_id;
 end;
@@ -490,7 +493,7 @@ begin
   if old_invitation.intended_role = 'admin'::public.recora_organization_member_role then resend_permission := 'account.invitation.resend.admin'; end if;
 
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('p4b:invite:' || old_invitation.organization_id::text || ':' || old_invitation.recipient_binding_hash, 0));
-  transition_state := case when old_invitation.expires_at <= pg_catalog.clock_timestamp() then 'expired'::recora_private.p4_invitation_state else 'revoked'::recora_private.p4_invitation_state end;
+  transition_state := case when old_invitation.expires_at <= pg_catalog.clock_timestamp() then 'expired'::recora_private.p4_invitation_state else 'superseded'::recora_private.p4_invitation_state end;
 
   select * into command_result from recora_private.p4b_record_operator_p4_command(
     p_operator_auth_user_id,old_invitation.organization_id,resend_permission,'account.invitation.resend','invitation',new_invitation_id,p_reason,p_request_id,p_correlation_id,p_idempotency_key,source_reference,source_sequence,payload_fingerprint,
@@ -498,19 +501,45 @@ begin
   );
   if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
 
-  update recora_private.p4_invitations
-  set state=transition_state,terminal_at=pg_catalog.clock_timestamp(),last_command_receipt_id=command_result.command_receipt_id,request_id=p_request_id,correlation_id=p_correlation_id
-  where id=old_invitation.id
-  returning * into old_invitation;
+  if transition_state = 'superseded'::recora_private.p4_invitation_state then
+    with transitioned_invitation as (
+      update recora_private.p4_invitations invitation_row
+      set state=transition_state,
+          terminal_at=pg_catalog.clock_timestamp(),
+          superseded_by_invitation_id=new_invitation_id,
+          last_command_receipt_id=command_result.command_receipt_id,
+          request_id=p_request_id,
+          correlation_id=p_correlation_id
+      where invitation_row.id=old_invitation.id
+      returning invitation_row.*
+    ), inserted_invitation as (
+      insert into recora_private.p4_invitations(id,organization_id,recipient_binding_hash,intended_role,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at,created_at)
+      select new_invitation_id,transitioned_invitation.organization_id,transitioned_invitation.recipient_binding_hash,transitioned_invitation.intended_role,command_result.command_receipt_id,command_result.command_receipt_id,p_request_id,p_correlation_id,p_expires_at,pg_catalog.clock_timestamp()
+      from transitioned_invitation
+      returning *
+    )
+    select * into new_invitation from inserted_invitation;
+    select * into old_invitation from recora_private.p4_invitations invitation_row where invitation_row.id = p_invitation_id;
+  else
+    update recora_private.p4_invitations
+    set state=transition_state,terminal_at=pg_catalog.clock_timestamp(),last_command_receipt_id=command_result.command_receipt_id,request_id=p_request_id,correlation_id=p_correlation_id
+    where id=old_invitation.id
+    returning * into old_invitation;
+
+    insert into recora_private.p4_invitations(id,organization_id,recipient_binding_hash,intended_role,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at,created_at)
+    values(new_invitation_id,old_invitation.organization_id,old_invitation.recipient_binding_hash,old_invitation.intended_role,command_result.command_receipt_id,command_result.command_receipt_id,p_request_id,p_correlation_id,p_expires_at,pg_catalog.clock_timestamp())
+    returning * into new_invitation;
+  end if;
+
   select coalesce(pg_catalog.max(event_row.event_sequence),0) + 1 into next_event_sequence from recora_private.p4_invitation_events event_row where event_row.invitation_id = old_invitation.id;
   insert into recora_private.p4_invitation_events(invitation_id,organization_id,event_sequence,previous_state,next_state,command_receipt_id,request_id,correlation_id)
   values(old_invitation.id,old_invitation.organization_id,next_event_sequence,'pending'::recora_private.p4_invitation_state,transition_state,command_result.command_receipt_id,p_request_id,p_correlation_id);
 
-  insert into recora_private.p4_invitations(id,organization_id,recipient_binding_hash,intended_role,issuer_command_receipt_id,last_command_receipt_id,request_id,correlation_id,expires_at)
-  values(new_invitation_id,old_invitation.organization_id,old_invitation.recipient_binding_hash,old_invitation.intended_role,command_result.command_receipt_id,command_result.command_receipt_id,p_request_id,p_correlation_id,p_expires_at)
-  returning * into new_invitation;
   insert into recora_private.p4_invitation_events(invitation_id,organization_id,event_sequence,previous_state,next_state,command_receipt_id,request_id,correlation_id)
   values(new_invitation.id,new_invitation.organization_id,1,null,'pending'::recora_private.p4_invitation_state,command_result.command_receipt_id,p_request_id,p_correlation_id);
+
+  set constraints recora_private.p4_invitations_final_integrity, recora_private.p4_invitation_current_event_alignment immediate;
+  set constraints recora_private.p4_invitations_final_integrity, recora_private.p4_invitation_current_event_alignment deferred;
 
   return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,new_invitation.id,new_invitation.state::text,null::uuid,null::text,null::uuid,null::text,command_result.audit_event_id,command_result.operator_command_receipt_id;
 end;
@@ -663,7 +692,7 @@ create or replace function public.recora_p4b_membership_suspend(
 )
 returns table(command_receipt_id uuid,outcome text,reason_code text,invitation_id uuid,invitation_state text,membership_id uuid,membership_status text,membership_episode_id uuid,membership_episode_state text,audit_event_id uuid,operator_command_receipt_id uuid)
 language plpgsql security definer set search_path = '' as $$
-declare command_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; invitation_row recora_private.p4_invitations%rowtype; source_reference text; source_sequence bigint; payload_fingerprint text;
+declare command_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; source_reference text; source_sequence bigint; payload_fingerprint text;
 begin
   select * into member_row from public.organization_members current_member where current_member.id = p_membership_id for update;
   if not found then return query select null::uuid,'rejected'::text,'invalid_reference'::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
@@ -672,19 +701,18 @@ begin
   payload_fingerprint := recora_private.p4b_payload_fingerprint(pg_catalog.jsonb_build_object('action','suspend','organization_id',member_row.organization_id,'membership_id',p_membership_id,'reason',p_reason));
   select * into command_result from recora_private.p4b_try_p4_command_replay(member_row.organization_id,'invitation.lifecycle','manual'::recora_private.p4_source_kind,'p4b.account',source_reference,source_sequence,payload_fingerprint,p_request_id,p_correlation_id,p_idempotency_key);
   select * into episode_row from recora_private.p4_membership_episodes current_episode where current_episode.membership_id = p_membership_id order by current_episode.episode_number desc limit 1;
-  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,episode_row.invitation_id,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
+  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
   if member_row.membership_status <> 'active'::public.recora_organization_membership_status or member_row.user_id is null or member_row.accepted_at is null or episode_row.id is null or episode_row.state <> 'active'::recora_private.p4_membership_episode_state then
-    return query select null::uuid,'rejected'::text,'membership_not_active'::text,episode_row.invitation_id,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,null::uuid,null::uuid;
+    return query select null::uuid,'rejected'::text,'membership_not_active'::text,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,null::uuid,null::uuid;
     return;
   end if;
   select * into command_result from recora_private.p4b_record_operator_p4_command(
     p_operator_auth_user_id,member_row.organization_id,'account.membership.suspend','account.membership.suspend','membership',member_row.id,p_reason,p_request_id,p_correlation_id,p_idempotency_key,source_reference,source_sequence,payload_fingerprint,
     pg_catalog.jsonb_build_object('membership_state',member_row.membership_status::text),pg_catalog.jsonb_build_object('membership_state','suspended')
   );
-  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,episode_row.invitation_id,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
+  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
   update public.organization_members set membership_status='suspended'::public.recora_organization_membership_status where id=member_row.id returning * into member_row;
-  select * into invitation_row from recora_private.p4_invitations current_invitation where current_invitation.id = episode_row.invitation_id;
-  return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,invitation_row.id,invitation_row.state::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id;
+  return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id;
 end;
 $$;
 
@@ -698,7 +726,7 @@ create or replace function public.recora_p4b_membership_reactivate(
 )
 returns table(command_receipt_id uuid,outcome text,reason_code text,invitation_id uuid,invitation_state text,membership_id uuid,membership_status text,membership_episode_id uuid,membership_episode_state text,audit_event_id uuid,operator_command_receipt_id uuid)
 language plpgsql security definer set search_path = '' as $$
-declare command_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; invitation_row recora_private.p4_invitations%rowtype; source_reference text; source_sequence bigint; payload_fingerprint text;
+declare command_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; source_reference text; source_sequence bigint; payload_fingerprint text;
 begin
   select * into member_row from public.organization_members current_member where current_member.id = p_membership_id for update;
   if not found then return query select null::uuid,'rejected'::text,'invalid_reference'::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
@@ -707,19 +735,18 @@ begin
   payload_fingerprint := recora_private.p4b_payload_fingerprint(pg_catalog.jsonb_build_object('action','reactivate','organization_id',member_row.organization_id,'membership_id',p_membership_id,'reason',p_reason));
   select * into command_result from recora_private.p4b_try_p4_command_replay(member_row.organization_id,'invitation.lifecycle','manual'::recora_private.p4_source_kind,'p4b.account',source_reference,source_sequence,payload_fingerprint,p_request_id,p_correlation_id,p_idempotency_key);
   select * into episode_row from recora_private.p4_membership_episodes current_episode where current_episode.membership_id = p_membership_id order by current_episode.episode_number desc limit 1;
-  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,episode_row.invitation_id,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
+  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
   if member_row.membership_status <> 'suspended'::public.recora_organization_membership_status or member_row.user_id is null or member_row.accepted_at is null or episode_row.id is null or episode_row.state <> 'active'::recora_private.p4_membership_episode_state then
-    return query select null::uuid,'rejected'::text,'membership_not_suspended'::text,episode_row.invitation_id,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,null::uuid,null::uuid;
+    return query select null::uuid,'rejected'::text,'membership_not_suspended'::text,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,null::uuid,null::uuid;
     return;
   end if;
   select * into command_result from recora_private.p4b_record_operator_p4_command(
     p_operator_auth_user_id,member_row.organization_id,'account.membership.reactivate','account.membership.reactivate','membership',member_row.id,p_reason,p_request_id,p_correlation_id,p_idempotency_key,source_reference,source_sequence,payload_fingerprint,
     pg_catalog.jsonb_build_object('membership_state',member_row.membership_status::text),pg_catalog.jsonb_build_object('membership_state','active')
   );
-  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,episode_row.invitation_id,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
+  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
   update public.organization_members set membership_status='active'::public.recora_organization_membership_status where id=member_row.id returning * into member_row;
-  select * into invitation_row from recora_private.p4_invitations current_invitation where current_invitation.id = episode_row.invitation_id;
-  return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,invitation_row.id,invitation_row.state::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id;
+  return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id;
 end;
 $$;
 
@@ -733,7 +760,7 @@ create or replace function public.recora_p4b_membership_revoke(
 )
 returns table(command_receipt_id uuid,outcome text,reason_code text,invitation_id uuid,invitation_state text,membership_id uuid,membership_status text,membership_episode_id uuid,membership_episode_state text,audit_event_id uuid,operator_command_receipt_id uuid)
 language plpgsql security definer set search_path = '' as $$
-declare command_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; invitation_row recora_private.p4_invitations%rowtype; next_event_sequence bigint; source_reference text; source_sequence bigint; payload_fingerprint text;
+declare command_result record; member_row public.organization_members%rowtype; episode_row recora_private.p4_membership_episodes%rowtype; next_event_sequence bigint; source_reference text; source_sequence bigint; payload_fingerprint text;
 begin
   select * into member_row from public.organization_members current_member where current_member.id = p_membership_id for update;
   if not found then return query select null::uuid,'rejected'::text,'invalid_reference'::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::text,null::uuid,null::uuid; return; end if;
@@ -742,16 +769,16 @@ begin
   payload_fingerprint := recora_private.p4b_payload_fingerprint(pg_catalog.jsonb_build_object('action','revoke','organization_id',member_row.organization_id,'membership_id',p_membership_id,'reason',p_reason));
   select * into command_result from recora_private.p4b_try_p4_command_replay(member_row.organization_id,'invitation.lifecycle','manual'::recora_private.p4_source_kind,'p4b.account',source_reference,source_sequence,payload_fingerprint,p_request_id,p_correlation_id,p_idempotency_key);
   select * into episode_row from recora_private.p4_membership_episodes current_episode where current_episode.membership_id = p_membership_id order by current_episode.episode_number desc limit 1;
-  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,episode_row.invitation_id,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
+  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
   if member_row.membership_status not in ('active'::public.recora_organization_membership_status,'suspended'::public.recora_organization_membership_status) or member_row.user_id is null or member_row.accepted_at is null or episode_row.id is null or episode_row.state <> 'active'::recora_private.p4_membership_episode_state then
-    return query select null::uuid,'rejected'::text,'membership_not_revocable'::text,episode_row.invitation_id,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,null::uuid,null::uuid;
+    return query select null::uuid,'rejected'::text,'membership_not_revocable'::text,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,null::uuid,null::uuid;
     return;
   end if;
   select * into command_result from recora_private.p4b_record_operator_p4_command(
     p_operator_auth_user_id,member_row.organization_id,'account.membership.revoke','account.membership.revoke','membership',member_row.id,p_reason,p_request_id,p_correlation_id,p_idempotency_key,source_reference,source_sequence,payload_fingerprint,
     pg_catalog.jsonb_build_object('membership_state',member_row.membership_status::text),pg_catalog.jsonb_build_object('membership_state','revoked')
   );
-  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,episode_row.invitation_id,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
+  if not command_result.should_apply then return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id; return; end if;
 
   update public.organization_members set membership_status='revoked'::public.recora_organization_membership_status where id=member_row.id returning * into member_row;
   update recora_private.p4_membership_episodes set state='revoked'::recora_private.p4_membership_episode_state,command_receipt_id=command_result.command_receipt_id,request_id=p_request_id,correlation_id=p_correlation_id where id=episode_row.id returning * into episode_row;
@@ -759,8 +786,7 @@ begin
   insert into recora_private.p4_membership_episode_events(episode_id,organization_id,event_sequence,previous_state,next_state,command_receipt_id,request_id,correlation_id)
   values(episode_row.id,episode_row.organization_id,next_event_sequence,'active'::recora_private.p4_membership_episode_state,'revoked'::recora_private.p4_membership_episode_state,command_result.command_receipt_id,p_request_id,p_correlation_id);
   update public.organization_members set user_id=null,accepted_at=null,email=recora_private.p4b_revoked_membership_email(member_row.id),membership_status='revoked'::public.recora_organization_membership_status where id=member_row.id returning * into member_row;
-  select * into invitation_row from recora_private.p4_invitations current_invitation where current_invitation.id = episode_row.invitation_id;
-  return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,invitation_row.id,invitation_row.state::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id;
+  return query select command_result.command_receipt_id,command_result.outcome,command_result.reason_code,null::uuid,null::text,member_row.id,member_row.membership_status::text,episode_row.id,episode_row.state::text,command_result.audit_event_id,command_result.operator_command_receipt_id;
 end;
 $$;
 
@@ -826,7 +852,7 @@ end;
 $$;
 
 comment on function public.recora_p4b_invitation_create(uuid, uuid, text, public.recora_organization_member_role, timestamptz, text, uuid, uuid, text) is 'P4-B service-role-only invitation creation command with verified operator identity, action-specific permission, invitation-target audit evidence, P4 receipt, and current/event state.';
-comment on function public.recora_p4b_invitation_resend(uuid, uuid, text, timestamptz, text, uuid, uuid, text) is 'P4-B service-role-only invitation resend command. It expires stale pending invitations or revokes active pending invitations before creating the replacement invitation/event in one transaction.';
+comment on function public.recora_p4b_invitation_resend(uuid, uuid, text, timestamptz, text, uuid, uuid, text) is 'P4-B service-role-only invitation resend command. It expires stale pending invitations or supersedes live pending invitations with superseded_by_invitation_id before creating the replacement invitation/event in one transaction.';
 comment on function public.recora_p4b_invitation_revoke(uuid, uuid, text, uuid, uuid, text) is 'P4-B service-role-only invitation revoke command with invitation-target operator authorization and audit receipt.';
 comment on function public.recora_p4b_invitation_accept(uuid, uuid, uuid, text) is 'P4-B authenticated-only invitation acceptance command. It uses auth.uid(), confirmed Auth email hashing, recipient binding, customer-session command receipt evidence, and performs no live Auth write or email send.';
 comment on function public.recora_p4b_membership_suspend(uuid, uuid, text, uuid, uuid, text) is 'P4-B service-role-only membership suspend command. Suspension is represented in Phase 3 membership state with P4 command and membership-target operator audit evidence.';
