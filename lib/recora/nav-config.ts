@@ -56,6 +56,13 @@ export function buildRecoraNavItems(reportId?: string, options: RecoraNavBuildOp
           icon: Radar
         },
         {
+          label: "推移・変化",
+          href: `${reportBase}/trends`,
+          section: "顧客レポート",
+          status: "ready",
+          icon: BarChart3
+        },
+        {
           label: "ブランド・競合",
           href: `${reportBase}/leaderboard`,
           section: "顧客レポート",
@@ -96,13 +103,6 @@ export function buildRecoraNavItems(reportId?: string, options: RecoraNavBuildOp
           section: "顧客レポート",
           status: "ready",
           icon: CircleGauge
-        },
-        {
-          label: "推移・変化",
-          href: `${reportBase}/trends`,
-          section: "顧客レポート",
-          status: "ready",
-          icon: BarChart3
         },
         ...(showRecommendations ? [{
           label: "改善提案・施策" as const,

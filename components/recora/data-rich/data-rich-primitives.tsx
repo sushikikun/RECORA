@@ -1,6 +1,6 @@
 "use client";
 
-import { Children, cloneElement, isValidElement, type ReactElement, type ReactNode } from "react";
+import { Children, cloneElement, isValidElement, useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Cpu, ListTree, ShieldCheck, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -84,45 +84,78 @@ export function DataRichSectionIndex({
   items: { id: string; label: string }[];
   label?: string;
 }) {
+  const itemIdSignature = useMemo(() => items.map((item) => item.id).join("|"), [items]);
+  const [activeId, setActiveId] = useState(items[0]?.id ?? "");
+
+  useEffect(() => {
+    const ids = itemIdSignature.split("|").filter(Boolean);
+    if (!ids.length) {
+      setActiveId("");
+      return;
+    }
+
+    const activateFromHash = () => {
+      const hash = window.location.hash ? decodeURIComponent(window.location.hash.slice(1)) : "";
+      if (hash && ids.includes(hash)) setActiveId(hash);
+      else setActiveId((current) => current && ids.includes(current) ? current : ids[0]);
+    };
+    activateFromHash();
+
+    const elements = ids
+      .map((id) => document.getElementById(id))
+      .filter((element): element is HTMLElement => Boolean(element));
+    if (!elements.length) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top)[0];
+      if (visible?.target.id) setActiveId(visible.target.id);
+    }, {
+      rootMargin: "-18% 0px -70% 0px",
+      threshold: [0.01, 0.25, 0.5]
+    });
+
+    elements.forEach((element) => observer.observe(element));
+    window.addEventListener("hashchange", activateFromHash);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("hashchange", activateFromHash);
+    };
+  }, [itemIdSignature]);
+
   if (items.length < 4) return null;
 
-  const links = items.map((item, index) => (
-    <a
-      key={item.id}
-      href={`#${item.id}`}
-      onClick={(event) => {
-        const mobileIndex = event.currentTarget.closest("details");
-        if (mobileIndex) mobileIndex.open = false;
-      }}
-      className="inline-flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-semibold leading-5 text-[#475467] transition hover:bg-[#EFF7F3] hover:text-[#075E44] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B382D] focus-visible:ring-offset-2"
-    >
-      <span className="shrink-0 text-[11px] tabular-nums text-[#667085]" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
-      <span className="min-w-0 break-words">{item.label}</span>
-    </a>
-  ));
-
   return (
-    <>
-      <nav className="hidden border-y border-[#D8E1DD] bg-[#FBFCFB] xl:block" aria-label={label}>
-        <div className="flex min-h-11 items-center gap-3 px-3 pt-2.5">
-          <ListTree className="h-4 w-4 shrink-0 text-[#075E44]" strokeWidth={1.8} aria-hidden="true" />
-          <span className="min-w-0 flex-1 text-[12px] font-bold text-[#26352F]">{label}</span>
-          <span className="text-[12px] font-bold tabular-nums text-[#667085]">{items.length}項目</span>
-        </div>
-        <div className={cn("grid px-1 pb-2", items.length > 8 ? "grid-cols-5" : "grid-cols-4")}>{links}</div>
-      </nav>
-      <nav className="border-y border-[#D8E1DD] bg-[#FBFCFB] xl:hidden" aria-label={label}>
-        <details className="group">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-3 px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0B382D] [&::-webkit-details-marker]:hidden">
-          <ListTree className="h-4 w-4 shrink-0 text-[#075E44]" strokeWidth={1.8} aria-hidden="true" />
-          <span className="min-w-0 flex-1 text-xs font-bold text-[#26352F]">{label}</span>
-          <span className="text-[11px] font-bold tabular-nums text-[#667085]">{items.length}項目</span>
-          <ChevronDown className="h-4 w-4 shrink-0 text-[#667085] transition-transform group-open:rotate-180" aria-hidden="true" />
-        </summary>
-          <div className="grid grid-cols-1 border-t border-[#E2E8E5] p-2 sm:grid-cols-2">{links}</div>
-        </details>
-      </nav>
-    </>
+    <nav className="min-w-0 max-w-full overflow-hidden border-y border-[#D8E1DD] bg-[#FBFCFB]/95 backdrop-blur" aria-label={label}>
+      <div className="flex min-h-10 items-center gap-3 border-b border-[#E2E8E5] px-3 py-2">
+        <ListTree className="h-4 w-4 shrink-0 text-[#075E44]" strokeWidth={1.8} aria-hidden="true" />
+        <span className="min-w-0 flex-1 text-[12px] font-bold text-[#26352F]">{label}</span>
+        <span className="text-[11px] font-bold tabular-nums text-[#667085]">{items.length}項目</span>
+      </div>
+      <div className="flex min-w-0 max-w-full gap-1 overflow-x-auto overflow-y-hidden px-2 py-2 [scrollbar-width:thin]">
+        {items.map((item, index) => {
+          const active = activeId === item.id || (!activeId && index === 0);
+          return (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              aria-current={active ? "location" : undefined}
+              onClick={() => setActiveId(item.id)}
+              className={cn(
+                "inline-flex min-h-10 min-w-max items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[12px] font-semibold leading-5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B382D] focus-visible:ring-offset-2",
+                active
+                  ? "border-[#0B6B57] bg-[#EAF6F0] text-[#075E44]"
+                  : "border-transparent text-[#475467] hover:border-[#CFE1D9] hover:bg-[#F4F8F6] hover:text-[#075E44]"
+              )}
+            >
+              <span className={cn("shrink-0 text-[10px] tabular-nums", active ? "text-[#075E44]" : "text-[#667085]")} aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+              <span className="min-w-0 whitespace-nowrap">{item.label}</span>
+            </a>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 

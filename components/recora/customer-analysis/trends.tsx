@@ -1428,7 +1428,7 @@ export function TrendAnalysisContent({
   const gapSeriesValues = trendValues(Math.max(8, 20 - rankingGapMetrics.aiDelta), rankingGapRange, -0.3).map((value) => -value);
   return (
     <>
-      <DataRichPanel id="trend-ai-presence" title="AI表示率推移" description="自社と選択した競合を、同じ質問・同じAIモデル・同じ観測日で比較します。期間と競合はこのグラフだけに反映されます。">
+      <DataRichPanel id="trend-ai-presence" title="AI表示率推移" description="自社と表示中の比較対象を、同じ質問・同じAIモデル・同じ観測日で比較します。期間と比較対象はこのグラフだけに反映されます。">
         <LocalTrendChart
           detailType="ai-visibility"
           range={chartRanges["ai-presence"]}
@@ -1465,7 +1465,7 @@ export function TrendAnalysisContent({
         <ModelTrendFocusControl models={models} value={highlightedModel} onChange={setModelFocus} />
         <LocalTrendChart detailType="model-visibility" range={chartRanges["model-presence"]} onRangeChange={(chartRange) => updateChartRange("model-presence", chartRange)} models={models} unit="%" deltaUnit="pt" build={(chartRange) => ({ series: modelVisibilitySeries(chartRange, models, highlightedModel) })} />
       </DataRichPanel>
-      <DataRichPanel id="trend-sov" title="AI内シェア（SOV）推移" description="全ブランドの掲載量に占める割合を、自社と選択した競合で比較します。期間と競合はこのグラフだけに反映されます。">
+      <DataRichPanel id="trend-sov" title="AI内シェアの推移" description="全ブランドの掲載量に占める割合を、自社と表示中の比較対象で比較します。期間と比較対象はこのグラフだけに反映されます。">
         <LocalTrendChart
           detailType="sov"
           range={chartRanges.sov}
@@ -1550,7 +1550,7 @@ export function TrendAnalysisContent({
           ["AI表示率差",rankingGapRange,`${gapSeriesValues[0]}pt`,`${gapSeriesValues[gapSeriesValues.length - 1]}pt`,"Trailbase",rankingGapMetrics.valid]
         ]} />
       </DataRichPanel>
-      <DataRichPanel id="trend-citation" title="公式サイト引用率推移" description="自社と選択競合の公式ドメインが回答内で引用された割合を比較します。引用元の継続・消失は「引用・参照元」で確認します。">
+      <DataRichPanel id="trend-citation" title="公式サイト引用率推移" description="自社と表示中の比較対象の公式ドメインが回答内で引用された割合を比較します。引用元の継続・消失は「引用・参照元」で確認します。">
         <LocalTrendChart
           detailType="citation-source-retention"
           range={chartRanges["citation-retention"]}

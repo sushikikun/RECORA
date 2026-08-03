@@ -1399,7 +1399,7 @@ export function RecommendationAdvancedPanels({ reportBase, models = ["GPT", "Gem
             return (
               <article key={item.label} role="listitem">
                 <ReportDetailButton detail={detail} showIcon={false} className="w-full rounded-none px-4 py-4 hover:bg-[#F4F8F6] sm:px-5">
-                  <span className="grid w-full min-w-0 gap-4 text-left lg:grid-cols-[minmax(240px,1fr)_minmax(140px,.5fr)_minmax(260px,.9fr)_minmax(280px,1.1fr)] lg:items-center">
+                  <span className="grid w-full min-w-0 gap-4 text-left xl:grid-cols-[minmax(240px,1fr)_minmax(140px,.5fr)_minmax(260px,.9fr)_minmax(280px,1.1fr)] xl:items-center">
                     <span className="flex min-w-0 items-center gap-3">
                       <span className={"h-3 w-3 shrink-0 rounded-full " + item.segmentClass} aria-hidden="true" />
                       <span className="min-w-0"><span className="block text-[14px] font-bold text-[#0F172A]">{item.label}</span><span className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-[#075E44]">内訳を見る</span></span>

@@ -34,19 +34,6 @@ const reportContextSettingPaths = [
   "/dashboard/config/models"
 ];
 
-const customerReportPageMeta: Record<string, { number: string }> = {
-  "ダッシュボード概要": { number: "01" },
-  "ブランド・競合": { number: "02" },
-  "ペルソナ・トピック": { number: "03" },
-  "プロンプト": { number: "04" },
-  "AI回答": { number: "05" },
-  "引用・参照元": { number: "06" },
-  "ブランド認識・感情": { number: "07" },
-  "推移・変化": { number: "08" },
-  "改善提案・施策": { number: "09" },
-  "設定・連携": { number: "10" }
-};
-
 function getSelectedReportId(pathname: string) {
   const match = pathname.match(/^\/dashboard\/reports\/([^/]+)(?:\/.*)?$/);
   const segment = match?.[1];
@@ -130,17 +117,23 @@ export function DashboardShell({
     searchParams.get(RECORA_REAL_DB_PREVIEW_SEARCH_PARAM) === RECORA_REAL_DB_PREVIEW_SEARCH_VALUE;
   const isDataRichFinal = visualVariant === "data-rich-final";
   const reportId = getSelectedReportId(pathname);
+  const recommendationsPreviewDisabled = designPreviewEnabled && reportId === "design-check" && searchParams.get("recommendations") === "0";
+  const effectiveRecommendationsEnabled = recommendationsEnabled && !recommendationsPreviewDisabled;
   const projectCardLabel = realDbPreviewActive
     ? getRecoraRealDbPreviewProjectDisplayName(reportId)
     : "Recora";
   const showReportContextItems = Boolean(reportId) || isReportContextSettingPath(pathname);
   const withPreviewHref = (href: string) => {
-    return withRecoraRealDbPreviewSearchParam(withRecoraVisualVariantSearchParam(href, visualVariant), realDbPreviewActive);
+    const previewHref = withRecoraRealDbPreviewSearchParam(withRecoraVisualVariantSearchParam(href, visualVariant), realDbPreviewActive);
+    if (!recommendationsPreviewDisabled || !previewHref.startsWith("/dashboard/reports/design-check")) return previewHref;
+    const url = new URL(previewHref, "https://recora.local");
+    url.searchParams.set("recommendations", "0");
+    return `${url.pathname}${url.search}${url.hash}`;
   };
   const currentReportHref = withPreviewHref(reportId ? `/dashboard/reports/${reportId}` : "/dashboard/reports");
   const navGroups = useMemo(
-    () => buildRecoraNavGroups(reportId, { showReportContextItems, showRecommendations: recommendationsEnabled }),
-    [recommendationsEnabled, reportId, showReportContextItems]
+    () => buildRecoraNavGroups(reportId, { showReportContextItems, showRecommendations: effectiveRecommendationsEnabled }),
+    [effectiveRecommendationsEnabled, reportId, showReportContextItems]
   );
   const activeSection = getActiveSection(navGroups, pathname);
   const [expandedSections, setExpandedSections] = useState<Partial<Record<RecoraNavSection, boolean>>>(() =>
@@ -288,10 +281,10 @@ export function DashboardShell({
               </button>
             </div>
             <nav className="mt-3 space-y-1" aria-label="顧客レポートのページ">
-              {customerReportItems.map((item) => {
+              {customerReportItems.map((item, index) => {
                 const Icon = item.icon;
                 const active = isNavItemActive(item, pathname);
-                const meta = customerReportPageMeta[item.label];
+                const reportNumber = String(index + 1).padStart(2, "0");
 
                 return (
                   <div key={item.href} className={item.label === "改善提案・施策" ? "mt-4 border-t border-[#E5E7EB] pt-4" : undefined}>
@@ -307,7 +300,7 @@ export function DashboardShell({
                         "grid h-7 w-7 shrink-0 place-items-center rounded-md text-[10px] font-bold",
                         active ? "bg-white/15 text-white" : "bg-white text-[#667085] ring-1 ring-[#E3E7EE]"
                       )}>
-                        {meta?.number}
+                        {reportNumber}
                       </span>
                       <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                       <span className="min-w-0">

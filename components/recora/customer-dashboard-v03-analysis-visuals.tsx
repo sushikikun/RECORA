@@ -279,8 +279,8 @@ function buildTableTraceSection(
 
   if (detailType === "change-contribution") {
     return {
-      title: "matched観測集合へ遡る",
-      description: "単一回答の因果ではなく、前期間と今期間で照合できた観測集合の構成差です。",
+      title: "同じ条件で比較できた回答へ遡る",
+      description: "単一回答の因果ではなく、前期間と今期間で同じ条件で比較できたAI回答の構成差です。",
       facts: [
         { label: "集計ID", value: deterministicTraceId("AGG", "CHANGE-CONTRIBUTION", [context.first, context.second]) },
         { label: "比較期間", value: "2026-06-07〜07-05 vs 2026-06-08〜07-06" },
@@ -433,7 +433,7 @@ function buildSemanticComparisonDetail(
     return {
       kicker: "PERSONA MODEL PERFORMANCE",
       title: `${first}：マーケ責任者の成績`,
-      summary: "選択モデルにおけるペルソナ固定質問のAI表示率・SOV・平均掲載位置・公式サイト引用率です。",
+      summary: "選択モデルにおけるペルソナ固定質問のAI表示率・AI内シェア・平均掲載位置・公式サイト引用率です。",
       sections: [
         { title: "このモデルの5指標", facts },
         { title: "契約モデル間の比較", table: comparison },
@@ -448,7 +448,7 @@ function buildSemanticComparisonDetail(
       summary: "選択期間の自社順位・首位ブランド・AI表示率差を、同じ質問とモデルが揃う観測だけで比較します。",
       sections: [
         { title: "期間スナップショット", facts },
-        { title: "期間ごとのmatched比較", table: comparison },
+        { title: "期間ごとの同条件比較", table: comparison },
         { title: "順位定義", facts: [...observationRule, { label: "並び順", value: "比較対象ブランドのAI表示率" }] }
       ]
     };
@@ -469,7 +469,7 @@ function buildSemanticComparisonDetail(
     return {
       kicker: "BUYER AXIS MATCHUP",
       title: `${first}の直接比較`,
-      summary: "買い手判断軸ごとに自社と選択競合のAI表示率を比較したレーダーの1軸です。",
+      summary: "買い手判断軸ごとに自社と表示中の比較対象のAI表示率を比較したレーダーの1軸です。",
       sections: [
         { title: "この判断軸の自社・競合値", facts },
         { title: "全判断軸の比較", table: comparison },
@@ -549,9 +549,9 @@ function buildOperationalTableDetail(
       title: `${first}：${second}`,
       summary: "前期間差に寄与した観測グループです。相関する構成差であり、原因や施策効果とは断定しません。",
       sections: [
-        { title: "差に寄与した観測群", facts },
+        { title: "差に寄与したAI回答", facts },
         { title: "ほかの寄与軸", table: comparison },
-        { title: "matched比較の条件", facts: observationRule }
+        { title: "同条件比較の条件", facts: observationRule }
       ]
     };
   }
@@ -775,7 +775,7 @@ function buildMarketTableDetail(
       title: `${first}への置き換わり`,
       summary: "自社が掲載されなかった同一条件の回答で、代わりに掲載されたブランドを示します。",
       sections: [
-        { title: "置き換わった観測群", facts },
+        { title: "自社未掲載時の掲載ブランド", facts },
         { title: "ほかの置き換え先", table: comparison },
         { title: "置換判定の条件", facts: observationRule }
       ]
@@ -1200,7 +1200,7 @@ function buildTrendSeriesDetail({
       sections: [
         { title: "AI内シェアの変化", facts: changeFacts },
         { title: "ブランド別AI内シェア", table: comparison },
-        { title: "シェアを獲得・喪失した観測", facts: [{ label: "確認対象", value: "ブランド掲載量が増減したmatched質問" }, { label: "複数ブランド", value: "併記回答は定義済みの掲載量で集計" }] }
+        { title: "シェアを獲得・喪失した観測", facts: [{ label: "確認対象", value: "ブランド掲載量が増減した同条件の質問" }, { label: "複数ブランド", value: "併記回答は定義済みの掲載量で集計" }] }
       ]
     };
   }
@@ -1227,7 +1227,7 @@ function buildTrendSeriesDetail({
       sections: [
         { title: isGap ? "首位差の変化" : "順位の変化", facts: changeFacts },
         { title: isGap ? "比較系列" : "直上・直下を含む順位比較", table: comparison },
-        { title: "順位が動いた観測", facts: [{ label: "確認対象", value: "順位が入れ替わった日とmatched質問" }, { label: "注意", value: "欠測による構成差は実変化と分離" }] }
+        { title: "順位が動いた観測", facts: [{ label: "確認対象", value: "順位が入れ替わった日と同条件の質問" }, { label: "注意", value: "欠測による構成差は実変化と分離" }] }
       ]
     };
   }
