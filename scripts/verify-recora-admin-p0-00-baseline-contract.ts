@@ -12,7 +12,7 @@ const expectedSchemaVersion = "recora_admin_p0_design_v1_3";
 const expectedCanonicalPackageId = "RECORA-ADMIN-P0-CANONICAL";
 const expectedCanonicalVersion = "1.0";
 const expectedMigrationStem = "recora_admin_p0_00_baseline_contract";
-const expectedDbContainer = "supabase_db_recora-admin-p0-m00";
+const expectedDbContainerPattern = /^supabase_db_recora-admin-p0-m\d{2}$/;
 
 const canonicalManifestPath = path.join(
   repoRoot,
@@ -32,8 +32,14 @@ const physicalManifestPath = path.join(
 );
 const migrationPath = findSingleMigration(expectedMigrationStem);
 
-const canonicalManifestBytes = fs.readFileSync(canonicalManifestPath);
-const physicalManifestBytes = fs.readFileSync(physicalManifestPath);
+const canonicalManifestRepoPath = toRepoPath(path.relative(repoRoot, canonicalManifestPath));
+const physicalManifestRepoPath = toRepoPath(path.relative(repoRoot, physicalManifestPath));
+assertGitTracked(canonicalManifestRepoPath);
+assertGitTracked(physicalManifestRepoPath);
+assertGitClean(canonicalManifestRepoPath, "Canonical manifest must be unchanged and unstaged.");
+assertGitClean(physicalManifestRepoPath, "Physical schema manifest must be unchanged and unstaged.");
+const canonicalManifestBytes = readHeadBlob(canonicalManifestRepoPath);
+const physicalManifestBytes = readHeadBlob(physicalManifestRepoPath);
 const migrationSql = fs.readFileSync(migrationPath, "utf8");
 const executableMigrationSql = stripSqlComments(migrationSql);
 const normalizedMigrationSql = normalizeSql(executableMigrationSql);
@@ -119,6 +125,7 @@ console.log(
         replayValidated: !staticOnly,
         appendOnlyValidated: !staticOnly,
         p4BAccountAccessBaselineValidated: !staticOnly,
+        trackedManifestGitBlobsValidated: true,
       },
     },
     null,
@@ -253,13 +260,15 @@ function verifyMigrationSource(): void {
 
 function verifyLocalDatabase(): void {
   const configuredContainer = process.env.RECORA_ADMIN_P0_DB_CONTAINER;
-  assert.equal(
+  assert.equal(typeof configuredContainer, "string", "RECORA_ADMIN_P0_DB_CONTAINER is required.");
+  if (typeof configuredContainer !== "string") throw new Error("RECORA_ADMIN_P0_DB_CONTAINER is required.");
+  assert.match(
     configuredContainer,
-    expectedDbContainer,
-    `Set RECORA_ADMIN_P0_DB_CONTAINER=${expectedDbContainer}; no other local or remote database is accepted.`,
+    expectedDbContainerPattern,
+    "M00 verifier accepts only dedicated Recora Admin P0 migration containers such as supabase_db_recora-admin-p0-m00 or m01.",
   );
 
-  run("docker", ["inspect", expectedDbContainer]);
+  run("docker", ["inspect", configuredContainer]);
 
   queryLocal(`
 do $verify$
@@ -384,7 +393,7 @@ function queryLocal(sql: string, expectedError?: RegExp): string {
     [
       "exec",
       "--interactive",
-      expectedDbContainer,
+      configuredDbContainer(),
       "psql",
       "--username",
       "postgres",
@@ -432,6 +441,69 @@ function run(command: string, args: string[]): string {
     `${command} ${args.join(" ")} failed:\n${sanitize(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)}`,
   );
   return result.stdout ?? "";
+}
+
+function configuredDbContainer(): string {
+  const value = process.env.RECORA_ADMIN_P0_DB_CONTAINER;
+  assert.equal(typeof value, "string", "RECORA_ADMIN_P0_DB_CONTAINER is required.");
+  if (typeof value !== "string") throw new Error("RECORA_ADMIN_P0_DB_CONTAINER is required.");
+  assert.match(value, expectedDbContainerPattern);
+  return value;
+}
+
+function assertGitTracked(repoPath: string): void {
+  assert.ok(
+    gitSucceeds(["ls-files", "--error-unmatch", "--", repoPath]),
+    `Expected tracked repository file: ${repoPath}`,
+  );
+}
+
+function assertGitClean(repoPath: string, message: string): void {
+  assert.ok(gitSucceeds(["diff", "--quiet", "--", repoPath]), message);
+  assert.ok(gitSucceeds(["diff", "--cached", "--quiet", "--", repoPath]), message);
+}
+
+function gitSucceeds(args: string[]): boolean {
+  const result = spawnSync("git", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { ...process.env, NO_COLOR: "1" },
+    maxBuffer: 20 * 1024 * 1024,
+    timeout: 120_000,
+  });
+  if (result.error) throw result.error;
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  throw new Error(`git ${args.join(" ")} failed: ${sanitize(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)}`);
+}
+
+function readHeadBlob(repoPath: string): Buffer {
+  return runGitBytes(["cat-file", "blob", `HEAD:${repoPath}`]);
+}
+
+function runGitBytes(args: string[]): Buffer {
+  const result = spawnSync("git", args, {
+    cwd: repoRoot,
+    encoding: null,
+    env: { ...process.env, NO_COLOR: "1" },
+    maxBuffer: 20 * 1024 * 1024,
+    timeout: 120_000,
+  });
+  if (result.error) throw result.error;
+  assert.equal(
+    result.status,
+    0,
+    `git ${args.join(" ")} failed: ${sanitize(Buffer.concat([
+      Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.alloc(0),
+      Buffer.from("\n"),
+      Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.alloc(0),
+    ]).toString("utf8"))}`,
+  );
+  return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? "");
+}
+
+function toRepoPath(value: string): string {
+  return value.replaceAll("\\", "/");
 }
 
 function sha256(value: Uint8Array): string {
