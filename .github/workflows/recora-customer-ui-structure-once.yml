@@ -1,0 +1,50 @@
+name: Recora customer UI structure one-time
+
+on:
+  pull_request:
+    branches: [master]
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: recora-customer-ui-structure-one-time
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/customer-report-current' &&
+      github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/customer-report-current
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply customer information architecture updates
+        shell: bash
+        run: |
+          cat > /tmp/recora-customer-ui.py.b64 <<'B64'
+          ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmltcG9ydCByZQoKZGVmIHJlYWQocGF0aCk6CiAgICBy
+          ZXR1cm4gUGF0aChwYXRoKS5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikKCmRlZiB3cml0ZShw
+          YXRoLCBjb250ZW50KToKICAgIFBhdGgocGF0aCkucGFyZW50Lm1rZGlyKHBhcmVudHM9VHJ1ZSwg
+          ZXhpc3Rfb2s9VHJ1ZSkKICAgIFBhdGgocGF0aCkud3JpdGVfdGV4dChjb250ZW50LCBlbmNvZGlu
+          Zz0idXRmLTgiKQoKZGVmIHJlcGxhY2Vfb25jZSh0ZXh0LCBvbGQsIG5ldywgbGFiZWwpOgogICAg
+          Y291bnQgPSB0ZXh0LmNvdW50KG9sZCkKICAgIGlmIGNvdW50ICE9IDE6CiAgICAgICAgcmFpc2Ug
+          U3lzdGVtRXhpdChmIntsYWJlbH06IGV4cGVjdGVkIDEgb2NjdXJyZW5jZSwgZm91bmQge2NvdW50
+          fSIpCiAgICByZXR1cm4gdGV4dC5yZXBsYWNlKG9sZCwgbmV3LCAxKQoKIyAxLiBOYXZpZ2F0aW9u
+          IG9yZGVyCm5hdl9wYXRoID0gImxpYi9yZWNvcmEvbmF2LWNvbmZpZy50cyIKbmF2ID0gcmVhZChu
+          YXZfcGF0aCkKc3RhcnQgPSBuYXYuaW5kZXgoIiAgY29uc3QgcmVwb3J0RGV0YWlsSXRlbXM6IFJl
+          Y29yYU5hdkl0ZW1bXSA9IHJlcG9ydEJhc2UiKQpib2R5X3N0YXJ0ID0gbmF2LmluZGV4KCIgICAg
+          PyBbIiwgc3RhcnQpCmJvZHlfZW5kID0gbmF2LmluZGV4KCIgICAgICBdXG4gICAgOiBbXTsiLCBi
+          b2R5X3N0YXJ0KSArIGxlbigic
