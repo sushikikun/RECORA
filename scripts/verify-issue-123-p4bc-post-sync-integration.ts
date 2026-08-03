@@ -16,6 +16,8 @@ const expectedHead = env("RECORA_PHASE4_EXPECTED_HEAD");
 const expectedBase = env("RECORA_PHASE4_EXPECTED_BASE");
 const p4b = "20260731203135_p4b_account_invitation_membership_rpcs.sql";
 const p4c = "20260731210957_p4c_contract_billing_entitlement_rpc.sql";
+const p4bVersion = p4b.slice(0, 14);
+const p4cVersion = p4c.slice(0, 14);
 const p4bPath = path.join(root, "supabase", "migrations", p4b);
 const p4cPath = path.join(root, "supabase", "migrations", p4c);
 const allowed = new Set([
@@ -97,13 +99,45 @@ function sync(s: Stack): void {
 function sb(s: Stack, name: string, args: string[]): string {
   return pass(`${s.label} ${name}`, run(process.execPath, [supabase, "--workdir", s.workdir, ...args], { timeout: 720_000 }));
 }
+function queryValues(s: Stack, name: string, input: string): string[] {
+  const result = run(
+    "docker",
+    [
+      "exec",
+      "--interactive",
+      s.container,
+      "psql",
+      "--username",
+      "postgres",
+      "--dbname",
+      "postgres",
+      "--no-psqlrc",
+      "--set",
+      "ON_ERROR_STOP=1",
+      "--quiet",
+      "--tuples-only",
+      "--no-align",
+    ],
+    { input, timeout: 300_000 },
+  );
+  const output = clean(`${result.stdout}\n${result.stderr}`);
+  assert.equal(result.status, 0, `${s.label} ${name} failed (${result.status}):\n${output}`);
+  console.log(`${s.label} ${name}: PASS`);
+  return lines(result.stdout);
+}
 function assertApplied(s: Stack): void {
-  const output = sb(s, "local migration list", ["migration", "list", "--local"]);
-  const p4bIndex = output.indexOf("20260731203135");
-  const p4cIndex = output.indexOf("20260731210957");
-  assert.ok(p4bIndex >= 0, `${s.label} applied migration list is missing P4-B.`);
-  assert.ok(p4cIndex >= 0, `${s.label} applied migration list is missing P4-C.`);
-  assert.ok(p4bIndex < p4cIndex, `${s.label} applied migration order is not P4-B before P4-C.`);
+  const applied = queryValues(
+    s,
+    "applied migration history",
+    `select version::text\nfrom supabase_migrations.schema_migrations\nwhere version in ('${p4bVersion}', '${p4cVersion}')\norder by version;\n`,
+  );
+  assert.deepEqual(
+    applied,
+    [p4bVersion, p4cVersion],
+    `${s.label} database history does not contain applied P4-B and P4-C migrations in order.`,
+  );
+  sb(s, "local migration list", ["migration", "list", "--local"]);
+  console.log(`${s.label} applied migrations: ${applied.join(" -> ")}`);
 }
 function dbGate(s: Stack, name: string, args: string[]): void {
   const output = sb(s, name, args);
@@ -231,7 +265,7 @@ function main(): void {
   verifier("Issue #117 verifier","scripts/verify-issue-117-phase3-integration-security.ts",{RECORA_ISSUE_117_DB_CONTAINER:i117.container,RECORA_ISSUE_117_SUPABASE_WORKDIR:i117.workdir});
   assertApplied(i117);
   dbGate(i123,"DB advisors",["db","advisors","--local"]);
-  dbGate(i123,"DB lint",["db","lint","--local"]);
+  dbGate(i123,"DB lint",["db","lint","--local","--fail-on","warning"]);
   appChecks(); scope();
   console.log("Issue #123 P4-B/P4-C post-sync integration verifier passed.");
 }
