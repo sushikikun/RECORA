@@ -1,37 +1,130 @@
 # Recora Prompt & Measurement Contract v1
 
-Status: Formal target contract / docs-only
-Last updated: 2026-08-04
-Authority: User-approved Recora product direction
-Implementation status: Not yet fully implemented
+Status: **Formal target contract / docs-only**  
+Last updated: **2026-08-04**  
+Authority: **Latest OWNER-approved Recora product direction**  
+Implementation status: **Not yet fully implemented**  
+Production / remote DB authorization: **None**
 
-## 0. Position of this document
+## 0. Position and authority
 
-This document is the target source of truth for future Recora prompt design, prompt-set construction, measurement execution, aggregation, database design, administration UI, and customer-facing read models.
+This document defines the product and domain contract for Recora's
+**Prompt and Measurement Design** capability.
 
-Until the migration described here is implemented, the current runtime code and deployed database remain the source of truth for actual production behavior. A conflict between this contract and current implementation must be surfaced as a migration gap. It must not be silently resolved by inference.
+It is not a standalone prompt database specification and it does not own the whole
+measurement, analysis, publication, or UI architecture. It is one domain inside the
+new Recora-wide structure.
 
-This contract supersedes the following as final product rules:
+### 0.1 Position in the new Recora-wide structure
 
-- treating a loose question list as the measurement unit;
-- applying a fixed 60/20/10/10 prompt ratio to every project;
-- treating 8 / 16 / 32 prompts as the production measurement panel size;
-- mixing branded prompts into AI visibility, ranking, or Share of Voice;
-- counting criteria-only prompts as visibility or ranking prompts;
-- treating a single execution as a stable market conclusion;
-- allowing prompt wording or panel membership to change without an immutable version;
-- requiring manual approval for every normal generated prompt.
+```text
+1. User touchpoints and screen layer
+   ├─ Public site
+   ├─ Customer onboarding
+   ├─ Customer-facing screens
+   ├─ Administrator-facing screens
+   └─ Published reports
 
-The following existing principles remain valid and are incorporated into this contract:
+2. Business and operations foundation layer
+   ├─ Customer and project management
+   ├─ Prompt and measurement design          ← this contract
+   ├─ Measurement execution
+   ├─ AI answer and citation analysis
+   ├─ Quality and exception decisions
+   ├─ Publication decision and report generation
+   ├─ Operational control
+   └─ Incident, audit, usage and cost operations
 
-- topic-first prompt design;
-- explicit persona and buyer-stage mapping;
-- non-branded and branded measurement separation;
-- response-shape-aware metric eligibility;
-- industry and business-model adapters;
-- citation analysis separated from ranking evidence;
-- conservative handling of inferred metadata;
-- normal operations are automated and humans handle exceptions.
+3. Shared platform and cross-cutting capabilities
+   ├─ Authentication and authorization
+   ├─ Tenant isolation
+   ├─ Formal state management
+   ├─ Evidence and audit
+   ├─ Database platform
+   ├─ AI/provider integration
+   ├─ Job and queue infrastructure
+   ├─ Notification
+   └─ Security and observability
+```
+
+The Prompt and Measurement Design domain receives approved business context from
+customer/project management and onboarding. It produces an immutable,
+versioned `measurement_design_version` for Measurement Execution.
+
+It MUST NOT absorb the responsibilities of:
+
+- provider execution, retry, queue, or attempt selection;
+- answer, mention, ranking, citation, or sentiment analysis;
+- quality or publication decisions;
+- customer report materialization;
+- customer or administrator screen state;
+- authentication, tenant ownership, entitlement, audit, or publication foundations.
+
+### 0.2 Authority order
+
+For this domain, use the following order:
+
+1. the latest OWNER decision recorded in the active Issue or approval record;
+2. this document after Human review;
+3. `docs/recora-measurement-design-canonical-data-model-v1.md` for the more specific
+   canonical data-model boundary;
+4. `docs/recora-data-tenant-security-privacy.md` for tenant, entitlement, privacy,
+   authorization, and historical-reference foundations;
+5. the adopted Recora Admin P0 state, read-model, authorization/audit, and
+   measurement-management specifications;
+6. `docs/recora-post-launch-operations-architecture.md` for the accepted
+   `control / measurement / publication / api / audit` separation;
+7. current runtime and deployed database as legacy implementation facts only.
+
+A conflict between the target contract and current implementation is a migration gap.
+It MUST NOT be silently resolved by inference.
+
+### 0.3 Legacy boundary
+
+The canonical model is designed from current product requirements. It is not an
+extension of the current `public.personas`, `public.topics`, `public.prompts`, or legacy
+measurement hierarchy.
+
+```text
+Product requirements
+  → new canonical model
+  → new canonical runtime
+  → explicit one-way legacy import where justified
+```
+
+The direction is not:
+
+```text
+Legacy tables
+  → keep adding fields
+  → treat old rows as the new canonical model
+```
+
+Legacy structures are limited to:
+
+- read-only inventory;
+- historical evidence;
+- explicit import-candidate discovery;
+- temporary compatibility reads;
+- regression and cutover comparison.
+
+Canonical tables MUST NOT have formal foreign-key dependencies on legacy prompt,
+persona, topic, run, response, metric, or recommendation tables.
+
+### 0.4 Superseded product rules
+
+This contract supersedes:
+
+- treating a loose question list as the production measurement unit;
+- applying a fixed 60/20/10/10 ratio to every project;
+- treating 8 / 16 / 32 prompts as production panel sizes;
+- mixing branded prompts into visibility, ranking, or SOV;
+- counting criteria-only questions as visibility or ranking opportunities;
+- treating one execution as a stable market conclusion;
+- changing prompt wording or panel membership without an immutable version;
+- requiring manual approval for every ordinary generated prompt;
+- binding one semantic prompt set directly to one provider/model execution profile;
+- redesigning the final model around legacy public tables.
 
 The terms MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
@@ -39,134 +132,172 @@ The terms MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
 ## 1. Purpose
 
-Recora prompts are a versioned measurement design, not a list of questions.
+Recora prompts are part of a versioned measurement design, not merely a list of
+questions.
 
-The contract must make it possible to answer all of the following without ambiguity:
+The contract must answer, without ambiguity:
 
 1. What buyer need is being measured?
-2. Which persona, topic, use case, and buyer stage does it represent?
-3. Is the prompt non-branded, branded, named-comparison, or competitor-only?
-4. What answer shape can naturally result?
-5. Which metrics may use the result?
-6. Is the prompt part of the stable KPI panel, a robustness test, a diagnostic test, or a discovery pool?
-7. Which exact text revision was executed?
-8. Under which provider, model, search, locale, and execution conditions was it executed?
-9. How is the execution aggregated without overweighting paraphrases?
-10. Which customer-facing conclusion or improvement hypothesis may use the result?
+2. Which persona, topic, use case, buyer stage, locale, and region does it represent?
+3. What exact prompt revision expresses that need?
+4. Is it non-branded, self-branded, named-comparison, competitor-only, or draft-only?
+5. What answer shape can naturally result?
+6. Which metrics may consume the observation?
+7. Is it Core, Discovery, Robustness, Diagnostic, Seasonal, or Event?
+8. Which semantic prompt-set version contains it?
+9. Which provider/model/surface matrix executes it?
+10. Which metric, valid-response, aggregation, and repeat policies interpret it?
+11. Which immutable measurement-design version binds all of those components?
+12. Which exact design and execution snapshot produced a historical result?
+13. Which downstream analysis, quality, publication, or improvement process may use it?
 
 ### 1.1 Non-goals
 
-This contract does not fix the following experimental values permanently:
+This contract does not permanently fix:
 
-- the final commercial mapping of 50 / 100 / 200 prompt profiles;
-- a universal repeat count for every provider and model;
-- the final Share of Voice formula;
+- the commercial mapping of 50 / 100 / 200 profiles;
+- universal repeat counts;
+- the final SOV formula;
 - the final demand-weighting formula;
-- the final minimum-valid-observation threshold;
-- the final official API-versus-consumer-UI measurement surface.
+- publication completeness thresholds;
+- the final API-versus-consumer-UI measurement role;
+- provider retry and queue implementation;
+- customer or administrator page layout;
+- production legacy-import decisions.
 
-These must be versioned experiments. Their uncertainty must not block the core domain model.
-
----
-
-## 2. Design principles
-
-### 2.1 Topic first
-
-A Topic Set MUST be defined before production prompts are selected. Every active prompt revision MUST map to at least one valid topic.
-
-### 2.2 Intent before wording
-
-Recora MUST distinguish the semantic buyer intent from the text used to express it. Multiple paraphrases of one intent MUST NOT receive multiple independent weights in the headline KPI merely because more variants were generated.
-
-### 2.3 Candidate generation is not panel selection
-
-The system MAY generate a broad candidate pool, but only a compiled and versioned prompt-set version may enter production measurement.
-
-### 2.4 Measurement role separation
-
-Core, discovery, robustness, diagnostic, seasonal, and event prompts MUST remain distinguishable. Diagnostic or forced-citation prompts MUST NOT silently enter the market KPI denominator.
-
-### 2.5 Multiple metric eligibility
-
-One prompt revision may be usable for multiple analyses. A single `measurement_purpose` value MUST NOT be the authoritative eligibility model.
-
-### 2.6 Immutable history
-
-Prompt text, metric-affecting metadata, panel membership, and execution conditions MUST be reproducible for every historical run.
-
-### 2.7 Automation by default
-
-Normal generation, quality validation, panel compilation, measurement, and publication readiness checks SHOULD be automatic. Human review is required only for defined exceptions or high-risk cases.
-
-### 2.8 No pre-measurement claims
-
-Generated topics and prompts are measurement hypotheses. They MUST NOT be represented as evidence that a brand is visible, recommended, cited, trusted, accurate, or competitive before actual measurement.
+These remain versioned experiments or separately owned implementation decisions.
 
 ---
 
-## 3. Canonical domain hierarchy
+## 2. Product invariants
+
+The domain must make the following mechanically true.
+
+1. `organization` remains the tenant root and `project` remains the project scope.
+2. Prompt and measurement design is owned by one project and one organization.
+3. A production measurement consumes one immutable `measurement_design_version`.
+4. Persona, Topic, Intent Cell, and Prompt continuity are distinct from their immutable revisions.
+5. The semantic prompt panel is independent from the provider/model execution matrix.
+6. A policy-only change does not rewrite the semantic panel.
+7. One selected Core Intent Cell contributes one canonical Core prompt to the headline
+   semantic denominator for the active prompt-set version.
+8. Robustness paraphrases do not receive independent headline weight.
+9. Branded, named, competitor-only, criteria-only, and forced-citation prompts cannot
+   enter market metrics incorrectly.
+10. Candidate generation is distinct from formal panel compilation.
+11. Every planned observation is distinguishable from provider retry attempts.
+12. Every historical result resolves to the same design, prompt, execution, entitlement,
+    and policy meaning.
+13. Normal generation, validation, compilation, activation, and measurement preparation
+    are automated; people handle defined exceptions.
+14. Customer browsers do not read canonical `control`, raw `measurement`, or `audit`
+    data directly.
+15. Legacy rows cannot become canonical merely through prompt-text inference.
+16. Rollback preserves history and uses a successor version or previous safe publication,
+    rather than deleting or mutating evidence.
+
+---
+
+## 3. Canonical hierarchy
 
 ```text
-Project
-└─ Persona
-└─ Topic
-   └─ Intent Cell
-      ├─ Prompt identity
-      │  └─ Immutable prompt revisions
-      └─ Prompt-set-version memberships
-         ├─ Core
-         ├─ Discovery
-         ├─ Robustness
-         ├─ Diagnostic
-         ├─ Seasonal
-         └─ Event
-            └─ Execution profile
-               └─ Measurement run
-                  └─ Run item / execution
-                     └─ Answer observation
+Organization
+└─ Project
+   └─ Measurement Design                         stable aggregate identity
+      ├─ Measurement Design Versions            immutable complete contracts
+      │  ├─ Persona Revision Memberships
+      │  ├─ Topic Revision Memberships
+      │  ├─ Intent Cell Revision Memberships
+      │  ├─ Prompt Set Version                  semantic panel
+      │  ├─ Execution Profile Set Version       provider/model/surface matrix
+      │  ├─ Panel Profile Version
+      │  ├─ Measurement Policy Bundle Version
+      │  ├─ Entitlement Snapshot
+      │  ├─ Analysis Target / Brand Identity Versions
+      │  └─ Validation and Compilation Evidence
+      └─ Current Version Pointer
+
+Measurement Cycle                               owned by Measurement Execution
+└─ Measurement Item                            one planned observation
+   ├─ Measurement Contract Snapshot
+   └─ Measurement Attempts                     initial call and recovery retries
+      └─ Provider evidence and answer observations
 ```
 
-### 3.1 Topic
+### 3.1 Measurement Design
 
-A topic represents a meaningful diagnostic area, such as category discovery, problem-solution discovery, alternative search, implementation risk, local comparison, citation evidence, or branded perception.
+A Measurement Design is the stable identity for one project measurement program.
+A project may have more than one design when scope is intentionally distinct, such as
+language, region, brand, product, or formal measurement program.
 
-A topic MUST include:
+A `measurement_design_version` binds the complete production contract:
 
-- `topic_id`;
-- `topic_name`;
-- `topic_type`;
-- `diagnosis_goal`;
-- covered personas;
-- covered buyer stages;
-- target metrics;
-- observable expected signals;
-- minimum intended coverage;
-- risk or bias notes;
-- lifecycle status.
+```yaml
+measurement_design_id:
+measurement_design_version_id:
+version_number:
+analysis_target_version_id:
+brand_identity_version_id:
+persona_revision_memberships: []
+topic_revision_memberships: []
+intent_cell_revision_memberships: []
+prompt_set_version_id:
+execution_profile_set_version_id:
+panel_profile_version_id:
+measurement_policy_bundle_version_id:
+entitlement_snapshot_id:
+source_evidence_bundle_id:
+content_hash:
+status:
+supersedes_measurement_design_version_id:
+activated_at:
+```
 
-A topic MAY map to multiple personas and buyer stages. It MUST NOT force all prompts under the topic to share one buyer stage or one expected signal.
+A finalized or active version is immutable.
 
 ### 3.2 Persona
 
-A persona is a role and decision-context model, not only a demographic label.
+A Persona is a decision-role and decision-context model, not merely a demographic label.
 
-A persona SHOULD include:
+A Persona Revision SHOULD include:
 
-- decision role;
+- purchase, use, evaluation, or approval role;
 - practical vocabulary;
 - jobs, pains, triggers, and switching forces;
 - comparison axes;
-- required proof;
-- trust requirements;
+- required proof and trust requirements;
 - industry and business-model fit;
-- confidence and source status.
+- evidence source status and confidence;
+- risk flags and content hash.
 
-### 3.3 Intent Cell
+Persona Identity represents continuity. Persona Revision represents one immutable
+measurement-affecting definition.
+
+### 3.3 Topic
+
+A Topic is a meaningful diagnostic area such as category discovery, problem-solution,
+alternative search, implementation risk, local comparison, citation evidence, or
+branded perception.
+
+A Topic Revision MUST include:
+
+- name and type;
+- diagnosis goal;
+- expected signal types;
+- intended personas and buyer stages;
+- target metrics;
+- minimum coverage;
+- risk or bias notes;
+- source status, confidence, lifecycle, and content hash.
+
+A Topic may cover multiple personas and buyer stages. It MUST NOT force all Prompt
+Revisions under it to inherit one buyer stage or expected signal.
+
+### 3.4 Intent Cell
 
 An Intent Cell is the primary semantic measurement unit.
 
-An Intent Cell represents one buyer need under a sufficiently specific context, normally including:
+It represents one buyer need under a sufficiently specific context, normally including:
 
 - market or problem need;
 - persona or decision role;
@@ -174,14 +305,15 @@ An Intent Cell represents one buyer need under a sufficiently specific context, 
 - locale or region when material;
 - expected candidate or answer behavior.
 
-Required fields:
+Required conceptual fields:
 
 ```yaml
 intent_cell_id:
+intent_cell_revision_id:
 project_id:
-primary_topic_id:
-secondary_topic_ids: []
-persona_id:
+persona_revision_id:
+primary_topic_revision_id:
+secondary_topic_revision_ids: []
 buyer_stage:
 locale:
 region_scope:
@@ -191,80 +323,169 @@ business_priority:
 tracking_scope: true
 improvement_scope: true
 status:
+content_hash:
 ```
 
-Each active Core Intent Cell MUST have exactly one canonical active prompt revision per provider-language measurement context unless a documented exception exists.
+The active Prompt Set Version MUST include at most one `core + canonical` Prompt Revision
+per selected Intent Cell Revision.
 
-### 3.4 Prompt identity and prompt revision
+Robustness variants may share the Intent Cell but MUST NOT multiply its headline weight.
 
-`prompt_id` identifies a continuing prompt series. `prompt_revision_id` identifies one immutable measurement-affecting version.
+### 3.5 Prompt Identity and Prompt Revision
+
+`prompt_id` identifies a continuing prompt series. `prompt_revision_id` identifies one
+immutable measurement-affecting version.
 
 ```yaml
 prompt_id:
 prompt_revision_id:
 prompt_version:
-intent_cell_id:
+intent_cell_revision_id:
 text:
 content_hash:
+brand_scope:
+question_family:
+question_act:
+response_shape:
+language_mode:
+buyer_stage:
+temporal_class:
 variant_role:
+metric_eligibility:
 supersedes_prompt_revision_id:
 effective_from:
 effective_to:
 ```
 
-A new prompt revision MUST be created when any of the following changes:
+A new revision is required when any of the following changes:
 
 - prompt text;
+- Intent Cell Revision membership;
 - brand scope;
-- question family or question act;
+- question family or act;
 - response shape;
 - buyer stage;
-- language mode;
-- intent-cell membership;
+- language mode or temporal class;
 - metric eligibility;
 - risk classification;
-- any field that can change interpretation or aggregation.
+- any interpretation or aggregation-affecting value.
 
-Historical run items MUST retain the exact executed prompt text and classification snapshot.
+### 3.6 Prompt Set and Prompt Set Version
 
-### 3.5 Prompt set and prompt-set version
-
-A Prompt Set is the continuing measurement-panel identity for a project. A Prompt-set version is an immutable membership and execution contract.
+A Prompt Set is the continuing identity of one semantic panel.
+A Prompt Set Version is the immutable panel membership contract.
 
 ```yaml
 prompt_set_id:
 prompt_set_version_id:
-version_label:
+version_number:
 status:
-execution_profile_id:
-metric_definition_version:
-valid_response_policy_version:
-aggregation_policy_version:
-repeat_policy_id:
-activated_at:
-frozen_at:
+panel_profile_version_id:
+compiler_version:
+semantic_clusterer_version:
+content_hash:
 supersedes_prompt_set_version_id:
+created_at:
+validated_at:
+frozen_at:
 ```
 
-Changing membership, panel role, metric eligibility, execution profile, or aggregation contract MUST create a new prompt-set version.
+Membership includes:
+
+```yaml
+prompt_revision_id:
+intent_cell_revision_id:
+panel_role:
+variant_role:
+sort_order:
+business_weight:
+inclusion_reason:
+compilation_decision_id:
+```
+
+A Prompt Set Version does **not** own one provider/model execution profile and it does
+not directly own metric, valid-response, aggregation, or repeat policy versions.
+Those belong to the Measurement Design Version through separately versioned components.
+
+Changing semantic membership, panel role, variant role, eligibility-affecting prompt
+revision, or semantic weighting creates a new Prompt Set Version and Measurement Design
+Version.
+
+### 3.7 Execution Profile and Execution Profile Set Version
+
+An Execution Profile is one immutable provider/model/surface execution context.
+
+```yaml
+execution_profile_id:
+provider:
+surface:
+requested_model:
+model_version_policy:
+system_prompt_version:
+execution_template_version:
+web_search_mode:
+search_activation_policy:
+live_or_cached:
+locale:
+region:
+domain_filters: []
+search_budget:
+account_or_session_condition:
+provider_configuration_schema_version:
+content_hash:
+status:
+```
+
+Secrets and credentials MUST NOT be stored in this profile.
+
+An Execution Profile Set Version is the immutable multi-model execution matrix.
+Its memberships include:
+
+```yaml
+execution_profile_id:
+sort_order:
+required_for_formal_measurement:
+required_for_publication_coverage:
+planned_observation_weight:
+membership_reason:
+```
+
+Changing provider, model, surface, search mode, locale, region, or matrix membership
+creates a new Execution Profile Set Version and Measurement Design Version.
+It does not create a new Prompt Set Version when the semantic panel is unchanged.
+
+### 3.8 Measurement Policy Bundle Version
+
+A Measurement Policy Bundle Version binds the exact policies used to interpret a run:
+
+- Metric Definition Version;
+- Valid Response Policy Version;
+- Aggregation Policy Version;
+- Repeat Policy Version;
+- Compatibility Policy Version;
+- completeness or publication-compatibility policy where applicable.
+
+A policy change creates a new bundle and Measurement Design Version. It MUST NOT mutate
+historical results or rewrite the semantic panel.
 
 ---
 
 ## 4. Orthogonal prompt classification
 
-The system MUST NOT use one mixed `category` field as the complete prompt classification.
+The system MUST NOT use one mixed `category` as the complete classification.
 
 ### 4.1 Brand scope
 
 Allowed values:
 
-- `brand_excluded`: target brand, aliases, service names, and domain are absent;
-- `self_branded`: target brand is explicitly included;
-- `named_comparison`: target brand and/or named brands are explicitly compared;
-- `competitor_only`: one or more named competitors are included while the target brand is absent;
-- `brand_optional`: draft-only state that MUST be split before production measurement.
+- `brand_excluded`;
+- `self_branded`;
+- `named_comparison`;
+- `competitor_only`;
+- `brand_optional` as a draft-only state that MUST be split before production.
 
-Known competitor names and aliases MUST be checked separately from target-brand contamination.
+Target-brand names, aliases, service names, and domains MUST be validated separately
+from known competitor names and aliases.
 
 ### 4.2 Question family
 
@@ -282,7 +503,8 @@ Allowed target values:
 - `local_regional`;
 - `regulated_risk`.
 
-`persona_based` is not a question family. Persona is represented by `persona_id` and persona-specific wording.
+`persona_based` is not a family. Persona is represented through the Persona Revision
+and wording context.
 
 ### 4.3 Question act
 
@@ -302,7 +524,7 @@ Allowed target values:
 
 ### 4.4 Response shape
 
-Retain the current values:
+Allowed values:
 
 - `candidate_list`;
 - `ranked_recommendation`;
@@ -314,7 +536,7 @@ Retain the current values:
 
 ### 4.5 Language mode
 
-Retain the current values:
+Allowed values:
 
 - `natural_conversation`;
 - `raw_search_like`;
@@ -322,11 +544,13 @@ Retain the current values:
 - `comparison_shortcut`;
 - `professional_research`.
 
-A production panel SHOULD include realistic language modes appropriate to the business model. BtoC, local, clinic, school, and EC projects SHOULD include raw, anxious, review, price, locality, or failure-avoidance language when relevant. BtoB projects SHOULD include role-specific operational vocabulary rather than generic consultant wording only.
+BtoC, local, clinic, school, and EC projects SHOULD include relevant review, price,
+locality, anxiety, or failure-avoidance language. BtoB projects SHOULD include
+role-specific operational vocabulary rather than generic consultant wording alone.
 
 ### 4.6 Buyer stage
 
-Retain:
+Allowed values:
 
 - `awareness`;
 - `exploration`;
@@ -334,7 +558,8 @@ Retain:
 - `validation`;
 - `decision`.
 
-Buyer stage is a prompt-revision field. It MUST NOT be inherited blindly from a topic when the actual prompt represents another stage.
+Buyer stage is authoritative at Prompt Revision and Intent Cell Revision level. It MUST
+NOT be inherited blindly from Topic.
 
 ### 4.7 Temporal class
 
@@ -345,13 +570,14 @@ Allowed values:
 - `event_bound`;
 - `volatile_dynamic`.
 
-Price, availability, legal-rule, personnel, news, and other volatile questions SHOULD be marked `volatile_dynamic` and use an appropriate refresh and evidence policy.
+Price, availability, legal-rule, personnel, news, and other volatile questions SHOULD
+use `volatile_dynamic` and an appropriate evidence and refresh policy.
 
 ---
 
-## 5. Panel roles
+## 5. Panel roles and profiles
 
-Allowed values:
+Allowed panel roles:
 
 - `core`;
 - `discovery`;
@@ -362,30 +588,35 @@ Allowed values:
 
 ### 5.1 Core
 
-Core prompts define the stable customer KPI and period comparison. Core membership MUST remain frozen for the active prompt-set version.
+Core defines the stable semantic denominator and period-comparison basis.
+Core membership is frozen for an active Prompt Set Version.
 
-Each Core Intent Cell SHOULD contribute one canonical prompt revision to the headline denominator.
+Each selected Core Intent Cell contributes one canonical Prompt Revision.
 
 ### 5.2 Discovery
 
-Discovery prompts search for new buyer needs, categories, competitors, language patterns, and emerging questions. Discovery results MUST NOT automatically modify the active Core denominator.
+Discovery finds new needs, language, categories, and competitors.
+Discovery results MUST NOT silently alter the active Core denominator.
 
-Promotion from Discovery to Core requires:
+Promotion requires:
 
 1. relevance evidence;
 2. semantic-duplicate review;
-3. coverage impact review;
-4. a new prompt-set version.
+3. coverage review;
+4. a successor Prompt Set Version and Measurement Design Version.
 
 ### 5.3 Robustness
 
-Robustness prompts test paraphrase, brevity, wording, anxiety, search-like language, ordering, and other expression sensitivity within an Intent Cell.
+Robustness tests paraphrase, brevity, anxiety, search-like language, ordering, and other
+expression sensitivity inside an Intent Cell.
 
-Robustness variants MUST NOT be counted as independent Core intents. Their results are aggregated within or reported beside the Intent Cell according to the aggregation policy.
+A Robustness membership requires a Core canonical membership for the same Intent Cell
+in the formal base panel unless a documented experimental profile explicitly permits an
+exception.
 
 ### 5.4 Diagnostic
 
-Diagnostic prompts test controlled behavior such as:
+Diagnostic includes:
 
 - forced source requests;
 - branded perception;
@@ -395,29 +626,28 @@ Diagnostic prompts test controlled behavior such as:
 - evidence verification;
 - provider or surface behavior.
 
-Diagnostic results MUST remain separate from the default market visibility, ranking, and SOV headline KPIs unless a metric definition explicitly states otherwise.
+Diagnostic results remain separate from default visibility, ranking, and SOV headline
+metrics unless a separately versioned metric definition explicitly says otherwise.
 
-### 5.5 Seasonal and event
+### 5.5 Seasonal and Event
 
-Seasonal and event prompts are overlays. They MUST NOT silently change the stable Core denominator. Promotion to Core requires a new set version.
+Seasonal and Event are overlays. They MUST NOT silently change the stable Core
+denominator.
 
----
+### 5.6 Design preview modes
 
-## 6. Prompt profiles
-
-### 6.1 Design preview modes
-
-The existing 8 / 16 / 32 prompt modes are reclassified as design and evaluation modes:
+The existing 8 / 16 / 32 modes are design and evaluation modes:
 
 - `design_preview_lite_8`;
 - `design_preview_standard_16`;
 - `design_preview_deep_32`.
 
-They MAY be used for onboarding previews, sales prechecks, Skill evaluation, or internal design review. They MUST NOT be assumed to be the production customer measurement panel.
+They MAY support onboarding previews, sales prechecks, Skill evaluation, or internal
+design review. They MUST NOT be assumed to be production panels.
 
-### 6.2 Experimental production profiles
+### 5.7 Experimental production profiles
 
-Initial experimental profiles:
+Initial experimental definitions:
 
 | Profile | Core canonical | Robustness | Diagnostic | Base total |
 |---|---:|---:|---:|---:|
@@ -425,25 +655,17 @@ Initial experimental profiles:
 | `measurement_profile_experimental_100` | 70 | 20 | 10 | 100 |
 | `measurement_profile_experimental_200` | 130 | 45 | 25 | 200 |
 
-These allocations are experimental defaults, not permanent commercial plan definitions.
+These are versioned Panel Profile artifacts, not permanent commercial plan definitions.
+For the same scope, profile intent coverage SHOULD be nested where feasible.
 
-For the same project scope, profiles SHOULD be nested where possible:
-
-```text
-50-profile intents ⊂ 100-profile intents ⊂ 200-profile intents
-```
-
-Seasonal and event overlays are outside the base total unless the set version explicitly includes them.
-
-### 6.3 Candidate pool size
-
-The panel compiler SHOULD receive approximately two to three times the final required candidate count. It MUST select through quality and coverage constraints rather than truncating the first N generated prompts.
+The compiler SHOULD receive approximately two to three times the final candidate count
+and MUST select through quality and coverage constraints rather than `slice(0, N)`.
 
 ---
 
-## 7. Metric eligibility
+## 6. Metric eligibility
 
-A prompt revision may have multiple metric-eligibility states.
+One Prompt Revision may have multiple eligibility states.
 
 ```yaml
 metric_eligibility:
@@ -459,141 +681,229 @@ metric_eligibility:
 reasons: []
 ```
 
-`primary_purpose` MAY exist for display and routing, but MUST NOT replace the full eligibility map.
+A display or routing `primary_purpose` MAY exist but is not authoritative.
 
-### 7.1 Visibility
+### 6.1 Visibility
 
-Visibility is eligible only when all of the following hold:
+Visibility is eligible only when:
 
 - `brand_scope = brand_excluded`;
-- no target-brand signal is detected;
-- no disallowed named-competitor seeding is detected;
-- candidate mention opportunity is direct or likely;
+- no target-brand identity is present;
+- no disallowed known-competitor identity is seeded;
+- candidate mention opportunity is `direct` or `likely`;
 - response shape is `candidate_list`, `ranked_recommendation`, or `comparative_set`;
-- the prompt is not forced-citation-only, sentiment-only, or explanation-only;
-- the prompt revision is active and measurement-ready.
+- the prompt is not forced-citation-only, sentiment-only, criteria-only, or explanation-only;
+- seed contamination is acceptable;
+- the Prompt Revision and active Measurement Design Version are ready.
 
-A valid answer with no target-brand mention is a valid zero, not a missing observation.
+A valid answer without the target brand is a valid zero.
 
-### 7.2 Ranking
+### 6.2 Ranking
 
-Ranking is eligible only when all visibility conditions hold and:
+Ranking requires all visibility conditions and:
 
 - ranking opportunity is `direct` or `comparable_set`;
-- multiple candidates or a meaningful recommendation order can naturally appear.
+- multiple candidates or meaningful recommendation order can naturally appear.
 
-Criteria-only, explanation-only, and evidence-only prompts are excluded.
+### 6.3 Share of Voice
 
-### 7.3 Share of Voice
+SOV may use the same eligible market population as visibility, but its numeric formula
+MUST be separately versioned. SOV eligibility MUST NOT imply SOV equals visibility.
 
-SOV MAY use the same eligible market prompt population as visibility, but its numeric formula MUST be separately versioned. `sov` eligibility MUST NOT imply that SOV equals visibility.
+### 6.4 Sentiment and brand perception
 
-The production formula must identify whether it uses:
+Self-branded natural queries may be eligible for sentiment and brand perception.
+They are excluded from market visibility, ranking, and SOV.
 
-- prompt-level presence;
-- mention counts;
-- position weighting;
-- answer-section weighting;
-- another explicitly versioned method.
+Named comparisons may support comparative perception but remain outside default market
+headline metrics.
 
-### 7.4 Sentiment and brand perception
+### 6.5 Natural and forced citation
 
-Self-branded natural queries may be eligible for sentiment and brand perception. They are excluded from visibility, ranking, and SOV.
+A normal market or brand query may be eligible for natural citation observation when
+the provider surface supports citations.
 
-Named comparisons MAY support comparative-perception analysis, but MUST remain outside the default market headline metrics.
+A prompt explicitly requesting sources is eligible for forced citation validation and
+MUST NOT enter the natural-citation headline denominator.
 
-### 7.5 Natural citation observation
+### 6.6 Risk and recommendation input
 
-A normal market or brand query may be eligible for observing naturally produced citations when the provider surface supports them.
+Criteria, implementation, verification, and regulated-risk prompts may be eligible for
+`risk_check` even when excluded from visibility and ranking.
 
-A prompt that explicitly requests sources MUST NOT be included in the natural-citation headline metric.
+A measured prompt may be eligible as recommendation input, but this does not authorize
+customer publication. Recommendation quality and publication remain downstream gates.
 
-### 7.6 Forced citation validation
+### 6.7 Mandatory market-metric exclusions
 
-Prompts with `question_act = request_sources`, `question_family = citation_evidence`, or `response_shape = evidence_answer` may be eligible for forced citation validation.
-
-These results are diagnostic and must remain separate from natural citation behavior and ranking evidence.
-
-### 7.7 Risk check
-
-Criteria, implementation, regulated-risk, and verification prompts may be eligible for `risk_check` even when they are excluded from visibility and ranking.
-
-### 7.8 Recommendation input
-
-A measured prompt may be eligible as recommendation input when its answer, source behavior, factual gap, competitor pattern, or risk signal can support an improvement hypothesis.
-
-Eligibility for recommendation input does not authorize customer publication. Recommendation quality and publication gates remain separate.
-
-### 7.9 Mandatory exclusion cases
-
-The following MUST be excluded from market visibility, ranking, and SOV:
+The following are excluded from default visibility, ranking, and SOV:
 
 - `self_branded`;
 - `named_comparison`;
 - `competitor_only` with named entities;
 - `brand_optional`;
-- `evaluation_criteria` without candidate request;
-- `explanatory_answer`;
-- `evidence_answer` used only for source checks;
-- `branded_sentiment_answer`;
+- criteria-only, explanation-only, evidence-only, or branded-sentiment answer shapes;
 - unapproved inferred scope;
-- prompts with medium or high seed-contamination risk;
-- prompts outside the active Core set when calculating the Core headline metric.
+- medium or high seed-contamination risk;
+- Diagnostic, Discovery, Seasonal, or Event memberships when calculating Core headline
+  metrics, unless a metric definition explicitly establishes another view.
 
 ---
 
-## 8. Measurement execution contract
+## 7. Quality, validation, and automation
 
-Every production run MUST reference an immutable execution profile.
+### 7.1 Hard gates
 
-Required execution fingerprint:
+A Prompt Revision or compiled design fails production readiness when:
 
-```yaml
-execution_profile_id:
-provider:
-surface:
-model:
-model_version:
-system_prompt_version:
-execution_template_version:
-web_search_mode:
-search_activation_policy:
-live_or_cached:
-locale:
-region:
-domain_filters: []
-search_budget:
-account_or_session_condition:
-repeat_policy_id:
-valid_response_policy_version:
-metric_definition_version:
-aggregation_policy_version:
+- required identity or revision mappings are missing;
+- no valid Intent Cell Revision exists;
+- text and brand-scope metadata conflict;
+- a non-branded market prompt contains target-brand or disallowed competitor identity;
+- draft-only `brand_optional` has not been split;
+- response shape conflicts with metric eligibility;
+- candidate or ranking opportunity is insufficient;
+- semantic duplication overweights one Intent Cell;
+- a Robustness membership lacks the required Core membership;
+- the selected panel fails profile or coverage constraints;
+- provider/model matrix or policy references are incomplete;
+- regulated-risk language is unsafe or overclaims;
+- assumptions are stale or unsupported;
+- component revisions or the Measurement Design Version are not valid and immutable.
+
+### 7.2 Quality scoring
+
+A final `quality_score` MUST be calculated from actual checks. A template-fixed number is
+a prior only.
+
+Dimensions SHOULD include:
+
+- naturalness;
+- diagnostic value;
+- non-leading wording;
+- buyer realism and persona vocabulary;
+- buyer-stage fit;
+- expected-signal clarity;
+- response-shape and metric fit;
+- industry and business-model fit;
+- regulated-risk safety;
+- local or consumer realism where relevant;
+- machine readability;
+- semantic distinctiveness.
+
+### 7.3 Gate outcomes
+
+Prompt-level outcomes retain:
+
+- `ready_for_measurement`;
+- `revise_before_measurement`;
+- `internal_only`;
+- `reject`.
+
+Measurement Design Version lifecycle is separately defined in Section 10.
+
+### 7.4 Automatic normal path
+
+```text
+Receive approved onboarding/project inputs
+→ Generate candidates
+→ Run hard gates
+→ Run semantic clustering
+→ Run coverage and profile checks
+→ Compile Prompt Set Version
+→ Bind Execution Profile Set and Policy Bundle
+→ Validate Measurement Design Version
+→ Activate automatically when no exception remains
 ```
 
-API, consumer UI, search UI, live search, cached search, and no-search runs MUST NOT be merged without a declared compatibility rule.
+Human review is limited to defined exceptions such as:
 
-A model-version or material execution-profile change SHOULD create a new comparison segment. The system MUST surface the discontinuity rather than presenting it as ordinary brand movement.
+- ambiguous business category or analysis target;
+- high-risk regulated wording;
+- brand or competitor contamination;
+- unresolved semantic duplication;
+- important coverage gaps;
+- low-confidence Persona or source evidence;
+- customer input contradicting site evidence;
+- major Core-panel change;
+- invalid legacy metadata or import evidence.
 
-### 8.1 Run-item snapshot
-
-Every run item MUST snapshot:
-
-- prompt-set version;
-- prompt revision;
-- exact prompt text;
-- intent-cell ID;
-- panel role;
-- classification fields;
-- metric eligibility;
-- execution profile;
-- provider raw identifiers needed for traceability;
-- execution timestamp.
+The exception queue is a read-model projection, not an independent source of truth.
 
 ---
 
-## 9. Valid-response policy
+## 8. Measurement execution handoff
 
-The response policy MUST distinguish at least:
+The Prompt and Measurement Design domain does not execute providers. It hands one
+immutable Measurement Design Version to Measurement Execution.
+
+### 8.1 Logical planned-observation grain
+
+One formal Measurement Item represents:
+
+```text
+one Prompt Set Membership
+× one Execution Profile Set Membership
+× one planned observation ordinal
+```
+
+A statistical repeat is a separate planned item. A retry is another append-only
+Measurement Attempt for the same item.
+
+### 8.2 Required item references
+
+A formal item must reference:
+
+```text
+organization_id
+project_id
+measurement_cycle_id
+measurement_design_version_id
+prompt_set_version_id
+prompt_set_membership_id
+prompt_revision_id
+intent_cell_revision_id
+execution_profile_set_version_id
+execution_profile_set_membership_id
+execution_profile_id
+measurement_policy_bundle_version_id
+entitlement_snapshot_id
+planned_observation_ordinal
+```
+
+Measurement Execution MUST reject cross-tenant, cross-project, or mixed-version
+combinations. It MUST NOT reinterpret prompt meaning, eligibility, or panel membership.
+
+### 8.3 Execution contract snapshot
+
+Every formal item snapshots:
+
+- Measurement Design Version ID and hash;
+- Prompt Set Version and membership;
+- Prompt Identity, Prompt Revision, exact text, and text hash;
+- Intent Cell Identity and Revision;
+- panel and variant roles;
+- prompt classification;
+- metric-eligibility map and reasons;
+- Execution Profile Set Version and membership;
+- Execution Profile and hash;
+- Measurement Policy Bundle Version and hash;
+- entitlement snapshot reference and schema version;
+- snapshot schema version, timestamp, and hash.
+
+Each Attempt records requested and actual provider/model, search/cache outcome, attempt
+number, idempotency key, provider evidence references, timing, usage, cost, and stable
+failure code.
+
+An actual provider/model mismatch is evidence. It MUST NOT rewrite the execution profile.
+
+---
+
+## 9. Valid-response and aggregation policy
+
+### 9.1 Response status
+
+The policy distinguishes at least:
 
 - `valid_answer`;
 - `empty_answer`;
@@ -603,397 +913,306 @@ The response policy MUST distinguish at least:
 - `invalid_payload`;
 - `cancelled`.
 
-Default contract:
+Default rules:
 
-- market metrics use valid answers as the content denominator;
-- failures and refusals are not silently converted into brand-absence zeros;
-- failures and refusals reduce execution coverage and may block publication;
-- a valid answer without the target brand is a valid visibility zero;
-- a valid citation-capable answer without citations is a natural-citation zero when natural citation is eligible;
-- a no-search answer may remain valid for visibility, while search activation is reported separately;
-- surfaces that do not support citations are excluded from citation denominators rather than recorded as citation zeros.
+- content metrics use valid answers as the content denominator;
+- failure and refusal are not converted into brand-absence zeros;
+- failures reduce coverage and may block downstream publication;
+- a valid answer without the target brand is a visibility zero;
+- a valid citation-capable answer without citation is a natural-citation zero when eligible;
+- citation-unsupported surfaces are excluded from citation denominators;
+- search activation is reported separately from answer validity.
 
-Every customer-visible metric MUST retain attempted count, valid count, and the applicable denominator.
+Customer-visible metrics retain attempted count, valid count, and applicable denominator.
 
----
-
-## 10. Aggregation
-
-The normative aggregation order is:
+### 9.2 Aggregation order
 
 ```text
-Execution
-→ Prompt revision observation
-→ Intent Cell observation
-→ Topic / Persona / Buyer stage
-→ Overall project view
+Accepted Attempt
+→ Planned Observation Item
+→ Prompt Revision Observation
+→ Intent Cell Revision Observation
+→ Topic / Persona / Buyer Stage Segments
+→ Overall Metric
 ```
 
-### 10.1 Execution to prompt revision
+Core canonical is the default headline observation for an Intent Cell.
+Robustness variants produce a separate robustness view or are aggregated inside the
+Intent Cell according to the versioned policy.
 
-Repeated valid executions of the same prompt revision and compatible execution profile are aggregated according to `repeat_policy_id`.
+The default Core headline is intent-balanced across eligible active Core Intent Cells.
+Recora may also report raw, business-weighted, or demand-estimated views, provided the
+unweighted value, weights, source, version, and denominator remain available.
 
-### 10.2 Prompt revision to Intent Cell
-
-The canonical Core prompt is the default headline observation for the Intent Cell.
-
-Robustness variants are aggregated separately or used to produce a robustness range. They MUST NOT independently multiply the Intent Cell's headline weight.
-
-### 10.3 Intent Cell to overall
-
-The default Core headline MUST be intent-balanced across active eligible Core Intent Cells.
-
-Recora MAY additionally report:
-
-- raw observation rate;
-- business-weighted rate;
-- demand-estimated rate.
-
-A weighted metric MUST display or preserve:
-
-- the unweighted value;
-- weights;
-- weight source;
-- weight version;
-- denominator.
-
-### 10.4 Metric separation
-
-Visibility, ranking, SOV, citation behavior, sentiment, brand perception, accuracy, and run health MUST remain separate. They MUST NOT be merged into one unexplained composite score.
+Visibility, ranking, SOV, citation behavior, sentiment, brand perception, accuracy, and
+run health remain separate. They MUST NOT be collapsed into an unexplained composite.
 
 ---
 
-## 11. Quality and readiness gates
+## 10. Lifecycle and immutable activation
 
-### 11.1 Hard gates
-
-A prompt revision MUST fail production readiness when any of the following applies:
-
-- required identity or mapping fields are absent;
-- no valid Intent Cell exists;
-- brand-scope metadata conflicts with the text;
-- a non-branded prompt contains target-brand identity;
-- a market prompt contains a disallowed known competitor identity;
-- brand-optional wording has not been split;
-- response shape conflicts with metric eligibility;
-- visibility is marked eligible without direct or likely candidate opportunity;
-- ranking is marked eligible without comparable candidates;
-- semantic duplication would overrepresent one Intent Cell;
-- the prompt is unsafe or overclaims in a regulated context;
-- the question depends on unsupported or stale assumptions;
-- the prompt cannot be parsed or interpreted consistently;
-- the prompt revision or set version is not active.
-
-### 11.2 Quality scoring
-
-A final `quality_score` MUST be derived from actual checks. A template's fixed score is only a prior and MUST NOT be treated as the final measured quality score.
-
-Scoring dimensions SHOULD include:
-
-- naturalness;
-- diagnostic value;
-- non-leading wording;
-- buyer realism;
-- persona vocabulary fit;
-- buyer-stage fit;
-- expected-signal clarity;
-- response-shape fit;
-- metric-eligibility fit;
-- industry and business-model fit;
-- regulated-risk safety;
-- local or consumer realism where applicable;
-- machine readability;
-- semantic distinctiveness.
-
-### 11.3 Gate outcomes
-
-Retain:
-
-- `ready_for_measurement`;
-- `revise_before_measurement`;
-- `internal_only`;
-- `reject`.
-
-### 11.4 Automatic normal path
-
-The normal path is:
+### 10.1 Measurement Design Version lifecycle
 
 ```text
-Generate candidates
-→ Run hard gates
-→ Run semantic clustering
-→ Run coverage checks
-→ Compile panel
-→ Activate automatically
+draft
+→ validating
+→ ready
+→ active
+→ superseded or retired
+
+validating → rejected
+ready → held
+held → validating
 ```
 
-Human review is required only for exceptions such as:
+Rules:
 
-- ambiguous industry or category;
-- high-risk regulated wording;
-- brand or competitor contamination;
-- unresolved semantic duplication;
-- important topic undercoverage;
-- low-confidence persona;
-- customer input contradicting site evidence;
-- major Core-panel change;
-- invalid or legacy metadata.
+- draft may be edited through controlled builders;
+- validating does not accept arbitrary mutation;
+- ready and active are immutable;
+- corrections create a successor version;
+- only the current-version pointer selects the active production design;
+- failure during activation leaves the previous pointer unchanged.
 
-The exception queue is a derived operational view. It SHOULD NOT become an independent permanent source of truth separate from prompt, validation, and audit records.
+### 10.2 Component lifecycle
 
----
+Persona, Topic, Intent Cell, Prompt, Prompt Set, Execution Profile Set, Panel Profile,
+and Policy Bundle revisions are immutable once validated or frozen.
 
-## 12. Prompt and set lifecycle
+A separate mutable `active` flag on every child MUST NOT become a conflicting authority.
+Active use is determined by the active Measurement Design Version.
 
-### 12.1 Prompt-revision status
+### 10.3 Activation transaction
 
-Allowed target values:
+Activation atomically:
 
-- `candidate`;
-- `validated`;
-- `active`;
-- `held`;
-- `retired`;
-- `rejected`;
-- `superseded`.
+1. locks the current pointer and target version;
+2. validates tenant/project ownership;
+3. validates entitlement and lifecycle;
+4. validates all component references and hashes;
+5. confirms no blocking finding remains;
+6. verifies panel profile and execution matrix;
+7. marks the target active;
+8. supersedes the previous active version when present;
+9. switches the pointer with optimistic row version;
+10. appends audit evidence.
 
-### 12.2 Prompt-set-version status
+### 10.4 Rollback
 
-Allowed target values:
+Rollback does not delete or reactivate ambiguous historical state. It creates a
+successor-compatible Measurement Design Version that reuses known-good immutable
+components and records rollback and supersession lineage.
 
-- `draft`;
-- `validating`;
-- `active`;
-- `frozen`;
-- `superseded`;
-- `retired`.
-
-An active prompt-set version is immutable. Corrections create a new version.
+The previous safe publication remains available until a successor publication passes
+its downstream gates.
 
 ---
 
-## 13. Onboarding and panel compilation
+## 11. Interfaces with the rest of Recora
 
-Customers SHOULD NOT manually design detailed prompt metadata.
+### 11.1 Customer/project management and onboarding input
 
-The onboarding flow should:
+Onboarding owns understandable input and confirmation:
 
-1. read and analyze the target site;
-2. infer category, business model, personas, and question areas;
-3. show customer-readable important question candidates;
-4. allow the customer to confirm business relevance, target region, language, and important buyer situations;
-5. generate a larger internal candidate pool;
-6. compile the production panel automatically;
-7. route only exceptions for human review.
+- target site and analysis target;
+- business description and category evidence;
+- target region and language;
+- important customer situations and question areas;
+- customer-confirmed business relevance.
 
-The onboarding UI MAY show 12 important question candidates for confirmation. These are customer-facing candidates, not the final measurement-panel count.
+Customers SHOULD NOT manually design internal enums, Prompt Revision metadata, metric
+eligibility, panel roles, or execution-policy details.
 
-### 13.1 Panel compiler requirements
+The onboarding UI may show approximately 12 important question candidates for
+confirmation. Those are not the final production panel size.
 
-The compiler MUST:
+### 11.2 Output to Measurement Execution
 
-- use Topic Set and persona inputs;
-- generate two to three times the target count where feasible;
-- detect target-brand and known-competitor contamination;
-- cluster semantic duplicates into Intent Cells;
-- assign canonical, robustness, diagnostic, and other roles;
-- satisfy topic, persona, buyer-stage, response-shape, and metric coverage;
-- preserve one canonical Core prompt per selected Intent Cell;
-- avoid selecting through simple `slice(0, N)` truncation;
-- create an immutable prompt-set version;
-- output reasons for inclusion, exclusion, and exception routing.
+The only formal production output is an immutable `measurement_design_version` and its
+component references. Measurement Execution consumes it without redefining semantics.
 
----
+### 11.3 AI answer and citation analysis
 
-## 14. Customer-facing presentation
+Analysis consumes actual provider evidence and contract snapshots. It MUST NOT treat
+Persona, Topic, Prompt, or panel candidates as measured facts.
 
-Customer UI MUST translate internal metadata into understandable concepts.
+### 11.4 Quality and exception decisions
 
-Primary presentation units:
+Quality consumes design-validation findings and measurement evidence. Normal cases are
+automatic; defined exceptions and major version changes are routed to people.
 
-- important questions;
-- topics;
-- personas or decision roles;
-- buyer stages;
-- AI visibility;
-- answer position or recommendation order;
-- SOV;
-- citations and source ownership;
-- brand perception;
-- valid observation count;
-- provider or model differences;
-- identified weaknesses and improvement targets.
+### 11.5 Publication and report generation
 
-The Prompts page SHOULD show important questions first.
+Publication consumes quality-approved measurements and creates immutable customer-safe
+publication versions. It does not read mutable legacy or live control rows to reinterpret
+historical results.
 
-Customer-visible metrics MUST show numerator, denominator, or observation count sufficient to understand the value.
+### 11.6 Customer-facing screens
 
-Internal enums such as `question_family`, `panel_role`, and eligibility reason codes MAY appear in advanced detail but MUST NOT dominate the default customer experience.
+Customer screens read only customer-safe `api` or `publication` projections.
+They present understandable questions, topics, personas, buyer stages, model differences,
+metrics, denominators, citations, and improvement targets.
 
-`tracking_scope` and `improvement_scope` MUST remain separate. A prompt may be tracked without creating a customer-facing improvement proposal.
+Internal enums and reason codes may appear in advanced detail but do not dominate the
+default experience.
 
-Diagnostic, branded, and forced-citation results MUST be visually separated from the default market visibility KPI.
+### 11.7 Administrator-facing screens
 
----
+Administrator screens use formal commands, read models, capability checks, optimistic
+concurrency, and audit. They are not direct table editors.
 
-## 15. Administration requirements
+They may show current design version, next-version candidate, panel composition,
+execution matrix, unresolved findings, version diff, compatibility, and authorized import
+or cutover evidence.
 
-The administration view should support:
+### 11.8 Public site
 
-- active prompt-set version;
-- next-version candidate pool;
-- Core / Discovery / Robustness / Diagnostic membership;
-- semantic duplicate clusters;
-- automated exclusions and reasons;
-- unresolved exceptions;
-- topic, persona, and buyer-stage coverage gaps;
-- prompt revision diff;
-- execution-profile incompatibilities;
-- invalid-response and coverage failures;
-- activation, hold, retirement, and supersession history.
-
-Audit history MUST remain the single saved source for operator actions. Display state should be derived from formal records rather than stored independently in multiple UI-specific states.
+The public site does not depend directly on this internal domain.
 
 ---
 
-## 16. Conceptual database target
+## 12. Logical schema responsibility
 
-The exact physical schema is implementation work, but the domain should support at least:
+The accepted schema separation remains:
 
-### 16.1 Identity and revision
+| Schema | Responsibility |
+|---|---|
+| `control` | canonical Measurement Design identities and versions, component revisions, Prompt Sets, Execution Profile Sets, policies, validation and compilation evidence, lifecycle pointers |
+| `measurement` | planned items, contract snapshots, attempts, provider evidence, answer/citation observations, errors, usage, and cost |
+| `publication` | immutable customer-published versions and safe published projections |
+| `api` | customer-safe and administrator-safe read models; never the canonical writer |
+| `audit` | operator commands, activation, exception, import, migration, cutover, and recovery evidence |
 
-- `prompts`: stable prompt identity;
-- `prompt_revisions`: immutable measurement-affecting revisions;
-- `prompt_intent_cells`: semantic measurement units.
+Customer browsers MUST NOT directly read or write `control`, raw `measurement`, or
+`audit` data.
 
-### 16.2 Panel versioning
-
-- `prompt_sets`;
-- `prompt_set_versions`;
-- `prompt_set_memberships`.
-
-Membership should include:
-
-- prompt revision;
-- panel role;
-- canonical or variant role;
-- sort order;
-- optional approved business weight;
-- inclusion reason.
-
-### 16.3 Eligibility and execution
-
-- prompt-revision metric eligibility, either normalized or as a validated immutable contract;
-- `execution_profiles`;
-- run-to-prompt-set-version link;
-- run-item prompt and eligibility snapshot.
-
-### 16.4 Compatibility
-
-Existing `prompts.prompt_type` and `prompts.measurement_purpose` fields may remain during migration as compatibility projections. They are not the final authoritative model.
-
-No existing row may be promoted to official metric eligibility based only on prompt-text inference.
+Authentication, tenant isolation, entitlement resolution, operator identity, audit,
+queue, notification, and security are shared foundations consumed by this domain. This
+contract does not redefine them.
 
 ---
 
-## 17. Current-to-target migration map
+## 13. Legacy import and cutover
 
-| Current item | Current role | Target handling |
-|---|---|---|
-| `PromptCategory` | Mixed topic, brand, persona, and citation classification | Replace as authority with `question_family`; keep compatibility mapping |
-| `PromptIntent` | Mixed query type and measurement meaning | Map to `question_act`, brand scope, or routing metadata as appropriate |
-| `PromptBrandingMode` | Brand inclusion state | Migrate to `brand_scope` |
-| `PromptBrandMentionRule` | Brand inclusion rule | Merge into validated `brand_scope` contract |
-| `PromptCompetitorMentionRule` | Competitor seeding behavior | Retain as competitor-seed policy and entity-contamination check |
-| `PromptResponseShape` | Expected answer form | Retain |
-| `candidateMentionOpportunity` | Visibility opportunity | Retain and validate |
-| `rankingOpportunity` | Ranking opportunity | Retain and validate |
-| single `measurement_purpose` | One DB/read-model purpose | Deprecate as authority; retain optional `primary_purpose` compatibility field |
-| `PromptMetricEligibility` | Multiple metric flags | Expand with natural citation, forced citation, risk check, and recommendation input |
-| `prompt_type` DB field | Coarse display scope | Keep as compatibility projection during migration |
-| `promptId` | Current generated identity | Split into stable `prompt_id` and immutable `prompt_revision_id` |
-| `rawUserIntent` | Generation trace | Retain as generation rationale, not semantic aggregation key |
-| `languageMode` | Wording mode | Retain |
-| `buyerStage` inherited from topic | Stage label | Make prompt-revision authoritative |
-| topic-level `expectedSignal` copied to prompt | Shared signal | Make prompt-revision expected signals explicit |
-| fixed template `qualityScore` | Generated prior | Rename internally to prior and calculate final quality score |
-| `reviewStatus = needs_review` for every generated item | Safety-first manual workflow | Replace normal path with automated validation and exception-only review |
-| `MAX_GENERATED_PROMPTS = 18` | Draft-generator limit | Keep only for design preview; do not use as production panel compiler limit |
-| 8 / 16 / 32 modes | Skill output modes | Rename as design-preview modes |
-| 50 / 100 / 200 | Proposed measurement sizes | Keep as experimental production profiles |
-| `shareOfVoice = visibilityRate` in eligibility code | Shared eligibility shortcut | Keep only as eligibility compatibility; calculate SOV under its own metric version |
-| text-normalized deduplication | Surface duplicate prevention | Add semantic clustering and Intent Cells |
-| nullable `promptSetVersion` | Draft support | Require immutable set version for active production measurement |
-| current scope backfill based on text inference | Review aid | Never auto-promote; require explicit validated migration |
+### 13.1 Import decisions
 
-### 17.1 Existing data
+Every legacy candidate receives one decision:
 
-Legacy rows are classified as one of:
+- `explicit_import`;
+- `review_required`;
+- `historical_only`;
+- `compatibility_read_only`;
+- `do_not_import`.
 
-- explicitly valid and migratable;
-- review candidate;
-- legacy retained without metric eligibility;
-- invalid metadata requiring correction.
+Import evidence records source system, table, opaque source ID, source hash, snapshot
+time, decision, reason codes, evidence reference, target canonical IDs, reviewer when
+required, importer version, and timestamp.
 
-Historical results must be preserved. They may be labeled under the legacy measurement definition rather than recalculated as if the new contract had always applied.
+### 13.2 No inference-based promotion
 
----
+Legacy `prompt_type`, `measurement_purpose`, mixed categories, and text inference are
+migration hints only. They cannot grant canonical metric eligibility.
 
-## 18. Acceptance criteria
+### 13.3 Historical results
 
-The contract is considered implemented only when all of the following are true:
+Legacy results remain under their historical measurement definition. They are not
+recalculated as if the new Intent Cell, panel, response, aggregation, or SOV contract had
+always applied.
 
-1. No active production prompt exists without an Intent Cell.
-2. Every active Core Intent Cell has one canonical prompt revision.
-3. Prompt text and metric-affecting metadata are immutable by revision.
-4. Active measurement always references a non-null prompt-set version.
-5. Panel membership changes create a new set version.
-6. Branded, named-comparison, competitor-only, criteria-only, and forced-citation prompts cannot enter market headline metrics incorrectly.
-7. Natural citation and forced citation are separate.
-8. Robustness variants do not multiply headline intent weight.
-9. Valid answers, failures, refusals, and unsupported citation surfaces have explicit denominator handling.
-10. Every run item has an execution and prompt snapshot.
-11. SOV uses its own versioned formula.
-12. Quality scores are calculated rather than copied from fixed template values.
-13. Normal prompt generation and activation are automatic.
-14. Human operators see only defined exceptions and major version changes.
-15. Customer UI exposes understandable questions and sufficient denominator context.
-16. Legacy inferred metadata cannot become official eligibility without validation.
+### 13.4 One-way cutover
+
+```text
+Canonical foundation
+→ canonical fixtures and replay
+→ read-only legacy inventory
+→ explicit import decisions
+→ shadow validation
+→ canonical-only writer
+→ administrator/customer read-model cutover
+→ legacy writer freeze and retirement after evidence
+```
+
+Permanent dual write is not the target.
+
+No production inventory, import, backfill, writer switch, or read cutover is authorized
+by this document.
 
 ---
 
-## 19. Experimental decisions still open
+## 14. Acceptance criteria
+
+The contract is implemented only when:
+
+1. every formal measurement references a non-null immutable Measurement Design Version;
+2. the Design Version binds exact Persona, Topic, Intent Cell, Prompt Set, Execution
+   Profile Set, Panel Profile, Policy Bundle, entitlement, and target identities;
+3. no active production Prompt Revision exists without an Intent Cell Revision;
+4. every selected Core Intent Cell has one canonical Prompt Revision in the Prompt Set;
+5. Robustness variants do not create independent headline intent weight;
+6. semantic Prompt Set and provider/model Execution Profile Set are independently versioned;
+7. policy-only changes do not rewrite the semantic panel;
+8. Prompt Revision and finalized component content are immutable;
+9. panel membership changes create successor Prompt Set and Design Versions;
+10. branded, named, competitor-only, criteria-only, and forced-citation prompts cannot
+    enter market headline metrics incorrectly;
+11. natural and forced citation remain separate;
+12. planned observations and retry attempts are distinguishable;
+13. every item has a complete execution contract snapshot;
+14. failures, refusals, unsupported surfaces, and valid brand-absence have explicit
+    denominator handling;
+15. SOV uses a separately versioned formula;
+16. quality scores are calculated rather than copied from template constants;
+17. normal generation and activation are automatic and people see defined exceptions;
+18. customer screens read only safe publication/API projections;
+19. administrator operations use commands, authorization, read models, and audit;
+20. legacy inferred metadata cannot become official eligibility without explicit validation;
+21. canonical rows have no formal dependency on legacy rows;
+22. rollback and cutover preserve canonical and published history.
+
+---
+
+## 15. Experimental decisions still open
 
 The following remain explicit experiments:
 
-- whether the production profiles remain 50 / 100 / 200;
-- whether 38/8/4, 70/20/10, and 130/45/25 are the best allocations;
-- repeat count and adaptive variance policy by provider and surface;
-- minimum valid-response coverage for report publication;
-- official SOV formula;
+- final use of 50 / 100 / 200 profiles;
+- 38/8/4, 70/20/10, and 130/45/25 allocations;
+- repeat and adaptive variance policy by provider and surface;
+- publication coverage thresholds;
+- final SOV formula;
 - business-priority and external-demand weighting;
 - API, consumer UI, and search UI production roles;
-- seasonal and event promotion rules;
-- provider-model compatibility across time.
+- Seasonal and Event promotion rules;
+- provider/model compatibility across time;
+- semantic-clustering implementation and evaluation corpus;
+- major Core-panel change threshold.
 
-Each experiment must have an identifier, evaluation method, result, and decision record. An experimental value must not be silently treated as a permanent product invariant.
+Each experiment requires an identifier, method, result, and decision record.
+Experimental values MUST NOT silently become permanent invariants.
 
 ---
 
-## 20. Implementation order
+## 16. Implementation order
 
-1. Adopt this document as the target contract.
-2. Add new TypeScript domain types without removing current compatibility types.
-3. Add explicit adapters between current and target classifications.
-4. Implement deterministic metric-eligibility checks under the new model.
-5. Add additive database structures for Intent Cells, revisions, set versions, memberships, execution profiles, and snapshots.
-6. Implement the panel compiler and semantic clustering.
-7. Implement valid-response and aggregation policies.
-8. Update measurement execution to freeze the full execution fingerprint.
-9. Update administration read models and exception review.
-10. Update customer read models and denominator presentation.
-11. Run a read-only migration audit for existing prompts and runs.
-12. Migrate only explicitly validated rows.
-13. Activate the new contract per project or prompt-set version behind a controlled rollout.
+1. Adopt this contract and the new Canonical Data Model through Human review.
+2. Align the TypeScript contract with Measurement Design Version, Execution Profile Set,
+   and Policy Bundle boundaries.
+3. Wave 1: implement canonical identity/revision, eligibility, Prompt Set, and panel
+   foundations in new canonical structures.
+4. Prove tenant, immutability, and profile constraints locally with fresh replay.
+5. Wave 2: implement Execution Profile Sets, Design finalization/activation, planned item
+   references, and contract snapshots.
+6. Integrate with Measurement Execution without moving queue/retry/provider responsibility
+   into the design domain.
+7. Implement versioned valid-response, aggregation, and compatibility policies.
+8. Update administrator read models and exception commands.
+9. Update publication and customer-safe read models.
+10. Wave 3: run separately approved read-only legacy inventory and import decisions.
+11. Perform shadow validation without claiming old and new metrics are automatically equivalent.
+12. Switch to canonical-only writer and safe read models under separate approval.
+13. Freeze and retire legacy paths only after zero-use evidence, rollback readiness, and
+    separate authorization.
 
-No remote database migration, production backfill, metric recalculation, or customer-visible behavior change is authorized by this docs-only contract commit.
+No remote database migration, production backfill, metric recalculation, provider call,
+customer-visible behavior change, Ready conversion, merge, deploy, or cutover is
+authorized by this docs-only contract.
