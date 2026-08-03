@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 
+import { CustomerReportDesignLab } from "@/components/recora/customer-report-design-lab/customer-report-design-lab";
 import { DashboardOverview } from "@/components/recora/dashboard/dashboard-overview";
+import { canUseCustomerReportDesignLab } from "@/lib/recora/customer-report-design-lab/access";
 import {
   getRecoraDesignPreviewLabel,
   isRecoraDesignPreviewEnabled
@@ -23,6 +25,10 @@ type DashboardPageProps = {
 };
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+  if (canUseCustomerReportDesignLab(searchParams)) {
+    return <CustomerReportDesignLab activePage="home" />;
+  }
+
   if (searchParams?.["design-check"] === "1" && isRecoraRealDbPreviewEnabled(searchParams)) {
     notFound();
   }

@@ -1,4 +1,6 @@
+import { CustomerReportDesignLab } from "@/components/recora/customer-report-design-lab/customer-report-design-lab";
 import { BrandPerceptionPage } from "@/components/recora/report-pages";
+import { canUseCustomerReportDesignLabReport } from "@/lib/recora/customer-report-design-lab/access";
 import {
   canUseDesignCheckReport,
   normalizeReportSlug,
@@ -10,6 +12,10 @@ export const dynamic = "force-dynamic";
 
 export default async function ReportBrandPerceptionPage({ params, searchParams }: ReportSlugPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
+
+  if (canUseCustomerReportDesignLabReport(projectSlug, searchParams)) {
+    return <CustomerReportDesignLab activePage="brand-perception" />;
+  }
 
   return renderCustomerReadyReportRoute(projectSlug, async () => {
     if (canUseDesignCheckReport(projectSlug)) {
