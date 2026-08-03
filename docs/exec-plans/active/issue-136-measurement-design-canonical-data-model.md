@@ -1,8 +1,8 @@
 # Exec Plan: Issue #136 Measurement Design Canonical Data Model
 
-This file is a living execution record for Stage 1 design work only. It does not
-authorize Stage 2 migration, DB execution, production inventory, backfill, provider
-execution, or cutover.
+This file is the living execution record for Stage 1 design work only. It does not
+authorize Stage 2 migration, database execution, production inventory, import,
+backfill, provider execution, deployment, or cutover.
 
 ## Metadata
 
@@ -12,15 +12,15 @@ execution, or cutover.
 | Risk | `R3` parent scope; Stage 1 docs-only |
 | Spec level | `Full` |
 | Execution | `Cloud Codex` for Stage 1; `Local Codex` required for Stage 2+ |
-| Approval | Issue #136 Stage 1 `Plan` approval and subsequent OWNER continuation instructions recorded on 2026-08-04 |
+| Approval | Stage 1 `Plan` approval and subsequent OWNER continuation instructions recorded on 2026-08-04 |
 | Owner | `sushikikun` |
-| Status | `Blocked` — upstream contracts are aligned; Human review and an approved master-based CI path for the stacked PR remain required |
+| Status | `Stage 1 complete / Human review ready` — master-based validation PR #140 CI #255 passed; Stage 2 remains unapproved |
 | Updated | `2026-08-04` |
 
 Exec Plan text does not grant approval. Issue #136 is the authority for allowed and
 prohibited operations.
 
-## Objective / expected outcome
+## Objective and outcome
 
 Produce a formal, zero-based canonical data model for Recora Prompt and Measurement
 Design that:
@@ -28,16 +28,16 @@ Design that:
 - follows the new Recora-wide responsibility structure;
 - is derived from product requirements rather than legacy table shape;
 - consumes accepted tenant, entitlement, audit, publication, and privacy foundations;
-- separates semantic Prompt Set, multi-model Execution Profile Set, and policy versions;
+- separates the semantic Prompt Set, multi-model Execution Profile Set, and policy versions;
 - preserves immutable historical measurement meaning;
 - defines explicit one-way legacy import and controlled cutover;
 - divides implementation into separately approvable Waves.
 
-Stage 1 ends at a docs-only stacked Draft PR and Human review.
+Stage 1 ends after the target documents, TypeScript contract alignment, exact-scope
+review, and master-based CI evidence are ready for Human review. Stage 1 does not
+include Ready conversion, merge, or Stage 2 implementation.
 
-## Context and constraints
-
-### Recora-wide position
+## Recora-wide responsibility boundary
 
 Issue #136 owns only:
 
@@ -49,23 +49,46 @@ Business and operations foundation
 It receives approved customer/project and onboarding context and produces one immutable
 `measurement_design_version` for Measurement Execution.
 
-It does not own provider execution, queue/retry, answer/citation analysis, quality or
-publication decisions, customer/admin screen state, authentication, tenant foundation,
-entitlement, audit foundation, or the public site.
+It does not own:
 
-### Current upstream state
+- provider execution;
+- queue or retry;
+- AI answer or citation analysis;
+- quality or publication decisions;
+- customer or administrator screen state;
+- authentication, tenant, entitlement, or audit foundations;
+- the public site.
+
+The formal flow is:
+
+```text
+Customer/project and onboarding context
+  → Prompt and Measurement Design
+  → frozen measurement_design_version
+  → Measurement Execution
+  → AI answer and citation analysis
+  → Quality and exception handling
+  → Publication
+  → customer-safe read models
+```
+
+## Current validated state
 
 - `master`: `3f3515b6286fdaa4cd131afb969bcc7877c14f73`
 - PR #133 contract head: `072599cd875fc527849864cb0592ace87414dc18`
 - PR #133 Recora CI run #253: PASS
 - PR #135 TypeScript contract head: `c6951ec43aa75b438687bb9b9eab7b2ffea80c1b`
 - PR #135 Recora CI run #254: PASS
-- PR #133 and #135 remain Draft and unmerged.
-- PR #137 remains stacked on the PR #133 branch.
-- The repository CI workflow runs pull-request checks only when the base is `master`, so
-  PR #137 does not receive CI while it remains stacked.
+- PR #137 canonical-model head: `7410ac295c9ee4c86235c0c12caf41863380702d`
+- PR #137 remains stacked on PR #133 and is mergeable
+- Validation-only PR #140 head: `0913f0c1268dda0796aa51f68ce11a5b135a49ed`
+- PR #140 Recora CI run #255: PASS
+- PR #133, PR #135, PR #137, and PR #140 remain Draft and unmerged
 
-### Resolved upstream refinement
+PR #140 is not a merge vehicle. It exists only to validate the combined documentation
+state against `master` without retargeting the focused stacked PR #137.
+
+## Resolved aggregate refinement
 
 The previous singular `execution_profile_id` on Prompt Set Version was replaced by:
 
@@ -73,169 +96,202 @@ The previous singular `execution_profile_id` on Prompt Set Version was replaced 
 measurement_design_version
   ├─ prompt_set_version_id
   ├─ execution_profile_set_version_id
+  ├─ panel_profile_version_id
   └─ measurement_policy_bundle_version_id
 ```
 
-PR #133 now documents this boundary and PR #135 now enforces it through types and
-cross-object validators.
+Consequences:
 
-## Scope / non-goals
+- semantic panel change creates a successor Prompt Set Version and Design Version;
+- provider/model matrix change creates a successor Execution Profile Set Version and Design Version;
+- metric, response, aggregation, repeat, or compatibility policy change creates a successor Policy Bundle Version and Design Version;
+- an execution-only change does not rewrite the semantic Prompt Set.
 
-### In scope
+PR #133 documents this boundary and PR #135 enforces it with additive TypeScript types
+and cross-object validators.
+
+## Scope and non-goals
+
+### Stage 1 scope
 
 - formal canonical entity model;
 - version and lifecycle boundaries;
-- schema responsibility;
-- DB versus finalization-validator constraints;
+- logical schema responsibilities;
+- database-constraint versus finalization-validator responsibilities;
 - Measurement Execution and snapshot handoff;
-- legacy isolation, import classification and cutover;
-- rollback and implementation Waves;
-- docs index update;
-- stacked Draft PR and review evidence.
+- legacy isolation and import classification;
+- shadow validation, cutover, rollback, and implementation Waves;
+- documentation map update;
+- Draft PR and validation evidence.
 
-### Non-goals
+### Stage 1 non-goals
 
 - SQL or Supabase migration;
-- local, linked, remote, or production DB access;
-- product/runtime code changes in PR #137;
-- legacy row inventory or production data interpretation;
+- local, linked, remote, or production database access;
+- production data inventory or interpretation;
 - provider calls;
-- customer/admin UI implementation;
-- Ready conversion, merge, deploy, retarget, cutover, or cleanup.
+- customer or administrator UI implementation;
+- product/runtime integration;
+- Ready conversion or merge;
+- production import, writer switch, read cutover, deployment, or cleanup.
 
 ## Assumptions and dependencies
 
 | Item | State / evidence | Impact if false |
 |---|---|---|
 | Same Supabase project remains the default physical environment | Confirmed OWNER direction | New architecture decision and re-plan required |
-| `control / measurement / publication / api / audit` remains accepted | Post-launch architecture | Stop before schema redesign |
-| Organization/project and entitlement snapshot contracts remain inputs | Tenant/security/privacy contract | Stop and escalate upstream |
-| Admin measurement cycle/item/attempt responsibilities remain adopted | Admin P0 Canonical measurement specification | Reconcile before Stage 2 |
-| Multi-model measurement remains a product requirement | Revised PR #133 and PR #135 | Execution Profile Set boundary would require OWNER revision |
-| PR #137 stays stacked until dependency review | Current Human-review boundary | Retarget/rebase requires explicit dependency review |
+| `control / measurement / publication / api / audit` remains accepted | Post-launch architecture | Stop before physical schema planning |
+| Organization/project and entitlement snapshot contracts remain shared inputs | Tenant/security/privacy contract | Stop and reconcile upstream |
+| Admin measurement cycle/item/attempt responsibilities remain adopted | Admin P0 canonical specifications | Reconcile responsibility before Stage 2 |
+| Multi-model measurement remains a product requirement | Revised PR #133 and PR #135 | Execution Profile Set boundary requires OWNER revision if removed |
+| Existing persona/topic/prompt tables remain legacy reference and import sources only | Latest OWNER decision | Stop if a future plan makes them canonical parents |
 
 ## Risk and safety boundaries
 
-- Highest Risk: `R3`
-- Allowed Stage 1 changes: two approved docs plus minimal `docs/README.md` index update
-- Prohibited: DB, migration, runtime, package, lockfile, production, provider call
-- Required approvals:
-  - Stage 1 docs and stacked Draft PR: recorded in Issue #136
-  - Stage 2 implementation: separate R2/R3 Execute approval
-  - production inventory/import/cutover: separate R3 approval per operation
-  - Ready/merge: separate Human approval
-  - retarget/rebase for final CI: Human review of dependency order
-- Stop conditions:
-  - canonical model requires a formal FK to legacy;
-  - accepted tenant/entitlement/publication contract must be redefined;
-  - production data inference is required;
-  - non-doc changes become necessary inside PR #137;
-  - final CI or scope validation fails.
-- Secret and data handling:
-  - no `.env`, credential, token, DB URL, production row, or raw provider/customer content.
+- Highest risk: `R3`
+- Stage 1 allowed changes: approved documentation, additive TypeScript contract, deterministic verifier, and temporary validation evidence
+- Stage 1 prohibited operations: database, migration, provider, production, import, backfill, deploy, cutover
+- Stage 2 implementation requires separate R2/R3 Execute approval
+- Production inventory, import, writer switch, read cutover, and rollback execution each require separate R3 approval
+- Ready conversion and merge require separate Human approval
+- No `.env`, credential, token, database URL, production row, or raw provider/customer content may be included
 
-## Plan with milestones
+Stop before Stage 2 if:
 
-| Milestone | Status | Actions | Exit criteria |
-|---|---|---|---|
-| M1: Authority and invariants | `Completed` | Fix Recora-wide position and greenfield/legacy boundary | Product invariants and responsibility interfaces documented |
-| M2: Canonical entity and version model | `Completed` | Define aggregate, revisions, semantic panel, execution set, policy bundle, lifecycle and constraints | Model exists independently from legacy layout |
-| M3: Runtime, legacy and cutover | `Completed` | Define planned item vs retry, snapshot, import decisions, shadow/cutover/rollback and Waves | One-way migration and recovery boundaries documented |
-| M4: Upstream alignment | `Completed` | Amend PR #133 and PR #135; sync latest master; run master-based CI | PR #133 CI #253 and PR #135 CI #254 pass |
-| M5: Stacked PR final review path | `Blocked` | Human-review dependency order; approve retarget/rebase or other master-based validation path; run CI | Exact three-doc scope remains valid and master-based CI passes |
+- canonical entities require a formal foreign key to legacy rows;
+- accepted tenant, entitlement, audit, or publication foundations must be redefined;
+- non-approved production data inference is required;
+- a Wave cannot be isolated safely;
+- physical DDL cannot satisfy tenant, immutability, or history requirements;
+- Human review identifies an unresolved responsibility conflict.
 
-## Validation plan and current evidence
+## Milestones
 
-| Validation | Result / evidence |
+| Milestone | Status | Result |
+|---|---|---|
+| M1: Authority and invariants | `Completed` | Recora-wide position and greenfield/legacy boundary fixed |
+| M2: Canonical entity and version model | `Completed` | Aggregate, revisions, Prompt Set, Execution Profile Set, Policy Bundle, lifecycle, and constraints defined |
+| M3: Runtime, legacy, and cutover boundary | `Completed` | Planned observation versus retry, snapshots, import, shadow, cutover, rollback, and Waves defined |
+| M4: Upstream contract alignment | `Completed` | PR #133 CI #253 and PR #135 CI #254 pass on current master baseline |
+| M5: Stacked documentation validation | `Completed` | PR #137 synchronized; validation-only PR #140 CI #255 passes against master |
+| M6: Human review and adoption decision | `Pending` | Review PR #133, #135, and #137; decide Ready/merge order separately |
+
+## Validation evidence
+
+| Validation | Result |
 |---|---|
-| Recora-wide responsibility review | PASS; Prompt and Measurement Design remains one business/operations domain |
-| PR #133 alignment | PASS; Measurement Design Version, Execution Profile Set and Policy Bundle documented; CI #253 PASS |
-| PR #135 alignment | PASS; TypeScript aggregate and cross-object validators implemented; CI #254 PASS |
-| Tenant/entitlement/audit/publication review | PASS; existing foundations are consumed, not redefined |
-| Admin measurement responsibility review | PASS; design supplies immutable references without replacing cycle/item/attempt authority |
-| Legacy-first anti-pattern review | PASS; canonical model precedes legacy inventory and contains no legacy FK |
-| Exact stacked scope | PASS before upstream sync; PR #137 branch has been synchronized with revised PR #133 and must be rechecked in final review |
-| Secret/content review | PASS; docs contain no sensitive values |
-| PR #137 repository CI | NOT TRIGGERED because its base is not `master`; this remains a blocker, not a pass |
+| Recora-wide responsibility review | PASS; the domain remains one business/operations capability |
+| PR #133 contract alignment | PASS; complete Measurement Design aggregate and interfaces documented |
+| PR #133 CI | PASS; run #253 includes whitespace, preflight, typecheck, lint, and build |
+| PR #135 TypeScript alignment | PASS; multi-model execution set, policy bundle, identity/revision, and cross-object validation implemented |
+| PR #135 CI | PASS; run #254 includes whitespace, preflight, verifier, typecheck, lint, and build |
+| PR #137 greenfield-before-legacy review | PASS; canonical model precedes legacy inventory and contains no canonical legacy FK |
+| PR #137 exact focused scope | PASS; three approved documentation files |
+| Combined master-based documentation scope | PASS; PR #140 contains exactly four approved documentation files |
+| Combined master-based CI | PASS; PR #140 run #255 includes whitespace, preflight, typecheck, lint, and build |
+| Secret/content review | PASS; no sensitive values or production records included |
+| Database/runtime/provider validation | NOT PERFORMED; outside Stage 1 authority |
 
-## Rollback / recovery
+## Implementation Waves after approval
 
-### Stage 1 docs
+### Wave 1: Canonical semantic foundation
 
-- Trigger: incorrect authority, unresolved conflict, scope drift, or final validation failure.
-- Steps:
-  1. stop outside approved docs;
-  2. preserve Issue, commit, PR, and validation evidence;
-  3. correct or supersede the docs branch;
-  4. do not start Stage 2.
-- Recovery verification: exact scope and approved master-based CI return PASS.
-- Escalation: OWNER Human review.
+- Measurement Design identity and version shell
+- Persona, Topic, Intent Cell, and Prompt identities/revisions
+- metric eligibility
+- Prompt Set Version and memberships
+- tenant, immutability, and finalization constraints
 
-### Future implementation boundary
+### Wave 2: Execution and immutable evidence handoff
 
-Implementation rollback uses successor versions and the previous safe publication
-pointer. Canonical history, import lineage, attempts, audit evidence, and published
-versions are not deleted or rewritten to roll back.
+- Execution Profile and Execution Profile Set Versions
+- Measurement Policy Bundle Version
+- Design activation/current pointer
+- planned Measurement Item references
+- contract snapshots
+- planned repeat versus provider retry separation
+
+### Wave 3: Explicit legacy migration and controlled cutover
+
+- production inventory under separate approval
+- Import Batch and Import Decision
+- explicit transformation/review decisions
+- shadow validation
+- canonical-only writer switch
+- administrator/customer read-model cutover
+- legacy writer freeze and eventual retirement
+
+Each Wave requires its own Issue, Exec Plan, scope, local-only validation, rollback plan,
+and Execute approval.
+
+## Rollback and recovery
+
+### Stage 1 documents and contracts
+
+If Human review finds an incorrect authority or unresolved conflict:
+
+1. stop before Stage 2;
+2. preserve Issue, commit, PR, and CI evidence;
+3. amend or supersede the affected Draft PR;
+4. rerun exact-scope and master-based CI validation;
+5. do not treat prior PASS evidence as applying to changed content.
+
+### Future canonical implementation
+
+Rollback uses successor versions and the previous safe publication pointer. Canonical
+history, import lineage, measurement attempts, audit evidence, and published versions
+are never deleted or rewritten merely to roll back.
 
 ## Progress log
 
 | Date | Milestone | Update / evidence | Next step |
 |---|---|---|---|
 | `2026-08-04` | M1 | Issue #136 created with Recora-wide and greenfield/legacy authority | Define canonical aggregate |
-| `2026-08-04` | M2 | Measurement Design Version binds semantic panel, execution set and policy bundle | Complete runtime and legacy handoff |
-| `2026-08-04` | M3 | Planned observation/retry, snapshot, one-way import, shadow/cutover and Waves defined | Align upstream contracts |
-| `2026-08-04` | M4 | PR #133 amended and CI #253 PASS; PR #135 amended and CI #254 PASS | Synchronize stacked PR and complete Human-review validation path |
-| `2026-08-04` | M5 | PR #137 branch synchronized with revised PR #133; CI still unavailable on non-master base | Human review and approved master-based CI path |
+| `2026-08-04` | M2 | Measurement Design Version binds semantic panel, execution set, and policy bundle | Complete runtime and legacy handoff |
+| `2026-08-04` | M3 | Planned observation/retry, snapshot, one-way import, shadow/cutover, and Waves defined | Align upstream contracts |
+| `2026-08-04` | M4 | PR #133 CI #253 PASS and PR #135 CI #254 PASS | Synchronize canonical-model PR |
+| `2026-08-04` | M5 | PR #137 synchronized; validation PR #140 CI #255 PASS against master | Human review and adoption decision |
 
 ## Decision log
 
-| Date | Decision | Rationale / evidence | Impact |
+| Date | Decision | Rationale | Impact |
 |---|---|---|---|
-| `2026-08-04` | Build new canonical model rather than extending legacy public tables | Latest OWNER direction | Legacy is migration source only; no canonical FK |
-| `2026-08-04` | Follow the new Recora-wide structure | OWNER instruction | Domain interfaces and exclusions are explicit |
-| `2026-08-04` | Use accepted logical schemas in one Supabase project | Existing architecture | `control` owns design; other schemas retain their responsibilities |
-| `2026-08-04` | Measurement Design Version is the complete production contract | Historical reproducibility | One immutable reference authorizes each formal run |
-| `2026-08-04` | Separate semantic Prompt Set and multi-model Execution Profile Set | Independent semantic/execution changes | PR #133/#135 amended and validated |
-| `2026-08-04` | Separate policy bundle from Prompt Set | Policy changes must not rewrite panel history | New design version binds new policy bundle |
-| `2026-08-04` | Stable identities plus immutable revisions | Continuity and evidence | Persona/Topic/Intent Cell/Prompt histories remain reproducible |
-| `2026-08-04` | Separate planned observation and retry attempts | Statistical integrity | Measurement Item and Attempt grains remain distinct |
-| `2026-08-04` | One-way explicit legacy import; no permanent dual write | Prevent legacy semantic authority | Shadow validation precedes canonical-only writer |
-| `2026-08-04` | Keep PR #137 stacked until dependency review | Preserve an intelligible review diff | Final CI remains pending an approved path |
+| `2026-08-04` | Build a new canonical model rather than extending legacy public tables | Latest OWNER direction | Legacy remains reference, history, and explicit import source only |
+| `2026-08-04` | Follow the new Recora-wide responsibility structure | Prevent domain overlap | Input/output and non-owned responsibilities are explicit |
+| `2026-08-04` | Use accepted logical schemas in one Supabase project | Reuse shared foundations without creating a separate product database | `control`, `measurement`, `publication`, `api`, and `audit` retain separate responsibilities |
+| `2026-08-04` | Measurement Design Version is the complete production contract | Historical reproducibility | One immutable version authorizes and interprets a formal run |
+| `2026-08-04` | Separate semantic Prompt Set and multi-model Execution Profile Set | Semantic and execution changes are independent | Provider/model change does not rewrite the panel |
+| `2026-08-04` | Separate Policy Bundle from Prompt Set | Policy changes must not rewrite semantic history | New Design Version binds the new policy version |
+| `2026-08-04` | Use stable identities and immutable revisions | Preserve continuity and evidence | Persona, Topic, Intent Cell, and Prompt history remains reproducible |
+| `2026-08-04` | Separate planned observation and provider retry | Protect statistical meaning | Measurement Item and Attempt remain distinct |
+| `2026-08-04` | Use explicit one-way legacy import, not permanent dual write | Prevent legacy semantic authority | Shadow validation precedes canonical-only writer |
+| `2026-08-04` | Validate the stacked docs through temporary PR #140 | Preserve focused review diffs while satisfying master-only CI | Technical CI blocker resolved without retargeting PR #137 |
 
 ## Results and remaining risks
 
-### Results
+### Stage 1 results
 
 - Canonical model is independent from legacy table shape.
 - Recora-wide responsibility and interface boundaries are explicit.
-- Semantic panel, execution matrix and policy versions are independently modeled.
-- Measurement item/attempt/snapshot contract is defined.
-- Legacy import, cutover, rollback and implementation Waves are defined.
-- Upstream PR #133 and PR #135 are aligned and pass full master-based CI.
-
-### Validation results
-
-- PR #133 CI #253: PASS.
-- PR #135 CI #254: PASS.
-- PR #137: no CI while stacked on a non-master base.
-- No DB, migration, runtime, production inventory, provider, or backfill validation was performed.
-
-### Deviations from plan
-
-- The stacked PR cannot trigger the repository's current master-only pull-request CI.
-  This is recorded as a blocker rather than reported as success.
+- Semantic panel, execution matrix, and policy versions are independently modeled.
+- Measurement item/attempt/snapshot responsibility is defined.
+- Legacy import, cutover, rollback, and implementation Waves are defined.
+- PR #133, #135, and the combined documentation state pass complete master-based CI.
+- PR #137 remains a focused, mergeable stacked review PR.
 
 ### Remaining risks
 
-- PR #137 requires final exact-diff review and an approved master-based CI path.
-- PR #133, #135 and #137 remain Draft and unmerged.
-- Physical DDL and PostgreSQL feasibility remain untested until Stage 2 approval.
-- Analysis-target and brand-identity version contracts depend on their source domain.
-- Semantic clustering, profile adoption, repeat, SOV and cutover thresholds remain experimental.
+- PR #133, #135, and #137 are still Draft and unmerged.
+- Human review may require content changes, which would require renewed validation.
+- Physical PostgreSQL DDL and constraint feasibility are untested until Stage 2 approval.
+- Analysis-target and brand-identity versions depend on their source-domain contracts.
+- Semantic clustering, profile adoption, repeat, SOV, and cutover thresholds remain experimental.
+- Production inventory and import classifications have not been executed.
 
-### Completion record
+## Completion record
 
-- Final status: `Blocked`
-- Completed or closed at: N/A
-- Follow-up: Human-review dependency order, then approved master-based validation before any Stage 2 planning or execution
-- Archive path: `docs/exec-plans/completed/issue-136-measurement-design-canonical-data-model.md`
+- Stage 1 status: `Completed; Human review pending`
+- Completed at: `2026-08-04`
+- Stage 2 status: `Not approved`
+- Next formal gate: Human review of PR #133, #135, and #137, followed by separate Ready/merge decisions
+- Archive path after Issue completion: `docs/exec-plans/completed/issue-136-measurement-design-canonical-data-model.md`
