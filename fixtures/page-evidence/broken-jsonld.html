@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Broken Schema Example</title>
+    <script type="application/ld+json">
+      { "@context": "https://schema.org", "@type": "SoftwareApplication",
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Broken schema should not stop extraction</h1>
+      <p>Visible content should still be converted into text blocks when schema parsing fails.</p>
+    </main>
+  </body>
+</html>
