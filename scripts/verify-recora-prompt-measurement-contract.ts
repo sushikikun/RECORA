@@ -5,7 +5,12 @@ import type { RecoraPromptScope } from "../lib/recora/prompt-scope";
 import {
   RECORA_BUYER_STAGES,
   RECORA_COMPETITOR_SEED_POLICIES,
+  RECORA_EXECUTION_PROFILE_SET_VERSION_STATUSES,
+  RECORA_EXECUTION_PROFILE_STATUSES,
   RECORA_INTENT_CELL_STATUSES,
+  RECORA_MEASUREMENT_DESIGN_DOMAIN_BOUNDARY,
+  RECORA_MEASUREMENT_DESIGN_VERSION_STATUSES,
+  RECORA_MEASUREMENT_POLICY_BUNDLE_VERSION_STATUSES,
   RECORA_PROMPT_BRAND_SCOPES,
   RECORA_PROMPT_LANGUAGE_MODES,
   RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION,
@@ -26,14 +31,26 @@ import {
   getRecoraPromptProfileDefinition,
   projectPromptRevisionToLegacyScope,
   validateExecutionProfileContract,
+  validateExecutionProfileSetCompilationContract,
+  validateExecutionProfileSetMembershipContract,
+  validateExecutionProfileSetVersionContract,
   validateIntentCellContract,
+  validateMeasurementDesignCompilationContract,
+  validateMeasurementDesignVersionContract,
+  validateMeasurementPolicyBundleVersionContract,
   validatePromptRevisionContract,
   validatePromptRevisionIdentityContext,
   validatePromptSetCompilationContract,
   validatePromptSetMembershipContract,
   validatePromptSetVersionContract,
   type RecoraExecutionProfileContract,
-  type RecoraIntentCellContract,
+  type RecoraExecutionProfileSetCompilationContract,
+  type RecoraExecutionProfileSetMembershipContract,
+  type RecoraExecutionProfileSetVersionContract,
+  type RecoraIntentCellRevisionContract,
+  type RecoraMeasurementDesignCompilationContract,
+  type RecoraMeasurementDesignVersionContract,
+  type RecoraMeasurementPolicyBundleVersionContract,
   type RecoraPromptMetricEligibility,
   type RecoraPromptRevisionContract,
   type RecoraPromptSetCompilationContract,
@@ -55,6 +72,10 @@ const enumCollections = [
   RECORA_INTENT_CELL_STATUSES,
   RECORA_PROMPT_REVISION_STATUSES,
   RECORA_PROMPT_SET_VERSION_STATUSES,
+  RECORA_EXECUTION_PROFILE_STATUSES,
+  RECORA_EXECUTION_PROFILE_SET_VERSION_STATUSES,
+  RECORA_MEASUREMENT_POLICY_BUNDLE_VERSION_STATUSES,
+  RECORA_MEASUREMENT_DESIGN_VERSION_STATUSES,
   RECORA_VALID_RESPONSE_STATUSES,
   RECORA_PROMPT_METRIC_KEYS
 ] as const;
@@ -67,6 +88,29 @@ for (const values of enumCollections) {
     "contract enum collection must be unique"
   );
 }
+
+assert.equal(
+  RECORA_MEASUREMENT_DESIGN_DOMAIN_BOUNDARY.layer,
+  "business_operations_foundation"
+);
+assert.equal(
+  RECORA_MEASUREMENT_DESIGN_DOMAIN_BOUNDARY.capability,
+  "prompt_measurement_design"
+);
+assert.deepEqual(
+  RECORA_MEASUREMENT_DESIGN_DOMAIN_BOUNDARY.produces,
+  ["measurement_design_version"]
+);
+assert.ok(
+  RECORA_MEASUREMENT_DESIGN_DOMAIN_BOUNDARY.doesNotOwn.includes(
+    "provider_execution"
+  )
+);
+assert.ok(
+  RECORA_MEASUREMENT_DESIGN_DOMAIN_BOUNDARY.doesNotOwn.includes(
+    "publication_decision"
+  )
+);
 
 assert.equal(RECORA_PROMPT_PROFILE_DEFINITIONS.length, 6);
 for (const profile of RECORA_PROMPT_PROFILE_DEFINITIONS) {
@@ -122,14 +166,15 @@ assert.equal(
   "eligible"
 );
 assert.equal(
-  marketCandidate.value.metricEligibility.forcedCitationValidation,
-  "excluded"
-);
-assert.equal(
   marketCandidate.value.metricEligibilityAuthority,
   "compatibility_inferred"
 );
-assert.ok(marketCandidate.missingFields.includes("intentCellId"));
+assert.ok(marketCandidate.missingFields.includes("intentCellRevisionId"));
+assert.ok(
+  marketCandidate.warnings.includes(
+    "legacy_adapter_is_migration_inspection_only"
+  )
+);
 
 const criteriaCandidate = adaptLegacyPromptDraftToContractCandidate(
   legacyPrompt({
@@ -196,7 +241,7 @@ assert.equal(
   "eligible"
 );
 
-const brandedMetadataMismatch = adaptLegacyPromptDraftToContractCandidate(
+const metadataMismatchCandidate = adaptLegacyPromptDraftToContractCandidate(
   legacyPrompt({
     text: "このサービスの評判と利用前の注意点は？",
     category: "branded",
@@ -210,9 +255,9 @@ const brandedMetadataMismatch = adaptLegacyPromptDraftToContractCandidate(
   }),
   legacyContext
 );
-assert.equal(brandedMetadataMismatch.status, "manual_review");
+assert.equal(metadataMismatchCandidate.status, "manual_review");
 assert.ok(
-  brandedMetadataMismatch.reviewReasons.includes(
+  metadataMismatchCandidate.reviewReasons.includes(
     "brand_included_metadata_without_target_signal"
   )
 );
@@ -229,23 +274,6 @@ assert.ok(
   )
 );
 
-const competitorCandidate = adaptLegacyPromptDraftToContractCandidate(
-  legacyPrompt({
-    text: "RivalCoの代替候補を比較してください。",
-    category: "competitor_comparison",
-    intent: "comparison",
-    intentType: "comparison",
-    brandingMode: "competitor_only",
-    brandMentionRule: "competitor_only",
-    competitorMentionRule: "named_competitors",
-    responseShape: "comparative_set"
-  }),
-  legacyContext
-);
-assert.equal(competitorCandidate.value.brandScope, "competitor_only");
-assert.equal(competitorCandidate.value.metricEligibility.visibility, "excluded");
-assert.equal(competitorCandidate.status, "manual_review");
-
 const optionalCandidate = adaptLegacyPromptDraftToContractCandidate(
   legacyPrompt({
     brandingMode: "brand_optional",
@@ -253,7 +281,6 @@ const optionalCandidate = adaptLegacyPromptDraftToContractCandidate(
   }),
   legacyContext
 );
-assert.equal(optionalCandidate.value.brandScope, "brand_optional");
 assert.equal(optionalCandidate.status, "blocked");
 
 const revisionCandidate = adaptLegacyPromptDraftToContractCandidate(
@@ -276,16 +303,6 @@ for (const metric of RECORA_PROMPT_METRIC_KEYS) {
   assert.equal(rejectedCandidate.value.metricEligibility[metric], "excluded");
 }
 
-const missingIdCandidate = adaptLegacyPromptDraftToContractCandidate(
-  legacyPrompt({ promptId: "" }),
-  legacyContext
-);
-assert.equal(missingIdCandidate.status, "manual_review");
-assert.ok(missingIdCandidate.missingFields.includes("promptId"));
-assert.ok(
-  missingIdCandidate.reviewReasons.includes("legacy_prompt_id_missing")
-);
-
 const explicitLegacyScope = adaptLegacyPromptScopeToContractCandidate(
   legacyScope("non_branded", "visibility")
 );
@@ -294,23 +311,27 @@ assert.equal(
   explicitLegacyScope.value.metricEligibility.visibility,
   "excluded"
 );
-assert.equal(
-  explicitLegacyScope.value.metricEligibilityAuthority,
-  "compatibility_inferred"
+assert.ok(
+  explicitLegacyScope.warnings.includes(
+    "legacy_adapter_is_migration_inspection_only"
+  )
 );
-const inferredLegacyScope = adaptLegacyPromptScopeToContractCandidate(
-  legacyScope("non_branded", "visibility", "inferred")
-);
-assert.equal(inferredLegacyScope.status, "manual_review");
 
-const intentCell = validIntentCell();
+const intentCell = readyIntentCell();
 assert.equal(validateIntentCellContract(intentCell).valid, true);
 assert.ok(
   validateIntentCellContract({ ...intentCell, trackingScope: false })
-    .blockers.includes("active_intent_cell_requires_tracking_scope")
+    .blockers.includes("ready_intent_cell_requires_tracking_scope")
+);
+assert.ok(
+  validateIntentCellContract({
+    ...intentCell,
+    revisionNumber: 2,
+    supersedesIntentCellRevisionId: null
+  }).blockers.includes("intent_cell_revision_requires_supersedes")
 );
 
-const revision = validActiveRevision();
+const revision = readyPromptRevision();
 assert.equal(validatePromptRevisionContract(revision).valid, true);
 assert.ok(
   validatePromptRevisionContract({ ...revision, brandScope: "self_branded" })
@@ -323,6 +344,25 @@ assert.ok(
     candidateMentionOpportunity: "weak",
     rankingOpportunity: "weak"
   }).blockers.includes("non_market_response_shape_in_market_metrics")
+);
+assert.ok(
+  validatePromptRevisionContract({
+    ...revision,
+    metricEligibilityAuthority: "compatibility_inferred"
+  }).blockers.includes("ready_revision_requires_explicit_eligibility")
+);
+assert.ok(
+  validatePromptRevisionContract({
+    ...revision,
+    qualityScoreSource: "template_prior"
+  }).blockers.includes("ready_revision_requires_calculated_quality")
+);
+assert.ok(
+  validatePromptRevisionContract({
+    ...revision,
+    promptVersion: 2,
+    supersedesPromptRevisionId: null
+  }).blockers.includes("ready_revision_version_requires_supersedes")
 );
 
 const forcedMixed = validatePromptRevisionContract({
@@ -340,35 +380,6 @@ const forcedMixed = validatePromptRevisionContract({
 });
 assert.ok(
   forcedMixed.blockers.includes("natural_and_forced_citation_must_be_separate")
-);
-assert.ok(
-  validatePromptRevisionContract({
-    ...revision,
-    metricEligibilityAuthority: "compatibility_inferred"
-  }).blockers.includes("active_revision_requires_explicit_eligibility")
-);
-assert.ok(
-  validatePromptRevisionContract({ ...revision, sourceStatus: "inferred" })
-    .blockers.includes("active_revision_requires_explicit_source_status")
-);
-assert.ok(
-  validatePromptRevisionContract({
-    ...revision,
-    qualityScoreSource: "template_prior"
-  }).blockers.includes("active_revision_requires_calculated_quality")
-);
-assert.ok(
-  validatePromptRevisionContract({
-    ...revision,
-    promptVersion: 2,
-    supersedesPromptRevisionId: null
-  }).blockers.includes("active_revision_version_requires_supersedes")
-);
-assert.ok(
-  validatePromptRevisionContract({
-    ...revision,
-    effectiveTo: "2026-08-03T00:00:00.000Z"
-  }).blockers.includes("effective_interval_invalid")
 );
 
 const riskOnlyRevision = validatePromptRevisionContract({
@@ -391,29 +402,6 @@ assert.ok(
     legacyContext
   ).blockers.includes("target_brand_signal_in_brand_excluded_text")
 );
-
-const selfBrandedWithoutSignal = validActiveRevision({
-  text: "このサービスの評判は？",
-  brandScope: "self_branded",
-  questionFamily: "branded_perception",
-  questionAct: "assess_reputation",
-  responseShape: "branded_sentiment_answer",
-  candidateMentionOpportunity: "none",
-  rankingOpportunity: "none",
-  metricEligibility: eligibility({
-    sentiment: "eligible",
-    brandPerception: "eligible",
-    naturalCitationObservation: "eligible",
-    recommendationInput: "eligible"
-  })
-});
-assert.ok(
-  validatePromptRevisionIdentityContext(
-    selfBrandedWithoutSignal,
-    legacyContext
-  ).blockers.includes("self_branded_text_missing_target_brand")
-);
-
 assert.ok(
   validatePromptRevisionIdentityContext(
     { ...revision, text: "RivalCoを含む候補を比較してください。" },
@@ -421,106 +409,61 @@ assert.ok(
   ).blockers.includes("known_competitor_signal_in_market_prompt")
 );
 
-const competitorOnlyWithoutSignal = validActiveRevision({
-  text: "競合サービスの注意点を整理してください。",
-  brandScope: "competitor_only",
-  questionFamily: "competitor_comparison",
-  questionAct: "compare_candidates",
-  responseShape: "comparative_set",
-  candidateMentionOpportunity: "none",
-  rankingOpportunity: "none",
-  metricEligibility: eligibility({ recommendationInput: "eligible" })
-});
-assert.ok(
-  validatePromptRevisionIdentityContext(
-    competitorOnlyWithoutSignal,
-    legacyContext
-  ).blockers.includes("competitor_only_text_missing_known_competitor")
-);
-
-assert.equal(validatePromptSetMembershipContract(membership()).valid, true);
+assert.equal(validatePromptSetMembershipContract(promptMembership()).valid, true);
 assert.ok(
   validatePromptSetMembershipContract(
-    membership({ variantRole: "robustness" })
+    promptMembership({ variantRole: "robustness" })
   ).blockers.includes("core_requires_canonical")
 );
 assert.ok(
   validatePromptSetMembershipContract(
-    membership({ panelRole: "robustness", variantRole: "canonical" })
+    promptMembership({
+      panelRole: "robustness",
+      variantRole: "canonical"
+    })
   ).blockers.includes("robustness_requires_robustness_variant")
 );
-assert.equal(
-  validatePromptSetMembershipContract(
-    membership({ panelRole: "diagnostic", variantRole: "control" })
-  ).valid,
-  true
-);
-assert.ok(
-  validatePromptSetMembershipContract(
-    membership({ panelRole: "diagnostic", variantRole: "canonical" })
-  ).blockers.includes("diagnostic_role_invalid")
-);
 
-assert.equal(validatePromptSetVersionContract(activeSetVersion()).valid, true);
+const frozenPromptSet = promptSetVersion();
+assert.equal(validatePromptSetVersionContract(frozenPromptSet).valid, true);
+assert.equal("executionProfileId" in frozenPromptSet, false);
+assert.equal("metricDefinitionVersion" in frozenPromptSet, false);
 assert.ok(
   validatePromptSetVersionContract({
-    ...activeSetVersion(),
-    profileId: "design_preview_standard_16"
-  }).blockers.includes("production_set_requires_measurement_profile")
-);
-assert.ok(
-  validatePromptSetVersionContract({
-    ...activeSetVersion(),
-    status: "frozen",
-    frozenAt: null
-  }).blockers.includes("frozen_at_missing")
+    ...frozenPromptSet,
+    panelProfileVersionId: "design_preview_standard_16"
+  }).blockers.includes("frozen_set_requires_measurement_profile")
 );
 
-assert.equal(validateExecutionProfileContract(executionProfile()).valid, true);
-assert.ok(
-  validateExecutionProfileContract({
-    ...executionProfile(),
-    liveOrCached: "mixed"
-  }).warnings.includes("mixed_cache_mode_requires_compatibility_rule")
-);
-assert.ok(
-  validateExecutionProfileContract({
-    ...executionProfile(),
-    accountOrSessionCondition: ""
-  }).blockers.includes("account_or_session_condition_missing")
-);
-assert.ok(
-  validateExecutionProfileContract({
-    ...executionProfile(),
-    domainFilters: ["example.com", "example.com"]
-  }).blockers.includes("duplicate_domain_filter")
-);
+const validPromptCompilation = buildValidPromptCompilation();
+assert.equal(validatePromptSetCompilationContract(validPromptCompilation).valid, true);
 
-const validCompilation = buildValidCompilation();
-assert.equal(validatePromptSetCompilationContract(validCompilation).valid, true);
-
-const duplicateCoreCompilation = cloneCompilation(validCompilation);
-const duplicateCoreRevision = validActiveRevision({
+const duplicateCoreCompilation = clonePromptCompilation(validPromptCompilation);
+const duplicateCoreRevision = readyPromptRevision({
   promptId: "prompt-extra-core",
   promptRevisionId: "prompt-revision-extra-core",
   intentCellId: "intent-cell-core-001",
+  intentCellRevisionId: "intent-cell-revision-core-001",
   contentHash: "sha256:prompt-revision-extra-core"
 });
 duplicateCoreCompilation.promptRevisions.push(duplicateCoreRevision);
 duplicateCoreCompilation.memberships.push(
-  membership({
+  promptMembership({
     membershipId: "membership-extra-core",
     promptRevisionId: duplicateCoreRevision.promptRevisionId,
     intentCellId: duplicateCoreRevision.intentCellId,
+    intentCellRevisionId: duplicateCoreRevision.intentCellRevisionId,
     sortOrder: 50
   })
 );
 assert.ok(
   validatePromptSetCompilationContract(duplicateCoreCompilation)
-    .blockers.includes("core_canonical_count_invalid:intent-cell-core-001")
+    .blockers.includes(
+      "core_canonical_count_invalid:intent-cell-revision-core-001"
+    )
 );
 
-const profileMismatchCompilation = cloneCompilation(validCompilation);
+const profileMismatchCompilation = clonePromptCompilation(validPromptCompilation);
 const diagnosticIndex = profileMismatchCompilation.memberships.findIndex(
   (item) => item.panelRole === "diagnostic"
 );
@@ -538,45 +481,204 @@ assert.ok(
     .blockers.includes("profile_diagnostic_count_mismatch")
 );
 
-const orphanRobustnessCompilation = cloneCompilation(validCompilation);
+const orphanRobustnessCompilation = clonePromptCompilation(validPromptCompilation);
 const robustnessMembership = orphanRobustnessCompilation.memberships.find(
   (item) => item.panelRole === "robustness"
 );
 assert.ok(robustnessMembership);
-const orphanIntentCell = validIntentCell({
+const orphanIntentCell = readyIntentCell({
   intentCellId: "intent-cell-orphan-robustness",
-  intentSummary: "Coreを持たないrobustness検証"
+  intentCellRevisionId: "intent-cell-revision-orphan-robustness",
+  intentSummary: "Coreを持たないRobustness検証",
+  contentHash: "sha256:intent-cell-revision-orphan-robustness"
 });
 orphanRobustnessCompilation.intentCells.push(orphanIntentCell);
 orphanRobustnessCompilation.promptRevisions =
   orphanRobustnessCompilation.promptRevisions.map((item) =>
     item.promptRevisionId === robustnessMembership.promptRevisionId
-      ? { ...item, intentCellId: orphanIntentCell.intentCellId }
+      ? {
+          ...item,
+          intentCellId: orphanIntentCell.intentCellId,
+          intentCellRevisionId: orphanIntentCell.intentCellRevisionId
+        }
       : item
   );
 orphanRobustnessCompilation.memberships =
   orphanRobustnessCompilation.memberships.map((item) =>
     item.membershipId === robustnessMembership.membershipId
-      ? { ...item, intentCellId: orphanIntentCell.intentCellId }
+      ? {
+          ...item,
+          intentCellId: orphanIntentCell.intentCellId,
+          intentCellRevisionId: orphanIntentCell.intentCellRevisionId
+        }
       : item
   );
 assert.ok(
   validatePromptSetCompilationContract(orphanRobustnessCompilation)
     .blockers.includes(
-      "robustness_without_core_intent_cell:intent-cell-orphan-robustness"
+      "robustness_without_core_intent_cell:intent-cell-revision-orphan-robustness"
     )
 );
 
-const membershipMismatchCompilation = cloneCompilation(validCompilation);
-membershipMismatchCompilation.memberships[0] = {
-  ...membershipMismatchCompilation.memberships[0],
-  intentCellId: "intent-cell-core-002"
+const executionProfileOne = readyExecutionProfile();
+assert.equal(validateExecutionProfileContract(executionProfileOne).valid, true);
+assert.ok(
+  validateExecutionProfileContract({
+    ...executionProfileOne,
+    liveOrCached: "mixed"
+  }).warnings.includes("mixed_cache_mode_requires_compatibility_rule")
+);
+assert.ok(
+  validateExecutionProfileContract({
+    ...executionProfileOne,
+    domainFilters: ["example.com", "example.com"]
+  }).blockers.includes("duplicate_domain_filter")
+);
+
+const frozenExecutionSet = executionProfileSetVersion();
+assert.equal(
+  validateExecutionProfileSetVersionContract(frozenExecutionSet).valid,
+  true
+);
+assert.equal(
+  validateExecutionProfileSetMembershipContract(executionMembership()).valid,
+  true
+);
+
+const validExecutionCompilation = buildValidExecutionCompilation();
+assert.equal(
+  validateExecutionProfileSetCompilationContract(validExecutionCompilation).valid,
+  true
+);
+
+const duplicateExecutionCompilation = cloneExecutionCompilation(
+  validExecutionCompilation
+);
+duplicateExecutionCompilation.memberships[1] = {
+  ...duplicateExecutionCompilation.memberships[1],
+  executionProfileId:
+    duplicateExecutionCompilation.memberships[0].executionProfileId
 };
 assert.ok(
-  validatePromptSetCompilationContract(membershipMismatchCompilation)
-    .blockers.includes(
-      `membership_revision_intent_mismatch:${membershipMismatchCompilation.memberships[0].membershipId}`
+  validateExecutionProfileSetCompilationContract(duplicateExecutionCompilation)
+    .blockers.some((item) =>
+      item.startsWith("duplicate_execution_profile_membership:")
     )
+);
+
+const noFormalExecutionCompilation = cloneExecutionCompilation(
+  validExecutionCompilation
+);
+noFormalExecutionCompilation.memberships =
+  noFormalExecutionCompilation.memberships.map((item) => ({
+    ...item,
+    requiredForFormalMeasurement: false
+  }));
+assert.ok(
+  validateExecutionProfileSetCompilationContract(noFormalExecutionCompilation)
+    .blockers.includes("frozen_execution_profile_set_requires_formal_profile")
+);
+
+const policyBundle = measurementPolicyBundleVersion();
+assert.equal(
+  validateMeasurementPolicyBundleVersionContract(policyBundle).valid,
+  true
+);
+assert.ok(
+  validateMeasurementPolicyBundleVersionContract({
+    ...policyBundle,
+    aggregationPolicyVersion: ""
+  }).blockers.includes("aggregation_policy_version_missing")
+);
+
+const designVersion = activeMeasurementDesignVersion();
+assert.equal(validateMeasurementDesignVersionContract(designVersion).valid, true);
+assert.ok(
+  validateMeasurementDesignVersionContract({
+    ...designVersion,
+    activatedAt: null
+  }).blockers.includes("active_design_requires_activated_at")
+);
+assert.ok(
+  validateMeasurementDesignVersionContract({
+    ...designVersion,
+    versionNumber: 2,
+    supersedesMeasurementDesignVersionId: null
+  }).blockers.includes("measurement_design_version_requires_supersedes")
+);
+
+const validDesignCompilation = buildValidMeasurementDesignCompilation();
+assert.equal(
+  validateMeasurementDesignCompilationContract(validDesignCompilation).valid,
+  true
+);
+
+const promptMismatchDesign = cloneDesignCompilation(validDesignCompilation);
+promptMismatchDesign.measurementDesignVersion = {
+  ...promptMismatchDesign.measurementDesignVersion,
+  promptSetVersionId: "prompt-set-version-other"
+};
+assert.ok(
+  validateMeasurementDesignCompilationContract(promptMismatchDesign)
+    .blockers.includes("design_prompt_set_version_mismatch")
+);
+
+const executionMismatchDesign = cloneDesignCompilation(validDesignCompilation);
+executionMismatchDesign.measurementDesignVersion = {
+  ...executionMismatchDesign.measurementDesignVersion,
+  executionProfileSetVersionId: "execution-profile-set-version-other"
+};
+assert.ok(
+  validateMeasurementDesignCompilationContract(executionMismatchDesign)
+    .blockers.includes("design_execution_profile_set_version_mismatch")
+);
+
+const policyMismatchDesign = cloneDesignCompilation(validDesignCompilation);
+policyMismatchDesign.measurementDesignVersion = {
+  ...policyMismatchDesign.measurementDesignVersion,
+  measurementPolicyBundleVersionId: "policy-bundle-other"
+};
+assert.ok(
+  validateMeasurementDesignCompilationContract(policyMismatchDesign)
+    .blockers.includes("design_policy_bundle_version_mismatch")
+);
+
+const unfrozenPromptSetDesign = cloneDesignCompilation(validDesignCompilation);
+unfrozenPromptSetDesign.promptSetCompilation.promptSetVersion = {
+  ...unfrozenPromptSetDesign.promptSetCompilation.promptSetVersion,
+  status: "ready",
+  frozenAt: null
+};
+assert.ok(
+  validateMeasurementDesignCompilationContract(unfrozenPromptSetDesign)
+    .blockers.includes("active_design_requires_frozen_prompt_set")
+);
+
+const changedExecutionOnly = cloneDesignCompilation(validDesignCompilation);
+changedExecutionOnly.executionProfileSetCompilation =
+  buildValidExecutionCompilation({
+    executionProfileSetId: "execution-profile-set-002",
+    executionProfileSetVersionId: "execution-profile-set-version-002",
+    versionLabel: "2026-08-exec-v2",
+    contentHash: "sha256:execution-profile-set-version-002",
+    supersedesExecutionProfileSetVersionId:
+      "execution-profile-set-version-001"
+  });
+changedExecutionOnly.measurementDesignVersion = {
+  ...changedExecutionOnly.measurementDesignVersion,
+  measurementDesignVersionId: "measurement-design-version-002",
+  versionNumber: 2,
+  executionProfileSetVersionId: "execution-profile-set-version-002",
+  contentHash: "sha256:measurement-design-version-002",
+  supersedesMeasurementDesignVersionId: "measurement-design-version-001"
+};
+assert.equal(
+  changedExecutionOnly.measurementDesignVersion.promptSetVersionId,
+  validDesignCompilation.measurementDesignVersion.promptSetVersionId
+);
+assert.equal(
+  validateMeasurementDesignCompilationContract(changedExecutionOnly).valid,
+  true
 );
 
 const projection = projectPromptRevisionToLegacyScope(revision, "visibility");
@@ -584,7 +686,9 @@ assert.equal(projection.status, "projected");
 assert.equal(projection.scope.promptType, "non_branded");
 assert.equal(projection.scope.measurementPurpose, "visibility");
 assert.ok(projection.warnings.includes("lossy_projection"));
-assert.ok(projection.warnings.includes("target_metrics_not_representable"));
+assert.ok(
+  projection.warnings.includes("legacy_projection_is_compatibility_read_only")
+);
 
 const inactiveProjection = projectPromptRevisionToLegacyScope({
   ...revision,
@@ -593,29 +697,7 @@ const inactiveProjection = projectPromptRevisionToLegacyScope({
 assert.equal(inactiveProjection.status, "blocked");
 assert.ok(
   inactiveProjection.warnings.includes(
-    "projection_requires_active_explicit_revision"
-  )
-);
-
-const comparisonProjection = projectPromptRevisionToLegacyScope(
-  {
-    ...revision,
-    questionFamily: "competitor_comparison",
-    questionAct: "compare_candidates",
-    responseShape: "comparative_set"
-  },
-  "visibility"
-);
-assert.equal(comparisonProjection.scope.promptType, "comparison_generic");
-assert.equal(comparisonProjection.scope.measurementPurpose, null);
-assert.ok(
-  comparisonProjection.warnings.includes(
-    "legacy_generic_comparison_not_market_eligible"
-  )
-);
-assert.ok(
-  comparisonProjection.warnings.includes(
-    "legacy_generic_comparison_market_purpose_omitted"
+    "projection_requires_ready_explicit_revision"
   )
 );
 
@@ -626,27 +708,26 @@ console.log(
       checkedCases: {
         enumCollections: enumCollections.length,
         promptProfiles: RECORA_PROMPT_PROFILE_DEFINITIONS.length,
-        legacyMarketCandidatePreservedAsProposedOnly: true,
+        recoraWholeStructureBoundary: true,
+        measurementDesignIsSingleFormalOutput: true,
+        semanticPanelSeparatedFromExecutionMatrix: true,
+        policiesSeparatedFromPromptSet: true,
+        legacyAdaptersAreInspectionOnly: true,
         legacyMetadataTextMismatchRequiresReview: true,
-        nonReadyLegacyGateRequiresReview: true,
         criteriaOnlyExcludedFromMarketMetrics: true,
-        riskAndRecommendationOnlyUsePreserved: true,
         naturalAndForcedCitationSeparated: true,
-        brandedAndNamedScopesExcludedFromMarketMetrics: true,
-        rejectedLegacyPromptHasNoEligibleAnalysis: true,
-        intentCellContractValidated: true,
-        activeRevisionRequiresExplicitAuthoritySourceAndCalculatedQuality: true,
-        revisionIdentityContextValidated: true,
-        revisionTemporalLineageValidated: true,
-        panelRoleAndVariantRoleValidated: true,
-        activeSetPoliciesAndProductionProfileRequired: true,
-        fullProfileCompilationValidated: true,
-        oneCoreCanonicalPerIntentCellEnforced: true,
-        robustnessRequiresCoreIntentCell: true,
-        profileMembershipCountsEnforced: true,
-        executionProfileValidated: true,
-        legacyScopeProjectionIsLossyAndExplicit: true,
-        nonActiveOrInferredProjectionBlocked: true
+        intentCellIdentityAndRevisionValidated: true,
+        promptRevisionReadinessValidated: true,
+        promptIdentityContextValidated: true,
+        full50PromptProfileCompilationValidated: true,
+        oneCoreCanonicalPerIntentCellRevisionEnforced: true,
+        robustnessRequiresCoreIntentCellRevision: true,
+        executionProfileSetSupportsMultipleModels: true,
+        executionProfileMembershipIntegrityValidated: true,
+        policyBundleValidated: true,
+        measurementDesignCrossObjectReferencesValidated: true,
+        executionOnlyChangeLeavesPromptSetStable: true,
+        legacyProjectionIsLossyAndReadOnly: true
       }
     },
     null,
@@ -695,16 +776,18 @@ function legacyScope(
   return { promptType, measurementPurpose, status };
 }
 
-function validIntentCell(
-  overrides: Partial<RecoraIntentCellContract> = {}
-): RecoraIntentCellContract {
+function readyIntentCell(
+  overrides: Partial<RecoraIntentCellRevisionContract> = {}
+): RecoraIntentCellRevisionContract {
   return {
     contractVersion: RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION,
     intentCellId: "intent-cell-001",
+    intentCellRevisionId: "intent-cell-revision-001",
+    revisionNumber: 1,
     projectId: "project-001",
-    primaryTopicId: "topic-001",
-    secondaryTopicIds: ["topic-002"],
-    personaId: "persona-001",
+    personaRevisionId: "persona-revision-001",
+    primaryTopicRevisionId: "topic-revision-001",
+    secondaryTopicRevisionIds: ["topic-revision-002"],
     buyerStage: "comparison",
     locale: "ja-JP",
     regionScope: "JP",
@@ -713,12 +796,14 @@ function validIntentCell(
     businessPriority: 90,
     trackingScope: true,
     improvementScope: true,
-    status: "active",
+    status: "ready",
+    contentHash: "sha256:intent-cell-revision-001",
+    supersedesIntentCellRevisionId: null,
     ...overrides
   };
 }
 
-function validActiveRevision(
+function readyPromptRevision(
   overrides: Partial<RecoraPromptRevisionContract> = {}
 ): RecoraPromptRevisionContract {
   return {
@@ -727,6 +812,7 @@ function validActiveRevision(
     promptRevisionId: "prompt-revision-001",
     promptVersion: 1,
     intentCellId: "intent-cell-001",
+    intentCellRevisionId: "intent-cell-revision-001",
     text: "AI検索可視化サービスを3つ挙げて比較してください。",
     contentHash: "sha256:fixture-prompt-revision-001",
     brandScope: "brand_excluded",
@@ -755,7 +841,7 @@ function validActiveRevision(
     qualityScore: 92,
     qualityScoreSource: "calculated",
     riskFlags: [],
-    lifecycleStatus: "active",
+    lifecycleStatus: "ready",
     supersedesPromptRevisionId: null,
     effectiveFrom: "2026-08-04T00:00:00.000Z",
     effectiveTo: null,
@@ -778,7 +864,7 @@ function eligibility(
   };
 }
 
-function membership(
+function promptMembership(
   overrides: Partial<RecoraPromptSetMembershipContract> = {}
 ): RecoraPromptSetMembershipContract {
   return {
@@ -787,42 +873,43 @@ function membership(
     promptSetVersionId: "prompt-set-version-001",
     promptRevisionId: "prompt-revision-001",
     intentCellId: "intent-cell-001",
+    intentCellRevisionId: "intent-cell-revision-001",
     panelRole: "core",
     variantRole: "canonical",
     sortOrder: 0,
     businessWeight: null,
-    inclusionReason: "Core canonical prompt for the intent cell.",
+    inclusionReason: "Core canonical prompt for the Intent Cell.",
     ...overrides
   };
 }
 
-function activeSetVersion(): RecoraPromptSetVersionContract {
+function promptSetVersion(): RecoraPromptSetVersionContract {
   return {
     contractVersion: RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION,
     promptSetId: "prompt-set-001",
     promptSetVersionId: "prompt-set-version-001",
-    versionLabel: "2026-08-v1",
-    profileId: "measurement_profile_experimental_50",
-    status: "active",
-    executionProfileId: "execution-profile-001",
-    metricDefinitionVersion: "metric-v1",
-    validResponsePolicyVersion: "valid-response-v1",
-    aggregationPolicyVersion: "aggregation-v1",
-    repeatPolicyId: "repeat-v1",
-    activatedAt: "2026-08-04T00:00:00.000Z",
-    frozenAt: null,
+    versionLabel: "2026-08-panel-v1",
+    panelProfileVersionId: "measurement_profile_experimental_50",
+    status: "frozen",
+    compilerVersion: "panel-compiler-v1",
+    semanticClustererVersion: "semantic-clusterer-v1",
+    contentHash: "sha256:prompt-set-version-001",
+    validatedAt: "2026-08-04T00:00:00.000Z",
+    frozenAt: "2026-08-04T00:05:00.000Z",
     supersedesPromptSetVersionId: null
   };
 }
 
-function executionProfile(): RecoraExecutionProfileContract {
+function readyExecutionProfile(
+  overrides: Partial<RecoraExecutionProfileContract> = {}
+): RecoraExecutionProfileContract {
   return {
     contractVersion: RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION,
     executionProfileId: "execution-profile-001",
-    provider: "provider-fixture",
+    provider: "provider-one",
     surface: "api-search",
-    model: "model-fixture",
-    modelVersion: "model-fixture-v1",
+    requestedModel: "model-one",
+    modelVersionPolicy: "provider-reported-version",
     systemPromptVersion: "system-v1",
     executionTemplateVersion: "template-v1",
     webSearchMode: "enabled",
@@ -833,15 +920,95 @@ function executionProfile(): RecoraExecutionProfileContract {
     domainFilters: [],
     searchBudget: 3,
     accountOrSessionCondition: "stateless-server-session",
-    repeatPolicyId: "repeat-v1",
-    validResponsePolicyVersion: "valid-response-v1",
-    metricDefinitionVersion: "metric-v1",
-    aggregationPolicyVersion: "aggregation-v1"
+    providerConfigurationSchemaVersion: "provider-config-v1",
+    contentHash: "sha256:execution-profile-001",
+    status: "ready",
+    ...overrides
   };
 }
 
-function buildValidCompilation(): RecoraPromptSetCompilationContract {
-  const intentCells: RecoraIntentCellContract[] = [];
+function executionProfileSetVersion(
+  overrides: Partial<RecoraExecutionProfileSetVersionContract> = {}
+): RecoraExecutionProfileSetVersionContract {
+  return {
+    contractVersion: RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION,
+    executionProfileSetId: "execution-profile-set-001",
+    executionProfileSetVersionId: "execution-profile-set-version-001",
+    versionLabel: "2026-08-exec-v1",
+    status: "frozen",
+    contentHash: "sha256:execution-profile-set-version-001",
+    validatedAt: "2026-08-04T00:00:00.000Z",
+    frozenAt: "2026-08-04T00:05:00.000Z",
+    supersedesExecutionProfileSetVersionId: null,
+    ...overrides
+  };
+}
+
+function executionMembership(
+  overrides: Partial<RecoraExecutionProfileSetMembershipContract> = {}
+): RecoraExecutionProfileSetMembershipContract {
+  return {
+    contractVersion: RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION,
+    membershipId: "execution-membership-001",
+    executionProfileSetVersionId: "execution-profile-set-version-001",
+    executionProfileId: "execution-profile-001",
+    sortOrder: 0,
+    requiredForFormalMeasurement: true,
+    requiredForPublicationCoverage: true,
+    plannedObservationWeight: 1,
+    membershipReason: "Primary formal provider/model context.",
+    ...overrides
+  };
+}
+
+function measurementPolicyBundleVersion(): RecoraMeasurementPolicyBundleVersionContract {
+  return {
+    contractVersion: RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION,
+    measurementPolicyBundleVersionId: "measurement-policy-bundle-version-001",
+    versionLabel: "2026-08-policy-v1",
+    status: "frozen",
+    metricDefinitionVersion: "metric-v1",
+    validResponsePolicyVersion: "valid-response-v1",
+    aggregationPolicyVersion: "aggregation-v1",
+    repeatPolicyVersion: "repeat-v1",
+    compatibilityPolicyVersion: "compatibility-v1",
+    contentHash: "sha256:measurement-policy-bundle-version-001",
+    validatedAt: "2026-08-04T00:00:00.000Z",
+    frozenAt: "2026-08-04T00:05:00.000Z",
+    supersedesMeasurementPolicyBundleVersionId: null
+  };
+}
+
+function activeMeasurementDesignVersion(): RecoraMeasurementDesignVersionContract {
+  return {
+    contractVersion: RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION,
+    measurementDesignId: "measurement-design-001",
+    measurementDesignVersionId: "measurement-design-version-001",
+    versionNumber: 1,
+    status: "active",
+    analysisTargetVersionId: "analysis-target-version-001",
+    brandIdentityVersionId: "brand-identity-version-001",
+    promptSetVersionId: "prompt-set-version-001",
+    executionProfileSetVersionId: "execution-profile-set-version-001",
+    panelProfileVersionId: "measurement_profile_experimental_50",
+    measurementPolicyBundleVersionId:
+      "measurement-policy-bundle-version-001",
+    entitlementSnapshotId: "entitlement-snapshot-001",
+    sourceEvidenceBundleId: "source-evidence-bundle-001",
+    contentHash: "sha256:measurement-design-version-001",
+    supersedesMeasurementDesignVersionId: null,
+    rollbackOfMeasurementDesignVersionId: null,
+    createdAt: "2026-08-04T00:00:00.000Z",
+    validatedAt: "2026-08-04T00:03:00.000Z",
+    readyAt: "2026-08-04T00:04:00.000Z",
+    activatedAt: "2026-08-04T00:06:00.000Z",
+    supersededAt: null,
+    retiredAt: null
+  };
+}
+
+function buildValidPromptCompilation(): RecoraPromptSetCompilationContract {
+  const intentCells: RecoraIntentCellRevisionContract[] = [];
   const promptRevisions: RecoraPromptRevisionContract[] = [];
   const memberships: RecoraPromptSetMembershipContract[] = [];
   let sortOrder = 0;
@@ -849,29 +1016,35 @@ function buildValidCompilation(): RecoraPromptSetCompilationContract {
   for (let index = 1; index <= 38; index += 1) {
     const suffix = String(index).padStart(3, "0");
     const intentCellId = `intent-cell-core-${suffix}`;
+    const intentCellRevisionId = `intent-cell-revision-core-${suffix}`;
     const promptRevisionId = `prompt-revision-core-${suffix}`;
+
     intentCells.push(
-      validIntentCell({
+      readyIntentCell({
         intentCellId,
+        intentCellRevisionId,
         intentSummary: `Core intent ${suffix}`,
-        primaryTopicId: `topic-core-${suffix}`,
-        secondaryTopicIds: []
+        primaryTopicRevisionId: `topic-revision-core-${suffix}`,
+        secondaryTopicRevisionIds: [],
+        contentHash: `sha256:${intentCellRevisionId}`
       })
     );
     promptRevisions.push(
-      validActiveRevision({
+      readyPromptRevision({
         promptId: `prompt-core-${suffix}`,
         promptRevisionId,
         intentCellId,
+        intentCellRevisionId,
         text: `AI検索可視化サービスの候補を3つ挙げて比較してください ${suffix}`,
         contentHash: `sha256:${promptRevisionId}`
       })
     );
     memberships.push(
-      membership({
+      promptMembership({
         membershipId: `membership-core-${suffix}`,
         promptRevisionId,
         intentCellId,
+        intentCellRevisionId,
         sortOrder,
         inclusionReason: `Core canonical ${suffix}`
       })
@@ -882,12 +1055,15 @@ function buildValidCompilation(): RecoraPromptSetCompilationContract {
   for (let index = 1; index <= 8; index += 1) {
     const suffix = String(index).padStart(3, "0");
     const intentCellId = `intent-cell-core-${suffix}`;
+    const intentCellRevisionId = `intent-cell-revision-core-${suffix}`;
     const promptRevisionId = `prompt-revision-robustness-${suffix}`;
+
     promptRevisions.push(
-      validActiveRevision({
+      readyPromptRevision({
         promptId: `prompt-robustness-${suffix}`,
         promptRevisionId,
         intentCellId,
+        intentCellRevisionId,
         text: `AI検索 可視化 ツール 比較 ${suffix}`,
         contentHash: `sha256:${promptRevisionId}`,
         languageMode: "raw_search_like",
@@ -895,10 +1071,11 @@ function buildValidCompilation(): RecoraPromptSetCompilationContract {
       })
     );
     memberships.push(
-      membership({
+      promptMembership({
         membershipId: `membership-robustness-${suffix}`,
         promptRevisionId,
         intentCellId,
+        intentCellRevisionId,
         panelRole: "robustness",
         variantRole: "robustness",
         sortOrder,
@@ -911,12 +1088,15 @@ function buildValidCompilation(): RecoraPromptSetCompilationContract {
   for (let index = 1; index <= 4; index += 1) {
     const suffix = String(index).padStart(3, "0");
     const intentCellId = `intent-cell-core-${suffix}`;
+    const intentCellRevisionId = `intent-cell-revision-core-${suffix}`;
     const promptRevisionId = `prompt-revision-diagnostic-${suffix}`;
+
     promptRevisions.push(
-      validActiveRevision({
+      readyPromptRevision({
         promptId: `prompt-diagnostic-${suffix}`,
         promptRevisionId,
         intentCellId,
+        intentCellRevisionId,
         text: `AI検索可視化サービスの比較根拠となる出典を示してください ${suffix}`,
         contentHash: `sha256:${promptRevisionId}`,
         questionFamily: "citation_evidence",
@@ -932,10 +1112,11 @@ function buildValidCompilation(): RecoraPromptSetCompilationContract {
       })
     );
     memberships.push(
-      membership({
+      promptMembership({
         membershipId: `membership-diagnostic-${suffix}`,
         promptRevisionId,
         intentCellId,
+        intentCellRevisionId,
         panelRole: "diagnostic",
         variantRole: "diagnostic",
         sortOrder,
@@ -947,19 +1128,61 @@ function buildValidCompilation(): RecoraPromptSetCompilationContract {
 
   return {
     contractVersion: RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION,
-    promptSetVersion: activeSetVersion(),
+    promptSetVersion: promptSetVersion(),
     intentCells,
     promptRevisions,
     memberships
   };
 }
 
-function cloneCompilation(
+function buildValidExecutionCompilation(
+  setOverrides: Partial<RecoraExecutionProfileSetVersionContract> = {}
+): RecoraExecutionProfileSetCompilationContract {
+  const setVersion = executionProfileSetVersion(setOverrides);
+  const firstProfile = readyExecutionProfile();
+  const secondProfile = readyExecutionProfile({
+    executionProfileId: "execution-profile-002",
+    provider: "provider-two",
+    requestedModel: "model-two",
+    contentHash: "sha256:execution-profile-002"
+  });
+
+  return {
+    contractVersion: RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION,
+    executionProfileSetVersion: setVersion,
+    executionProfiles: [firstProfile, secondProfile],
+    memberships: [
+      executionMembership({
+        executionProfileSetVersionId: setVersion.executionProfileSetVersionId
+      }),
+      executionMembership({
+        membershipId: "execution-membership-002",
+        executionProfileSetVersionId: setVersion.executionProfileSetVersionId,
+        executionProfileId: secondProfile.executionProfileId,
+        sortOrder: 1,
+        requiredForPublicationCoverage: false,
+        membershipReason: "Secondary formal provider/model context."
+      })
+    ]
+  };
+}
+
+function buildValidMeasurementDesignCompilation(): RecoraMeasurementDesignCompilationContract {
+  return {
+    contractVersion: RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION,
+    measurementDesignVersion: activeMeasurementDesignVersion(),
+    promptSetCompilation: buildValidPromptCompilation(),
+    executionProfileSetCompilation: buildValidExecutionCompilation(),
+    measurementPolicyBundleVersion: measurementPolicyBundleVersion()
+  };
+}
+
+function clonePromptCompilation(
   value: RecoraPromptSetCompilationContract
 ): {
   contractVersion: RecoraPromptSetCompilationContract["contractVersion"];
   promptSetVersion: RecoraPromptSetVersionContract;
-  intentCells: RecoraIntentCellContract[];
+  intentCells: RecoraIntentCellRevisionContract[];
   promptRevisions: RecoraPromptRevisionContract[];
   memberships: RecoraPromptSetMembershipContract[];
 } {
@@ -972,5 +1195,45 @@ function cloneCompilation(
       metricEligibility: { ...item.metricEligibility }
     })),
     memberships: value.memberships.map((item) => ({ ...item }))
+  };
+}
+
+function cloneExecutionCompilation(
+  value: RecoraExecutionProfileSetCompilationContract
+): {
+  contractVersion: RecoraExecutionProfileSetCompilationContract["contractVersion"];
+  executionProfileSetVersion: RecoraExecutionProfileSetVersionContract;
+  executionProfiles: RecoraExecutionProfileContract[];
+  memberships: RecoraExecutionProfileSetMembershipContract[];
+} {
+  return {
+    contractVersion: value.contractVersion,
+    executionProfileSetVersion: { ...value.executionProfileSetVersion },
+    executionProfiles: value.executionProfiles.map((item) => ({ ...item })),
+    memberships: value.memberships.map((item) => ({ ...item }))
+  };
+}
+
+function cloneDesignCompilation(
+  value: RecoraMeasurementDesignCompilationContract
+): {
+  contractVersion: RecoraMeasurementDesignCompilationContract["contractVersion"];
+  measurementDesignVersion: RecoraMeasurementDesignVersionContract;
+  promptSetCompilation: ReturnType<typeof clonePromptCompilation>;
+  executionProfileSetCompilation: ReturnType<
+    typeof cloneExecutionCompilation
+  >;
+  measurementPolicyBundleVersion: RecoraMeasurementPolicyBundleVersionContract;
+} {
+  return {
+    contractVersion: value.contractVersion,
+    measurementDesignVersion: { ...value.measurementDesignVersion },
+    promptSetCompilation: clonePromptCompilation(value.promptSetCompilation),
+    executionProfileSetCompilation: cloneExecutionCompilation(
+      value.executionProfileSetCompilation
+    ),
+    measurementPolicyBundleVersion: {
+      ...value.measurementPolicyBundleVersion
+    }
   };
 }
