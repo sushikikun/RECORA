@@ -14,7 +14,7 @@ cutover.
 | Execution | `Cloud Codex` for Stage 1; `Local Codex` required for Stage 2+ |
 | Approval | Issue #136 Stage 1 `Plan` approval recorded from OWNER conversation on 2026-08-04 |
 | Owner | `sushikikun` |
-| Status | `Active` |
+| Status | `Blocked` — Human review and upstream contract amendment required; stacked PR does not trigger master-only CI |
 | Updated | `2026-08-04` |
 
 Exec Plan text does not grant approval. Issue #136 is the authority for allowed and
@@ -31,7 +31,9 @@ Produce a formal, zero-based canonical data model for Recora measurement design 
 - defines explicit one-way legacy import and controlled cutover;
 - divides implementation into separately approvable Waves.
 
-Stage 1 ends at a docs-only stacked Draft PR and Human review.
+Stage 1 ends at a docs-only stacked Draft PR and Human review. Stage 2 does not begin
+until the upstream prompt contract and TypeScript contract are amended or superseded,
+and the stacked docs are revalidated against `master` through an approved path.
 
 ## Context and constraints
 
@@ -42,6 +44,9 @@ Stage 1 ends at a docs-only stacked Draft PR and Human review.
 - PR #135 TypeScript contract head at Stage 1 start: `58c19da05d20cf6c3fcb5867303f971954ca10e7`
 - PR #133 and #135 are Draft and unmerged.
 - Branch for this plan is stacked from PR #133.
+- Draft PR #137 targets the PR #133 branch rather than `master`.
+- The repository CI workflow runs on pull requests whose base is `master`; therefore
+  PR #137 does not receive CI while it remains stacked.
 
 ### Latest product direction
 
@@ -120,6 +125,7 @@ This requires an upstream contract amendment before Stage 2.
   - Stage 2 implementation: separate R2/R3 Execute approval
   - production inventory/import/cutover: separate R3 approval per operation
   - merge/Ready: separate Human approval
+  - retargeting or rebasing the stacked PR for final CI/review: Human review of dependency order
 - Stop conditions:
   - canonical model requires a formal FK to legacy;
   - accepted tenant/entitlement/publication contract must be redefined;
@@ -137,27 +143,27 @@ This requires an upstream contract amendment before Stage 2.
 | M1: Authority and invariants | `Completed` | Read Issue #136 inputs; fix greenfield/legacy boundary; identify consumed cross-cutting contracts | Product invariants and authority order documented |
 | M2: Canonical entity and version model | `Completed` | Define aggregate, identity/revision, panel, multi-model execution set, policy bundle, lifecycle, constraints | New model exists independently of legacy table layout |
 | M3: Runtime, legacy and cutover | `Completed` | Define item/attempt grain, contract snapshots, import decisions, shadow/cutover/rollback and Waves | One-way migration and recovery boundaries documented |
-| M4: Index, validation and Draft PR | `In progress` | Update docs index; verify exact scope and upstream alignment; create stacked Draft PR; record CI | Docs-only CI passes and PR reaches Human review |
+| M4: Index, validation and Draft PR | `Blocked` | Index and Draft PR completed; wait for upstream amendment and an approved master-based CI/revalidation path | Upstream contracts align, exact docs diff remains valid, CI passes, Human review completes |
 
 ## Validation plan
 
 | Validation | When | Expected result | Actual result / evidence |
 |---|---|---|---|
-| PR #133 alignment review | M2/M4 | Prompt classification, panel and eligibility retained; amendments explicit | Design refinement recorded; final PR review pending |
-| PR #135 alignment review | M2/M4 | Type contract differences identified, no silent incompatibility | Singular execution profile amendment identified; final review pending |
-| Tenant/entitlement/audit/publication review | M2/M4 | No redefinition of upstream foundations | Document consumes existing contracts; final review pending |
-| Admin measurement responsibility review | M3/M4 | Design model supplies references without replacing cycle/item/attempt authority | Item/attempt handoff documented; final review pending |
-| Legacy-first anti-pattern review | M3/M4 | Canonical entity section precedes legacy inventory and contains no legacy FK | PASS by document inspection; PR review pending |
-| `git diff --check` | M4 | no whitespace errors | Pending CI |
-| exact changed scope | M4 | only approved 3 docs | Pending compare |
-| secret/env/DB URL scan | M4 | no sensitive values | Pending CI/review |
-| repository CI | M4 | PASS | Pending |
+| PR #133 alignment review | M2/M4 | Prompt classification, panel and eligibility retained; amendments explicit | PASS with blocking amendment recorded on PR #133: execution profile set belongs to measurement-design version, not prompt-set version |
+| PR #135 alignment review | M2/M4 | Type contract differences identified, no silent incompatibility | PASS with prior “no mismatch” conclusion superseded on PR #135; TypeScript amendment required before Stage 2 |
+| Tenant/entitlement/audit/publication review | M2/M4 | No redefinition of upstream foundations | PASS by document cross-review; existing foundations are referenced and consumed |
+| Admin measurement responsibility review | M3/M4 | Design model supplies references without replacing cycle/item/attempt authority | PASS; planned item and retry-attempt handoff documented without redefining the Admin Canonical responsibilities |
+| Legacy-first anti-pattern review | M3/M4 | Canonical entity section precedes legacy inventory and contains no legacy FK | PASS by document inspection |
+| exact changed scope | M4 | only approved 3 docs | PASS; stacked compare from `f804830...` shows exactly 3 approved files |
+| whitespace review | M4 | no intentional trailing whitespace or malformed docs diff | PASS by diff review after header normalization; repository `git diff --check` not automatically run on stacked PR |
+| secret/env/DB URL content review | M4 | no sensitive values | PASS by manual docs-content review; no credentials or environment values included |
+| repository CI | M4 | PASS | NOT TRIGGERED: workflow accepts pull requests targeting `master`; PR #137 targets the PR #133 branch |
 
 ## Rollback / recovery
 
 ### Stage 1 docs
 
-- Trigger: incorrect authority, unresolved upstream conflict, or docs CI failure.
+- Trigger: incorrect authority, unresolved upstream conflict, or docs validation failure.
 - Preconditions: no DB/product effects exist.
 - Steps:
   1. stop edits outside approved docs;
@@ -165,7 +171,7 @@ This requires an upstream contract amendment before Stage 2.
   3. correct or supersede the docs branch;
   4. do not start Stage 2.
 - Preserved evidence/data: Issue #136, commits, PR comments, validation results.
-- Recovery verification: docs diff and CI return to PASS.
+- Recovery verification: docs diff and the final approved CI path return PASS.
 - Escalation: OWNER Human review.
 
 ### Future implementation boundary
@@ -181,6 +187,7 @@ published versions are never deleted to perform rollback.
 | `2026-08-04` | M1 | Issue #136 created with greenfield/legacy authority and Stage 1 boundary | Define canonical aggregate and schema responsibilities |
 | `2026-08-04` | M2 | Canonical design document created; measurement design version binds semantic panel, execution profile set and policy bundle | Complete runtime and legacy handoff |
 | `2026-08-04` | M3 | Defined planned observation versus retry, execution snapshot, one-way import, shadow/cutover and three implementation Waves | Update index and validate stacked PR |
+| `2026-08-04` | M4 | Draft PR #137 created with exactly 3 docs; upstream mismatch recorded on PR #133/#135; stacked PR has no CI trigger because its base is not `master` | Human review, upstream contract amendment, then approved retarget/rebase and CI |
 
 ## Decision log
 
@@ -194,6 +201,7 @@ published versions are never deleted to perform rollback.
 | `2026-08-04` | One planned observation is separate from retry attempts | Statistical repeats must not be confused with recovery calls | `measurement_item` includes observation ordinal; attempts are append-only children |
 | `2026-08-04` | One-way explicit legacy import; no permanent dual write | Prevent old rows from remaining semantic authority | Cutover uses import lineage, shadow validation and canonical-only writer |
 | `2026-08-04` | Rollback creates a successor-compatible design version | Avoid state reversal and history mutation | Previous safe publication remains; canonical evidence is preserved |
+| `2026-08-04` | Keep PR #137 stacked until dependency review | Its document depends on PR #133 and intentionally exposes an upstream amendment | CI is deferred until an approved master-based validation path exists |
 
 ## Results and remaining risks
 
@@ -204,26 +212,31 @@ published versions are never deleted to perform rollback.
 - Multi-model execution-profile-set requirement identified.
 - Measurement item/attempt/snapshot contract defined.
 - Legacy import, cutover, rollback and Wave boundaries defined.
+- Draft PR #137 reached Human review with the approved docs-only scope.
 
 ### Validation results
 
-- Formal CI and exact scope validation are pending M4.
+- Exact stacked scope: PASS, three approved docs only.
+- Greenfield/legacy boundary: PASS by design review.
+- Cross-contract responsibility review: PASS with one explicit upstream amendment required.
+- Repository CI: not triggered because PR #137 is stacked on a non-`master` base.
 - No DB, migration, runtime, production or external provider validation was performed.
 
 ### Deviations from plan
 
-- None at this stage.
+- The planned repository CI did not run because the existing workflow only triggers for pull requests targeting `master`. The PR remains intentionally stacked to preserve dependency review. This is recorded as a blocker rather than treated as a pass.
 
 ### Remaining risks
 
 - PR #133 and PR #135 still describe a singular prompt-set execution profile and require amendment or successor contract.
+- PR #137 requires approved retarget/rebase and CI after the upstream contract sequence is resolved.
 - Physical DDL and PostgreSQL feasibility are intentionally untested until Stage 2 approval.
 - Analysis-target and brand-identity version contracts depend on their source domain.
 - Final semantic clustering, panel profile, repeat and SOV policies remain experimental.
 
 ### Completion record
 
-- Final status: `Active`
+- Final status: `Blocked`
 - Completed or closed at: N/A
-- Follow-up: Stage 2 child Issues only after Human review and Execute approval
+- Follow-up: amend PR #133/#135, complete Human review, then run the approved master-based validation path before any Stage 2 planning or execution
 - Archive path: `docs/exec-plans/completed/issue-136-measurement-design-canonical-data-model.md`
