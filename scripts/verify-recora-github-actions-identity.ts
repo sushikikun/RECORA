@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 type PullRequestPayloadOptions = {
   baseRef?: string;
@@ -23,6 +24,7 @@ const OFFICIAL_REPOSITORY = "sushikikun/RECORA";
 const repoRoot = path.resolve(process.cwd());
 const devChecksScript = path.join(repoRoot, "scripts", "recora-dev-checks.ts");
 const tsxLoader = path.join(repoRoot, "node_modules", "tsx", "dist", "loader.mjs");
+const tsxLoaderImportSpecifier = pathToFileURL(tsxLoader).href;
 const sandboxRoot = fs.mkdtempSync(path.join(os.tmpdir(), "recora-github-actions-identity-"));
 const checkoutRoot = path.join(sandboxRoot, "checkout");
 const eventPath = path.join(sandboxRoot, "event.json");
@@ -176,7 +178,7 @@ function runScenario(
   };
   fs.writeFileSync(targetEventPath, JSON.stringify(payload));
 
-  const result = spawnSync(process.execPath, ["--import", tsxLoader, devChecksScript, "whereami"], {
+  const result = spawnSync(process.execPath, ["--import", tsxLoaderImportSpecifier, devChecksScript, "whereami"], {
     cwd: targetRoot,
     encoding: "utf8",
     env: {
