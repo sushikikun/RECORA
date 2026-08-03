@@ -1,9 +1,9 @@
 # Recora Measurement Design Canonical Data Model v1
 
-Status: **Stage 1 formal target / docs-only**  
-Issue: **#136**  
-Last updated: **2026-08-04**  
-Implementation status: **Not implemented**  
+Status: **Stage 1 formal target / docs-only**
+Issue: **#136**
+Last updated: **2026-08-04**
+Implementation status: **Not implemented**
 Production / remote DB authorization: **None**
 
 ## 0. Position and authority
