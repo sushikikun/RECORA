@@ -245,7 +245,7 @@ export function DataRichBadge({ children, tone = "default" }: { children: ReactN
   return (
     <span
       className={cn(
-        "inline-flex w-fit items-center whitespace-nowrap rounded-sm border px-1.5 py-0.5 text-[11px] font-bold",
+        "inline-flex max-w-full shrink-0 items-center justify-center whitespace-nowrap rounded-sm border px-1.5 py-0.5 text-[11px] font-bold leading-4",
         tone === "default" && "border-[#DFE6E2] bg-[#FAFCFB] text-[#64748B]",
         tone === "green" && "border-[#006B57]/20 bg-[#EAF6F0] text-[#006B57]",
         tone === "amber" && "border-[#B7791F]/25 bg-[#FFF7E8] text-[#B7791F]",
@@ -266,5 +266,5 @@ export function DataRichEmpty({ message }: { message: string }) {
 }
 
 export function DataRichTableWrap({ children }: { children: ReactNode }) {
-  return <div className="min-w-0 overflow-hidden rounded-md border border-[#E5EAE8]">{children}</div>;
+  return <div className="recora-data-rich-table-wrap min-w-0 max-w-full rounded-md border border-[#E5EAE8]">{children}</div>;
 }
