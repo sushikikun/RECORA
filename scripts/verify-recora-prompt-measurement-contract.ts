@@ -158,6 +158,9 @@ const optionalCandidate = adaptLegacyPromptDraftToContractCandidate(legacyPrompt
 assert.equal(optionalCandidate.value.brandScope, "brand_optional");
 assert.equal(optionalCandidate.status, "blocked");
 
+const revisionCandidate = adaptLegacyPromptDraftToContractCandidate(legacyPrompt({ gateDecision: "revise_before_measurement" }), legacyContext);
+assert.equal(revisionCandidate.status, "manual_review");
+assert.ok(revisionCandidate.reviewReasons.includes("legacy_prompt_gate_revise_before_measurement"));
 const rejectedCandidate = adaptLegacyPromptDraftToContractCandidate(legacyPrompt({ gateDecision: "reject" }), legacyContext);
 assert.equal(rejectedCandidate.status, "blocked");
 for (const metric of RECORA_PROMPT_METRIC_KEYS) assert.equal(rejectedCandidate.value.metricEligibility[metric], "excluded");
@@ -199,6 +202,16 @@ assert.ok(forcedMixed.blockers.includes("natural_and_forced_citation_must_be_sep
 assert.ok(validatePromptRevisionContract({ ...revision, metricEligibilityAuthority: "compatibility_inferred" }).blockers.includes("active_revision_requires_explicit_eligibility"));
 assert.ok(validatePromptRevisionContract({ ...revision, sourceStatus: "inferred" }).blockers.includes("active_revision_requires_explicit_source_status"));
 assert.ok(validatePromptRevisionContract({ ...revision, qualityScoreSource: "template_prior" }).blockers.includes("active_revision_requires_calculated_quality"));
+const riskOnlyRevision = validatePromptRevisionContract({
+  ...revision,
+  questionFamily: "implementation_operation",
+  questionAct: "assess_risk",
+  responseShape: "evaluation_criteria",
+  candidateMentionOpportunity: "weak",
+  rankingOpportunity: "weak",
+  metricEligibility: eligibility({ riskCheck: "eligible", recommendationInput: "eligible" })
+});
+assert.equal(riskOnlyRevision.valid, true);
 
 assert.equal(validatePromptSetMembershipContract(membership()).valid, true);
 assert.ok(validatePromptSetMembershipContract(membership({ variantRole: "robustness" })).blockers.includes("core_requires_canonical"));
@@ -232,7 +245,9 @@ const comparisonProjection = projectPromptRevisionToLegacyScope({
   responseShape: "comparative_set"
 }, "visibility");
 assert.equal(comparisonProjection.scope.promptType, "comparison_generic");
+assert.equal(comparisonProjection.scope.measurementPurpose, null);
 assert.ok(comparisonProjection.warnings.includes("legacy_generic_comparison_not_market_eligible"));
+assert.ok(comparisonProjection.warnings.includes("legacy_generic_comparison_market_purpose_omitted"));
 
 console.log(JSON.stringify({
   status: "ok",
@@ -240,6 +255,7 @@ console.log(JSON.stringify({
     enumCollections: enumCollections.length,
     promptProfiles: RECORA_PROMPT_PROFILE_DEFINITIONS.length,
     legacyMarketCandidatePreservedAsProposedOnly: true,
+    nonReadyLegacyGateRequiresReview: true,
     criteriaOnlyExcludedFromMarketMetrics: true,
     riskAndRecommendationOnlyUsePreserved: true,
     naturalAndForcedCitationSeparated: true,

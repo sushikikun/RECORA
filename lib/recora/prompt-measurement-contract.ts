@@ -145,7 +145,7 @@ export function adaptLegacyPromptDraftToContractCandidate(prompt: PromptDraft, c
   const questionFamily = draftQuestionFamily(prompt, context.topicType, reviewReasons);
   const questionAct = draftQuestionAct(prompt);
   if (prompt.sourceStatus !== "provided" || prompt.reviewStatus !== "approved") reviewReasons.push("legacy_prompt_not_explicitly_approved");
-  if (prompt.gateDecision === "reject") reviewReasons.push("legacy_prompt_rejected");
+  if (prompt.gateDecision !== "ready_for_measurement") reviewReasons.push(`legacy_prompt_gate_${prompt.gateDecision}`);
   if (["medium", "high"].includes(prompt.seedContaminationRisk)) reviewReasons.push("seed_contamination_review");
   const value: RecoraPromptRevisionContractCandidate = {
     contractVersion: RECORA_PROMPT_MEASUREMENT_CONTRACT_VERSION, legacyPromptId: prompt.promptId, promptId: prompt.promptId || "legacy-prompt-missing-id",
@@ -175,11 +175,13 @@ export function projectPromptRevisionToLegacyScope(revision: RecoraPromptRevisio
   if (!validation.valid) return blocked(["target_contract_invalid", ...validation.blockers]);
   if (revision.lifecycleStatus !== "active" || revision.metricEligibilityAuthority !== "explicit_contract") return blocked(["projection_requires_active_explicit_revision"]);
   const promptType = legacyPromptType(revision), purposes = representablePurposes(revision.metricEligibility), warnings = ["lossy_projection"];
-  if (promptType === "comparison_generic" && marketEligible(revision.metricEligibility)) warnings.push("legacy_generic_comparison_not_market_eligible");
+  const genericMarketMismatch = promptType === "comparison_generic" && marketEligible(revision.metricEligibility);
+  if (genericMarketMismatch) warnings.push("legacy_generic_comparison_not_market_eligible");
   let measurementPurpose = primaryPurpose;
   if (measurementPurpose && !purposes.includes(measurementPurpose)) { warnings.push("selected_purpose_not_eligible"); measurementPurpose = null; }
   else if (!measurementPurpose && purposes.length === 1) measurementPurpose = purposes[0];
   else if (!measurementPurpose && purposes.length > 1) warnings.push("multiple_purposes_require_selection");
+  if (genericMarketMismatch && measurementPurpose && ["visibility", "ranking", "sov"].includes(measurementPurpose)) { measurementPurpose = null; warnings.push("legacy_generic_comparison_market_purpose_omitted"); }
   if (revision.metricEligibility.naturalCitationObservation === "eligible" || revision.metricEligibility.riskCheck === "eligible") warnings.push("target_metrics_not_representable");
   if (measurementPurpose && purposes.length > 1) warnings.push("other_eligible_purposes_omitted");
   return { status: "projected", scope: { promptType, measurementPurpose, status: "explicit", notes: warnings }, warnings };
