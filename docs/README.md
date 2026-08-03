@@ -10,6 +10,8 @@
 |---|---|
 | [`recora-agentic-sdlc.md`](./recora-agentic-sdlc.md) | **開発ライフサイクルとAIエージェント運用の正本**。Risk、Spec level、Execution lane、Ready、承認ゲート、タスク状態、Git・外部作用の境界を定義する |
 | [`exec-plans/README.md`](./exec-plans/README.md) | **Exec Plan運用の正本**。適用基準、Issueとの役割分担、命名、active / completedの移動、更新責任を定義する |
+| [`recora-prompt-measurement-contract-v1.md`](./recora-prompt-measurement-contract-v1.md) | **プロンプト設計・パネル・指標適格性・測定・集計のtarget contract**。Intent Cell、Prompt Revision、Core / Robustness / Diagnostic、実験profile、実行・分母・legacy移行境界を定義する。未実装部分は現行runtimeの事実と区別する |
+| [`recora-measurement-design-canonical-data-model-v1.md`](./recora-measurement-design-canonical-data-model-v1.md) | **Issue #136 Stage 1の新Canonical Data Model**。既存persona/topic/prompt DBを正本として拡張せず、計測設計aggregate、identity/revision、semantic panel、複数model execution matrix、snapshot、one-way legacy import、cutoverをゼロベースで定義する。Stage 2実装は未承認 |
 | [`recora-post-launch-operations-architecture.md`](./recora-post-launch-operations-architecture.md) | **顧客公開、測定、運用制御、DB境界の参照資料**。対象Issueと最新OWNER決定で未承認の商品・運用判断は自動継承しない |
 | [`recora-data-tenant-security-privacy.md`](./recora-data-tenant-security-privacy.md) | **Issue #102工程3のデータ・tenant security・privacy実装契約**。tenant ownership、entitlement基盤、顧客/管理者境界、外部AI payload検査基盤、retention/deletion状態、security testを定義する |
 | [`recora-customer-lifecycle-account-contract-billing.md`](./recora-customer-lifecycle-account-contract-billing.md) | **Phase 4 customer lifecycle / account / contract / billing approved Stage 1 baseline** - authority order, Phase 3 contracts, transition/recovery contract, provider-neutral boundary, and customer-safe allowlists; Stage 2 child Execute remains unapproved. |
@@ -61,6 +63,8 @@ Phase 1資料と正式アーキテクチャが矛盾する場合は、既存処�
 
 - 開発方式またはAIエージェント運用を変更する場合は`recora-agentic-sdlc.md`を更新する
 - Exec Planの適用基準、テンプレート、保存先、更新責任を変更する場合は`exec-plans/README.md`と関連文書を更新する
+- プロンプト設計、Intent Cell、panel role、指標適格性、測定条件、集計契約を変更する場合は`recora-prompt-measurement-contract-v1.md`を更新する
+- 新Canonical measurement-design entity、identity/revision、schema責務、legacy import/cutoverを変更する場合はIssue #136と`recora-measurement-design-canonical-data-model-v1.md`を更新する
 - 顧客公開、測定、運用制御、DB境界の変更は対象Issueと最新OWNER決定を先に確認し、承認scopeに含まれる場合だけ関連文書を更新する
 - ローカルの具体コマンドや安全手順を変更する場合は`recora-dev-workflow.md`を更新する
 - Recora専門Skillの責務を変更する場合は、製品コード変更と分けてSkill Stackを更新する
