@@ -9,13 +9,13 @@
   "files": [
     {
       "file": "recora_admin_p0_database_schema_spec_v1_3.md",
-      "bytes": 79993,
-      "sha256": "9b9bbf588309601ab9f5b13b5777e583a3e3f0a63865fb00d25ee26ee55f69ec"
+      "bytes": 79985,
+      "sha256": "5365b23eba417453a94e27849f88b7acb8dcf577f03e4d5689aae5949fbf117d"
     },
     {
       "file": "recora_admin_p0_migration_plan_v1_3.md",
-      "bytes": 27341,
-      "sha256": "3f2176a458d05ef2388e21646617bb2b4160fb5a6536d05539bf95db505551c1"
+      "bytes": 27333,
+      "sha256": "1f8fccd25fddde987028137bb5c9ed6a7ca4f2d3d92c22c838318ed2fac8edda"
     },
     {
       "file": "recora_admin_p0_physical_schema_manifest_v1_3.json",
@@ -29,8 +29,8 @@
     },
     {
       "file": "recora_admin_p0_database_design_validation_v1_3.md",
-      "bytes": 3151,
-      "sha256": "08d81a37d76f6e228d610dbc6dc110978d5d093e36f348ae895b1a21ac484db6"
+      "bytes": 3149,
+      "sha256": "52639d5c84b4321889e9406852da4a699c3e6dad102a665bbca45b7ba8fd5158"
     }
   ]
 }

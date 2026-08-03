@@ -1,9 +1,9 @@
 # レコラ管理画面 P0 migration実装順仕様書
 
-**文書ID:** RECORA-ADMIN-P0-MIGRATION-PLAN  
-**Version:** 1.3  
-**日付:** 2026-08-02  
-**状態:** 正式設計・未実装  
+**文書ID:** RECORA-ADMIN-P0-MIGRATION-PLAN
+**Version:** 1.3
+**日付:** 2026-08-02
+**状態:** 正式設計・未実装
 
 ## 0. 結論
 
