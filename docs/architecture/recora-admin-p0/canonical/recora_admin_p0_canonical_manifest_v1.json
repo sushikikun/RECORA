@@ -1,0 +1,125 @@
+{
+  "package_id": "RECORA-ADMIN-P0-CANONICAL",
+  "version": "1.0",
+  "date": "2026-08-01",
+  "status": "formal",
+  "domains": [
+    "operations_home",
+    "customer_management",
+    "measurement_management",
+    "quality_exception_review",
+    "publication_management",
+    "operations_incident_audit",
+    "usage_cost",
+    "settings"
+  ],
+  "authorities": {
+    "write_state": "recora_admin_p0_state_model_v2_1.md",
+    "read_display": "recora_admin_p0_read_model_spec_v2_0.md",
+    "authz_audit": "recora_admin_p0_permissions_audit_spec_v2_0.md",
+    "layout": "recora_admin_p0_common_layout_spec_v1_1.md",
+    "final_review": "recora_admin_p0_final_integration_review_v1.md"
+  },
+  "documents": [
+    {
+      "file": "recora_admin_p0_state_model_v2_1.md",
+      "sha256": "11a38bdd7271a678ce647e10768da826cfac5abdcc0ce78d8a7566283234a21c"
+    },
+    {
+      "file": "recora_admin_p0_read_model_spec_v2_0.md",
+      "sha256": "68296ae010a18e0fdc18a76eeaf8614b979848dae402c1993e7778cf61dcf37c"
+    },
+    {
+      "file": "recora_admin_p0_permissions_audit_spec_v2_0.md",
+      "sha256": "3b45d5c2e4bc54469443545dac093b58cb4fd36eb2b4495cef2a0d94c71d3719"
+    },
+    {
+      "file": "recora_admin_p0_common_layout_spec_v1_1.md",
+      "sha256": "1f5589663445ddc883e802d8e8b9446ba7ade175f92151ab0e3987a788f01585"
+    },
+    {
+      "file": "recora_admin_p0_operations_home_spec_v1_1.md",
+      "sha256": "738051669568b532cf22096b077775f31aa344064a6a141b71e89fd8949badbc"
+    },
+    {
+      "file": "recora_admin_p0_customer_management_spec_v1_1.md",
+      "sha256": "f54267b69eb5b2ff660ee180a489fcc1d60b98409bee837aae6549892b34150c"
+    },
+    {
+      "file": "recora_admin_p0_measurement_management_spec_v1_1.md",
+      "sha256": "7e9abf52d44f38995cea00205bbfbd148bf55267f1ef49bb643915e0c2e19415"
+    },
+    {
+      "file": "recora_admin_p0_quality_exception_spec_v1_1.md",
+      "sha256": "69961ad356f0fef4fc0f2ee8012b2ac3394ee2acde9c0188bbd56d9b04dafc48"
+    },
+    {
+      "file": "recora_admin_p0_publication_management_spec_v1_1.md",
+      "sha256": "0cb961c9208068e0050a93e030676b2a748fece81fa4dce1cd80735245014c5a"
+    },
+    {
+      "file": "recora_admin_p0_operations_incident_audit_spec_v1_1.md",
+      "sha256": "2f89e844dd96b66f4626331d063f36ab69923a3142508c960789fc90c1983321"
+    },
+    {
+      "file": "recora_admin_p0_usage_cost_spec_v1_1.md",
+      "sha256": "00010416f65c87ceefe962a77d9c60c1efac8bb6de7cd4cd68cec9bf4c38898e"
+    },
+    {
+      "file": "recora_admin_p0_settings_spec_v1_1.md",
+      "sha256": "659e5f677996b089edb79968afe9c0119b0ac636dc7d35fa0b0c1e3f2ab61395"
+    },
+    {
+      "file": "recora_admin_p0_final_integration_review_v1.md",
+      "sha256": "e3ccd346615fb402c18a35a72add5c4c284e1cfb2a5028557cebab80e251812a"
+    }
+  ],
+  "business_routes": [
+    "/admin",
+    "/admin/customers",
+    "/admin/customers/new",
+    "/admin/customers/[customerId]",
+    "/admin/projects",
+    "/admin/projects/[projectId]",
+    "/admin/customers/[customerId]/projects/new",
+    "/admin/contracts",
+    "/admin/contracts/[contractId]",
+    "/admin/inquiries",
+    "/admin/inquiries/[inquiryId]",
+    "/admin/measurements",
+    "/admin/measurements/bulk",
+    "/admin/measurements/bulk/confirm",
+    "/admin/measurements/cycles/[cycleId]",
+    "/admin/measurements/batches/[batchId]",
+    "/admin/quality-exceptions",
+    "/admin/quality-exceptions/[caseId]",
+    "/admin/publications",
+    "/admin/publications/candidates/[candidateId]",
+    "/admin/publications/versions/[versionId]",
+    "/admin/operations/incidents",
+    "/admin/operations/incidents/[incidentId]",
+    "/admin/operations/system-status",
+    "/admin/operations/events",
+    "/admin/operations/audit-logs",
+    "/admin/usage-costs",
+    "/admin/settings",
+    "/admin/settings/admins",
+    "/admin/settings/roles",
+    "/admin/settings/notifications",
+    "/admin/settings/daily-automation",
+    "/admin/settings/ai-models",
+    "/admin/settings/plans",
+    "/admin/settings/change-history",
+    "/admin/settings/quality-publication-rules",
+    "/admin/settings/pricing"
+  ],
+  "optional_security_utility_routes": [
+    "/admin/security/mfa",
+    "/admin/security/step-up"
+  ],
+  "excluded_files": [
+    "recora_admin_p0_quality_exception_review_spec_v1.md",
+    "all earlier state/read/authz/page versions not listed in documents"
+  ],
+  "implementation_rule": "Only documents listed here are formal implementation inputs."
+}

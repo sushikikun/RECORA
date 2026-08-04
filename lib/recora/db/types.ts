@@ -44,6 +44,11 @@ export type RecoraRecommendationType =
   | "competitive";
 export type RecoraRecommendationState = "open" | "planned" | "done" | "dismissed";
 export type RecoraOrganizationMemberRole = "owner" | "admin" | "member" | "viewer";
+export type RecoraOrganizationMembershipStatus =
+  | "invited"
+  | "active"
+  | "suspended"
+  | "revoked";
 export type RecoraCitationStatus = "unknown" | "not_requested" | "unavailable" | "available" | "partial" | "error";
 export type RecoraExtractionConfidence = "unknown" | "low" | "medium" | "high";
 export type RecoraBrandRelatedness = "unknown" | "target_brand" | "competitor" | "unknown_competitor" | "category" | "general" | "unrelated";
@@ -80,6 +85,7 @@ export type RecoraOrganizationMemberRow = {
   email: string | null;
   role: RecoraOrganizationMemberRole;
   invited_at: string | null;
+  membership_status: RecoraOrganizationMembershipStatus;
   accepted_at: string | null;
   created_at: string;
   updated_at: string;

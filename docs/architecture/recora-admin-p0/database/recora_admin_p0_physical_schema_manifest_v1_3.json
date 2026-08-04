@@ -1,0 +1,3735 @@
+{
+  "package_id": "RECORA-ADMIN-P0-DATABASE",
+  "version": "1.3",
+  "date": "2026-08-02",
+  "status": "formal-design-rebased-current-master",
+  "canonical_package": {
+    "package_id": "RECORA-ADMIN-P0-CANONICAL",
+    "version": "1.0",
+    "manifest_file": "recora_admin_p0_canonical_manifest_v1.json",
+    "manifest_sha256": "f376867ccae596fdc5d8d66b12cbc16a9a95a1b4de464f34738088909859ed3a"
+  },
+  "repository_baseline": {
+    "repository": "sushikikun/RECORA",
+    "branch": "master",
+    "commit": "2c2a6fba70b75e858abc71a7447840bf32f3507d",
+    "rule": "M00 verifies the exact P4-B-aware baseline; any later master change requires explicit rebase review."
+  },
+  "schema_topology": {
+    "public": "Existing tenant/customer and measurement evidence; extend only row_version/membership support.",
+    "recora_private": "Authoritative P0 operational write state, immutable history, command/outbox and controls.",
+    "recora_operator": "Verified admin accounts, fixed roles, capability and scope assignments.",
+    "recora_audit": "Single append-only audit log and multi-scope relation.",
+    "admin_read": "Private, server-only views/materialized view; no browser Data API grants.",
+    "recora_admin": "Legacy compatibility inventory only; no new authority."
+  },
+  "state_storage_rule": "New operational states use text plus named CHECK constraints; existing enums remain unchanged.",
+  "objects": {
+    "reused_or_extended": [
+      {
+        "physical_object": "public.organizations",
+        "logical_entity": "customer identity",
+        "treatment": "reuse+extend",
+        "mutability": "mutable master",
+        "scope": "organization",
+        "purpose": "Tenant/customer identity and customer name.",
+        "required_fields": [
+          "id uuid PK",
+          "slug text",
+          "name text",
+          "row_version bigint (add)",
+          "created_at timestamptz",
+          "updated_at timestamptz"
+        ],
+        "critical_constraints": [
+          "id is tenant root",
+          "row_version increments exactly once per accepted update",
+          "no physical delete in P0"
+        ],
+        "dependencies": [],
+        "notes": [
+          "Primary contact and access control stay in recora_private.admin_customer_profiles."
+        ]
+      },
+      {
+        "physical_object": "public.projects",
+        "logical_entity": "project identity",
+        "treatment": "reuse+extend",
+        "mutability": "mutable master",
+        "scope": "organization+project",
+        "purpose": "Project identity, name and tenant ownership.",
+        "required_fields": [
+          "id uuid PK",
+          "organization_id uuid FK",
+          "slug text",
+          "name text",
+          "language text",
+          "region text",
+          "row_version bigint (add)",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(id, organization_id)",
+          "organization_id NOT NULL",
+          "no cross-tenant project move",
+          "no physical delete in P0"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "public.organization_members",
+        "logical_entity": "customer_user",
+        "treatment": "reuse+extend",
+        "mutability": "mutable current membership",
+        "scope": "organization",
+        "purpose": "Customer membership used by customer RLS and customer-user administration.",
+        "required_fields": [
+          "id uuid PK",
+          "organization_id uuid",
+          "user_id uuid nullable",
+          "email text nullable",
+          "normalized_email text generated (add)",
+          "role text",
+          "membership_status enum",
+          "invited_at",
+          "accepted_at",
+          "row_version bigint (add)",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "active/suspended require user_id+accepted_at",
+          "revoked is terminal",
+          "UNIQUE active membership per organization+normalized_email",
+          "no plaintext invitation token",
+          "invitation lifecycle is not duplicated on membership rows"
+        ],
+        "dependencies": [],
+        "notes": [
+          "Invitation lifecycle, recipient binding and expiry are owned by recora_private.p4_invitations and p4_invitation_events.",
+          "P4 membership episode/event history supplies immutable invitation-to-membership causality.",
+          "P0 must not add invitation_expires_at or invitation tokens to public.organization_members."
+        ]
+      },
+      {
+        "physical_object": "public.ai_models",
+        "logical_entity": "AI model identity",
+        "treatment": "reuse",
+        "mutability": "mutable catalog",
+        "scope": "global",
+        "purpose": "Stable AI model identifier referenced by configuration, attempts, cost and controls.",
+        "required_fields": [
+          "id uuid PK",
+          "provider/model identity fields (existing)"
+        ],
+        "critical_constraints": [
+          "all P0 AI-model FKs reference this table"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "public measurement evidence tables",
+        "logical_entity": "measurement evidence",
+        "treatment": "reuse",
+        "mutability": "append/current as existing",
+        "scope": "project",
+        "purpose": "Raw runs, run items, conversations, mentions, citations, metrics and recommendations remain existing evidence.",
+        "required_fields": [
+          "public.measurement_runs",
+          "public.run_items",
+          "public.ai_conversations",
+          "public.metric_snapshots",
+          "public.recommendations and related tables"
+        ],
+        "critical_constraints": [
+          "P0 admin tables store references/digests only",
+          "do not duplicate raw AI answers or customer report bodies"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "recora_operator.operator_identities",
+        "logical_entity": "verified admin identity",
+        "treatment": "reuse",
+        "mutability": "mutable current identity",
+        "scope": "global",
+        "purpose": "Verified auth.users mapping for active administrators.",
+        "required_fields": [
+          "id uuid PK",
+          "auth_user_id uuid UNIQUE",
+          "status operator_status",
+          "display_label",
+          "status_changed_at"
+        ],
+        "critical_constraints": [
+          "authorization never trusts JWT user_metadata",
+          "active admin account must bind to active operator identity"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "recora_operator.operator_action_grants",
+        "logical_entity": "legacy action grant substrate",
+        "treatment": "reuse/freeze-for-legacy",
+        "mutability": "mutable history",
+        "scope": "global/organization/project",
+        "purpose": "Existing Phase 3 explicit action grants used by legacy commands during convergence.",
+        "required_fields": [
+          "operator_id",
+          "permission",
+          "organization_id",
+          "project_id",
+          "revoked_at"
+        ],
+        "critical_constraints": [
+          "new P0 route authorization uses canonical role/scope tables",
+          "do not infer P0 role from legacy grants"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "recora_operator.operator_command_receipts",
+        "logical_entity": "human command receipt evidence",
+        "treatment": "reuse",
+        "mutability": "append-only",
+        "scope": "organization/project",
+        "purpose": "Existing immutable receipt paired with successful operator audit event.",
+        "required_fields": [
+          "id",
+          "audit_event_id",
+          "operator_id",
+          "organization_id",
+          "project_id",
+          "action",
+          "target_type",
+          "target_id",
+          "request_id",
+          "correlation_id"
+        ],
+        "critical_constraints": [
+          "append-only",
+          "human P0 command receipt references this row"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "recora_audit.operator_events",
+        "logical_entity": "audit_log",
+        "treatment": "reuse+extend",
+        "mutability": "append-only",
+        "scope": "global/organization/project",
+        "purpose": "Single audit storage for important administrator/system control operations.",
+        "required_fields": [
+          "existing fields",
+          "actor_type text (add)",
+          "actor_system_component_code text nullable (add)",
+          "risk_class text (add)",
+          "operation_outcome text nullable (add)",
+          "idempotency_key text nullable (add)",
+          "corrects_event_id uuid nullable (add)"
+        ],
+        "critical_constraints": [
+          "append-only",
+          "safe bounded summaries only",
+          "one logical operation is recorded once"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "recora_private.plan_policy_versions",
+        "logical_entity": "immutable effective plan policy",
+        "treatment": "reuse",
+        "mutability": "append-only",
+        "scope": "global",
+        "purpose": "Effective entitlement policy generated from an active admin plan version.",
+        "required_fields": [
+          "id",
+          "policy_key",
+          "policy_schema_version",
+          "effective_from/until",
+          "policy_document",
+          "policy_hash",
+          "supersedes_policy_version_id"
+        ],
+        "critical_constraints": [
+          "append-only",
+          "single root/successor lineage"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "recora_private.entitlement_snapshots",
+        "logical_entity": "immutable entitlement content",
+        "treatment": "reuse",
+        "mutability": "append-only",
+        "scope": "organization/project",
+        "purpose": "Resolved capability/limit snapshot pinned by project entitlements and cycles.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "plan_policy_version_id",
+          "resolved_document",
+          "effective_from/until",
+          "document_hash",
+          "idempotency_key"
+        ],
+        "critical_constraints": [
+          "append-only",
+          "scope exactness",
+          "scope+idempotency unique"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "recora_private.current_entitlement_snapshots",
+        "logical_entity": "technical current entitlement pointer",
+        "treatment": "reuse",
+        "mutability": "mutable pointer",
+        "scope": "organization/project",
+        "purpose": "Current immutable entitlement snapshot pointer used by existing resolver.",
+        "required_fields": [
+          "organization_id",
+          "project_id",
+          "snapshot_id",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "one organization pointer or one project pointer",
+          "snapshot scope must exactly match pointer scope"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "recora_private.p4_contract_projections",
+        "logical_entity": "contract",
+        "treatment": "reuse+canonical-normalization",
+        "mutability": "mutable current projection",
+        "scope": "organization/project",
+        "purpose": "Provider-neutral current contract projection; canonical status is normalized in admin_read.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "contract_reference",
+          "state",
+          "plan_policy_version_id",
+          "entitlement_snapshot_id",
+          "version"
+        ],
+        "critical_constraints": [
+          "canonical mapping: draft/pending_activation→draft, active→active, paused→suspended, ended/canceled→ended",
+          "event/projection alignment"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "recora_private.p4_contract_events",
+        "logical_entity": "contract lifecycle history",
+        "treatment": "reuse",
+        "mutability": "append-only",
+        "scope": "organization/project",
+        "purpose": "Immutable contract transition evidence.",
+        "required_fields": [
+          "contract_id",
+          "event_sequence",
+          "previous_state",
+          "next_state",
+          "command_receipt_id",
+          "occurred_at"
+        ],
+        "critical_constraints": [
+          "append-only",
+          "consecutive sequence",
+          "projection must match latest event"
+        ],
+        "dependencies": [],
+        "notes": []
+      },
+      {
+        "physical_object": "recora_private.p4_command_receipts/checkpoints/outbox",
+        "logical_entity": "Phase 4 causal and account-access infrastructure",
+        "treatment": "reuse",
+        "mutability": "mixed immutable/current",
+        "scope": "organization/project",
+        "purpose": "Existing Phase 4 command, reconciliation, invitation, membership, account-access and outbox primitives.",
+        "required_fields": [
+          "p4_command_receipts including customer_auth_user_id",
+          "p4_source_kind includes customer_session",
+          "validated p4_command_receipt_actor_shape",
+          "p4_invitations and p4_invitation_events",
+          "p4_membership_episodes and p4_membership_episode_events",
+          "P4-B invitation/membership/customer-access RPCs",
+          "existing P4-A contract/checkpoint/outbox relations"
+        ],
+        "critical_constraints": [
+          "manual receipts require the complete operator audit/receipt pair",
+          "customer_session receipts require a verified customer_auth_user_id and no operator pair",
+          "provider_fixture receipts carry either a complete operator pair or no operator evidence",
+          "invitation lifecycle is immutable/event-backed and never duplicated on organization_members",
+          "P0 does not repurpose P4-only command types",
+          "P0 general commands use admin_command_receipts/outbox"
+        ],
+        "dependencies": [],
+        "notes": [
+          "P4-B is part of the reviewed repository baseline at commit 2c2a6fba70b75e858abc71a7447840bf32f3507d.",
+          "Compatible customer-user commands should call the P4-B explicit RPC boundary rather than write invitation rows directly."
+        ]
+      }
+    ],
+    "new": [
+      {
+        "physical_object": "recora_private.admin_p0_schema_versions",
+        "logical_entity": "schema contract",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "global",
+        "purpose": "Pins Canonical package, physical schema and migration-set identity.",
+        "required_fields": [
+          "id uuid PK",
+          "schema_version text",
+          "canonical_package_id text",
+          "canonical_version text",
+          "canonical_manifest_sha256 text",
+          "repository_baseline_commit text",
+          "applied_at timestamptz",
+          "migration_set_digest text"
+        ],
+        "critical_constraints": [
+          "UNIQUE(schema_version)",
+          "append-only",
+          "hash fields are lowercase SHA-256"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 0,
+        "created_by_migration_stem": "recora_admin_p0_00_baseline_contract"
+      },
+      {
+        "physical_object": "recora_private.admin_command_receipts",
+        "logical_entity": "P0 command idempotency",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "global/organization/project",
+        "purpose": "Idempotency and causal receipt for all P0 administrator/system commands.",
+        "required_fields": [
+          "id uuid PK",
+          "actor_type text",
+          "admin_account_id uuid nullable",
+          "system_component_code text nullable",
+          "command_name text",
+          "organization_id uuid nullable",
+          "project_id uuid nullable",
+          "target_type text",
+          "target_id uuid nullable",
+          "idempotency_key text",
+          "request_fingerprint text",
+          "request_id uuid",
+          "correlation_id uuid",
+          "outcome text",
+          "stable_reason_code text",
+          "operator_command_receipt_id uuid nullable",
+          "audit_event_id uuid nullable",
+          "created_at timestamptz"
+        ],
+        "critical_constraints": [
+          "exactly one admin/system actor",
+          "project requires matching organization",
+          "UNIQUE(actor scope, command_name, idempotency_key)",
+          "same idempotency key replays only when request_fingerprint matches",
+          "append-only",
+          "every human command links the one operator audit event",
+          "organization/project human success may additionally bridge to the existing operator command receipt",
+          "M02 validates role-assignment authorization evidence for global and scoped human success"
+        ],
+        "dependencies": [],
+        "notes": [
+          "admin_account_id foreign key and final human authorization trigger are added after admin_accounts and role assignments exist in M02.",
+          "Do not make legacy operator_command_receipts.organization_id nullable merely to represent global P0 actions.",
+          "request_fingerprint is computed server-side from normalized command inputs; browsers do not supply a trusted fingerprint."
+        ],
+        "created_by_migration_sequence": 1,
+        "created_by_migration_stem": "recora_admin_p0_01_common_infrastructure"
+      },
+      {
+        "physical_object": "recora_private.admin_outbox_messages",
+        "logical_entity": "async outbox",
+        "treatment": "new",
+        "mutability": "mutable delivery projection; attempt detail later append-only in system_event",
+        "scope": "global/organization/project",
+        "purpose": "Durable handoff for accepted asynchronous work.",
+        "required_fields": [
+          "id uuid PK",
+          "command_receipt_id uuid",
+          "message_type text",
+          "organization_id/project_id nullable",
+          "aggregate_type/id",
+          "payload_reference jsonb",
+          "status text",
+          "attempt_count int",
+          "available_at",
+          "locked_at",
+          "delivered_at",
+          "last_error_code",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "payload contains opaque references only",
+          "status pending/processing/delivered/failed/reconciliation_required",
+          "UNIQUE(command_receipt_id,message_type,aggregate_type,aggregate_id)",
+          "attempt_count is monotonic and increments on processing claims",
+          "delivered/failed/reconciliation_required are terminal",
+          "no raw prompt/answer/provider payload"
+        ],
+        "dependencies": [],
+        "notes": [
+          "M01 does not add a separate outbox-attempt table. M08 system_event becomes the append-only attempt evidence source."
+        ],
+        "created_by_migration_sequence": 1,
+        "created_by_migration_stem": "recora_admin_p0_01_common_infrastructure"
+      },
+      {
+        "physical_object": "recora_private.admin_read_refreshes",
+        "logical_entity": "read refresh metadata",
+        "treatment": "new",
+        "mutability": "mutable while running; terminal row immutable",
+        "scope": "global",
+        "purpose": "Records materialized read-model refresh and source watermarks.",
+        "required_fields": [
+          "id",
+          "read_model_code",
+          "status",
+          "source_watermark jsonb",
+          "started_at",
+          "completed_at nullable",
+          "row_count nullable",
+          "error_code nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "one running refresh per model",
+          "running may transition only to completed/failed/cancelled",
+          "terminal rows immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 1,
+        "created_by_migration_stem": "recora_admin_p0_01_common_infrastructure"
+      },
+      {
+        "physical_object": "recora_operator.admin_accounts",
+        "logical_entity": "admin_user",
+        "treatment": "new",
+        "mutability": "mutable current",
+        "scope": "global",
+        "purpose": "Invited/active/suspended/deactivated admin directory record.",
+        "required_fields": [
+          "id uuid PK",
+          "email text",
+          "normalized_email text generated",
+          "display_name text",
+          "status text",
+          "operator_identity_id uuid nullable",
+          "invited_at",
+          "activated_at nullable",
+          "suspended_at nullable",
+          "deactivated_at nullable",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "status invited/active/suspended/deactivated",
+          "deactivated terminal",
+          "UNIQUE(normalized_email) for non-deactivated",
+          "active requires active operator identity",
+          "no auth secrets"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 2,
+        "created_by_migration_stem": "recora_admin_p0_02_operator_rbac_audit"
+      },
+      {
+        "physical_object": "recora_operator.admin_identity_security_projections",
+        "logical_entity": "admin identity security projection",
+        "treatment": "new",
+        "mutability": "mutable system projection",
+        "scope": "global",
+        "purpose": "Current MFA/security observation sourced from the identity provider without credentials.",
+        "required_fields": [
+          "admin_account_id uuid PK",
+          "mfa_state text",
+          "observed_at timestamptz",
+          "source_version text",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "mfa_state unknown/not_enrolled/enrolled",
+          "system-only writer",
+          "stale/unknown is never treated as enrolled",
+          "no credential/session/token fields"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 2,
+        "created_by_migration_stem": "recora_admin_p0_02_operator_rbac_audit"
+      },
+      {
+        "physical_object": "recora_operator.admin_roles",
+        "logical_entity": "admin_role",
+        "treatment": "new",
+        "mutability": "immutable seeded catalog",
+        "scope": "global",
+        "purpose": "Eight fixed P0 standard roles.",
+        "required_fields": [
+          "id uuid PK",
+          "role_code text UNIQUE",
+          "display_name text",
+          "description text",
+          "is_system_defined boolean",
+          "is_editable boolean",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "role_code fixed catalog",
+          "no UI mutation"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 2,
+        "created_by_migration_stem": "recora_admin_p0_02_operator_rbac_audit"
+      },
+      {
+        "physical_object": "recora_operator.admin_capabilities",
+        "logical_entity": "capability catalog",
+        "treatment": "new",
+        "mutability": "immutable seeded catalog",
+        "scope": "global",
+        "purpose": "Canonical capability registry from permissions v2.0.",
+        "required_fields": [
+          "id uuid PK",
+          "capability_code text UNIQUE",
+          "domain_code text",
+          "sensitivity text",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "64 canonical capabilities",
+          "no UI mutation"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 2,
+        "created_by_migration_stem": "recora_admin_p0_02_operator_rbac_audit"
+      },
+      {
+        "physical_object": "recora_operator.admin_role_capabilities",
+        "logical_entity": "role capability map",
+        "treatment": "new",
+        "mutability": "immutable seeded catalog",
+        "scope": "global",
+        "purpose": "Maps fixed roles to capabilities.",
+        "required_fields": [
+          "role_id uuid",
+          "capability_id uuid",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "PK(role_id,capability_id)",
+          "no direct admin edits"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 2,
+        "created_by_migration_stem": "recora_admin_p0_02_operator_rbac_audit"
+      },
+      {
+        "physical_object": "recora_operator.admin_role_assignments",
+        "logical_entity": "admin_role_assignment",
+        "treatment": "new",
+        "mutability": "mutable history",
+        "scope": "global",
+        "purpose": "Role assignment to an admin account.",
+        "required_fields": [
+          "id",
+          "admin_account_id",
+          "role_id",
+          "status text",
+          "assigned_by_admin_account_id",
+          "assigned_at",
+          "expires_at nullable",
+          "revoked_at nullable",
+          "revoked_reason_code nullable",
+          "row_version"
+        ],
+        "critical_constraints": [
+          "status active/revoked/expired",
+          "one active assignment per admin+role",
+          "revoked/expired assignment not revived",
+          "last platform-admin protection"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 2,
+        "created_by_migration_stem": "recora_admin_p0_02_operator_rbac_audit"
+      },
+      {
+        "physical_object": "recora_operator.admin_scope_assignments",
+        "logical_entity": "admin_scope_assignment",
+        "treatment": "new",
+        "mutability": "mutable history",
+        "scope": "global/organization/project",
+        "purpose": "Scope attached to one role assignment.",
+        "required_fields": [
+          "id",
+          "role_assignment_id",
+          "scope_type text",
+          "organization_id nullable",
+          "project_id nullable",
+          "status text",
+          "assigned_at",
+          "expires_at nullable",
+          "revoked_at nullable",
+          "row_version"
+        ],
+        "critical_constraints": [
+          "scope_type global/customer/project",
+          "status active/revoked/expired",
+          "exact target columns by scope",
+          "one active equivalent scope",
+          "project belongs to organization",
+          "revoked/expired scope not revived"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 2,
+        "created_by_migration_stem": "recora_admin_p0_02_operator_rbac_audit"
+      },
+      {
+        "physical_object": "recora_audit.operator_event_scopes",
+        "logical_entity": "audit_log_scope",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization/project",
+        "purpose": "Multi-scope search/authorization relation for one audit event.",
+        "required_fields": [
+          "audit_event_id uuid",
+          "organization_id uuid nullable",
+          "project_id uuid nullable",
+          "scope_type text",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "PK with NULL-safe scope key",
+          "append-only",
+          "project requires matching organization"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 2,
+        "created_by_migration_stem": "recora_admin_p0_02_operator_rbac_audit"
+      },
+      {
+        "physical_object": "recora_private.admin_customer_profiles",
+        "logical_entity": "customer private profile/control",
+        "treatment": "new",
+        "mutability": "mutable current",
+        "scope": "organization",
+        "purpose": "Private contact and customer access control joined to public.organizations.",
+        "required_fields": [
+          "organization_id uuid PK",
+          "primary_contact_name text nullable",
+          "primary_contact_email text nullable",
+          "access_control text",
+          "blocked_incident_id uuid nullable",
+          "row_version",
+          "last_command_receipt_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "access_control enabled/suspended_by_admin/blocked_by_system",
+          "system block requires incident",
+          "no customer lifecycle display status"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 4,
+        "created_by_migration_stem": "recora_admin_p0_04_customer_project_inquiry"
+      },
+      {
+        "physical_object": "recora_private.admin_project_states",
+        "logical_entity": "project operational state",
+        "treatment": "new",
+        "mutability": "mutable current",
+        "scope": "organization+project",
+        "purpose": "Canonical lifecycle, automation and publication controls.",
+        "required_fields": [
+          "project_id uuid PK",
+          "organization_id uuid",
+          "lifecycle_status text",
+          "automation_control text",
+          "publication_control_state text",
+          "active_configuration_revision_id uuid nullable",
+          "row_version",
+          "last_command_receipt_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "lifecycle setup_in_progress/active/closed",
+          "automation running/paused_by_admin/blocked_by_system",
+          "publication enabled/paused_by_admin/blocked_by_system",
+          "closed terminal",
+          "one row per project"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 4,
+        "created_by_migration_stem": "recora_admin_p0_04_customer_project_inquiry"
+      },
+      {
+        "physical_object": "recora_private.admin_customer_inquiries",
+        "logical_entity": "customer_inquiry",
+        "treatment": "new",
+        "mutability": "mutable current",
+        "scope": "organization+optional project",
+        "purpose": "Customer support inquiry received from customer settings.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id nullable",
+          "status text",
+          "subject text",
+          "body text",
+          "received_at",
+          "assigned_admin_account_id nullable",
+          "notification_state text",
+          "resolved_at nullable",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "status new/in_progress/resolved",
+          "project must belong to organization",
+          "resolved requires resolution note",
+          "body never copied to audit summaries"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 4,
+        "created_by_migration_stem": "recora_admin_p0_04_customer_project_inquiry"
+      },
+      {
+        "physical_object": "recora_private.admin_customer_inquiry_notes",
+        "logical_entity": "customer_inquiry_note",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+optional project",
+        "purpose": "Internal, resolution, correction and reopen notes.",
+        "required_fields": [
+          "id",
+          "inquiry_id",
+          "organization_id",
+          "project_id nullable",
+          "note_type text",
+          "body text",
+          "author_admin_account_id",
+          "created_at",
+          "correlation_id"
+        ],
+        "critical_constraints": [
+          "note_type internal/resolution/correction/reopen_reason",
+          "append-only",
+          "scope matches inquiry"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 4,
+        "created_by_migration_stem": "recora_admin_p0_04_customer_project_inquiry"
+      },
+      {
+        "physical_object": "recora_private.admin_plan_definitions",
+        "logical_entity": "plan catalog",
+        "treatment": "new",
+        "mutability": "immutable seeded catalog",
+        "scope": "global",
+        "purpose": "Registered plan codes; P0 cannot create new plan families in UI.",
+        "required_fields": [
+          "id",
+          "plan_code text UNIQUE",
+          "display_name text",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "seeded/controlled only"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 5,
+        "created_by_migration_stem": "recora_admin_p0_05_settings_core"
+      },
+      {
+        "physical_object": "recora_private.admin_plan_versions",
+        "logical_entity": "plan_version",
+        "treatment": "new",
+        "mutability": "draft mutable then immutable",
+        "scope": "global",
+        "purpose": "Administrative lifecycle for standard plan versions.",
+        "required_fields": [
+          "id",
+          "plan_definition_id",
+          "plan_code text",
+          "version_number int",
+          "status text",
+          "display_name text",
+          "project_limit int",
+          "customer_user_limit int",
+          "prompt_count_tier int",
+          "daily_measurement_enabled boolean",
+          "policy_document jsonb",
+          "policy_hash text",
+          "plan_policy_version_id nullable",
+          "created_by_admin_account_id",
+          "ready_at nullable",
+          "activated_at nullable",
+          "superseded_at nullable",
+          "cancelled_at nullable",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "status draft/ready/active/superseded/cancelled",
+          "prompt tier 50/100/200",
+          "UNIQUE(plan_definition_id,version_number)",
+          "one active version per plan",
+          "active content immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 5,
+        "created_by_migration_stem": "recora_admin_p0_05_settings_core"
+      },
+      {
+        "physical_object": "recora_private.admin_plan_version_ai_models",
+        "logical_entity": "plan_version_ai_model",
+        "treatment": "new",
+        "mutability": "draft mutable then immutable",
+        "scope": "global",
+        "purpose": "Allowed AI models for one plan version.",
+        "required_fields": [
+          "id uuid PK",
+          "plan_version_id",
+          "ai_model_id",
+          "ordinal int",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "PK(plan_version_id,ai_model_id)",
+          "at least one model before ready",
+          "cannot change after plan leaves draft"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 5,
+        "created_by_migration_stem": "recora_admin_p0_05_settings_core"
+      },
+      {
+        "physical_object": "recora_private.admin_contract_versions",
+        "logical_entity": "contract_version",
+        "treatment": "new",
+        "mutability": "draft mutable then immutable",
+        "scope": "organization",
+        "purpose": "Versioned contract content linked to P4 contract projection.",
+        "required_fields": [
+          "id",
+          "contract_id uuid",
+          "organization_id",
+          "version_number int",
+          "status text",
+          "plan_version_id",
+          "terms_document jsonb",
+          "content_hash text",
+          "scheduled_for nullable",
+          "effective_from nullable",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "status draft/scheduled/active/superseded/cancelled",
+          "UNIQUE(contract_id,version_number)",
+          "one active and one scheduled per contract",
+          "scheduled/active/superseded immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 6,
+        "created_by_migration_stem": "recora_admin_p0_06_contract_entitlement_bridge"
+      },
+      {
+        "physical_object": "recora_private.admin_project_entitlements",
+        "logical_entity": "project_entitlement",
+        "treatment": "new",
+        "mutability": "stateful immutable content",
+        "scope": "organization+project",
+        "purpose": "Business entitlement assignment referencing an immutable entitlement snapshot.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "contract_id",
+          "contract_version_id",
+          "entitlement_snapshot_id",
+          "status text",
+          "prompt_count_tier int",
+          "effective_from",
+          "effective_until nullable",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "status scheduled/active/suspended/expired/revoked",
+          "one active entitlement per project",
+          "prompt tier 50/100/200",
+          "snapshot scope exact",
+          "activation updates current_entitlement_snapshots atomically"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 6,
+        "created_by_migration_stem": "recora_admin_p0_06_contract_entitlement_bridge"
+      },
+      {
+        "physical_object": "recora_private.admin_notification_categories",
+        "logical_entity": "notification category catalog",
+        "treatment": "new",
+        "mutability": "immutable seeded catalog",
+        "scope": "global",
+        "purpose": "Eight fixed notification categories.",
+        "required_fields": [
+          "id",
+          "category_code UNIQUE",
+          "display_name",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "fixed catalog"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 3,
+        "created_by_migration_stem": "recora_admin_p0_03_static_catalogs"
+      },
+      {
+        "physical_object": "recora_private.admin_notification_destinations",
+        "logical_entity": "notification_destination",
+        "treatment": "new",
+        "mutability": "mutable current",
+        "scope": "global",
+        "purpose": "Verified internal email destination.",
+        "required_fields": [
+          "id",
+          "channel_type text",
+          "address text",
+          "normalized_address text generated",
+          "display_name",
+          "status text",
+          "minimum_severity text",
+          "verified_at nullable",
+          "last_test_requested_at nullable",
+          "last_test_result_code nullable",
+          "created_by_admin_account_id",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "channel_type=email",
+          "status pending_verification/active/paused/invalid/revoked",
+          "address cannot change after creation",
+          "revoked terminal"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 5,
+        "created_by_migration_stem": "recora_admin_p0_05_settings_core"
+      },
+      {
+        "physical_object": "recora_private.admin_notification_destination_categories",
+        "logical_entity": "notification subscriptions",
+        "treatment": "new",
+        "mutability": "mutable relation",
+        "scope": "global",
+        "purpose": "Category subscriptions for a destination.",
+        "required_fields": [
+          "destination_id",
+          "category_id",
+          "enabled boolean",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "PK(destination_id,category_id)"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 5,
+        "created_by_migration_stem": "recora_admin_p0_05_settings_core"
+      },
+      {
+        "physical_object": "recora_private.admin_daily_automation_configurations",
+        "logical_entity": "daily_automation_configuration",
+        "treatment": "new",
+        "mutability": "mutable singleton/current",
+        "scope": "global",
+        "purpose": "Current control and active-version pointer for daily automation.",
+        "required_fields": [
+          "id singleton",
+          "control_state text",
+          "control_origin text",
+          "control_reason_code nullable",
+          "incident_id nullable",
+          "active_version_id uuid nullable",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "exactly one row",
+          "control enabled/paused_by_admin/blocked_by_system",
+          "origin planned_admin/incident_safety/system_policy",
+          "system block requires incident"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 5,
+        "created_by_migration_stem": "recora_admin_p0_05_settings_core"
+      },
+      {
+        "physical_object": "recora_private.admin_daily_automation_configuration_versions",
+        "logical_entity": "daily_automation_configuration_version",
+        "treatment": "new",
+        "mutability": "draft mutable then immutable",
+        "scope": "global",
+        "purpose": "Versioned daily start time.",
+        "required_fields": [
+          "id",
+          "version_number int",
+          "status text",
+          "business_timezone text",
+          "daily_start_local_time time",
+          "created_by_admin_account_id",
+          "ready_at nullable",
+          "activated_at nullable",
+          "superseded_at nullable",
+          "cancelled_at nullable",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "timezone Asia/Tokyo",
+          "frequency daily",
+          "status draft/ready/active/superseded/cancelled",
+          "one active",
+          "non-draft immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 5,
+        "created_by_migration_stem": "recora_admin_p0_05_settings_core"
+      },
+      {
+        "physical_object": "recora_private.admin_ai_model_controls",
+        "logical_entity": "ai_model_control",
+        "treatment": "new",
+        "mutability": "mutable current",
+        "scope": "global",
+        "purpose": "Planned/system safety control for each AI model.",
+        "required_fields": [
+          "id uuid PK",
+          "ai_model_id uuid UNIQUE",
+          "control_state text",
+          "control_origin text",
+          "restriction_reason_code nullable",
+          "incident_id nullable",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "control enabled/restricted/paused",
+          "origin planned_admin/incident_safety/system_policy",
+          "incident_safety release requires clearance"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 5,
+        "created_by_migration_stem": "recora_admin_p0_05_settings_core"
+      },
+      {
+        "physical_object": "recora_private.admin_scheduled_configuration_changes",
+        "logical_entity": "scheduled_configuration_change",
+        "treatment": "new",
+        "mutability": "mutable current to terminal",
+        "scope": "global",
+        "purpose": "Applies daily configuration or plan version at an immediate/future time.",
+        "required_fields": [
+          "id",
+          "change_type text",
+          "target_domain_key text",
+          "target_daily_automation_configuration_version_id nullable",
+          "target_plan_version_id nullable",
+          "expected_daily_automation_configuration_version_id nullable",
+          "expected_plan_version_id nullable",
+          "effective_at",
+          "status text",
+          "requested_by_admin_account_id",
+          "request_reason text",
+          "retry_of_change_id nullable",
+          "failure_code nullable",
+          "failure_summary nullable",
+          "started_at nullable",
+          "completed_at nullable",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "change type daily_automation_configuration_version_activation/plan_version_activation",
+          "status scheduled/applying/applied/failed/cancelled",
+          "exactly one target and expected-active FK pair by change_type",
+          "terminal not reopened",
+          "one nonterminal change per target_domain_key"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 5,
+        "created_by_migration_stem": "recora_admin_p0_05_settings_core"
+      },
+      {
+        "physical_object": "recora_private.admin_quality_rule_versions",
+        "logical_entity": "quality_rule_version",
+        "treatment": "new",
+        "mutability": "append-only/system-managed",
+        "scope": "global",
+        "purpose": "Immutable quality rule package.",
+        "required_fields": [
+          "id",
+          "version_code UNIQUE",
+          "status text",
+          "schema_version int",
+          "rule_document jsonb",
+          "document_hash",
+          "compatibility_code",
+          "effective_from",
+          "status_changed_at",
+          "row_version",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "status active/superseded/retired",
+          "one active",
+          "immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 5,
+        "created_by_migration_stem": "recora_admin_p0_05_settings_core"
+      },
+      {
+        "physical_object": "recora_private.admin_publication_rule_versions",
+        "logical_entity": "publication_rule_version",
+        "treatment": "new",
+        "mutability": "append-only/system-managed",
+        "scope": "global",
+        "purpose": "Immutable publication safety rule package.",
+        "required_fields": [
+          "id",
+          "version_code UNIQUE",
+          "status text",
+          "schema_version int",
+          "rule_document jsonb",
+          "document_hash",
+          "compatibility_code",
+          "effective_from",
+          "status_changed_at",
+          "row_version",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "status active/superseded/retired",
+          "one active",
+          "immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 5,
+        "created_by_migration_stem": "recora_admin_p0_05_settings_core"
+      },
+      {
+        "physical_object": "recora_private.admin_project_configuration_revisions",
+        "logical_entity": "project_configuration_revision",
+        "treatment": "new",
+        "mutability": "building mutable then immutable",
+        "scope": "organization+project",
+        "purpose": "Immutable measurement/setup input snapshot plus accepted artifact pointers.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "revision_number",
+          "base_revision_id nullable",
+          "status text",
+          "target_site_url",
+          "target_brand_name",
+          "target_region",
+          "language",
+          "prompt_count_tier",
+          "contract_version_id",
+          "project_entitlement_id",
+          "ai_model_selection_version",
+          "input_hash",
+          "site_analysis_snapshot_id nullable",
+          "category_set_id nullable",
+          "competitor_set_id nullable",
+          "persona_topic_set_id nullable",
+          "prompt_set_id nullable",
+          "row_version",
+          "created_at",
+          "updated_at",
+          "activated_at nullable"
+        ],
+        "critical_constraints": [
+          "status building/quality_checking/ready/active/superseded/invalid",
+          "UNIQUE(project_id,revision_number)",
+          "one active and one nonterminal per project",
+          "content frozen after quality_checking"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_project_configuration_ai_models",
+        "logical_entity": "configuration AI model snapshot",
+        "treatment": "new",
+        "mutability": "append-only per revision",
+        "scope": "organization+project",
+        "purpose": "Selected AI models pinned by configuration revision.",
+        "required_fields": [
+          "configuration_revision_id",
+          "organization_id",
+          "project_id",
+          "ai_model_id",
+          "ordinal",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "PK(configuration_revision_id,ai_model_id)",
+          "same revision scope",
+          "immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_project_setup_runs",
+        "logical_entity": "project_setup_run",
+        "treatment": "new",
+        "mutability": "mutable current to terminal",
+        "scope": "organization+project",
+        "purpose": "One setup/reconfiguration execution.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "configuration_revision_id",
+          "run_number",
+          "run_kind text",
+          "status text",
+          "current_stage text",
+          "started_at nullable",
+          "completed_at nullable",
+          "error_code nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "status queued/running/quality_checking/completed/exception/cancelled",
+          "stage allowlist",
+          "UNIQUE(configuration_revision_id,run_number)",
+          "terminal not reopened"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_site_analysis_snapshots",
+        "logical_entity": "site_analysis_snapshot",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Immutable analyzed-site summary and source digest.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "setup_run_id",
+          "source_url",
+          "summary_document jsonb",
+          "source_digest",
+          "captured_at",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "append-only",
+          "no raw HTML/cookies/authorization data"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_site_analysis_evidence",
+        "logical_entity": "site analysis evidence",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Evidence segments for description, heading and body.",
+        "required_fields": [
+          "id",
+          "site_analysis_snapshot_id",
+          "organization_id",
+          "project_id",
+          "evidence_type text",
+          "source_url",
+          "locator text nullable",
+          "excerpt text",
+          "content_hash",
+          "ordinal",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "evidence_type meta_description/heading/body",
+          "excerpt bounded",
+          "no raw page body"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_category_sets",
+        "logical_entity": "category_set",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Immutable generated category set header.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "setup_run_id",
+          "set_number",
+          "document_hash",
+          "item_count",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(project_id,set_number)",
+          "append-only"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_category_set_items",
+        "logical_entity": "category set item",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Normalized categories in one set.",
+        "required_fields": [
+          "id",
+          "category_set_id",
+          "category_code",
+          "display_name",
+          "confidence numeric",
+          "ordinal",
+          "evidence_reference jsonb",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(category_set_id,category_code)",
+          "immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_competitor_sets",
+        "logical_entity": "competitor_set",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Immutable generated competitor candidate set header.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "setup_run_id",
+          "set_number",
+          "expected_count int",
+          "actual_count int",
+          "document_hash",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "expected_count=12 for completed setup",
+          "UNIQUE(project_id,set_number)",
+          "append-only"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_competitor_set_items",
+        "logical_entity": "competitor candidate",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Ranked competitor candidates.",
+        "required_fields": [
+          "id",
+          "competitor_set_id",
+          "rank int",
+          "name",
+          "domain nullable",
+          "reason_summary",
+          "confidence numeric",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(competitor_set_id,rank)",
+          "rank 1..12",
+          "immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_persona_topic_sets",
+        "logical_entity": "persona_topic_set",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Immutable persona/topic generation set header.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "setup_run_id",
+          "set_number",
+          "document_hash",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(project_id,set_number)",
+          "append-only"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_persona_topic_personas",
+        "logical_entity": "persona artifact",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Generated personas in one set.",
+        "required_fields": [
+          "id",
+          "persona_topic_set_id",
+          "persona_key",
+          "display_name",
+          "description",
+          "ordinal",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(persona_topic_set_id,persona_key)",
+          "immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_persona_topic_topics",
+        "logical_entity": "topic artifact",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Generated topics in one set.",
+        "required_fields": [
+          "id",
+          "persona_topic_set_id",
+          "topic_key",
+          "display_name",
+          "description",
+          "ordinal",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(persona_topic_set_id,topic_key)",
+          "immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_prompt_sets",
+        "logical_entity": "prompt_set",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Immutable prompt set header for 50/100/200 prompts.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "setup_run_id",
+          "set_number",
+          "prompt_count_tier",
+          "actual_count",
+          "document_hash",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "prompt_count_tier 50/100/200",
+          "actual_count equals tier when complete",
+          "UNIQUE(project_id,set_number)",
+          "append-only"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_prompt_set_items",
+        "logical_entity": "prompt set item",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Immutable prompt text and taxonomy used to materialize active public prompts.",
+        "required_fields": [
+          "id",
+          "prompt_set_id",
+          "prompt_key",
+          "prompt_text",
+          "prompt_type",
+          "persona_key nullable",
+          "topic_key nullable",
+          "buyer_stage nullable",
+          "language",
+          "region",
+          "ordinal",
+          "eligibility_document jsonb",
+          "text_hash",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(prompt_set_id,prompt_key)",
+          "UNIQUE(prompt_set_id,ordinal)",
+          "immutable",
+          "prompt text never copied to audit/system events"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 7,
+        "created_by_migration_stem": "recora_admin_p0_07_setup_configuration_artifacts"
+      },
+      {
+        "physical_object": "recora_private.admin_incidents",
+        "logical_entity": "incident",
+        "treatment": "new",
+        "mutability": "mutable current to terminal",
+        "scope": "global/organization/project",
+        "purpose": "Common-cause operational incident.",
+        "required_fields": [
+          "id",
+          "incident_key text UNIQUE",
+          "incident_fingerprint text",
+          "recurrence_of_incident_id nullable",
+          "status text",
+          "severity text",
+          "title",
+          "summary",
+          "owner_admin_account_id nullable",
+          "resolution_code nullable",
+          "resolution_summary nullable",
+          "opened_at",
+          "resolved_at nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "status open/mitigating/monitoring/resolved",
+          "severity critical/high/medium/low",
+          "one unresolved fingerprint",
+          "resolved terminal",
+          "resolution requirements"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 8,
+        "created_by_migration_stem": "recora_admin_p0_08_incident_event_core"
+      },
+      {
+        "physical_object": "recora_private.admin_incident_scopes",
+        "logical_entity": "incident_scope",
+        "treatment": "new",
+        "mutability": "mutable impact projection",
+        "scope": "typed scope",
+        "purpose": "Affected/potential scope for an incident.",
+        "required_fields": [
+          "id",
+          "incident_id",
+          "scope_type text",
+          "organization_id/project_id nullable",
+          "daily_target_run_id/cycle_id/batch_id/publication_operation_id nullable",
+          "component_code/ai_model_id nullable",
+          "impact_kind text",
+          "impact_state text",
+          "evidence_summary jsonb",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "impact potential/confirmed/contained/recovering/recovered/not_affected",
+          "exact target columns by scope",
+          "NULL-safe unique logical scope"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 8,
+        "created_by_migration_stem": "recora_admin_p0_08_incident_event_core"
+      },
+      {
+        "physical_object": "recora_private.admin_system_events",
+        "logical_entity": "system_event",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "global/organization/project",
+        "purpose": "Immutable system processing/security/delivery/cost events.",
+        "required_fields": [
+          "id",
+          "producer_component_code",
+          "producer_event_id",
+          "event_class text",
+          "event_level text",
+          "event_code",
+          "organization_id/project_id nullable",
+          "target_type/id nullable",
+          "incident_id nullable",
+          "correlation_id",
+          "request_id nullable",
+          "safe_summary jsonb",
+          "occurred_at",
+          "recorded_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(producer_component_code,producer_event_id)",
+          "append-only",
+          "safe summary contract",
+          "event level distinct from incident severity"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 8,
+        "created_by_migration_stem": "recora_admin_p0_08_incident_event_core"
+      },
+      {
+        "physical_object": "recora_private.admin_system_component_states",
+        "logical_entity": "system_component_state",
+        "treatment": "new",
+        "mutability": "mutable current observation",
+        "scope": "global/instance",
+        "purpose": "Latest component health observation.",
+        "required_fields": [
+          "id",
+          "component_code",
+          "component_instance_key",
+          "health_state text",
+          "observed_at",
+          "fresh_until",
+          "source_event_id",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "health operational/degraded/unavailable/unknown",
+          "UNIQUE(component_code,component_instance_key)",
+          "older observation cannot overwrite newer"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 8,
+        "created_by_migration_stem": "recora_admin_p0_08_incident_event_core"
+      },
+      {
+        "physical_object": "recora_private.admin_daily_target_evaluation_runs",
+        "logical_entity": "daily_target_evaluation_run",
+        "treatment": "new",
+        "mutability": "mutable current to terminal",
+        "scope": "global",
+        "purpose": "One official daily population evaluation.",
+        "required_fields": [
+          "id",
+          "business_date date",
+          "daily_automation_configuration_version_id",
+          "status text",
+          "scheduled_at",
+          "started_at nullable",
+          "population_snapshot_at nullable",
+          "completed_at nullable",
+          "failure_reason_code nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(business_date)",
+          "status scheduled/snapshotting/evaluating/completed/failed/skipped_by_control",
+          "failed may retry on the same row",
+          "completed/skipped_by_control are terminal"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 9,
+        "created_by_migration_stem": "recora_admin_p0_09_daily_targeting"
+      },
+      {
+        "physical_object": "recora_private.admin_daily_target_decisions",
+        "logical_entity": "daily_target_decision",
+        "treatment": "new",
+        "mutability": "mutable until finalized",
+        "scope": "organization+project",
+        "purpose": "One project/day target decision.",
+        "required_fields": [
+          "id",
+          "evaluation_run_id nullable",
+          "organization_id",
+          "project_id",
+          "business_date",
+          "evaluation_status text",
+          "decision_source text",
+          "decision text nullable",
+          "reason_code nullable",
+          "contract_id nullable",
+          "contract_version_id nullable",
+          "project_entitlement_id nullable",
+          "configuration_revision_id nullable",
+          "finalized_at nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(project_id,business_date)",
+          "evaluation pending/evaluating/finalized/failed",
+          "source scheduled_daily/project_activation",
+          "decision eligible/intentionally_excluded/precheck_exception",
+          "activation source may omit run"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 9,
+        "created_by_migration_stem": "recora_admin_p0_09_daily_targeting"
+      },
+      {
+        "physical_object": "recora_private.admin_measurement_cycles",
+        "logical_entity": "measurement_cycle",
+        "treatment": "new",
+        "mutability": "mutable current",
+        "scope": "organization+project",
+        "purpose": "Formal daily or additional-validation workflow container.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "business_date",
+          "purpose text",
+          "trigger_source text",
+          "daily_target_decision_id nullable",
+          "configuration_revision_id",
+          "contract_version_id",
+          "project_entitlement_id",
+          "status text",
+          "current_stage text",
+          "current_revision_id nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at",
+          "completed_at nullable"
+        ],
+        "critical_constraints": [
+          "purpose formal_daily/additional_validation",
+          "trigger scheduler/admin/incident_recovery",
+          "status planned/running/exception/completed/stopped",
+          "formal UNIQUE(project_id,business_date)",
+          "current revision same cycle+finalized"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 10,
+        "created_by_migration_stem": "recora_admin_p0_10_measurement_execution"
+      },
+      {
+        "physical_object": "recora_private.admin_measurement_items",
+        "logical_entity": "measurement_item",
+        "treatment": "new",
+        "mutability": "mutable execution summary",
+        "scope": "organization+project",
+        "purpose": "Logical prompt×model×language×region item.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "measurement_cycle_id",
+          "logical_item_key",
+          "prompt_set_item_id nullable",
+          "public_prompt_id nullable",
+          "ai_model_id",
+          "language",
+          "region",
+          "measurement_mode",
+          "is_required boolean",
+          "ordinal",
+          "status text",
+          "reason_code nullable",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(cycle,logical_item_key)",
+          "status pending/running/succeeded/failed/excluded/cancelled",
+          "no selected_attempt_id"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 10,
+        "created_by_migration_stem": "recora_admin_p0_10_measurement_execution"
+      },
+      {
+        "physical_object": "recora_private.admin_measurement_batches",
+        "logical_entity": "measurement_batch",
+        "treatment": "new",
+        "mutability": "mutable current to terminal",
+        "scope": "multi-scope",
+        "purpose": "Execution batch that can span projects/cycles.",
+        "required_fields": [
+          "id",
+          "batch_type text",
+          "status text",
+          "parent_batch_id nullable",
+          "trigger_source text",
+          "quality_exception_action_id nullable",
+          "incident_recovery_plan_id nullable",
+          "requested_command_receipt_id nullable",
+          "queued_at",
+          "started_at nullable",
+          "finished_at nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "type scheduled_daily/manual_formal/additional_validation/retry_failed_items/incident_recovery",
+          "status queued/running/pausing/paused/stopping/completed/failed/stopped",
+          "terminal not restarted"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 10,
+        "created_by_migration_stem": "recora_admin_p0_10_measurement_execution"
+      },
+      {
+        "physical_object": "recora_private.admin_batch_item_assignments",
+        "logical_entity": "batch_item_assignment",
+        "treatment": "new",
+        "mutability": "mutable current to terminal",
+        "scope": "organization+project",
+        "purpose": "Assignment of one logical item to a batch.",
+        "required_fields": [
+          "id",
+          "measurement_batch_id",
+          "measurement_item_id",
+          "organization_id",
+          "project_id",
+          "status text",
+          "attempt_budget int",
+          "claim_token_hash nullable",
+          "worker_reference nullable",
+          "queued_at",
+          "started_at nullable",
+          "finished_at nullable",
+          "last_error_code nullable",
+          "row_version",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(batch,item)",
+          "one nonterminal assignment per item across batches",
+          "status queued/running/retry_wait/succeeded/failed/cancelled"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 10,
+        "created_by_migration_stem": "recora_admin_p0_10_measurement_execution"
+      },
+      {
+        "physical_object": "recora_private.admin_measurement_attempts",
+        "logical_entity": "measurement_attempt",
+        "treatment": "new",
+        "mutability": "mutable until terminal then immutable",
+        "scope": "organization+project",
+        "purpose": "One provider execution attempt.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "measurement_item_id",
+          "assignment_id",
+          "attempt_number int",
+          "attempt_kind text",
+          "status text",
+          "reason_code nullable",
+          "configuration_revision_id",
+          "prompt_set_item_id nullable",
+          "ai_model_id",
+          "language",
+          "region",
+          "source_invocation_key",
+          "public_run_item_id nullable",
+          "ai_conversation_id nullable",
+          "started_at nullable",
+          "completed_at nullable",
+          "latency_ms nullable",
+          "error_code nullable",
+          "late_result_received_at nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(item,attempt_number)",
+          "kind initial/automatic_retry/manual_retry/incident_recovery",
+          "status queued/running/succeeded/failed/timed_out/cancelled",
+          "terminal result never changed"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 10,
+        "created_by_migration_stem": "recora_admin_p0_10_measurement_execution"
+      },
+      {
+        "physical_object": "recora_private.admin_measurement_cycle_revisions",
+        "logical_entity": "measurement_cycle_revision",
+        "treatment": "new",
+        "mutability": "building mutable then immutable",
+        "scope": "organization+project",
+        "purpose": "Integrated/analysed result revision.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "measurement_cycle_id",
+          "revision_number int",
+          "status text",
+          "build_reason_code",
+          "analysis_method_version",
+          "result_digest",
+          "metrics_digest nullable",
+          "recommendations_digest nullable",
+          "started_at",
+          "finalized_at nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(cycle,revision_number)",
+          "one building per cycle",
+          "status building/finalized/failed/superseded",
+          "finalized content immutable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 10,
+        "created_by_migration_stem": "recora_admin_p0_10_measurement_execution"
+      },
+      {
+        "physical_object": "recora_private.admin_measurement_cycle_revision_items",
+        "logical_entity": "measurement_cycle_revision_item",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "organization+project",
+        "purpose": "Selected attempt mapping for one finalized cycle revision.",
+        "required_fields": [
+          "measurement_cycle_revision_id",
+          "measurement_item_id",
+          "selected_attempt_id",
+          "selection_reason_code",
+          "result_digest",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "PK(revision,item)",
+          "selected succeeded attempt belongs to item",
+          "created only in finalize transaction",
+          "append-only"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 10,
+        "created_by_migration_stem": "recora_admin_p0_10_measurement_execution"
+      },
+      {
+        "physical_object": "recora_private.admin_publication_candidate_generation_runs",
+        "logical_entity": "publication_candidate_generation_run",
+        "treatment": "new",
+        "mutability": "mutable to terminal",
+        "scope": "organization+project",
+        "purpose": "One immutable-input candidate generation execution.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "measurement_cycle_id",
+          "measurement_cycle_revision_id",
+          "project_configuration_revision_id",
+          "trigger_source text",
+          "generation_reason text",
+          "run_number",
+          "status text",
+          "quality_rule_version_id",
+          "publication_rule_version_id",
+          "render_schema_version",
+          "candidate_id nullable",
+          "retry_of_run_id nullable",
+          "failure_code nullable",
+          "started_at nullable",
+          "completed_at nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(cycle,run_number)",
+          "UNIQUE(generation_run_id) on candidate",
+          "one nonterminal run per project",
+          "status queued/running/completed/failed/cancelled",
+          "trigger cycle_completion/quality_action/publication_operator/system_recovery",
+          "reason canonical seven values",
+          "formal cycle only"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 11,
+        "created_by_migration_stem": "recora_admin_p0_11_publication_candidate"
+      },
+      {
+        "physical_object": "recora_private.admin_publication_candidates",
+        "logical_entity": "publication_candidate",
+        "treatment": "new",
+        "mutability": "immutable payload + mutable lifecycle",
+        "scope": "organization+project",
+        "purpose": "Generated customer-display candidate Generation.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "measurement_cycle_id",
+          "generation_run_id",
+          "source_cycle_revision_id",
+          "source_configuration_revision_id",
+          "generation_number",
+          "project_generation_number",
+          "status text",
+          "hold_origin nullable",
+          "hold_reason_code nullable",
+          "quality_rule_version_id",
+          "publication_rule_version_id",
+          "payload_schema_version",
+          "payload jsonb",
+          "section_manifest jsonb",
+          "payload_hash",
+          "row_version",
+          "generated_at",
+          "consumed_at nullable",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(project,cycle,generation_number)",
+          "UNIQUE(project,project_generation_number)",
+          "status generated/checking/ready/held/invalidated/superseded/consumed",
+          "payload immutable",
+          "only latest project generation publishable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 11,
+        "created_by_migration_stem": "recora_admin_p0_11_publication_candidate"
+      },
+      {
+        "physical_object": "recora_private.admin_quality_check_runs",
+        "logical_entity": "quality_check_run",
+        "treatment": "new",
+        "mutability": "mutable to terminal",
+        "scope": "organization+project",
+        "purpose": "Automatic check of a configuration revision or publication candidate.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "check_scope text",
+          "configuration_revision_id nullable",
+          "publication_candidate_id nullable",
+          "subject_type",
+          "subject_id",
+          "run_number",
+          "status text",
+          "quality_rule_version_id",
+          "input_digest",
+          "engine_version",
+          "started_at nullable",
+          "completed_at nullable",
+          "warning_count",
+          "blocking_finding_count",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "scope setup_configuration/publication_candidate",
+          "exactly one subject",
+          "UNIQUE(subject_type,subject_id,run_number)",
+          "one queued/running per subject",
+          "status queued/running/passed/passed_with_warnings/exception/failed/cancelled"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 12,
+        "created_by_migration_stem": "recora_admin_p0_12_quality_exception"
+      },
+      {
+        "physical_object": "recora_private.admin_quality_exception_cases",
+        "logical_entity": "quality_exception_case",
+        "treatment": "new",
+        "mutability": "mutable current to terminal",
+        "scope": "organization+project",
+        "purpose": "Human/system work unit for a stable quality subject.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "case_type text",
+          "stable_subject_type",
+          "stable_subject_id",
+          "normalized_section_key",
+          "rule_code",
+          "deduplication_key",
+          "incident_id nullable",
+          "contract_version_id nullable",
+          "configuration_revision_id nullable",
+          "measurement_batch_id nullable",
+          "ai_model_id nullable",
+          "status text",
+          "assignee_admin_account_id nullable",
+          "row_version",
+          "opened_at",
+          "resolved_at nullable",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "case type setup/measurement/analysis/metric/customer_display/recommendation/contract_publication",
+          "status open/in_progress/reprocessing/resolved",
+          "UNIQUE(project,deduplication_key) WHERE unresolved",
+          "resolved terminal",
+          "severity derived"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 12,
+        "created_by_migration_stem": "recora_admin_p0_12_quality_exception"
+      },
+      {
+        "physical_object": "recora_private.admin_quality_exception_findings",
+        "logical_entity": "quality_exception_finding",
+        "treatment": "new",
+        "mutability": "append fact + system disposition",
+        "scope": "organization+project",
+        "purpose": "Specific detected rule/evidence fact.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "quality_case_id nullable",
+          "quality_check_run_id",
+          "rule_code",
+          "severity text",
+          "blocking_scope text",
+          "status text",
+          "source_entity_type",
+          "source_entity_id",
+          "evidence_summary jsonb",
+          "policy_snapshot jsonb",
+          "detected_at",
+          "status_changed_at nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "severity critical/high/medium/low",
+          "blocking candidate_generation/publication/optional_section/none",
+          "status open/cleared/accepted_with_note/superseded",
+          "no admin direct-status command",
+          "critical requires incident/correlation"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 12,
+        "created_by_migration_stem": "recora_admin_p0_12_quality_exception"
+      },
+      {
+        "physical_object": "recora_private.admin_quality_exception_actions",
+        "logical_entity": "quality_exception_action",
+        "treatment": "new",
+        "mutability": "mutable to terminal",
+        "scope": "organization+project",
+        "purpose": "Requested reprocessing connected to one case.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "quality_case_id",
+          "action_type text",
+          "action_mode nullable",
+          "parameter_snapshot jsonb",
+          "status text",
+          "requested_by_command_receipt_id nullable",
+          "started_at nullable",
+          "completed_at nullable",
+          "result_reference_type/id nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "action types canonical seven",
+          "status requested/running/completed/failed/cancelled",
+          "one nonterminal action per case",
+          "completed does not resolve case"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 12,
+        "created_by_migration_stem": "recora_admin_p0_12_quality_exception"
+      },
+      {
+        "physical_object": "recora_private.admin_quality_decisions",
+        "logical_entity": "quality_decision",
+        "treatment": "new",
+        "mutability": "append-only decision with mutable application projection",
+        "scope": "organization+project",
+        "purpose": "Formal human quality decision.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "quality_case_id",
+          "decision_type text",
+          "controlled_note_template_code nullable",
+          "excluded_section_codes text[] nullable",
+          "application_status text",
+          "supersedes_decision_id nullable",
+          "recorded_by_admin_account_id",
+          "recorded_at",
+          "applied_at nullable",
+          "failure_code nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "decision continue_with_note/exclude_optional_sections/maintain_previous_version/publication_blocked/resolved_no_action",
+          "application recorded/applying/applied/failed/superseded",
+          "decision content append-only"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 12,
+        "created_by_migration_stem": "recora_admin_p0_12_quality_exception"
+      },
+      {
+        "physical_object": "recora_private.admin_publication_versions",
+        "logical_entity": "publication_version",
+        "treatment": "new",
+        "mutability": "append-only except revocation projection",
+        "scope": "organization+project",
+        "purpose": "Immutable customer-delivery version created from one candidate.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "version_number",
+          "source_candidate_id",
+          "source_cycle_revision_id",
+          "publication_rule_version_id",
+          "payload_schema_version",
+          "payload jsonb",
+          "payload_hash",
+          "render_schema_version",
+          "row_version",
+          "created_at",
+          "updated_at",
+          "revoked_at nullable",
+          "revocation_incident_id nullable"
+        ],
+        "critical_constraints": [
+          "UNIQUE(project,version_number)",
+          "UNIQUE(source_candidate_id)",
+          "payload immutable",
+          "revocation irreversible"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 13,
+        "created_by_migration_stem": "recora_admin_p0_13_publication_delivery"
+      },
+      {
+        "physical_object": "recora_private.admin_project_publication_pointers",
+        "logical_entity": "project_publication_pointer",
+        "treatment": "new",
+        "mutability": "mutable pointer",
+        "scope": "organization+project",
+        "purpose": "Only source of the current publication version.",
+        "required_fields": [
+          "project_id uuid PK",
+          "organization_id",
+          "current_publication_version_id nullable",
+          "pointer_version bigint",
+          "last_operation_id nullable",
+          "row_version",
+          "updated_at",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "one row per project",
+          "current version same project",
+          "pointer retained during access/contract/publication stop",
+          "CAS pointer_version"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 13,
+        "created_by_migration_stem": "recora_admin_p0_13_publication_delivery"
+      },
+      {
+        "physical_object": "recora_private.admin_publication_operations",
+        "logical_entity": "publication_operation",
+        "treatment": "new",
+        "mutability": "mutable workflow to terminal",
+        "scope": "organization+project",
+        "purpose": "Publish, restore or resume operation.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "operation_type text",
+          "status text",
+          "current_stage text",
+          "target_candidate_id nullable",
+          "target_version_id nullable",
+          "previous_version_id nullable",
+          "expected_pointer_version",
+          "retry_of_operation_id nullable",
+          "requested_command_receipt_id nullable",
+          "started_at nullable",
+          "completed_at nullable",
+          "failure_code nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "type publish_candidate/restore_version/resume_current_pointer",
+          "status queued/running/completed/rolled_back/failed/cancelled",
+          "one queued/running per project",
+          "terminal not reopened"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 13,
+        "created_by_migration_stem": "recora_admin_p0_13_publication_delivery"
+      },
+      {
+        "physical_object": "recora_private.admin_publication_delivery_verifications",
+        "logical_entity": "publication_delivery_verification",
+        "treatment": "new",
+        "mutability": "append-only attempt result",
+        "scope": "organization+project",
+        "purpose": "Pre/post-switch, rollback and resume verification evidence.",
+        "required_fields": [
+          "id",
+          "organization_id",
+          "project_id",
+          "publication_operation_id",
+          "phase text",
+          "phase_attempt_number int",
+          "status text",
+          "expected_project_id",
+          "expected_organization_id",
+          "expected_version_id nullable",
+          "expected_payload_hash nullable",
+          "observed_version_id nullable",
+          "observed_payload_hash nullable",
+          "failure_code nullable",
+          "safe_result_summary jsonb",
+          "started_at nullable",
+          "completed_at nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(operation,phase,attempt_number)",
+          "phase pre_switch_render/post_switch_route/rollback_confirmation/resume_precheck/post_resume_route",
+          "status pending/running/passed/failed/cancelled",
+          "terminal row immutable and retry creates a new attempt row"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 13,
+        "created_by_migration_stem": "recora_admin_p0_13_publication_delivery"
+      },
+      {
+        "physical_object": "recora_private.admin_incident_actions",
+        "logical_entity": "incident_action",
+        "treatment": "new",
+        "mutability": "append-only activity",
+        "scope": "typed scope",
+        "purpose": "Incident response action log.",
+        "required_fields": [
+          "id",
+          "incident_id",
+          "action_category text",
+          "operation_code text",
+          "status text",
+          "retry_of_incident_action_id nullable",
+          "summary",
+          "actor_type",
+          "admin_account_id nullable",
+          "system_component_code nullable",
+          "started_at nullable",
+          "completed_at nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "category investigation/mitigation/safety_control/recovery/verification/communication/annotation",
+          "status requested/running/completed/failed/cancelled",
+          "terminal action not reopened; retry creates a new action",
+          "operation_code allowlist",
+          "bounded safe summary"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 14,
+        "created_by_migration_stem": "recora_admin_p0_14_incident_recovery_clearance"
+      },
+      {
+        "physical_object": "recora_private.admin_incident_recovery_plans",
+        "logical_entity": "incident_recovery_plan",
+        "treatment": "new",
+        "mutability": "draft mutable then controlled",
+        "scope": "typed scope",
+        "purpose": "Versioned ordered recovery plan.",
+        "required_fields": [
+          "id",
+          "incident_id",
+          "plan_version int",
+          "status text",
+          "plan_document jsonb",
+          "content_hash",
+          "created_by_admin_account_id nullable",
+          "started_at nullable",
+          "completed_at nullable",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "status draft/ready/running/verifying/completed/failed/cancelled/superseded",
+          "UNIQUE(incident,plan_version)",
+          "one nonterminal plan",
+          "only draft content editable"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 14,
+        "created_by_migration_stem": "recora_admin_p0_14_incident_recovery_clearance"
+      },
+      {
+        "physical_object": "recora_private.admin_incident_recovery_steps",
+        "logical_entity": "incident_recovery_step",
+        "treatment": "new",
+        "mutability": "mutable to terminal per attempt",
+        "scope": "typed scope",
+        "purpose": "Ordered/retried recovery step.",
+        "required_fields": [
+          "id",
+          "recovery_plan_id",
+          "logical_step_key",
+          "step_sequence int",
+          "attempt_number int",
+          "dependency_step_keys text[]",
+          "step_type text",
+          "status text",
+          "parameter_snapshot jsonb",
+          "success_condition jsonb",
+          "measurement_batch_id nullable",
+          "started_at nullable",
+          "completed_at nullable",
+          "result_summary jsonb",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(plan,logical_step_key,attempt_number)",
+          "failed retry creates new row",
+          "status pending/queued/running/verifying/completed/failed/skipped/cancelled",
+          "step type canonical nine values"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 14,
+        "created_by_migration_stem": "recora_admin_p0_14_incident_recovery_clearance"
+      },
+      {
+        "physical_object": "recora_private.admin_incident_recovery_clearances",
+        "logical_entity": "incident_recovery_clearance",
+        "treatment": "new",
+        "mutability": "issued then terminal",
+        "scope": "typed control target",
+        "purpose": "One-time release authority for a system-blocked control.",
+        "required_fields": [
+          "id",
+          "incident_id",
+          "recovery_plan_id",
+          "source_recovery_step_id",
+          "target_control_type",
+          "organization_id/project_id/ai_model_id nullable",
+          "permitted_from_state",
+          "permitted_to_state",
+          "expected_target_row_version",
+          "status text",
+          "evidence_hash",
+          "issued_at",
+          "expires_at",
+          "consumed_at nullable",
+          "revoked_at nullable",
+          "correlation_id",
+          "created_at"
+        ],
+        "critical_constraints": [
+          "status issued/consumed/revoked/expired",
+          "one issued equivalent transition",
+          "consume and control release same transaction",
+          "target/version/expiry exact"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 14,
+        "created_by_migration_stem": "recora_admin_p0_14_incident_recovery_clearance"
+      },
+      {
+        "physical_object": "recora_private.admin_pricing_definitions",
+        "logical_entity": "pricing_definition",
+        "treatment": "new",
+        "mutability": "append-only version lifecycle",
+        "scope": "global/model",
+        "purpose": "Internal variable-cost rate definition.",
+        "required_fields": [
+          "id",
+          "pricing_key",
+          "provider_code",
+          "ai_model_id nullable",
+          "service_tier_code nullable",
+          "usage_unit_code",
+          "unit_size numeric",
+          "rate_amount numeric",
+          "currency_code",
+          "rate_confidence text",
+          "application_status text",
+          "effective_from",
+          "effective_to nullable",
+          "source_reference",
+          "version_number",
+          "supersedes_pricing_definition_id nullable",
+          "row_version",
+          "created_at",
+          "updated_at",
+          "activated_at nullable"
+        ],
+        "critical_constraints": [
+          "status scheduled/active/superseded/cancelled/invalid",
+          "confidence estimated/provisional/final",
+          "UNIQUE(pricing_key,version_number)",
+          "active/scheduled effective ranges non-overlap",
+          "immutable after activation"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 15,
+        "created_by_migration_stem": "recora_admin_p0_15_usage_cost"
+      },
+      {
+        "physical_object": "recora_private.admin_usage_records",
+        "logical_entity": "usage_record",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "global/organization/project",
+        "purpose": "One usage component from one provider invocation.",
+        "required_fields": [
+          "id",
+          "usage_event_key",
+          "usage_component_code",
+          "provider_code",
+          "provider_usage_event_id nullable",
+          "source_invocation_key",
+          "source_entity_type",
+          "source_entity_id",
+          "organization_id/project_id/ai_model_id nullable",
+          "service_tier_code nullable",
+          "usage_unit_code",
+          "usage_quantity numeric nullable",
+          "usage_capture_status text",
+          "unavailable_reason_code nullable",
+          "occurred_at",
+          "cost_incurred_date",
+          "business_date",
+          "workload_category text",
+          "cycle_purpose nullable",
+          "attempt_reason_category text",
+          "measurement_cycle_id/batch_id/item_id/attempt_id nullable",
+          "incident_id nullable",
+          "correction_of_usage_record_id nullable",
+          "recorded_at",
+          "correlation_id"
+        ],
+        "critical_constraints": [
+          "capture reported/derived/unavailable",
+          "unavailable quantity NULL + reason",
+          "provider event/component or invocation/component uniqueness",
+          "append-only",
+          "correction chain acyclic"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 15,
+        "created_by_migration_stem": "recora_admin_p0_15_usage_cost"
+      },
+      {
+        "physical_object": "recora_private.admin_cost_calculation_runs",
+        "logical_entity": "cost_calculation_run",
+        "treatment": "new",
+        "mutability": "mutable to terminal",
+        "scope": "global",
+        "purpose": "One bounded cost calculation execution.",
+        "required_fields": [
+          "id",
+          "status text",
+          "calculator_version",
+          "pricing_watermark",
+          "usage_watermark",
+          "retry_of_run_id nullable",
+          "requested_at",
+          "started_at nullable",
+          "completed_at nullable",
+          "record_count",
+          "uncomputed_count",
+          "row_version",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "status queued/running/completed/completed_with_uncomputed/failed/cancelled",
+          "terminal not reopened"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 15,
+        "created_by_migration_stem": "recora_admin_p0_15_usage_cost"
+      },
+      {
+        "physical_object": "recora_private.admin_cost_records",
+        "logical_entity": "cost_record",
+        "treatment": "new",
+        "mutability": "append-only",
+        "scope": "global/organization/project",
+        "purpose": "One immutable calculation version for one usage record.",
+        "required_fields": [
+          "id",
+          "usage_record_id",
+          "cost_calculation_run_id",
+          "calculation_version int",
+          "calculation_status text",
+          "cost_amount numeric nullable",
+          "currency_code",
+          "pricing_definition_id nullable",
+          "quantity_used numeric nullable",
+          "unit_size numeric nullable",
+          "rate_amount numeric nullable",
+          "calculation_method_version",
+          "uncomputed_reason_code nullable",
+          "supersedes_cost_record_id nullable",
+          "calculated_at",
+          "cost_incurred_date",
+          "business_date",
+          "organization_id/project_id nullable",
+          "correlation_id"
+        ],
+        "critical_constraints": [
+          "status uncomputed/estimated/provisional/final",
+          "UNIQUE(usage,calculation_version)",
+          "UNIQUE(run,usage)",
+          "uncomputed amount NULL + reason",
+          "append-only"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 15,
+        "created_by_migration_stem": "recora_admin_p0_15_usage_cost"
+      },
+      {
+        "physical_object": "recora_private.admin_usage_cost_export_jobs",
+        "logical_entity": "usage_cost_export_job",
+        "treatment": "new",
+        "mutability": "mutable to terminal",
+        "scope": "admin effective scope",
+        "purpose": "Asynchronous CSV export with a fixed read snapshot.",
+        "required_fields": [
+          "id",
+          "requested_by_admin_account_id",
+          "idempotency_key",
+          "effective_scope_document jsonb",
+          "filter_document jsonb",
+          "date_axis text",
+          "read_snapshot_id uuid",
+          "usage_watermark",
+          "cost_watermark",
+          "current_revision_watermark",
+          "schema_version",
+          "status text",
+          "artifact_reference nullable",
+          "artifact_checksum nullable",
+          "artifact_expires_at nullable",
+          "row_version",
+          "requested_at",
+          "completed_at nullable",
+          "correlation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "critical_constraints": [
+          "UNIQUE(requested_admin,idempotency_key)",
+          "status queued/running/completed/failed/expired/cancelled",
+          "terminal not reopened",
+          "artifact contains no prompt/answer/raw provider payload"
+        ],
+        "dependencies": [],
+        "notes": [],
+        "created_by_migration_sequence": 15,
+        "created_by_migration_stem": "recora_admin_p0_15_usage_cost"
+      }
+    ],
+    "legacy_frozen": [
+      "recora_admin.plan_configs",
+      "recora_admin.customer_profiles",
+      "recora_admin.customer_subscriptions",
+      "recora_admin.diagnostic_intakes",
+      "recora_admin.measurement_schedules",
+      "recora_admin.operation_events",
+      "recora_admin.measurement_batches",
+      "recora_admin.measurement_batch_items",
+      "recora_admin.report_publication_reviews",
+      "recora_admin.prompt_change_events",
+      "recora_admin.internal_notes"
+    ],
+    "views": [
+      "v_project_current_operational_summary",
+      "v_customer_admin_summary",
+      "v_contract_admin_summary",
+      "v_inquiry_admin_summary",
+      "v_daily_measurement_status",
+      "v_measurement_cycle_summary",
+      "v_measurement_batch_summary",
+      "v_quality_check_run_summary",
+      "v_quality_case_summary",
+      "v_publication_project_summary",
+      "v_incident_summary",
+      "v_attention_work_item",
+      "v_sidebar_badge",
+      "v_timeline_entry",
+      "v_usage_cost_fact",
+      "v_usage_cost_entity_summary",
+      "v_usage_cost_ai_model_summary",
+      "v_usage_cost_cycle_batch_summary",
+      "v_usage_cost_coverage_summary",
+      "v_usage_cost_export_summary",
+      "v_settings_health_summary"
+    ],
+    "materialized_views": [
+      "mv_usage_cost_daily_summary"
+    ]
+  },
+  "migrations": [
+    {
+      "sequence": 0,
+      "migration_stem": "recora_admin_p0_00_baseline_contract",
+      "title": "Baseline inventory and Canonical contract",
+      "depends_on": [],
+      "creates": [
+        "recora_private.admin_p0_schema_versions"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Assert required public/recora_private/recora_operator/recora_audit baseline objects",
+        "Pin Canonical manifest hash and repository baseline",
+        "Inventory legacy recora_admin rows without converting them",
+        "Assert P4-B customer-session actor shape and account-access RPC baseline",
+        "Verify invitation/membership authority is present before P0 customer-user work"
+      ],
+      "verification": [
+        "Fail before persistent writes on missing/orphan/contradictory tenant data",
+        "Verify current master baseline or require explicit rebase review",
+        "P4-B enum, actor-shape constraint, invitation/membership tables and RPC grants",
+        "No duplicate invitation expiry state on organization_members"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 1,
+      "migration_stem": "recora_admin_p0_01_common_infrastructure",
+      "title": "Private command/outbox/read-refresh infrastructure",
+      "depends_on": [
+        0
+      ],
+      "creates": [
+        "recora_private.admin_command_receipts",
+        "recora_private.admin_outbox_messages",
+        "recora_private.admin_read_refreshes",
+        "admin_read schema"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Provide P0-wide idempotency, correlation and async durability",
+        "Create the universal P0 command receipt without fabricating M02 role evidence",
+        "Revoke browser and direct service-role table access from new schemas immediately"
+      ],
+      "verification": [
+        "Idempotent receipt replay",
+        "Idempotency fingerprint conflict rejection",
+        "Append-only receipt guard",
+        "Human audit linkage and staged M02 causal closure",
+        "Outbox payload safety and monotonic claim attempts",
+        "Read-refresh single-running and terminal immutability"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 2,
+      "migration_stem": "recora_admin_p0_02_operator_rbac_audit",
+      "title": "Admin accounts, fixed RBAC and audit convergence",
+      "depends_on": [
+        1
+      ],
+      "creates": [
+        "recora_audit.operator_event_scopes",
+        "recora_operator.admin_accounts",
+        "recora_operator.admin_capabilities",
+        "recora_operator.admin_identity_security_projections",
+        "recora_operator.admin_role_assignments",
+        "recora_operator.admin_role_capabilities",
+        "recora_operator.admin_roles",
+        "recora_operator.admin_scope_assignments"
+      ],
+      "alters": [
+        "recora_audit.operator_events: actor/risk/outcome/idempotency/correction and role-assignment authorization fields",
+        "recora_private.admin_command_receipts: admin-account FK and final human authorization evidence trigger"
+      ],
+      "seeds": [],
+      "goals": [
+        "Represent invited admins without fabricating auth identities",
+        "Make role-assignment scope authoritative for P0",
+        "Keep operator_events as the one audit store",
+        "Close global human command authorization without weakening or repurposing the legacy organization-scoped operator receipt"
+      ],
+      "verification": [
+        "Last platform-admin protections",
+        "Scope exactness",
+        "Sensitive summary rejection",
+        "Global and organization/project human success carry role-assignment audit evidence",
+        "No role inference from legacy action grants"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 3,
+      "migration_stem": "recora_admin_p0_03_static_catalogs",
+      "title": "Seed fixed role/capability/notification catalogs",
+      "depends_on": [
+        2
+      ],
+      "creates": [
+        "recora_private.admin_notification_categories"
+      ],
+      "alters": [],
+      "seeds": [
+        "8 role rows",
+        "64 capability rows",
+        "role-capability map",
+        "8 notification category rows"
+      ],
+      "goals": [
+        "Seed only Canonical registries",
+        "Make catalog replay idempotent and hash-checked"
+      ],
+      "verification": [
+        "Catalog counts and digests match permissions v2.0"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 4,
+      "migration_stem": "recora_admin_p0_04_customer_project_inquiry",
+      "title": "Customer/project controls, membership extensions and inquiries",
+      "depends_on": [
+        3
+      ],
+      "creates": [
+        "recora_private.admin_customer_inquiries",
+        "recora_private.admin_customer_inquiry_notes",
+        "recora_private.admin_customer_profiles",
+        "recora_private.admin_project_states"
+      ],
+      "alters": [
+        "public.organizations row_version",
+        "public.projects row_version",
+        "public.organization_members normalized_email/row_version"
+      ],
+      "seeds": [],
+      "goals": [
+        "Separate customer access, automation and publication controls",
+        "Keep customer/project identity in public tenant roots",
+        "Add support inquiry intake/notes",
+        "Reuse P4-B invitation/membership RPCs instead of creating a second invitation authority"
+      ],
+      "verification": [
+        "Customer/project composite ownership",
+        "Revoked membership non-revival",
+        "No duplicate non-revoked normalized email",
+        "P4 invitation expiry and membership current state remain single-source"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 5,
+      "migration_stem": "recora_admin_p0_05_settings_core",
+      "title": "Plan, notification, daily, AI-model and rule settings",
+      "depends_on": [
+        4
+      ],
+      "creates": [
+        "recora_private.admin_ai_model_controls",
+        "recora_private.admin_daily_automation_configuration_versions",
+        "recora_private.admin_daily_automation_configurations",
+        "recora_private.admin_notification_destination_categories",
+        "recora_private.admin_notification_destinations",
+        "recora_private.admin_plan_definitions",
+        "recora_private.admin_plan_version_ai_models",
+        "recora_private.admin_plan_versions",
+        "recora_private.admin_publication_rule_versions",
+        "recora_private.admin_quality_rule_versions",
+        "recora_private.admin_scheduled_configuration_changes"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Version active settings instead of overwriting",
+        "Separate AI model health from control",
+        "Prepare fail-closed quality/publication rules"
+      ],
+      "verification": [
+        "Singleton daily configuration",
+        "50/100/200 tier constraints",
+        "One active plan/rule version",
+        "No incident-safety direct release"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 6,
+      "migration_stem": "recora_admin_p0_06_contract_entitlement_bridge",
+      "title": "Canonical contract versions and project entitlement bridge",
+      "depends_on": [
+        5
+      ],
+      "creates": [
+        "recora_private.admin_contract_versions",
+        "recora_private.admin_project_entitlements"
+      ],
+      "alters": [
+        "none: reuse p4_contract_projections/events and entitlement snapshots/pointers"
+      ],
+      "seeds": [],
+      "goals": [
+        "Map canonical contract lifecycle onto existing P4 projection",
+        "Create immutable contract versions",
+        "Atomically activate entitlement status and snapshot pointer"
+      ],
+      "verification": [
+        "One active/scheduled contract version",
+        "One active project entitlement",
+        "P4 projection/event alignment",
+        "Snapshot scope exactness"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 7,
+      "migration_stem": "recora_admin_p0_07_setup_configuration_artifacts",
+      "title": "Project configuration revisions, setup runs and generated artifacts",
+      "depends_on": [
+        6
+      ],
+      "creates": [
+        "recora_private.admin_category_set_items",
+        "recora_private.admin_category_sets",
+        "recora_private.admin_competitor_set_items",
+        "recora_private.admin_competitor_sets",
+        "recora_private.admin_persona_topic_personas",
+        "recora_private.admin_persona_topic_sets",
+        "recora_private.admin_persona_topic_topics",
+        "recora_private.admin_project_configuration_ai_models",
+        "recora_private.admin_project_configuration_revisions",
+        "recora_private.admin_project_setup_runs",
+        "recora_private.admin_prompt_set_items",
+        "recora_private.admin_prompt_sets",
+        "recora_private.admin_site_analysis_evidence",
+        "recora_private.admin_site_analysis_snapshots"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Preserve immutable setup input and artifacts",
+        "Support current-active revision while replacement builds",
+        "Preserve site evidence without raw HTML"
+      ],
+      "verification": [
+        "One active and one nonterminal revision per project",
+        "Prompt count tier exactness",
+        "Competitor expected count 12",
+        "Artifact scope consistency"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 8,
+      "migration_stem": "recora_admin_p0_08_incident_event_core",
+      "title": "Incident, scope, system event and component health core",
+      "depends_on": [
+        4
+      ],
+      "creates": [
+        "recora_private.admin_incident_scopes",
+        "recora_private.admin_incidents",
+        "recora_private.admin_system_component_states",
+        "recora_private.admin_system_events"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Create common-cause incident authority before quality/publication links",
+        "Provide append-only system event dedupe",
+        "Separate health observation from controls"
+      ],
+      "verification": [
+        "One unresolved incident fingerprint",
+        "NULL-safe scope uniqueness",
+        "Older health observation cannot win"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 9,
+      "migration_stem": "recora_admin_p0_09_daily_targeting",
+      "title": "Daily target evaluation and project decisions",
+      "depends_on": [
+        5,
+        6,
+        7,
+        8
+      ],
+      "creates": [
+        "recora_private.admin_daily_target_decisions",
+        "recora_private.admin_daily_target_evaluation_runs"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Distinguish before-start, pending, finalized and failed targeting",
+        "Pin contract/entitlement/configuration facts for each project/day"
+      ],
+      "verification": [
+        "One run per business date",
+        "One decision per project/date",
+        "Activation-day source rules",
+        "No unknown converted to excluded"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 10,
+      "migration_stem": "recora_admin_p0_10_measurement_execution",
+      "title": "Cycles, items, attempts, batches and result revisions",
+      "depends_on": [
+        9
+      ],
+      "creates": [
+        "recora_private.admin_batch_item_assignments",
+        "recora_private.admin_measurement_attempts",
+        "recora_private.admin_measurement_batches",
+        "recora_private.admin_measurement_cycle_revision_items",
+        "recora_private.admin_measurement_cycle_revisions",
+        "recora_private.admin_measurement_cycles",
+        "recora_private.admin_measurement_items"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Separate logical item, provider attempt, execution batch and adopted result revision",
+        "Keep old current revision during reprocessing"
+      ],
+      "verification": [
+        "One formal cycle per project/date",
+        "One building revision per cycle",
+        "One nonterminal assignment per item",
+        "Attempt/result terminality",
+        "Finalize transaction atomicity"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 11,
+      "migration_stem": "recora_admin_p0_11_publication_candidate",
+      "title": "Candidate generation runs and immutable candidate payloads",
+      "depends_on": [
+        10,
+        5
+      ],
+      "creates": [
+        "recora_private.admin_publication_candidate_generation_runs",
+        "recora_private.admin_publication_candidates"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Generate candidate before quality inspection",
+        "Provide cycle and project generation numbers",
+        "Never invalidate old candidate before new generation commits"
+      ],
+      "verification": [
+        "One nonterminal generation run per project",
+        "Project generation uniqueness",
+        "Payload immutability",
+        "Additional validation cannot generate candidate"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 12,
+      "migration_stem": "recora_admin_p0_12_quality_exception",
+      "title": "Automatic quality runs, cases, findings, actions and decisions",
+      "depends_on": [
+        7,
+        8,
+        10,
+        11
+      ],
+      "creates": [
+        "recora_private.admin_quality_check_runs",
+        "recora_private.admin_quality_decisions",
+        "recora_private.admin_quality_exception_actions",
+        "recora_private.admin_quality_exception_cases",
+        "recora_private.admin_quality_exception_findings"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Separate check execution, work case, finding, reprocessing action and decision",
+        "Deduplicate by stable subject across candidate generations"
+      ],
+      "verification": [
+        "One running check per subject",
+        "Unresolved case dedupe",
+        "Critical finding incident requirement",
+        "One nonterminal action per case",
+        "Human cannot set candidate ready"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 13,
+      "migration_stem": "recora_admin_p0_13_publication_delivery",
+      "title": "Publication versions, pointer, operations and delivery verification",
+      "depends_on": [
+        11,
+        12
+      ],
+      "creates": [
+        "recora_private.admin_project_publication_pointers",
+        "recora_private.admin_publication_delivery_verifications",
+        "recora_private.admin_publication_operations",
+        "recora_private.admin_publication_versions"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Make pointer the only current-publication source",
+        "Atomically create version, consume candidate and switch pointer",
+        "Support rollback/restore/stop/resume"
+      ],
+      "verification": [
+        "One operation per project",
+        "One version per candidate",
+        "Pointer CAS",
+        "Verification phase uniqueness",
+        "Rollback to previous/NULL"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 14,
+      "migration_stem": "recora_admin_p0_14_incident_recovery_clearance",
+      "title": "Incident actions, recovery plans, steps and one-time clearances",
+      "depends_on": [
+        8,
+        10,
+        13
+      ],
+      "creates": [
+        "recora_private.admin_incident_actions",
+        "recora_private.admin_incident_recovery_clearances",
+        "recora_private.admin_incident_recovery_plans",
+        "recora_private.admin_incident_recovery_steps"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Represent ordered recovery and canary/recovery batches",
+        "Release blocked controls only with exact one-time clearance"
+      ],
+      "verification": [
+        "One nonterminal plan",
+        "Step retry adds row",
+        "Clearance consume+release atomic",
+        "Row-version/expiry exactness"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 15,
+      "migration_stem": "recora_admin_p0_15_usage_cost",
+      "title": "Usage, pricing, cost calculation and CSV export",
+      "depends_on": [
+        5,
+        8,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "creates": [
+        "recora_private.admin_cost_calculation_runs",
+        "recora_private.admin_cost_records",
+        "recora_private.admin_pricing_definitions",
+        "recora_private.admin_usage_cost_export_jobs",
+        "recora_private.admin_usage_records"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Record one immutable usage component",
+        "Keep uncomputed distinct from zero",
+        "Version every calculation result",
+        "Fix CSV scope/snapshot/watermarks"
+      ],
+      "verification": [
+        "Usage dedupe",
+        "Correction chain acyclic",
+        "Pricing range non-overlap",
+        "Current cost derives from max valid version",
+        "No prompt/answer in CSV"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 16,
+      "migration_stem": "recora_admin_p0_16_cross_domain_constraints",
+      "title": "Deferred circular FKs and cross-domain integrity",
+      "depends_on": [
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "creates": [],
+      "alters": [
+        "project state active configuration FK",
+        "cycle current revision FK",
+        "incident/quality/publication/recovery typed references",
+        "control-to-incident checks"
+      ],
+      "seeds": [],
+      "goals": [
+        "Add cyclic references only after both sides exist",
+        "Use NOT VALID then VALIDATE for existing populated tables where needed"
+      ],
+      "verification": [
+        "No orphan typed references",
+        "All current pointers refer to same-scope terminal-valid rows"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 17,
+      "migration_stem": "recora_admin_p0_17_transition_immutability_guards",
+      "title": "State-transition, row-version and append-only guards",
+      "depends_on": [
+        16
+      ],
+      "creates": [
+        "domain transition trigger functions",
+        "append-only triggers",
+        "payload immutability triggers"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Reject invalid direct DML even through server credentials",
+        "Require row_version increments and immutable identity fields"
+      ],
+      "verification": [
+        "Negative transition matrix",
+        "Update/delete rejection",
+        "Terminal non-revival"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 18,
+      "migration_stem": "recora_admin_p0_18_indexes",
+      "title": "Partial unique, scope and read-path indexes",
+      "depends_on": [
+        17
+      ],
+      "creates": [
+        "all required unique/partial indexes",
+        "scope/filter/sort indexes from read-model v2.0"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Enforce concurrency invariants",
+        "Support scope-before-count queries"
+      ],
+      "verification": [
+        "No duplicate logical current rows",
+        "EXPLAIN checks for top admin queries",
+        "no unused duplicate index by catalog review"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 19,
+      "migration_stem": "recora_admin_p0_19_security_grants_rpc",
+      "title": "RLS, grants and explicit command boundaries",
+      "depends_on": [
+        18
+      ],
+      "creates": [],
+      "alters": [
+        "Enable RLS on every new table",
+        "revoke PUBLIC/anon/authenticated",
+        "grant service_role only where explicit",
+        "create service-role-only command/read functions"
+      ],
+      "seeds": [],
+      "goals": [
+        "Keep admin schemas outside browser Data API",
+        "Use fixed search_path and explicit authorization",
+        "No generic table mutation RPC"
+      ],
+      "verification": [
+        "Browser role denied for every table/view/function",
+        "SECURITY DEFINER inventory",
+        "scope and BOLA negatives"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 20,
+      "migration_stem": "recora_admin_p0_20_legacy_compatibility_cutover",
+      "title": "Legacy freeze, explicit bootstrap registry and dual-read boundary",
+      "depends_on": [
+        19
+      ],
+      "creates": [
+        "optional compatibility views/explicit mapping records only where source identity is proven"
+      ],
+      "alters": [
+        "application writer flags, not destructive table drops"
+      ],
+      "seeds": [],
+      "goals": [
+        "Freeze recora_admin P0-A/B/C as legacy inventory",
+        "Do not infer contracts/entitlements/publications from mutable JSON",
+        "Allow controlled per-project bootstrap"
+      ],
+      "verification": [
+        "No new authoritative writes to legacy tables",
+        "No automatic semantic backfill",
+        "Customer dashboard legacy path remains unaffected until UI cutover"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 21,
+      "migration_stem": "recora_admin_p0_21_admin_read_core",
+      "title": "admin_read schema contract and core views",
+      "depends_on": [
+        19,
+        20
+      ],
+      "creates": [
+        "admin_read.v_project_current_operational_summary",
+        "admin_read.v_customer_admin_summary",
+        "admin_read.v_contract_admin_summary",
+        "admin_read.v_inquiry_admin_summary",
+        "admin_read.v_daily_measurement_status",
+        "admin_read.v_measurement_cycle_summary",
+        "admin_read.v_measurement_batch_summary"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Expose scope keys and source status without browser grants",
+        "Never store display_status in write model"
+      ],
+      "verification": [
+        "View/source consistency",
+        "scope-before-aggregate",
+        "stale/unknown not zero"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 22,
+      "migration_stem": "recora_admin_p0_22_admin_read_domains",
+      "title": "Quality, publication, incident, timeline, cost and settings views",
+      "depends_on": [
+        21,
+        15
+      ],
+      "creates": [
+        "admin_read.v_quality_check_run_summary",
+        "admin_read.v_quality_case_summary",
+        "admin_read.v_publication_project_summary",
+        "admin_read.v_incident_summary",
+        "admin_read.v_attention_work_item",
+        "admin_read.v_sidebar_badge",
+        "admin_read.v_timeline_entry",
+        "admin_read.v_usage_cost_fact",
+        "admin_read.v_usage_cost_entity_summary",
+        "admin_read.v_usage_cost_ai_model_summary",
+        "admin_read.v_usage_cost_cycle_batch_summary",
+        "admin_read.v_usage_cost_coverage_summary",
+        "admin_read.v_usage_cost_export_summary",
+        "admin_read.v_settings_health_summary",
+        "admin_read.mv_usage_cost_daily_summary"
+      ],
+      "alters": [],
+      "seeds": [],
+      "goals": [
+        "Implement single formulas for attention, badges, timeline and current cost",
+        "Materialize only daily cost summary"
+      ],
+      "verification": [
+        "Badge/list/facet equality",
+        "timeline dedupe",
+        "current cost version rules",
+        "refresh metadata"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    },
+    {
+      "sequence": 23,
+      "migration_stem": "recora_admin_p0_23_canonical_validation_marker",
+      "title": "Final schema contract validation and migration-set marker",
+      "depends_on": [
+        22
+      ],
+      "creates": [],
+      "alters": [],
+      "seeds": [
+        "final recora_private.admin_p0_schema_versions ready marker row"
+      ],
+      "goals": [
+        "Validate all object/constraint/index/grant/catalog hashes",
+        "Mark DB ready for backend implementation, not UI rollout"
+      ],
+      "verification": [
+        "Unseeded+seeded fresh replay",
+        "same-stack replay",
+        "all baseline regressions",
+        "Supabase advisors",
+        "manifest/object digest equality"
+      ],
+      "rollback_strategy": "Roll forward; stop new writers and preserve evidence. No destructive down migration."
+    }
+  ],
+  "artifacts": {
+    "integrity_manifest": "recora_admin_p0_database_bundle_manifest_v1_3.json",
+    "files": [
+      "recora_admin_p0_database_schema_spec_v1_3.md",
+      "recora_admin_p0_migration_plan_v1_3.md",
+      "recora_admin_p0_physical_schema_manifest_v1_3.json",
+      "recora_admin_p0_critical_constraints_blueprint_v1.sql",
+      "recora_admin_p0_database_design_validation_v1_3.md"
+    ]
+  },
+  "amendments": [
+    {
+      "id": "M01-M02-GLOBAL-ADMIN-AUDIT",
+      "date": "2026-08-02",
+      "reason": "Existing recora_operator.operator_command_receipts requires organization_id, while P0 includes global administrator commands.",
+      "decision": "admin_command_receipts is the universal P0 receipt; every human command links operator_events, organization/project commands may additionally bridge to the legacy operator receipt, and M02 closes role-assignment authorization evidence for global commands without weakening the legacy receipt contract."
+    },
+    {
+      "id": "M01-OUTBOX-ATTEMPT-EVIDENCE",
+      "date": "2026-08-02",
+      "reason": "The fixed P0 relation inventory contains no separate admin outbox attempt table.",
+      "decision": "admin_outbox_messages stores mutable delivery projection and monotonic attempt_count; detailed attempts are emitted as system_event after M08. No hidden attempt-history table is introduced in M01."
+    },
+    {
+      "id": "M01-IDEMPOTENCY-FINGERPRINT",
+      "date": "2026-08-02",
+      "reason": "An idempotency key alone cannot distinguish a legitimate replay from reuse with different normalized command inputs.",
+      "decision": "admin_command_receipts stores a server-computed lowercase SHA-256 request_fingerprint. Future command boundaries return the existing receipt only when the fingerprint matches and reject mismatches as idempotency_conflict."
+    },
+    {
+      "id": "BASELINE-P4B-ACCOUNT-ACCESS",
+      "date": "2026-08-02",
+      "reason": "master advanced to P4-B account access, adding customer_session actor evidence, invitation/membership RPCs and a customer-safe access projection.",
+      "decision": "Rebase the physical design on commit 2c2a6fba70b75e858abc71a7447840bf32f3507d; M00 now verifies the P4-B enum/column/actor constraint/tables/RPC security, M04 reuses that invitation authority, and invitation_expires_at is removed from the planned organization_members extension."
+    }
+  ]
+}
