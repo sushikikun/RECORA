@@ -77,7 +77,7 @@ Expected local validation for Issue #148:
 - seeded reset with `--local`
 - DB verifier again
 - second reset/replay
-- RLS/grant/function inventory, including helper direct execute grants = 0, anon/authenticated write grants = 0, service_role Prompt mutation grants present, and no function-backed metric eligibility CHECK
+- RLS/grant/function inventory, including helper direct execute grants = 0, anon/authenticated write grants = 0, service_role Prompt mutation grants present, service_role TRUNCATE on public.prompts = false, and no function-backed metric eligibility CHECK
 - security and performance advisors
 - `npm run recora:prompt-measurement-contract:check`
 - `npm run recora:preflight:full`

@@ -155,7 +155,10 @@ function assertStaticContract(): void {
   assert.match(migrationSql, /revoke all on function recora_private\.reject_finalized_project_config_update\(\)\s+from public, anon, authenticated, service_role;/i);
   assert.match(migrationSql, /grant select on table public\.projects to service_role;/i);
   assert.match(migrationSql, /grant select, insert, update, delete on table public\.prompts to service_role;/i);
+  assert.match(migrationSql, /revoke truncate on table public\.prompts from service_role;/i);
   assert.match(migrationSql, /revoke insert, update, delete, truncate, references on table public\.projects, public\.prompts\s+from public, anon, authenticated;/i);
+  assert.match(migrationSql, /jsonb_typeof\(metric_value -> 'state'\) <> 'string'/i);
+  assert.match(migrationSql, /metric_value ->> 'state' not in \('eligible', 'excluded'\)/i);
   assert.match(migrationSql, /prompt_configuration_hash ~ '\^\[0-9a-f\]\{64\}\$'/);
   assert.match(migrationSql, /intent_key ~ '\^\[a-z0-9\]\+\(-\[a-z0-9\]\+\)\*\$'/);
   assert.match(migrationSql, /\^\[a-z\]\[a-z0-9\]\*\(\?:_\[a-z0-9\]\+\)\*\$/);
@@ -173,6 +176,7 @@ function assertStaticContract(): void {
     packageJson.scripts["recora:fixed-prompt-schema:static-check"],
     "tsx scripts/verify-recora-fixed-prompt-configuration-schema.ts --static",
   );
+  assert.match(packageJson.scripts["recora:preflight"], /recora:github-actions-identity:check/);
   assert.match(packageJson.scripts["recora:preflight"], /recora:fixed-prompt-schema:static-check/);
   assert.match(physicalSpec, /No new application table/);
   assert.match(physicalSpec, /Human review/);
@@ -244,6 +248,35 @@ function promptValueTail(projectId: string, topicId: string, personaId: string, 
   return `'${projectId}', '${topicId}', '${personaId}', '${text}', 'smb-attendance-tool-shortlist', 'core', 'ranked_recommendation', 'direct', 'direct', ${validMetricEligibility}`;
 }
 
+function assertMetricStateRuntime(): void {
+  const validStateCases = [
+    ["metric state eligible", "eligible", "state_eligible"],
+    ["metric state excluded", "excluded", "state_excluded"],
+  ] as const;
+
+  for (const [name, state, reasonCode] of validStateCases) {
+    queryLocal(`
+begin;
+${commonFixtureSql()}
+insert into public.prompts (
+  project_id,
+  topic_id,
+  persona_id,
+  text,
+  metric_eligibility
+) values (
+  '${ids.unfinalizedProject}',
+  '${ids.topicUnfinalized}',
+  '${ids.personaUnfinalized}',
+  '${name}',
+  ${jsonbLiteral(metricEligibilityJson({ visibility: { state, reason_codes: [reasonCode] } }))}
+);
+rollback;
+`);
+    console.log(`PASS ${name}`);
+  }
+}
+
 function assertDbCatalog(): void {
   queryLocal(`
 do $verify$
@@ -253,6 +286,7 @@ declare
   missing_trigger_count bigint;
   unexpected_browser_write_grant_count bigint;
   missing_service_role_table_grant_count bigint;
+  service_role_prompt_truncate boolean;
   unexpected_helper_execute_grant_count bigint;
   security_definer_helper_count bigint;
   function_backed_metric_check_count bigint;
@@ -366,6 +400,13 @@ begin
 
   if missing_service_role_table_grant_count <> 0 then
     raise exception 'Issue 148 catalog failed: service_role prompt mutation grants are missing';
+  end if;
+
+  select has_table_privilege('service_role', 'public.prompts', 'TRUNCATE')
+  into service_role_prompt_truncate;
+
+  if service_role_prompt_truncate then
+    raise exception 'Issue 148 catalog failed: service_role must not have TRUNCATE on prompts';
   end if;
 
   select count(*)
@@ -730,6 +771,58 @@ rollback;
       /invalid fixed prompt metric_eligibility structure/i,
     ],
     [
+      "metric state null",
+      `insert into public.prompts (
+         project_id, topic_id, persona_id, text, metric_eligibility
+       ) values (
+         '${ids.unfinalizedProject}',
+         '${ids.topicUnfinalized}',
+         '${ids.personaUnfinalized}',
+         'Metric state null',
+         ${jsonbLiteral(metricEligibilityJson({ visibility: { state: null, reason_codes: ["bad_state"] } }))}
+       )`,
+      /invalid fixed prompt metric_eligibility structure/i,
+    ],
+    [
+      "metric state boolean",
+      `insert into public.prompts (
+         project_id, topic_id, persona_id, text, metric_eligibility
+       ) values (
+         '${ids.unfinalizedProject}',
+         '${ids.topicUnfinalized}',
+         '${ids.personaUnfinalized}',
+         'Metric state boolean',
+         ${jsonbLiteral(metricEligibilityJson({ visibility: { state: true, reason_codes: ["bad_state"] } }))}
+       )`,
+      /invalid fixed prompt metric_eligibility structure/i,
+    ],
+    [
+      "metric state number",
+      `insert into public.prompts (
+         project_id, topic_id, persona_id, text, metric_eligibility
+       ) values (
+         '${ids.unfinalizedProject}',
+         '${ids.topicUnfinalized}',
+         '${ids.personaUnfinalized}',
+         'Metric state number',
+         ${jsonbLiteral(metricEligibilityJson({ visibility: { state: 1, reason_codes: ["bad_state"] } }))}
+       )`,
+      /invalid fixed prompt metric_eligibility structure/i,
+    ],
+    [
+      "metric state object",
+      `insert into public.prompts (
+         project_id, topic_id, persona_id, text, metric_eligibility
+       ) values (
+         '${ids.unfinalizedProject}',
+         '${ids.topicUnfinalized}',
+         '${ids.personaUnfinalized}',
+         'Metric state object',
+         ${jsonbLiteral(metricEligibilityJson({ visibility: { state: {}, reason_codes: ["bad_state"] } }))}
+       )`,
+      /invalid fixed prompt metric_eligibility structure/i,
+    ],
+    [
       "empty reason codes",
       `insert into public.prompts (
          project_id, topic_id, persona_id, text, metric_eligibility
@@ -860,6 +953,7 @@ assertStaticContract();
 if (!staticOnly) {
   inspectContainer();
   assertDbCatalog();
+  assertMetricStateRuntime();
   assertDbFixtures();
   assertServiceRoleRuntime();
 }

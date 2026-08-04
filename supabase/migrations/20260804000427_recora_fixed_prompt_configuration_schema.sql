@@ -133,7 +133,9 @@ begin
       end if;
     end loop;
 
-    if metric_value ->> 'state' not in ('eligible', 'excluded') then
+    if jsonb_typeof(metric_value -> 'state') <> 'string'
+      or metric_value ->> 'state' not in ('eligible', 'excluded')
+    then
       raise exception
         using
           errcode = '23514',
@@ -266,6 +268,7 @@ revoke all on function recora_private.reject_finalized_project_config_update()
 
 grant select on table public.projects to service_role;
 grant select, insert, update, delete on table public.prompts to service_role;
+revoke truncate on table public.prompts from service_role;
 revoke insert, update, delete, truncate, references on table public.projects, public.prompts
   from public, anon, authenticated;
 
