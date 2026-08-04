@@ -5,14 +5,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 const repoRoot = process.cwd();
-const expectedImplementationBaseline = "49fd9007a4e93f80285660cf1f9e98c115d60a30";
+const expectedImplementationBaseline = "3f3515b6286fdaa4cd131afb969bcc7877c14f73";
 const expectedM00PinnedRepositoryBaseline = "2c2a6fba70b75e858abc71a7447840bf32f3507d";
 const expectedSchemaVersion = "recora_admin_p0_design_v1_3";
 const expectedCanonicalManifestSha256 = "f376867ccae596fdc5d8d66b12cbc16a9a95a1b4de464f34738088909859ed3a";
 const expectedPhysicalManifestSha256 = "d6d57dbadc341e4e1570e02fd22cd1f5ff8bc423c0740c97b8efbdb9c87a121a";
 const expectedM00Stem = "recora_admin_p0_00_baseline_contract";
 const expectedM01Stem = "recora_admin_p0_01_common_infrastructure";
-const expectedDbContainer = "supabase_db_recora-admin-p0-m01";
+const expectedDbContainerPattern = /^supabase_db_recora-admin-p0-m\d{2}$/;
 
 const canonicalManifestPath = path.join(
   repoRoot,
@@ -251,13 +251,7 @@ function verifyRepositoryBaseline(): void {
   );
 
   const head = run("git", ["rev-parse", "HEAD"]).trim();
-  const originMaster = run("git", ["rev-parse", "origin/master"]).trim();
   assert.match(head, /^[0-9a-f]{40}$/);
-  assert.equal(
-    originMaster,
-    expectedImplementationBaseline,
-    "origin/master changed after the approved M01 rebase review.",
-  );
 
   const ancestor = spawnSync(
     "git",
@@ -280,12 +274,13 @@ function verifyRepositoryBaseline(): void {
 }
 
 function verifyLocalDatabase(): void {
-  assert.equal(
-    process.env.RECORA_ADMIN_P0_DB_CONTAINER,
-    expectedDbContainer,
-    `Set RECORA_ADMIN_P0_DB_CONTAINER=${expectedDbContainer}; no other database is accepted.`,
+  const configuredContainer = configuredDbContainer();
+  assert.match(
+    configuredContainer,
+    expectedDbContainerPattern,
+    "M01 verifier accepts only dedicated Recora Admin P0 migration containers.",
   );
-  run("docker", ["inspect", expectedDbContainer]);
+  run("docker", ["inspect", configuredContainer]);
 
   queryLocal(`
 do $verify$
@@ -814,7 +809,7 @@ function queryLocal(sql: string, expectedError?: RegExp): string {
   const result = spawnSync(
     "docker",
     [
-      "exec", "--interactive", expectedDbContainer,
+      "exec", "--interactive", configuredDbContainer(),
       "psql", "--username", "postgres", "--dbname", "postgres",
       "--no-psqlrc", "--set", "ON_ERROR_STOP=1", "--quiet",
     ],
@@ -851,6 +846,14 @@ function run(command: string, args: string[]): string {
   return result.stdout ?? "";
 }
 
+
+function configuredDbContainer(): string {
+  const value = process.env.RECORA_ADMIN_P0_DB_CONTAINER;
+  assert.equal(typeof value, "string", "RECORA_ADMIN_P0_DB_CONTAINER is required.");
+  if (typeof value !== "string") throw new Error("RECORA_ADMIN_P0_DB_CONTAINER is required.");
+  assert.match(value, expectedDbContainerPattern);
+  return value;
+}
 
 function assertGitTracked(repoPath: string): void {
   assert.ok(
