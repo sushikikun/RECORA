@@ -67,7 +67,9 @@ Every metric has non-empty deterministic reason codes. Reason codes are deduplic
 
 Market metrics require a brand-excluded prompt, no known competitor pre-seeding, no brand-optional wording, no forced citation request, a market-capable response shape, acceptable seed contamination, and direct or likely candidate/ranking opportunity. SOV requires visibility eligibility.
 
-Authoritative competitor context is a conservative merge of `seedInput.knownCompetitors`, `seedInput.avoidCompetitors`, approved `draft.competitors` identity fields (`rawName`, `normalizedName`, `brandAliases`, `companyName`, `productName`, and `domain`), and explicit caller-provided known competitors or aliases. Caller input adds to this context; it does not erase approved draft context. Any unapproved draft competitor blocks formal materialization.
+Authoritative competitor context is a conservative merge of `seedInput.knownCompetitors`, `seedInput.avoidCompetitors`, approved `draft.competitors` identity fields (`rawName`, `normalizedName`, `brandAliases`, `companyName`, `productName`, and `domain`), and explicit caller-provided known competitors or aliases. Caller input adds to this context; it does not erase approved draft context. Any unapproved draft competitor blocks formal materialization. `competitor_only` and `named_competitors` prompts require both non-empty authoritative known competitor context and a known competitor signal in the prompt text; missing context fails with `known_competitor_identity_context_missing`, and missing text signal fails with `competitor_only_text_missing_known_competitor` or `named_competitor_text_missing_known_competitor`.
+
+Authoritative target brand context is also conservative. Caller `input.brandIdentity` cannot erase the Draft brand identity: Draft brand name remains primary, Draft service/site/domain fields are preserved when present, and caller brand values only fill missing fields or add aliases for matching/contamination detection.
 
 Branded metrics require explicit self-branded prompts. Forced citation validation and natural citation observation are mutually exclusive. `risk_check` eligibility is explicit: `intentType === "risk_checking"` or a closed risk semantic intent-key group (`implementation-risk`, `regulated-risk`, `price-reputation-risk`, or `local-price-reputation-risk`). Arbitrary quality or review `riskFlags` are not eligibility authority. Risk-only and recommendation-input-only prompts may be materialized as diagnostic prompts when all other readiness gates pass.
 
@@ -95,7 +97,7 @@ topic UUID   = stableUuid(projectSlug, "topic:" + topicId)
 prompt UUID  = stableUuid(projectSlug, "prompt:" + promptId)
 ```
 
-Prompt text is never the only identity input. Source IDs are trimmed and Unicode NFC-normalized before the scoped UUID input is built. If two different raw Persona, Topic, or Prompt source IDs collapse to the same stable UUID after that normalization, materialization fails closed. Project ID is supplied by the caller for future DB materialization; when omitted in pure tests, the same stable UUID function can derive a fixture project ID.
+Prompt text is never the only identity input. Source IDs are trimmed and Unicode NFC-normalized before the scoped UUID input is built. If two different raw Persona, Topic, or Prompt source IDs collapse to the same stable UUID after that normalization, materialization fails closed. When both Draft `projectSlug` and caller `input.projectSlug` are present, their trimmed/NFC-normalized values must match exactly or materialization fails with `project_slug_mismatch`. Project ID is supplied by the caller for future DB materialization; when omitted in pure tests, the same stable UUID function can derive a fixture project ID.
 
 ## Canonical Hash
 
@@ -144,8 +146,12 @@ Materialization fails closed for:
 - no eligible analysis
 - target brand contamination in brand-excluded prompts
 - known competitor contamination outside named-competitor scope
+- missing authoritative known competitor context for competitor-only or named-competitor prompts
+- competitor-only or named-competitor prompt text without a known competitor signal
 - unapproved draft competitor records
 - competitor-only prompts that contain the target brand
+- caller brand identity that would otherwise erase Draft brand context
+- Draft/caller project slug mismatch
 - natural and forced citation eligibility on the same prompt
 - compatibility hint mismatch
 
@@ -153,6 +159,6 @@ Diagnostic-only intents are allowed when the prompt has explicit metadata and at
 
 ## Verification
 
-The B1 verifier is `npm run recora:fixed-prompt-materialization:check`. It covers generator metadata, 9-key metric eligibility, negative fail-closed cases, prompt text non-empty checks, approved draft competitor context, risk semantic eligibility without `riskFlags` heuristics, competitor-only identity contradictions, stable UUID repeatability/collision behavior, canonical JSON stability, hash sensitivity, and exact prompt count behavior.
+The B1 verifier is `npm run recora:fixed-prompt-materialization:check`. It covers generator metadata, 9-key metric eligibility, negative fail-closed cases, prompt text non-empty checks, approved draft competitor context, required known-competitor context/text signals for competitor-only and named-competitor prompts, conservative caller/Draft brand identity merging, Draft/caller project slug mismatch, risk semantic eligibility without `riskFlags` heuristics, competitor-only identity contradictions, stable UUID repeatability/collision behavior, canonical JSON stability, hash sensitivity, and exact prompt count behavior.
 
 Required repository checks for this unit are the Issue #154 command set, including project setup draft checks, generator check/eval, prompt measurement contract check, Unit A static schema check, B1 verifier, preflight, typecheck, lint, build, and `git diff --check`.

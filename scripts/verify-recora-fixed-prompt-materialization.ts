@@ -232,6 +232,29 @@ expectBlocked("brand optional", patchPrompt(completeDraft, 0, {
 expectBlocked("target brand contamination", patchPrompt(completeDraft, 0, {
   text: "Which AI search visibility tools should a team compare, including Recora?"
 }), "target_brand_signal_in_brand_excluded_text");
+expectBlockedWithInput("caller brand identity cannot erase draft brand", patchPrompt(completeDraft, 0, {
+  text: "Which AI search visibility tools should a team compare, including Recora?"
+}), {
+  ...materializationInput,
+  brandIdentity: {
+    brandName: "OtherBrand",
+    serviceName: "OtherBrand Cloud",
+    aliases: ["otherbrand"],
+    officialSiteUrl: "https://other.example",
+    domain: "other.example"
+  }
+}, "target_brand_signal_in_brand_excluded_text");
+const matchingCallerBrandPlan = materializeFixedPromptConfiguration(completeDraft, {
+  ...materializationInput,
+  brandIdentity: {
+    brandName: "Recora",
+    serviceName: "Recora",
+    aliases: ["recora", "Recora Platform"],
+    officialSiteUrl: "https://recora.example",
+    domain: "recora.example"
+  }
+});
+assert.equal(matchingCallerBrandPlan.promptConfigurationCount, completeDraft.prompts.length);
 expectBlocked("known competitor contamination", patchPrompt(completeDraft, 0, {
   text: "Which AI search visibility tools should a team compare, including RivalCo?"
 }), "known_competitor_signal_without_named_competitor_scope");
@@ -294,6 +317,58 @@ expectBlocked("competitor only target brand", createDraft({
     rankingOpportunity: "none"
   })]
 }), "competitor_only_contains_target_brand");
+expectBlockedWithInput("competitor only requires known competitor context", createDraft({
+  seedInput: { ...seedInput, knownCompetitors: [], avoidCompetitors: [] },
+  prompts: [createPrompt({
+    promptId: "prompt-competitor-only-no-context",
+    text: "How does RivalCo compare with other AI search visibility tools?",
+    intentKey: "competitor-only-no-context",
+    panelRole: "diagnostic",
+    category: "competitor_comparison",
+    intent: "comparison",
+    intentType: "comparison",
+    brandingMode: "competitor_only",
+    brandMentionRule: "competitor_only",
+    competitorMentionRule: "named_competitors",
+    responseShape: "comparative_set",
+    candidateMentionOpportunity: "none",
+    rankingOpportunity: "none"
+  })]
+}), materializationInputWithoutCompetitors, "known_competitor_identity_context_missing");
+expectBlocked("competitor only requires competitor text signal", createDraft({
+  prompts: [createPrompt({
+    promptId: "prompt-competitor-only-missing-text-signal",
+    text: "Which AI search visibility tools should a team compare?",
+    intentKey: "competitor-only-missing-text-signal",
+    panelRole: "diagnostic",
+    category: "competitor_comparison",
+    intent: "comparison",
+    intentType: "comparison",
+    brandingMode: "competitor_only",
+    brandMentionRule: "competitor_only",
+    competitorMentionRule: "named_competitors",
+    responseShape: "comparative_set",
+    candidateMentionOpportunity: "none",
+    rankingOpportunity: "none"
+  })]
+}), "competitor_only_text_missing_known_competitor");
+expectBlocked("named comparison requires competitor text signal", createDraft({
+  prompts: [createPrompt({
+    promptId: "prompt-named-comparison-target-only",
+    text: "Compare Recora with other AI search visibility diagnostics.",
+    intentKey: "named-comparison-target-only",
+    panelRole: "diagnostic",
+    category: "competitor_comparison",
+    intent: "comparison",
+    intentType: "comparison",
+    brandingMode: "branded",
+    brandMentionRule: "brand_included",
+    competitorMentionRule: "named_competitors",
+    responseShape: "comparative_set",
+    candidateMentionOpportunity: "none",
+    rankingOpportunity: "none"
+  })]
+}), "named_competitor_text_missing_known_competitor");
 
 const targetBrandNamedCompetitorComparison = materializeFixedPromptConfiguration(createDraft({
   prompts: [createPrompt({
@@ -363,6 +438,20 @@ assert.match(sameUuid, UUID);
 assert.notEqual(sameUuid, stableUuid("recora-other", "prompt:prompt-market-core"));
 assert.notEqual(sameUuid, stableUuid("recora-demo", "topic:prompt-market-core"));
 assert.notEqual(sameUuid, stableUuid("recora-demo", "prompt:prompt-other"));
+const sameInputSlugPlan = materializeFixedPromptConfiguration(completeDraft, {
+  ...materializationInput,
+  projectSlug: " recora-demo "
+});
+assert.equal(sameInputSlugPlan.projectSlug, "recora-demo");
+const inputOnlySlugPlan = materializeFixedPromptConfiguration(createDraft({ projectSlug: null }), {
+  ...materializationInput,
+  projectSlug: "recora-demo"
+});
+assert.equal(inputOnlySlugPlan.projectSlug, "recora-demo");
+expectBlockedWithInput("project slug mismatch", completeDraft, {
+  ...materializationInput,
+  projectSlug: "other-project"
+}, "project_slug_mismatch");
 expectBlocked("persona unicode stable uuid collision", createDraft({
   personas: [
     createPersona({ personaId: "persona-cafe\u0301", displayName: "Marketing leader decomposed" }),
@@ -524,11 +613,16 @@ console.log(JSON.stringify({
     promptTextRequiredFails: true,
     canonicalPromptTextRequiredFails: true,
     targetBrandContaminationFails: true,
+    callerBrandIdentityCannotEraseDraftBrand: true,
+    matchingCallerBrandIdentityPasses: true,
     knownCompetitorContaminationFails: true,
     approvedDraftCompetitorContaminationFails: true,
     unapprovedDraftCompetitorFails: true,
     riskFlagHeuristicRemoved: true,
     competitorOnlyTargetBrandFails: true,
+    namedCompetitorScopeRequiresContextAndTextSignal: true,
+    projectSlugMismatchFails: true,
+    projectSlugInputCompatibilityPasses: true,
     stableUuidCollisionFails: true,
     duplicateCoreFails: true,
     robustnessWithoutCoreFails: true,

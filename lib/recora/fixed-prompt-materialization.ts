@@ -258,6 +258,11 @@ export function validateFixedPromptMaterializationDraft(
   warnings.push(...structure.warnings);
 
   const projectSlug = resolveProjectSlug(draft, input);
+  const draftProjectSlug = normalizeCanonicalText(draft.projectSlug ?? "");
+  const inputProjectSlug = normalizeCanonicalText(input.projectSlug ?? "");
+  if (hasText(draftProjectSlug) && hasText(inputProjectSlug) && draftProjectSlug !== inputProjectSlug) {
+    blockers.push("project_slug_mismatch");
+  }
   if (!hasText(projectSlug)) blockers.push("project_slug_required");
   if (hasText(projectSlug) && !LOWERCASE_KEBAB_CASE.test(projectSlug)) {
     blockers.push("project_slug_must_be_lowercase_kebab_case");
@@ -606,7 +611,7 @@ function resolveMetricContext(
 ): FixedPromptMetricEligibilityContext {
   const approvedCompetitors = draft.competitors.filter((competitor) => isApprovedReviewStatus(competitor.reviewStatus));
   return {
-    brandIdentity: input.brandIdentity ?? getBrandIdentityFromDraft(draft),
+    brandIdentity: mergeBrandIdentity(getBrandIdentityFromDraft(draft), input.brandIdentity),
     knownCompetitors: uniqueStrings([
       ...(draft.seedInput.knownCompetitors ?? []),
       ...(draft.seedInput.avoidCompetitors ?? []),
@@ -630,8 +635,31 @@ function getCompetitorPrimarySignals(competitor: CompetitorDraft): string[] {
   ].filter(hasText);
 }
 
+function mergeBrandIdentity(
+  draftBrandIdentity: BrandIdentityForDraft,
+  inputBrandIdentity: BrandIdentityForDraft | undefined
+): BrandIdentityForDraft {
+  if (!inputBrandIdentity) return draftBrandIdentity;
+  return {
+    brandName: draftBrandIdentity.brandName,
+    serviceName: draftBrandIdentity.serviceName ?? inputBrandIdentity.serviceName,
+    officialSiteUrl: draftBrandIdentity.officialSiteUrl ?? inputBrandIdentity.officialSiteUrl,
+    domain: draftBrandIdentity.domain ?? inputBrandIdentity.domain,
+    aliases: uniqueStrings([
+      ...(draftBrandIdentity.aliases ?? []),
+      inputBrandIdentity.brandName,
+      inputBrandIdentity.serviceName,
+      inputBrandIdentity.domain,
+      inputBrandIdentity.officialSiteUrl,
+      ...(inputBrandIdentity.aliases ?? [])
+    ].filter(hasText))
+  };
+}
+
 function resolveProjectSlug(draft: ProjectSetupDraft, input: FixedPromptMaterializationInput): string {
-  return normalizeCanonicalText(input.projectSlug ?? draft.projectSlug ?? "");
+  const inputProjectSlug = normalizeCanonicalText(input.projectSlug ?? "");
+  if (hasText(inputProjectSlug)) return inputProjectSlug;
+  return normalizeCanonicalText(draft.projectSlug ?? "");
 }
 
 function resolveProjectId(projectSlug: string, projectId: string | undefined): string {
@@ -753,6 +781,15 @@ function validatePromptIdentityBoundary(
   }
   if (knownCompetitorPresent && !isNamedCompetitorPrompt(prompt)) {
     blockers.push("known_competitor_signal_without_named_competitor_scope");
+  }
+  if (isKnownCompetitorScopedPrompt(prompt) && getKnownCompetitorSignals(context).length === 0) {
+    blockers.push("known_competitor_identity_context_missing");
+  } else if (isKnownCompetitorScopedPrompt(prompt) && !knownCompetitorPresent) {
+    blockers.push(
+      isCompetitorOnlyPrompt(prompt)
+        ? "competitor_only_text_missing_known_competitor"
+        : "named_competitor_text_missing_known_competitor"
+    );
   }
   if (marketEligible && knownCompetitorPresent) {
     blockers.push("known_competitor_signal_in_market_prompt");
@@ -879,8 +916,12 @@ function isCompetitorOnlyPrompt(prompt: PromptDraft): boolean {
   return prompt.brandingMode === "competitor_only" || prompt.brandMentionRule === "competitor_only";
 }
 
-function isNamedCompetitorPrompt(prompt: PromptDraft): boolean {
+function isKnownCompetitorScopedPrompt(prompt: PromptDraft): boolean {
   return isCompetitorOnlyPrompt(prompt) || prompt.competitorMentionRule === "named_competitors";
+}
+
+function isNamedCompetitorPrompt(prompt: PromptDraft): boolean {
+  return isKnownCompetitorScopedPrompt(prompt);
 }
 
 function isGenericComparisonPrompt(prompt: PromptDraft): boolean {
