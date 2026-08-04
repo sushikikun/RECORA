@@ -30,6 +30,7 @@ import type {
   PromptIntent,
   PromptIntentType,
   PromptLanguageMode,
+  PromptPanelRole,
   PromptRankingOpportunity,
   PromptResponseShape,
   PromptSeedContaminationRisk,
@@ -1775,6 +1776,7 @@ function createPromptDraftForTopicVariant(
 
   const topicKey = topic.topicId.replace(/^topic-[^-]+-/, "");
   const promptId = buildScopedId("prompt", context.seedHash, `${topicKey}-${spec.variantKey}`);
+  const materializationMetadata = getPromptVariantMaterializationMetadata(topic, persona, spec.variantKey);
 
   return {
     promptId,
@@ -1782,6 +1784,8 @@ function createPromptDraftForTopicVariant(
     personaId: persona.personaId,
     text: spec.text,
     rawUserIntent: spec.rawUserIntent,
+    intentKey: materializationMetadata.intentKey,
+    panelRole: materializationMetadata.panelRole,
     languageMode: spec.languageMode,
     category: spec.category,
     intent: spec.intent,
@@ -2154,6 +2158,66 @@ function getPromptVariantSpecForTopic(
   }));
 }
 
+type PromptVariantMaterializationMetadata = {
+  semanticGroupKey: string;
+  panelRole: PromptPanelRole;
+  personaScoped?: boolean;
+};
+
+const PROMPT_VARIANT_MATERIALIZATION_METADATA: Record<string, PromptVariantMaterializationMetadata> = {
+  "alternative-comparable-set": { semanticGroupKey: "alternative-comparable-set", panelRole: "core" },
+  "brand-perception-fit": { semanticGroupKey: "brand-perception", panelRole: "diagnostic" },
+  "brand-reputation": { semanticGroupKey: "brand-reputation", panelRole: "diagnostic" },
+  "build-buy-substitute": { semanticGroupKey: "substitute-comparison", panelRole: "core" },
+  "candidate-shortlist": { semanticGroupKey: "persona-shortlist", panelRole: "core", personaScoped: true },
+  "category-comparison-axes": { semanticGroupKey: "category-comparison", panelRole: "core" },
+  "category-ranked-shortlist": { semanticGroupKey: "category-shortlist", panelRole: "core" },
+  "citation-evidence-types": { semanticGroupKey: "citation-source-validation", panelRole: "diagnostic" },
+  "citation-source-check": { semanticGroupKey: "citation-source-validation", panelRole: "diagnostic" },
+  "criteria-check": { semanticGroupKey: "selection-criteria", panelRole: "diagnostic" },
+  "implementation-approval": { semanticGroupKey: "implementation-risk", panelRole: "diagnostic", personaScoped: true },
+  "local-first-visit": { semanticGroupKey: "local-alternatives", panelRole: "core" },
+  "local-ranked": { semanticGroupKey: "local-ranked-shortlist", panelRole: "core" },
+  "local-review-price": { semanticGroupKey: "local-price-reputation-risk", panelRole: "diagnostic" },
+  "price-review-check": { semanticGroupKey: "price-reputation-risk", panelRole: "diagnostic" },
+  "problem-aware-candidate": { semanticGroupKey: "problem-aware-candidate", panelRole: "core" },
+  "qualification-source-check": { semanticGroupKey: "qualification-source-validation", panelRole: "diagnostic" },
+  "risk-verification": { semanticGroupKey: "regulated-risk", panelRole: "diagnostic" },
+  "solution-category-comparison": { semanticGroupKey: "solution-category-comparison", panelRole: "core" },
+  "trust-proof-check": { semanticGroupKey: "trust-proof", panelRole: "diagnostic" }
+};
+
+function getPromptVariantMaterializationMetadata(
+  topic: TopicDraft,
+  persona: PersonaDraft,
+  variantKey: string
+): { intentKey: string; panelRole: PromptPanelRole } {
+  const metadata = PROMPT_VARIANT_MATERIALIZATION_METADATA[variantKey];
+  if (!metadata) {
+    throw new Error(`Missing prompt materialization metadata for variant ${variantKey}`);
+  }
+
+  const topicKey = stableSourceIdComponent(topic.topicId, "topic");
+  const parts = [topicKey, metadata.personaScoped ? stableSourceIdComponent(persona.personaId, "persona") : null, metadata.semanticGroupKey]
+    .filter(hasText);
+  return {
+    intentKey: parts.map(toIntentKeyComponent).filter(hasText).join("-"),
+    panelRole: metadata.panelRole
+  };
+}
+
+function stableSourceIdComponent(value: string, scope: "persona" | "topic") {
+  return value.replace(new RegExp(`^${scope}-[a-z0-9]+-`), "");
+}
+
+function toIntentKeyComponent(value: string) {
+  const slug = value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || stableHash(value);
+}
 function withVariantKey(variantKey: string, spec: PromptSpec): PromptVariantSpec {
   return {
     ...spec,
