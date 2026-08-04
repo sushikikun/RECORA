@@ -29,7 +29,7 @@ intentKey?: string
 panelRole?: "core" | "robustness" | "diagnostic"
 ```
 
-The fields are optional for compatibility with existing draft fixtures and readers. They are required by fixed-prompt materialization. The materializer never infers them from prompt text.
+The fields are optional for compatibility with existing draft fixtures and readers. They are required by fixed-prompt materialization. The materializer never infers them from prompt text. Prompt text itself is also required and must remain non-empty after whitespace and line-ending normalization.
 
 The generator assigns both fields from its internal semantic `variantKey` mapping. The initial generator does not synthesize `robustness` prompts because it does not create true paraphrase pairs.
 
@@ -67,20 +67,23 @@ Every metric has non-empty deterministic reason codes. Reason codes are deduplic
 
 Market metrics require a brand-excluded prompt, no known competitor pre-seeding, no brand-optional wording, no forced citation request, a market-capable response shape, acceptable seed contamination, and direct or likely candidate/ranking opportunity. SOV requires visibility eligibility.
 
-Branded metrics require explicit self-branded prompts. Forced citation validation and natural citation observation are mutually exclusive. Risk-only and recommendation-input-only prompts may be materialized as diagnostic prompts when all other readiness gates pass.
+Authoritative competitor context is a conservative merge of `seedInput.knownCompetitors`, `seedInput.avoidCompetitors`, approved `draft.competitors` identity fields (`rawName`, `normalizedName`, `brandAliases`, `companyName`, `productName`, and `domain`), and explicit caller-provided known competitors or aliases. Caller input adds to this context; it does not erase approved draft context. Any unapproved draft competitor blocks formal materialization.
+
+Branded metrics require explicit self-branded prompts. Forced citation validation and natural citation observation are mutually exclusive. `risk_check` eligibility is explicit: `intentType === "risk_checking"` or a closed risk semantic intent-key group (`implementation-risk`, `regulated-risk`, `price-reputation-risk`, or `local-price-reputation-risk`). Arbitrary quality or review `riskFlags` are not eligibility authority. Risk-only and recommendation-input-only prompts may be materialized as diagnostic prompts when all other readiness gates pass.
 
 ## Compatibility Fields
 
 `prompt_type` is deterministic with this priority:
 
 1. forced citation -> `citation_check`
-2. target brand plus known competitor -> `comparison_named`
-3. target brand or self-branded -> `branded`
-4. competitor-only or named competitor -> `competitor_named`
-5. non-branded comparison -> `comparison_generic`
-6. otherwise -> `non_branded`
+2. competitor-only metadata -> `competitor_named`
+3. explicit self-branded plus named competitor metadata/context -> `comparison_named`
+4. target brand or self-branded -> `branded`
+5. named competitor -> `competitor_named`
+6. non-branded comparison -> `comparison_generic`
+7. otherwise -> `non_branded`
 
-`measurement_purpose` is only a compatibility hint. Multi-metric eligibility remains authoritative. Non-null hints must point to an eligible metric. Generic comparison prompts may carry `null` when the older single-purpose scope cannot safely represent the market purpose.
+`measurement_purpose` is only a compatibility hint. Multi-metric eligibility remains authoritative. Non-null hints must point to an eligible metric. Generic comparison prompts may carry `null` when the older single-purpose scope cannot safely represent the market purpose. Contradictory metadata is not corrected from text inference; for example, a `competitor_only` prompt that contains the target brand fails closed instead of being reclassified as `comparison_named`.
 
 ## Stable IDs
 
@@ -92,7 +95,7 @@ topic UUID   = stableUuid(projectSlug, "topic:" + topicId)
 prompt UUID  = stableUuid(projectSlug, "prompt:" + promptId)
 ```
 
-Prompt text is never the only identity input. Project ID is supplied by the caller for future DB materialization; when omitted in pure tests, the same stable UUID function can derive a fixture project ID.
+Prompt text is never the only identity input. Source IDs are trimmed and Unicode NFC-normalized before the scoped UUID input is built. If two different raw Persona, Topic, or Prompt source IDs collapse to the same stable UUID after that normalization, materialization fails closed. Project ID is supplied by the caller for future DB materialization; when omitted in pure tests, the same stable UUID function can derive a fixture project ID.
 
 ## Canonical Hash
 
@@ -127,7 +130,9 @@ Canonical JSON sorts object keys recursively, preserves the Unit A metric key or
 
 Materialization fails closed for:
 
+- empty or whitespace-only Prompt text
 - duplicate Persona, Topic, or Prompt source ID
+- duplicate Persona, Topic, or Prompt stable UUID after trim/NFC source ID normalization
 - missing Persona or Topic reference
 - missing or invalid `intentKey`
 - missing or invalid `panelRole`
@@ -139,6 +144,8 @@ Materialization fails closed for:
 - no eligible analysis
 - target brand contamination in brand-excluded prompts
 - known competitor contamination outside named-competitor scope
+- unapproved draft competitor records
+- competitor-only prompts that contain the target brand
 - natural and forced citation eligibility on the same prompt
 - compatibility hint mismatch
 
@@ -146,6 +153,6 @@ Diagnostic-only intents are allowed when the prompt has explicit metadata and at
 
 ## Verification
 
-The B1 verifier is `npm run recora:fixed-prompt-materialization:check`. It covers generator metadata, 9-key metric eligibility, negative fail-closed cases, stable UUID repeatability and sensitivity, canonical JSON stability, hash sensitivity, and exact prompt count behavior.
+The B1 verifier is `npm run recora:fixed-prompt-materialization:check`. It covers generator metadata, 9-key metric eligibility, negative fail-closed cases, prompt text non-empty checks, approved draft competitor context, risk semantic eligibility without `riskFlags` heuristics, competitor-only identity contradictions, stable UUID repeatability/collision behavior, canonical JSON stability, hash sensitivity, and exact prompt count behavior.
 
 Required repository checks for this unit are the Issue #154 command set, including project setup draft checks, generator check/eval, prompt measurement contract check, Unit A static schema check, B1 verifier, preflight, typecheck, lint, build, and `git diff --check`.

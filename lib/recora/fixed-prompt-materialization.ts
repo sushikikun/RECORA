@@ -8,6 +8,7 @@ import {
   promptTextContainsBrandSignal,
   validateProjectSetupDraft,
   type BrandIdentityForDraft,
+  type CompetitorDraft,
   type ProjectSetupDraft,
   type PromptDraft
 } from "./project-setup-draft";
@@ -131,6 +132,12 @@ const MARKET_RESPONSE_SHAPES = new Set<PromptDraft["responseShape"]>([
   "candidate_list",
   "ranked_recommendation",
   "comparative_set"
+]);
+const RISK_CHECK_INTENT_KEY_GROUPS = new Set<string>([
+  "implementation-risk",
+  "regulated-risk",
+  "price-reputation-risk",
+  "local-price-reputation-risk"
 ]);
 
 export class FixedPromptMaterializationError extends Error {
@@ -266,6 +273,11 @@ export function validateFixedPromptMaterializationDraft(
   addDuplicateSourceIdBlockers(blockers, "persona", draft.personas.map((persona) => persona.personaId));
   addDuplicateSourceIdBlockers(blockers, "topic", draft.topics.map((topic) => topic.topicId));
   addDuplicateSourceIdBlockers(blockers, "prompt", draft.prompts.map((prompt) => prompt.promptId));
+  if (hasText(projectSlug) && LOWERCASE_KEBAB_CASE.test(projectSlug)) {
+    addStableUuidCollisionBlockers(blockers, projectSlug, "persona", draft.personas.map((persona) => persona.personaId));
+    addStableUuidCollisionBlockers(blockers, projectSlug, "topic", draft.topics.map((topic) => topic.topicId));
+    addStableUuidCollisionBlockers(blockers, projectSlug, "prompt", draft.prompts.map((prompt) => prompt.promptId));
+  }
 
   const context = resolveMetricContext(draft, input);
   const corePromptIdsByIntentKey = new Map<string, string[]>();
@@ -279,6 +291,12 @@ export function validateFixedPromptMaterializationDraft(
   for (const topic of draft.topics) {
     if (!isApprovedReviewStatus(topic.reviewStatus)) {
       blockers.push(`topic ${label(topic.topicId)} review_status_not_approved`);
+    }
+  }
+
+  for (const competitor of draft.competitors) {
+    if (!isApprovedReviewStatus(competitor.reviewStatus)) {
+      blockers.push(`competitor ${label(competitor.competitorId)} review_status_not_approved`);
     }
   }
 
@@ -299,6 +317,9 @@ export function validateFixedPromptMaterializationDraft(
     }
     if (prompt.gateDecision !== "ready_for_measurement") {
       blockers.push(`prompt ${promptLabel} gate_decision_not_ready_for_measurement`);
+    }
+    if (!hasText(prompt.text)) {
+      blockers.push(`prompt ${promptLabel} text_required`);
     }
     if (prompt.seedContaminationRisk === "medium" || prompt.seedContaminationRisk === "high") {
       blockers.push(`prompt ${promptLabel} seed_contamination_risk_requires_review`);
@@ -375,6 +396,7 @@ export function validateFixedPromptCanonicalPrompts(
     if (prompt.persona_id != null && !UUID_PATTERN.test(prompt.persona_id)) {
       blockers.push(`prompt ${promptLabel} persona_id_must_be_uuid`);
     }
+    if (!hasText(prompt.text)) blockers.push(`prompt ${promptLabel} text_required`);
     if (seenPromptIds.has(prompt.id)) blockers.push(`prompt ${promptLabel} duplicate_prompt_uuid`);
     seenPromptIds.add(prompt.id);
     if (prompt.contract_version !== RECORA_FIXED_PROMPT_CONFIGURATION_CONTRACT_VERSION) {
@@ -444,10 +466,7 @@ export function materializeFixedPromptMetricEligibility(
   const brandPerception =
     explicitSelfBranded &&
     (prompt.intent === "brand_perception" || prompt.intent === "branded" || prompt.responseShape === "branded_sentiment_answer");
-  const riskCheck =
-    prompt.intentType === "risk_checking" ||
-    prompt.category === "pricing_reputation" ||
-    prompt.riskFlags.some((flag) => flag.includes("risk"));
+  const riskCheck = prompt.intentType === "risk_checking" || hasRiskCheckIntentKey(prompt);
   const naturalCitationObservation =
     !forcedCitation &&
     !brandOptional &&
@@ -505,19 +524,22 @@ export function materializeFixedPromptCompatibilityFields(
   const targetBrandPresent = promptTextContainsBrandSignal(prompt.text, context.brandIdentity);
   const knownCompetitorPresent = promptTextContainsKnownCompetitorSignal(prompt.text, context);
   const forcedCitation = metricEligibility.forced_citation_validation.state === "eligible";
+  const competitorOnly = isCompetitorOnlyPrompt(prompt);
   const explicitSelfBranded = isExplicitSelfBrandedPrompt(prompt) || targetBrandPresent;
   const explicitNamedCompetitor = isNamedCompetitorPrompt(prompt) || knownCompetitorPresent;
   const promptType = forcedCitation
     ? "citation_check"
-    : explicitSelfBranded && explicitNamedCompetitor
-      ? "comparison_named"
-      : explicitSelfBranded
-        ? "branded"
-        : explicitNamedCompetitor
-          ? "competitor_named"
-          : isGenericComparisonPrompt(prompt)
-            ? "comparison_generic"
-            : "non_branded";
+    : competitorOnly
+      ? "competitor_named"
+      : explicitSelfBranded && explicitNamedCompetitor
+        ? "comparison_named"
+        : explicitSelfBranded
+          ? "branded"
+          : explicitNamedCompetitor
+            ? "competitor_named"
+            : isGenericComparisonPrompt(prompt)
+              ? "comparison_generic"
+              : "non_branded";
 
   const rawPurpose = selectMeasurementPurpose(metricEligibility);
   const measurementPurpose = promptType === "comparison_generic" && isMarketPurpose(rawPurpose)
@@ -582,11 +604,30 @@ function resolveMetricContext(
   draft: ProjectSetupDraft,
   input: FixedPromptMaterializationInput
 ): FixedPromptMetricEligibilityContext {
+  const approvedCompetitors = draft.competitors.filter((competitor) => isApprovedReviewStatus(competitor.reviewStatus));
   return {
     brandIdentity: input.brandIdentity ?? getBrandIdentityFromDraft(draft),
-    knownCompetitors: input.knownCompetitors ?? draft.seedInput.knownCompetitors,
-    knownCompetitorAliases: input.knownCompetitorAliases ?? draft.seedInput.avoidCompetitors
+    knownCompetitors: uniqueStrings([
+      ...(draft.seedInput.knownCompetitors ?? []),
+      ...(draft.seedInput.avoidCompetitors ?? []),
+      ...approvedCompetitors.flatMap(getCompetitorPrimarySignals),
+      ...(input.knownCompetitors ?? [])
+    ]),
+    knownCompetitorAliases: uniqueStrings([
+      ...approvedCompetitors.flatMap((competitor) => competitor.brandAliases),
+      ...(input.knownCompetitorAliases ?? [])
+    ])
   };
+}
+
+function getCompetitorPrimarySignals(competitor: CompetitorDraft): string[] {
+  return [
+    competitor.rawName,
+    competitor.normalizedName,
+    competitor.companyName,
+    competitor.productName,
+    competitor.domain
+  ].filter(hasText);
 }
 
 function resolveProjectSlug(draft: ProjectSetupDraft, input: FixedPromptMaterializationInput): string {
@@ -598,7 +639,11 @@ function resolveProjectId(projectSlug: string, projectId: string | undefined): s
 }
 
 function buildSourceUuidMap(projectSlug: string, scope: "persona" | "topic" | "prompt", sourceIds: readonly string[]) {
-  return new Map(sourceIds.map((sourceId) => [sourceId, stableUuid(projectSlug, `${scope}:${sourceId}`)]));
+  return new Map(sourceIds.map((sourceId) => [sourceId, stableUuid(projectSlug, scopedStableSourceId(scope, sourceId))]));
+}
+
+function scopedStableSourceId(scope: "persona" | "topic" | "prompt", sourceId: string): string {
+  return `${scope}:${normalizeCanonicalText(sourceId)}`;
 }
 
 function mapToSortedSourceMappings(map: ReadonlyMap<string, string>): FixedPromptSourceMapping[] {
@@ -642,6 +687,25 @@ function addDuplicateSourceIdBlockers(blockers: string[], scope: string, values:
   }
 }
 
+function addStableUuidCollisionBlockers(
+  blockers: string[],
+  projectSlug: string,
+  scope: "persona" | "topic" | "prompt",
+  values: readonly string[]
+) {
+  const sourceIdByUuid = new Map<string, string>();
+  for (const value of values) {
+    if (!hasText(value)) continue;
+    const uuid = stableUuid(projectSlug, scopedStableSourceId(scope, value));
+    const previousValue = sourceIdByUuid.get(uuid);
+    if (previousValue != null && previousValue !== value) {
+      blockers.push(`${scope}_stable_uuid_collision:${previousValue}:${value}`);
+      continue;
+    }
+    sourceIdByUuid.set(uuid, value);
+  }
+}
+
 function appendMapValue(map: Map<string, string[]>, key: string, value: string) {
   const values = map.get(key) ?? [];
   values.push(value);
@@ -678,6 +742,9 @@ function validatePromptIdentityBoundary(
     metricEligibility.ranking.state === "eligible" ||
     metricEligibility.sov.state === "eligible";
 
+  if (isCompetitorOnlyPrompt(prompt) && targetBrandPresent) {
+    blockers.push("competitor_only_contains_target_brand");
+  }
   if ((prompt.brandMentionRule === "brand_excluded" || prompt.brandingMode === "non_branded") && targetBrandPresent) {
     blockers.push("target_brand_signal_in_brand_excluded_text");
   }
@@ -796,16 +863,24 @@ function marketExclusionReasons(input: {
   return reasons.length > 0 ? reasons : ["market_metric_boundary_not_met"];
 }
 
+function hasRiskCheckIntentKey(prompt: PromptDraft): boolean {
+  const intentKey = prompt.intentKey;
+  if (!hasText(intentKey)) return false;
+  return Array.from(RISK_CHECK_INTENT_KEY_GROUPS).some(
+    (intentKeyGroup) => intentKey === intentKeyGroup || intentKey.endsWith(`-${intentKeyGroup}`)
+  );
+}
+
 function isExplicitSelfBrandedPrompt(prompt: PromptDraft): boolean {
   return prompt.brandingMode === "branded" || prompt.brandMentionRule === "brand_included" || prompt.category === "branded";
 }
 
+function isCompetitorOnlyPrompt(prompt: PromptDraft): boolean {
+  return prompt.brandingMode === "competitor_only" || prompt.brandMentionRule === "competitor_only";
+}
+
 function isNamedCompetitorPrompt(prompt: PromptDraft): boolean {
-  return (
-    prompt.brandingMode === "competitor_only" ||
-    prompt.brandMentionRule === "competitor_only" ||
-    prompt.competitorMentionRule === "named_competitors"
-  );
+  return isCompetitorOnlyPrompt(prompt) || prompt.competitorMentionRule === "named_competitors";
 }
 
 function isGenericComparisonPrompt(prompt: PromptDraft): boolean {

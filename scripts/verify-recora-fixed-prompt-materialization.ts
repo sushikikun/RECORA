@@ -15,6 +15,7 @@ import {
 import {
   PROJECT_SETUP_DRAFT_SCHEMA_VERSION,
   type BuyerStage,
+  type CompetitorDraft,
   type PersonaDraft,
   type ProjectSetupDraft,
   type ProjectSetupSeedInput,
@@ -40,6 +41,10 @@ const materializationInput = {
   brandIdentity,
   knownCompetitors: ["RivalCo"],
   knownCompetitorAliases: ["Rival Cloud"]
+} as const;
+const materializationInputWithoutCompetitors = {
+  projectId,
+  brandIdentity
 } as const;
 
 const seedInput: ProjectSetupSeedInput = {
@@ -133,6 +138,13 @@ assert.ok(plan.sourceMappings.topics.every((item) => UUID.test(item.id)));
 assert.ok(plan.sourceMappings.prompts.every((item) => UUID.test(item.id)));
 const marketCanonicalPrompt = plan.prompts.find((prompt) => prompt.metric_eligibility.visibility.state === "eligible");
 assert.ok(marketCanonicalPrompt, "market canonical prompt missing");
+for (const emptyText of ["", "   ", "\r\n"]) {
+  const canonicalTextValidation = validateFixedPromptCanonicalPrompts([{ ...marketCanonicalPrompt, text: emptyText }]);
+  assert.ok(
+    canonicalTextValidation.blockers.some((blocker) => blocker.includes("text_required")),
+    `canonical prompt text should reject ${JSON.stringify(emptyText)}`
+  );
+}
 const marketEligibility = materializeFixedPromptMetricEligibility(completeDraft.prompts[0], materializationInput);
 assertMetricState(marketEligibility, "visibility", "eligible");
 assertMetricState(marketEligibility, "ranking", "eligible");
@@ -167,6 +179,23 @@ assertMetricState(recommendationOnlyEligibility, "visibility", "excluded");
 assertMetricState(recommendationOnlyEligibility, "ranking", "excluded");
 assertMetricState(recommendationOnlyEligibility, "natural_citation_observation", "excluded");
 
+const riskFlagOnlyPrompt = createPrompt({
+  promptId: "prompt-risk-flag-only",
+  text: "Which source quality checks matter before selecting an AI search visibility tool?",
+  intentKey: "source-quality-review",
+  panelRole: "diagnostic",
+  category: "non_branded",
+  intent: "non_branded",
+  intentType: "informational",
+  responseShape: "candidate_list",
+  candidateMentionOpportunity: "none",
+  rankingOpportunity: "none",
+  riskFlags: ["source_quality_risk"]
+});
+const riskFlagOnlyEligibility = materializeFixedPromptMetricEligibility(riskFlagOnlyPrompt, materializationInput);
+assertMetricState(riskFlagOnlyEligibility, "risk_check", "excluded");
+assertMetricState(riskFlagOnlyEligibility, "recommendation_input", "excluded");
+
 const namedCompetitorEligibility = materializeFixedPromptMetricEligibility(
   createPrompt({
     promptId: "prompt-named-competitor",
@@ -190,6 +219,9 @@ assert.deepEqual(normalizedReasons.visibility.reason_codes, ["a_reason", "z_reas
 
 expectBlocked("manual metadata missing", patchPrompt(completeDraft, 0, { intentKey: undefined }), "intent_key_missing");
 expectBlocked("invalid intent key", patchPrompt(completeDraft, 0, { intentKey: "Bad_Key" }), "intent_key_invalid");
+for (const emptyText of ["", "   ", "\r\n"]) {
+  expectBlocked(`empty prompt text ${JSON.stringify(emptyText)}`, patchPrompt(completeDraft, 0, { text: emptyText }), "text_required");
+}
 expectBlocked("unapproved draft", { ...completeDraft, reviewStatus: "needs_review" }, "draft_review_status_not_approved");
 expectBlocked("low confidence draft", { ...completeDraft, confidenceScore: 60 }, "draft_confidence_below_materialization_threshold");
 expectBlocked("gate not ready", patchPrompt(completeDraft, 0, { gateDecision: "revise_before_measurement" }), "gate_decision_not_ready_for_measurement");
@@ -203,6 +235,24 @@ expectBlocked("target brand contamination", patchPrompt(completeDraft, 0, {
 expectBlocked("known competitor contamination", patchPrompt(completeDraft, 0, {
   text: "Which AI search visibility tools should a team compare, including RivalCo?"
 }), "known_competitor_signal_without_named_competitor_scope");
+expectBlockedWithInput("approved draft competitor contamination", createDraft({
+  seedInput: { ...seedInput, knownCompetitors: [], avoidCompetitors: [] },
+  competitors: [createCompetitor({
+    rawName: "RivalCo",
+    normalizedName: "rivalco",
+    brandAliases: [],
+    companyName: "RivalCo Inc.",
+    productName: "Rival Cloud",
+    domain: "rivalco.example"
+  })],
+  prompts: [createPrompt({
+    promptId: "prompt-draft-competitor-contamination",
+    text: "Which AI search visibility tools should a team compare, including RivalCo?"
+  })]
+}), materializationInputWithoutCompetitors, "known_competitor_signal_without_named_competitor_scope");
+expectBlocked("unapproved draft competitor", createDraft({
+  competitors: [createCompetitor({ reviewStatus: "needs_review" })]
+}), "competitor competitor-rivalco review_status_not_approved");
 expectBlocked("duplicate core", createDraft({
   prompts: [
     completeDraft.prompts[0],
@@ -224,6 +274,64 @@ expectBlocked("no eligible analysis", createDraft({
     rankingOpportunity: "none"
   })]
 }), "no_eligible_analysis");
+expectBlocked("risk flag string does not create risk eligibility", createDraft({
+  prompts: [riskFlagOnlyPrompt]
+}), "no_eligible_analysis");
+expectBlocked("competitor only target brand", createDraft({
+  prompts: [createPrompt({
+    promptId: "prompt-competitor-only-target-brand",
+    text: "How does Recora compare with other AI search visibility tools?",
+    intentKey: "competitor-only-target-brand",
+    panelRole: "diagnostic",
+    category: "competitor_comparison",
+    intent: "comparison",
+    intentType: "comparison",
+    brandingMode: "competitor_only",
+    brandMentionRule: "competitor_only",
+    competitorMentionRule: "named_competitors",
+    responseShape: "comparative_set",
+    candidateMentionOpportunity: "none",
+    rankingOpportunity: "none"
+  })]
+}), "competitor_only_contains_target_brand");
+
+const targetBrandNamedCompetitorComparison = materializeFixedPromptConfiguration(createDraft({
+  prompts: [createPrompt({
+    promptId: "prompt-target-brand-named-competitor-comparison",
+    text: "Compare Recora and RivalCo for AI search visibility diagnostics.",
+    intentKey: "target-brand-named-competitor-comparison",
+    panelRole: "diagnostic",
+    category: "competitor_comparison",
+    intent: "comparison",
+    intentType: "comparison",
+    brandingMode: "branded",
+    brandMentionRule: "brand_included",
+    competitorMentionRule: "named_competitors",
+    responseShape: "comparative_set",
+    candidateMentionOpportunity: "none",
+    rankingOpportunity: "none"
+  })]
+}), materializationInput);
+assert.equal(targetBrandNamedCompetitorComparison.prompts[0].prompt_type, "comparison_named");
+
+const competitorOnlyKnownCompetitor = materializeFixedPromptConfiguration(createDraft({
+  prompts: [createPrompt({
+    promptId: "prompt-competitor-only-known-competitor",
+    text: "How does RivalCo compare with other AI search visibility tools?",
+    intentKey: "competitor-only-known-competitor",
+    panelRole: "diagnostic",
+    category: "competitor_comparison",
+    intent: "comparison",
+    intentType: "comparison",
+    brandingMode: "competitor_only",
+    brandMentionRule: "competitor_only",
+    competitorMentionRule: "named_competitors",
+    responseShape: "comparative_set",
+    candidateMentionOpportunity: "none",
+    rankingOpportunity: "none"
+  })]
+}), materializationInput);
+assert.equal(competitorOnlyKnownCompetitor.prompts[0].prompt_type, "competitor_named");
 
 const diagnosticOnly = materializeFixedPromptConfiguration(createDraft({
   prompts: [completeDraft.prompts[3]]
@@ -255,6 +363,61 @@ assert.match(sameUuid, UUID);
 assert.notEqual(sameUuid, stableUuid("recora-other", "prompt:prompt-market-core"));
 assert.notEqual(sameUuid, stableUuid("recora-demo", "topic:prompt-market-core"));
 assert.notEqual(sameUuid, stableUuid("recora-demo", "prompt:prompt-other"));
+expectBlocked("persona unicode stable uuid collision", createDraft({
+  personas: [
+    createPersona({ personaId: "persona-cafe\u0301", displayName: "Marketing leader decomposed" }),
+    createPersona({ personaId: "persona-caf\u00e9", displayName: "Marketing leader composed" })
+  ],
+  topics: [createTopic({ targetPersonaId: "persona-cafe\u0301" })],
+  prompts: [createPrompt({ personaId: "persona-cafe\u0301" })]
+}), "persona_stable_uuid_collision");
+expectBlocked("topic unicode stable uuid collision", createDraft({
+  topics: [
+    createTopic({ topicId: "topic-cafe\u0301", topicName: "Topic decomposed" }),
+    createTopic({ topicId: "topic-caf\u00e9", topicName: "Topic composed" })
+  ],
+  prompts: [createPrompt({ topicId: "topic-cafe\u0301" })]
+}), "topic_stable_uuid_collision");
+expectBlocked("prompt unicode stable uuid collision", createDraft({
+  prompts: [
+    createPrompt({
+      promptId: "prompt-cafe\u0301",
+      intentKey: "prompt-unicode-collision-a",
+      panelRole: "diagnostic",
+      responseShape: "evaluation_criteria",
+      candidateMentionOpportunity: "none",
+      rankingOpportunity: "none"
+    }),
+    createPrompt({
+      promptId: "prompt-caf\u00e9",
+      intentKey: "prompt-unicode-collision-b",
+      panelRole: "diagnostic",
+      responseShape: "evaluation_criteria",
+      candidateMentionOpportunity: "none",
+      rankingOpportunity: "none"
+    })
+  ]
+}), "prompt_stable_uuid_collision");
+expectBlocked("prompt whitespace stable uuid collision", createDraft({
+  prompts: [
+    createPrompt({
+      promptId: "prompt-space",
+      intentKey: "prompt-whitespace-collision-a",
+      panelRole: "diagnostic",
+      responseShape: "evaluation_criteria",
+      candidateMentionOpportunity: "none",
+      rankingOpportunity: "none"
+    }),
+    createPrompt({
+      promptId: " prompt-space ",
+      intentKey: "prompt-whitespace-collision-b",
+      panelRole: "diagnostic",
+      responseShape: "evaluation_criteria",
+      candidateMentionOpportunity: "none",
+      rankingOpportunity: "none"
+    })
+  ]
+}), "prompt_stable_uuid_collision");
 
 const reorderedPlan = materializeFixedPromptConfiguration({
   ...completeDraft,
@@ -358,8 +521,15 @@ console.log(JSON.stringify({
     lowConfidenceFails: true,
     gateNotReadyFails: true,
     brandOptionalFails: true,
+    promptTextRequiredFails: true,
+    canonicalPromptTextRequiredFails: true,
     targetBrandContaminationFails: true,
     knownCompetitorContaminationFails: true,
+    approvedDraftCompetitorContaminationFails: true,
+    unapprovedDraftCompetitorFails: true,
+    riskFlagHeuristicRemoved: true,
+    competitorOnlyTargetBrandFails: true,
+    stableUuidCollisionFails: true,
     duplicateCoreFails: true,
     robustnessWithoutCoreFails: true,
     diagnosticOnlyPasses: true,
@@ -393,7 +563,16 @@ function assertAllMetricReasons(eligibility: RecoraFixedPromptMetricEligibility)
 }
 
 function expectBlocked(name: string, draft: ProjectSetupDraft, expectedBlocker: string) {
-  const validation = validateFixedPromptMaterializationDraft(draft, materializationInput);
+  expectBlockedWithInput(name, draft, materializationInput, expectedBlocker);
+}
+
+function expectBlockedWithInput(
+  name: string,
+  draft: ProjectSetupDraft,
+  input: Parameters<typeof validateFixedPromptMaterializationDraft>[1],
+  expectedBlocker: string
+) {
+  const validation = validateFixedPromptMaterializationDraft(draft, input);
   assert.equal(validation.materializationReady, false, name);
   assert.ok(
     validation.blockers.some((blocker) => blocker.includes(expectedBlocker)),
@@ -454,6 +633,28 @@ function createPersona(overrides: Partial<PersonaDraft> = {}): PersonaDraft {
     needsVerification: false,
     riskFlags: [],
     sourceStatus: "provided",
+    reviewStatus: "approved",
+    ...overrides
+  };
+}
+
+function createCompetitor(overrides: Partial<CompetitorDraft> = {}): CompetitorDraft {
+  return {
+    competitorId: "competitor-rivalco",
+    rawName: "RivalCo",
+    normalizedName: "rivalco",
+    brandAliases: ["Rival Cloud"],
+    companyName: "RivalCo Inc.",
+    productName: "Rival Cloud",
+    domain: "rivalco.example",
+    source: "provided",
+    tier: "Direct",
+    marketRegion: "Japan",
+    entityConfidenceScore: 90,
+    classificationConfidenceScore: 86,
+    lowConfidenceReasons: [],
+    evidence: ["Provided as approved competitor fixture."],
+    riskFlags: [],
     reviewStatus: "approved",
     ...overrides
   };
