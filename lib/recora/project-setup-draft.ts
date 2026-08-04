@@ -72,6 +72,7 @@ export type PromptResponseShape =
 export type PromptCandidateMentionOpportunity = "direct" | "likely" | "weak" | "none";
 export type PromptRankingOpportunity = "direct" | "comparable_set" | "weak" | "none";
 export type PromptMetricState = "eligible" | "excluded";
+export type PromptPanelRole = "core" | "robustness" | "diagnostic";
 
 export type PromptMetricEligibility = {
   brandingMode: PromptBrandingMode;
@@ -308,6 +309,8 @@ export type PromptDraft = {
   personaId: string | null;
   text: string;
   rawUserIntent?: string;
+  intentKey?: string;
+  panelRole?: PromptPanelRole;
   languageMode: PromptLanguageMode;
   category: PromptCategory;
   intent: PromptIntent;

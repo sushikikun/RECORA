@@ -18,6 +18,7 @@
     "recora:prompt-measurement-contract:check": "tsx scripts/verify-recora-prompt-measurement-contract.ts",
     "recora:fixed-prompt-schema:check": "tsx scripts/verify-recora-fixed-prompt-configuration-schema.ts",
     "recora:fixed-prompt-schema:static-check": "tsx scripts/verify-recora-fixed-prompt-configuration-schema.ts --static",
+    "recora:fixed-prompt-materialization:check": "tsx scripts/verify-recora-fixed-prompt-materialization.ts",
     "recora:issue-80-local-supabase-bootstrap:check": "tsx scripts/verify-issue-80-local-supabase-bootstrap.ts",
     "recora:issue-105-tenant-membership:check": "tsx scripts/verify-issue-105-tenant-ownership-membership.ts",
     "recora:admin-p0:m00:check": "tsx scripts/verify-recora-admin-p0-00-baseline-contract.ts",
@@ -34,7 +35,7 @@
     "recora:project-setup-draft-generator:check": "tsx scripts/verify-recora-project-setup-draft-generator.ts",
     "recora:project-setup-draft-generator:eval": "tsx scripts/audit-recora-project-setup-draft-generator.ts",
     "recora:phase1:operator": "tsx scripts/run-recora-phase1-operator-flow.ts",
-    "recora:preflight": "npm run recora:whereami && npm run recora:before-codex && npm run recora:doctor && npm run recora:github-actions-identity:check && npm run recora:dashboard-read-model:check && npm run recora:recommendation-publication-surface:check && npm run recora:prompt-measurement-contract:check && npm run recora:fixed-prompt-schema:static-check && npm run recora:admin-p0:canonical:check && npm run recora:admin-p0:m00:static-check && npm run recora:admin-p0:m01:static-check && npm run recora:admin-p0:m02:static-check && npm run recora:admin-p0:m03:static-check && npm run recora:project-setup-draft:check && npm run recora:project-setup-draft-generator:check && npm run recora:project-setup-draft-generator:eval",
+    "recora:preflight": "npm run recora:whereami && npm run recora:before-codex && npm run recora:doctor && npm run recora:github-actions-identity:check && npm run recora:dashboard-read-model:check && npm run recora:recommendation-publication-surface:check && npm run recora:prompt-measurement-contract:check && npm run recora:fixed-prompt-schema:static-check && npm run recora:fixed-prompt-materialization:check && npm run recora:admin-p0:canonical:check && npm run recora:admin-p0:m00:static-check && npm run recora:admin-p0:m01:static-check && npm run recora:admin-p0:m02:static-check && npm run recora:admin-p0:m03:static-check && npm run recora:project-setup-draft:check && npm run recora:project-setup-draft-generator:check && npm run recora:project-setup-draft-generator:eval",
     "recora:preflight:full": "npm run recora:preflight && npm run typecheck",
     "recora:commit-check": "tsx scripts/recora-safe-commit.ts commit-check",
     "recora:safe-commit": "tsx scripts/recora-safe-commit.ts safe-commit"

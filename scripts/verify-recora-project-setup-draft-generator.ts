@@ -524,6 +524,7 @@ function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
   assertNoDuplicateValues(draft.prompts.map((prompt) => prompt.promptId), "promptId");
   assertNoDuplicateValues(draft.prompts.map((prompt) => normalize(prompt.text)), "prompt text");
   assertPromptVariantCoverage(draft);
+  assertFixedPromptMaterializationMetadata(draft);
   assertTopicQualityRubric(draft);
 
   for (const item of draft.inputCompletion) {
@@ -615,6 +616,26 @@ function assertGeneratedDraftQuality(draft: ProjectSetupDraft) {
   assert.ok(materializationDecision.blockers.includes("draft_review_status_not_approved"));
 }
 
+function assertFixedPromptMaterializationMetadata(draft: ProjectSetupDraft) {
+  const intentKeyPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+  const corePromptIdsByIntentKey = new Map<string, string[]>();
+
+  for (const prompt of draft.prompts) {
+    assert.ok(prompt.intentKey, `${prompt.promptId} intentKey missing`);
+    assert.match(prompt.intentKey, intentKeyPattern, `${prompt.promptId} intentKey invalid`);
+    assert.ok(prompt.panelRole === "core" || prompt.panelRole === "diagnostic", `${prompt.promptId} panelRole invalid`);
+    assert.notEqual(prompt.panelRole, "robustness", `${prompt.promptId} generated unsupported robustness`);
+    if (prompt.panelRole === "core") {
+      const values = corePromptIdsByIntentKey.get(prompt.intentKey) ?? [];
+      values.push(prompt.promptId);
+      corePromptIdsByIntentKey.set(prompt.intentKey, values);
+    }
+  }
+
+  corePromptIdsByIntentKey.forEach((promptIds, intentKey) => {
+    assert.equal(promptIds.length, 1, `${intentKey} duplicate generated core prompts`);
+  });
+}
 function assertTopicQualityRubric(draft: ProjectSetupDraft) {
   const evaluation = evaluateProjectSetupTopicQuality(draft);
   const signals = evaluation.topicSignals;
