@@ -1,14 +1,13 @@
-import { ContentOpportunitiesPage } from "@/components/recora/report-pages";
+import { redirect } from "next/navigation";
 import {
   normalizeReportSlug,
-  renderCustomerReadyReportRoute,
   type ReportSlugPageProps
 } from "../../report-route-guard";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportContentOpportunitiesPage({ params }: ReportSlugPageProps) {
+export default function ReportContentOpportunitiesPage({ params }: ReportSlugPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
 
-  return renderCustomerReadyReportRoute(projectSlug, () => <ContentOpportunitiesPage />);
+  redirect(`/dashboard/reports/${projectSlug}/recommendations`);
 }

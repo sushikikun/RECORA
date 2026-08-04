@@ -1,23 +1,24 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  BarChart3,
   CircleGauge,
   Database,
+  FileText,
   Gauge,
   Home,
-  Layers3,
   Lightbulb,
+  Link2,
   MessageSquareText,
   Radar,
-  Swords
+  Settings,
+  Swords,
+  UsersRound
 } from "lucide-react";
 
 export type RecoraNavStatus = "ready" | "preparing";
 
 export type RecoraNavSection =
-  | "ホーム"
-  | "レポート"
-  | "測定管理"
-  | "設定";
+  | "顧客レポート";
 
 export type RecoraNavItem = {
   label: string;
@@ -33,86 +34,106 @@ export type RecoraNavGroup = {
   items: RecoraNavItem[];
 };
 
-const sectionOrder: RecoraNavSection[] = [
-  "ホーム",
-  "レポート"
-];
+const sectionOrder: RecoraNavSection[] = ["顧客レポート"];
 
 export type RecoraNavBuildOptions = {
   showReportContextItems?: boolean;
+  showRecommendations?: boolean;
 };
 
-export function buildRecoraNavItems(reportId?: string, _options: RecoraNavBuildOptions = {}): RecoraNavItem[] {
+export function buildRecoraNavItems(reportId?: string, options: RecoraNavBuildOptions = {}): RecoraNavItem[] {
   const reportBase = reportId ? `/dashboard/reports/${reportId}` : undefined;
   const dashboardHref = reportId === "design-check" ? "/dashboard?design-check=1" : "/dashboard";
+  const showRecommendations = options.showRecommendations ?? true;
 
   const reportDetailItems: RecoraNavItem[] = reportBase
     ? [
         {
-          label: "概要",
+          label: "ダッシュボード概要",
           href: reportBase,
-          section: "レポート",
+          section: "顧客レポート",
           status: "ready",
           icon: Radar
         },
         {
-          label: "ブランド比較",
+          label: "推移・変化",
+          href: `${reportBase}/trends`,
+          section: "顧客レポート",
+          status: "ready",
+          icon: BarChart3
+        },
+        {
+          label: "ブランド・競合",
           href: `${reportBase}/leaderboard`,
-          section: "レポート",
+          section: "顧客レポート",
           status: "ready",
           icon: Swords
         },
         {
-          label: "質問別分析",
-          href: `${reportBase}/prompts`,
-          section: "レポート",
+          label: "ペルソナ・トピック",
+          href: `${reportBase}/persona-topics`,
+          section: "顧客レポート",
           status: "ready",
-          icon: Layers3
+          icon: UsersRound
+        },
+        {
+          label: "プロンプト",
+          href: `${reportBase}/prompts`,
+          section: "顧客レポート",
+          status: "ready",
+          icon: FileText
         },
         {
           label: "AI回答",
           href: `${reportBase}/conversations`,
-          section: "レポート",
+          section: "顧客レポート",
           status: "ready",
           icon: MessageSquareText
         },
         {
-          label: "参照元",
+          label: "引用・参照元",
           href: `${reportBase}/sources`,
-          section: "レポート",
+          section: "顧客レポート",
           status: "ready",
-          icon: Database
+          icon: Link2
         },
         {
-          label: "ブランド認知",
+          label: "ブランド認識・感情",
           href: `${reportBase}/brand-perception`,
-          section: "レポート",
+          section: "顧客レポート",
           status: "ready",
           icon: CircleGauge
         },
-        {
-          label: "改善候補",
+        ...(showRecommendations ? [{
+          label: "改善提案・施策" as const,
           href: `${reportBase}/recommendations`,
-          section: "レポート",
-          status: "ready",
+          section: "顧客レポート" as const,
+          status: "ready" as const,
           icon: Lightbulb
+        }] : []),
+        {
+          label: "設定・連携",
+          href: `${reportBase}/settings`,
+          section: "顧客レポート",
+          status: "ready",
+          icon: Settings
         }
       ]
     : [];
 
   return [
     {
-      label: "ホーム",
+      label: "ダッシュボード概要",
       href: dashboardHref,
-      section: "ホーム",
+      section: "顧客レポート",
       status: "ready",
       icon: Gauge,
-      description: "レポート横断の数字、推移、全体傾向を確認します。"
+      description: "AI検索での見え方を、グラフと数値で確認します。"
     },
     {
-      label: "レポート",
+      label: "レポート一覧",
       href: "/dashboard/reports",
-      section: "レポート",
+      section: "顧客レポート",
       status: "ready",
       icon: Home,
       description: "レポート一覧を確認します。"
@@ -133,13 +154,14 @@ export function buildRecoraNavGroups(reportId?: string, options: RecoraNavBuildO
 }
 
 export const reportDetailTabs = {
-  overview: ["概要"],
+  overview: ["ダッシュボード概要"],
   conversations: ["AI回答"],
-  prompts: ["質問別分析"],
-  leaderboard: ["ブランド比較"],
-  sources: ["参照元"],
-  brandPerception: ["ブランド認知"],
-  recommendations: ["改善候補"],
+  trends: ["推移・変化"],
+  prompts: ["プロンプト"],
+  leaderboard: ["ブランド・競合"],
+  sources: ["引用・参照元"],
+  brandPerception: ["ブランド認識・感情"],
+  recommendations: ["改善提案・施策"],
   contentOpportunities: ["コンテンツ改善候補", "ページ改善候補", "改善マップ", "コンテンツ不足"],
   technicalAudit: ["サイト技術診断", "FAQ・構造化データ提案"],
   actionPlan: ["改善プラン", "30/60/90日プラン", "タスク管理"]
@@ -148,11 +170,11 @@ export const reportDetailTabs = {
 export const placeholderRouteSummaries = {
   reportHistory: {
     title: "レポート履歴",
-    description: "過去に作成したAI検索レポートを、期間・プロジェクト・測定状態で確認する画面です。"
+    description: "過去に作成したAI検索レポートを、期間・プロジェクト・公開可否で確認する画面です。"
   },
   runResults: {
     title: "実行履歴",
-    description: "測定runの状態、開始・完了時刻、除外された観測を実行単位で確認する画面です。"
+    description: "測定runの開始・終了時刻、除外された観測を実行単位で確認する画面です。"
   },
   export: {
     title: "エクスポート",
@@ -175,11 +197,11 @@ export const placeholderRouteSummaries = {
     description: "30/60/90日プランとタスク管理をまとめ、改善施策を実行に移すための画面です。"
   },
   team: {
-    title: "チーム",
-    description: "メンバー、権限、担当領域を管理する設定画面です。"
+    title: "設定",
+    description: "顧客向けレポートでは使用しない管理項目です。"
   },
   apiIntegrations: {
-    title: "外部連携",
-    description: "外部ツールとの連携状態を確認する設定画面です。"
+    title: "設定",
+    description: "顧客向けレポートでは使用しない管理項目です。"
   }
 } as const;
