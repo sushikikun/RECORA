@@ -52,15 +52,13 @@ comment on column public.prompts.ranking_opportunity is
 comment on column public.prompts.metric_eligibility is
   'Fixed nine-key metric eligibility object. Unit A enforces only the structural contract; semantic consistency belongs to finalization validation.';
 
-create or replace function recora_private.is_fixed_prompt_metric_eligibility(
-  document jsonb
-)
-returns boolean
+create or replace function recora_private.validate_prompt_metric_eligibility()
+returns trigger
 language plpgsql
-immutable
 set search_path = ''
 as $$
 declare
+  document jsonb := new.metric_eligibility;
   required_keys text[] := array[
     'visibility',
     'ranking',
@@ -79,8 +77,15 @@ declare
   child_key text;
   top_level_key_count integer;
 begin
-  if document is null or jsonb_typeof(document) <> 'object' then
-    return false;
+  if document is null then
+    return new;
+  end if;
+
+  if jsonb_typeof(document) <> 'object' then
+    raise exception
+      using
+        errcode = '23514',
+        message = 'invalid fixed prompt metric_eligibility structure';
   end if;
 
   select count(*)
@@ -88,58 +93,88 @@ begin
   from jsonb_object_keys(document);
 
   if top_level_key_count <> array_length(required_keys, 1) then
-    return false;
+    raise exception
+      using
+        errcode = '23514',
+        message = 'invalid fixed prompt metric_eligibility structure';
   end if;
 
   foreach metric_key in array required_keys loop
     if not (document ? metric_key) then
-      return false;
+      raise exception
+        using
+          errcode = '23514',
+          message = 'invalid fixed prompt metric_eligibility structure';
     end if;
 
     metric_value := document -> metric_key;
     if jsonb_typeof(metric_value) <> 'object' then
-      return false;
+      raise exception
+        using
+          errcode = '23514',
+          message = 'invalid fixed prompt metric_eligibility structure';
     end if;
 
     if not (metric_value ? 'state') or not (metric_value ? 'reason_codes') then
-      return false;
+      raise exception
+        using
+          errcode = '23514',
+          message = 'invalid fixed prompt metric_eligibility structure';
     end if;
 
     for child_key in
       select jsonb_object_keys(metric_value)
     loop
       if child_key not in ('state', 'reason_codes') then
-        return false;
+        raise exception
+          using
+            errcode = '23514',
+            message = 'invalid fixed prompt metric_eligibility structure';
       end if;
     end loop;
 
     if metric_value ->> 'state' not in ('eligible', 'excluded') then
-      return false;
+      raise exception
+        using
+          errcode = '23514',
+          message = 'invalid fixed prompt metric_eligibility structure';
     end if;
 
     reason_codes := metric_value -> 'reason_codes';
     if jsonb_typeof(reason_codes) <> 'array' or jsonb_array_length(reason_codes) < 1 then
-      return false;
+      raise exception
+        using
+          errcode = '23514',
+          message = 'invalid fixed prompt metric_eligibility structure';
     end if;
 
     for reason_value in
       select value from jsonb_array_elements(reason_codes) as reason(value)
     loop
       if jsonb_typeof(reason_value) <> 'string' then
-        return false;
+        raise exception
+          using
+            errcode = '23514',
+            message = 'invalid fixed prompt metric_eligibility structure';
       end if;
 
       if btrim(reason_value #>> '{}') = '' then
-        return false;
+        raise exception
+          using
+            errcode = '23514',
+            message = 'invalid fixed prompt metric_eligibility structure';
       end if;
 
       if (reason_value #>> '{}') !~ '^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$' then
-        return false;
+        raise exception
+          using
+            errcode = '23514',
+            message = 'invalid fixed prompt metric_eligibility structure';
       end if;
     end loop;
   end loop;
 
-  return true;
+  return new;
 end;
 $$;
 
@@ -222,12 +257,17 @@ begin
 end;
 $$;
 
-revoke all on function recora_private.is_fixed_prompt_metric_eligibility(jsonb)
+revoke all on function recora_private.validate_prompt_metric_eligibility()
   from public, anon, authenticated, service_role;
 revoke all on function recora_private.reject_finalized_prompt_mutation()
   from public, anon, authenticated, service_role;
 revoke all on function recora_private.reject_finalized_project_config_update()
   from public, anon, authenticated, service_role;
+
+grant select on table public.projects to service_role;
+grant select, insert, update, delete on table public.prompts to service_role;
+revoke insert, update, delete, truncate, references on table public.projects, public.prompts
+  from public, anon, authenticated;
 
 do $constraints$
 begin
@@ -374,20 +414,6 @@ begin
         or ranking_opportunity in ('direct', 'comparable_set', 'weak', 'none')
       );
   end if;
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.prompts'::regclass
-      and conname = 'prompts_metric_eligibility_shape_check'
-  ) then
-    alter table public.prompts
-      add constraint prompts_metric_eligibility_shape_check
-      check (
-        metric_eligibility is null
-        or recora_private.is_fixed_prompt_metric_eligibility(metric_eligibility)
-      );
-  end if;
 end;
 $constraints$;
 
@@ -400,3 +426,8 @@ drop trigger if exists recora_prompts_finalized_project_guard on public.prompts;
 create trigger recora_prompts_finalized_project_guard
 before insert or update or delete on public.prompts
 for each row execute function recora_private.reject_finalized_prompt_mutation();
+
+drop trigger if exists recora_prompts_metric_eligibility_shape_guard on public.prompts;
+create trigger recora_prompts_metric_eligibility_shape_guard
+before insert or update of metric_eligibility on public.prompts
+for each row execute function recora_private.validate_prompt_metric_eligibility();

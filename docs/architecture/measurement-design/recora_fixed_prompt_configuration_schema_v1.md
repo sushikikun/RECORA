@@ -51,15 +51,15 @@ Once `prompt_configuration_finalized_at` is non-null, the four configuration fie
 - `risk_check`
 - `recommendation_input`
 
-Each key maps to an object with only `state` and `reason_codes`. `state` is `eligible` or `excluded`. `reason_codes` is a non-empty string array, and each reason code is lowercase snake_case.
+Each key maps to an object with only `state` and `reason_codes`. `state` is `eligible` or `excluded`. `reason_codes` is a non-empty string array, and each reason code is lowercase snake_case. The shape is enforced by the narrow `BEFORE INSERT OR UPDATE OF metric_eligibility` trigger `recora_prompts_metric_eligibility_shape_guard`, not by a function-backed `CHECK` constraint.
 
 Unit A validates structure only. Semantic alignment between prompt type, response shape, opportunities, target brand, competitors, and metric eligibility belongs to Unit B finalization validation.
 
 ## Guard Design
 
-The migration uses private helper functions in `recora_private` with fixed `search_path = ''`. They are not `SECURITY DEFINER`, and direct `EXECUTE` is revoked from `public`, `anon`, `authenticated`, and `service_role`.
+The migration uses private trigger helper functions in `recora_private` with fixed `search_path = ''`. They are not `SECURITY DEFINER`, and direct `EXECUTE` is revoked from `public`, `anon`, `authenticated`, and `service_role`. `metric_eligibility` structural validation is inside the trigger helper so future server-side writes do not depend on direct `EXECUTE` privilege for a helper referenced by a `CHECK` constraint.
 
-The Prompt guard rejects ordinary `INSERT`, `UPDATE`, and direct `DELETE` for prompts whose project is finalized. Parent project deletion/retention cascade is allowed so existing project lifecycle behavior is not blocked.
+The metric eligibility guard rejects malformed non-null JSON on `INSERT` or `UPDATE OF metric_eligibility` while preserving nullable legacy rows. The finalized Prompt guard rejects ordinary `INSERT`, `UPDATE`, and direct `DELETE` for prompts whose project is finalized. Parent project deletion/retention cascade is allowed so existing project lifecycle behavior is not blocked.
 
 The Project guard rejects rewrites to finalized configuration fields after finalization.
 
@@ -77,7 +77,7 @@ Expected local validation for Issue #148:
 - seeded reset with `--local`
 - DB verifier again
 - second reset/replay
-- RLS/grant/function inventory
+- RLS/grant/function inventory, including helper direct execute grants = 0, anon/authenticated write grants = 0, service_role Prompt mutation grants present, and no function-backed metric eligibility CHECK
 - security and performance advisors
 - `npm run recora:prompt-measurement-contract:check`
 - `npm run recora:preflight:full`

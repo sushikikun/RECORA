@@ -143,13 +143,19 @@ function assertStaticContract(): void {
   assert.match(migrationSql, /projects_prompt_config_consistency_check/);
   assert.match(migrationSql, /projects_prompt_config_hash_check/);
   assert.match(migrationSql, /projects_prompt_config_count_check/);
-  assert.match(migrationSql, /prompts_metric_eligibility_shape_check/);
-  assert.match(migrationSql, /recora_private\.is_fixed_prompt_metric_eligibility\(metric_eligibility\)/);
+  assert.doesNotMatch(migrationSql, /prompts_metric_eligibility_shape_check/);
+  assert.doesNotMatch(migrationSql, /is_fixed_prompt_metric_eligibility\(metric_eligibility\)/);
+  assert.match(migrationSql, /recora_private\.validate_prompt_metric_eligibility\(\)/);
+  assert.match(migrationSql, /recora_prompts_metric_eligibility_shape_guard/);
+  assert.match(migrationSql, /before insert or update of metric_eligibility on public\.prompts/);
   assert.match(migrationSql, /recora_prompts_finalized_project_guard/);
   assert.match(migrationSql, /recora_projects_finalized_config_guard/);
-  assert.match(migrationSql, /revoke all on function recora_private\.is_fixed_prompt_metric_eligibility\(jsonb\)\s+from public, anon, authenticated, service_role;/i);
+  assert.match(migrationSql, /revoke all on function recora_private\.validate_prompt_metric_eligibility\(\)\s+from public, anon, authenticated, service_role;/i);
   assert.match(migrationSql, /revoke all on function recora_private\.reject_finalized_prompt_mutation\(\)\s+from public, anon, authenticated, service_role;/i);
   assert.match(migrationSql, /revoke all on function recora_private\.reject_finalized_project_config_update\(\)\s+from public, anon, authenticated, service_role;/i);
+  assert.match(migrationSql, /grant select on table public\.projects to service_role;/i);
+  assert.match(migrationSql, /grant select, insert, update, delete on table public\.prompts to service_role;/i);
+  assert.match(migrationSql, /revoke insert, update, delete, truncate, references on table public\.projects, public\.prompts\s+from public, anon, authenticated;/i);
   assert.match(migrationSql, /prompt_configuration_hash ~ '\^\[0-9a-f\]\{64\}\$'/);
   assert.match(migrationSql, /intent_key ~ '\^\[a-z0-9\]\+\(-\[a-z0-9\]\+\)\*\$'/);
   assert.match(migrationSql, /\^\[a-z\]\[a-z0-9\]\*\(\?:_\[a-z0-9\]\+\)\*\$/);
@@ -246,6 +252,10 @@ declare
   missing_constraint_count bigint;
   missing_trigger_count bigint;
   unexpected_browser_write_grant_count bigint;
+  missing_service_role_table_grant_count bigint;
+  unexpected_helper_execute_grant_count bigint;
+  security_definer_helper_count bigint;
+  function_backed_metric_check_count bigint;
   project_rls boolean;
   prompt_rls boolean;
 begin
@@ -290,7 +300,6 @@ begin
       ('prompts_response_shape_check'),
       ('prompts_candidate_mention_opportunity_check'),
       ('prompts_ranking_opportunity_check'),
-      ('prompts_metric_eligibility_shape_check'),
       ('prompts_topic_project_fkey'),
       ('prompts_persona_project_fkey')
   ) expected(conname)
@@ -310,6 +319,7 @@ begin
   from (
     values
       ('public.prompts'::regclass, 'recora_prompts_finalized_project_guard'),
+      ('public.prompts'::regclass, 'recora_prompts_metric_eligibility_shape_guard'),
       ('public.projects'::regclass, 'recora_projects_finalized_config_guard')
   ) expected(table_oid, trigger_name)
   where not exists (
@@ -342,31 +352,73 @@ begin
     raise exception 'Issue 148 catalog failed: browser write grants were introduced';
   end if;
 
-  if has_function_privilege('anon', 'recora_private.is_fixed_prompt_metric_eligibility(jsonb)', 'EXECUTE')
-    or has_function_privilege('authenticated', 'recora_private.is_fixed_prompt_metric_eligibility(jsonb)', 'EXECUTE')
-    or has_function_privilege('service_role', 'recora_private.is_fixed_prompt_metric_eligibility(jsonb)', 'EXECUTE')
-    or has_function_privilege('anon', 'recora_private.reject_finalized_prompt_mutation()', 'EXECUTE')
-    or has_function_privilege('authenticated', 'recora_private.reject_finalized_prompt_mutation()', 'EXECUTE')
-    or has_function_privilege('service_role', 'recora_private.reject_finalized_prompt_mutation()', 'EXECUTE')
-    or has_function_privilege('anon', 'recora_private.reject_finalized_project_config_update()', 'EXECUTE')
-    or has_function_privilege('authenticated', 'recora_private.reject_finalized_project_config_update()', 'EXECUTE')
-    or has_function_privilege('service_role', 'recora_private.reject_finalized_project_config_update()', 'EXECUTE')
-  then
+  select count(*)
+  into missing_service_role_table_grant_count
+  from (
+    values
+      ('service_role', 'public.projects', 'SELECT'),
+      ('service_role', 'public.prompts', 'SELECT'),
+      ('service_role', 'public.prompts', 'INSERT'),
+      ('service_role', 'public.prompts', 'UPDATE'),
+      ('service_role', 'public.prompts', 'DELETE')
+  ) expected(role_name, relation_name, privilege_name)
+  where not has_table_privilege(expected.role_name, expected.relation_name, expected.privilege_name);
+
+  if missing_service_role_table_grant_count <> 0 then
+    raise exception 'Issue 148 catalog failed: service_role prompt mutation grants are missing';
+  end if;
+
+  select count(*)
+  into function_backed_metric_check_count
+  from pg_constraint constraint_row
+  where constraint_row.connamespace = 'public'::regnamespace
+    and (
+      constraint_row.conname = 'prompts_metric_eligibility_shape_check'
+      or pg_get_constraintdef(constraint_row.oid) ~ 'is_fixed_prompt_metric_eligibility'
+    );
+
+  if function_backed_metric_check_count <> 0 then
+    raise exception 'Issue 148 catalog failed: metric_eligibility must not use a function-backed CHECK';
+  end if;
+
+  if to_regprocedure('recora_private.is_fixed_prompt_metric_eligibility(jsonb)') is not null then
+    raise exception 'Issue 148 catalog failed: obsolete metric eligibility CHECK helper still exists';
+  end if;
+
+  select count(*)
+  into unexpected_helper_execute_grant_count
+  from (
+    values
+      ('anon', 'recora_private.validate_prompt_metric_eligibility()'),
+      ('authenticated', 'recora_private.validate_prompt_metric_eligibility()'),
+      ('service_role', 'recora_private.validate_prompt_metric_eligibility()'),
+      ('anon', 'recora_private.reject_finalized_prompt_mutation()'),
+      ('authenticated', 'recora_private.reject_finalized_prompt_mutation()'),
+      ('service_role', 'recora_private.reject_finalized_prompt_mutation()'),
+      ('anon', 'recora_private.reject_finalized_project_config_update()'),
+      ('authenticated', 'recora_private.reject_finalized_project_config_update()'),
+      ('service_role', 'recora_private.reject_finalized_project_config_update()')
+  ) expected(role_name, signature)
+  where to_regprocedure(expected.signature) is not null
+    and has_function_privilege(expected.role_name, expected.signature, 'EXECUTE');
+
+  if unexpected_helper_execute_grant_count <> 0 then
     raise exception 'Issue 148 catalog failed: helper direct execute privilege exists';
   end if;
 
-  if exists (
-    select 1
-    from pg_proc proc
-    join pg_namespace namespace on namespace.oid = proc.pronamespace
-    where namespace.nspname = 'recora_private'
-      and proc.proname in (
-        'is_fixed_prompt_metric_eligibility',
-        'reject_finalized_prompt_mutation',
-        'reject_finalized_project_config_update'
-      )
-      and proc.prosecdef
-  ) then
+  select count(*)
+  into security_definer_helper_count
+  from pg_proc proc
+  join pg_namespace namespace on namespace.oid = proc.pronamespace
+  where namespace.nspname = 'recora_private'
+    and proc.proname in (
+      'validate_prompt_metric_eligibility',
+      'reject_finalized_prompt_mutation',
+      'reject_finalized_project_config_update'
+    )
+    and proc.prosecdef;
+
+  if security_definer_helper_count <> 0 then
     raise exception 'Issue 148 catalog failed: helper must not be SECURITY DEFINER';
   end if;
 end;
@@ -374,6 +426,121 @@ $verify$;
 `);
 }
 
+function assertServiceRoleRuntime(): void {
+  queryLocal(`
+begin;
+${commonFixtureSql()}
+set local role service_role;
+insert into public.prompts (
+  id,
+  project_id,
+  topic_id,
+  persona_id,
+  text,
+  intent_key,
+  panel_role,
+  response_shape,
+  candidate_mention_opportunity,
+  ranking_opportunity,
+  metric_eligibility
+) values (
+  '10000000-0000-4000-8000-000000041148',
+  ${promptValueTail(ids.unfinalizedProject, ids.topicUnfinalized, ids.personaUnfinalized, "Service role valid metric eligibility")}
+);
+rollback;
+`);
+  console.log("PASS service_role valid metric_eligibility insert");
+
+  queryLocal(
+    `
+begin;
+${commonFixtureSql()}
+set local role service_role;
+insert into public.prompts (
+  id,
+  project_id,
+  topic_id,
+  persona_id,
+  text,
+  metric_eligibility
+) values (
+  '10000000-0000-4000-8000-000000042148',
+  '${ids.unfinalizedProject}',
+  '${ids.topicUnfinalized}',
+  '${ids.personaUnfinalized}',
+  'Service role malformed metric eligibility',
+  ${jsonbLiteral(metricEligibilityJson({ recommendation_input: undefined }))}
+);
+rollback;
+`,
+    /invalid fixed prompt metric_eligibility structure/i,
+  );
+  console.log("PASS service_role malformed metric_eligibility blocked");
+
+  const finalizedPromptFixture = `
+${commonFixtureSql()}
+insert into public.prompts (
+  id,
+  project_id,
+  topic_id,
+  persona_id,
+  text,
+  intent_key,
+  panel_role,
+  response_shape,
+  candidate_mention_opportunity,
+  ranking_opportunity,
+  metric_eligibility
+) values (
+  '${ids.promptFinalized}',
+  ${promptValueTail(ids.finalizedProject, ids.topicFinalized, ids.personaFinalized, "Service role finalized prompt fixture")}
+);
+update public.projects
+set
+  prompt_configuration_finalized_at = now(),
+  prompt_configuration_hash = '${validHash}',
+  prompt_configuration_contract_version = 'recora_fixed_prompt_configuration_schema_v1',
+  prompt_configuration_count = 1
+where id = '${ids.finalizedProject}';
+`;
+
+  const finalizedCases: readonly [string, string][] = [
+    [
+      "service_role finalized prompt insert",
+      `insert into public.prompts (
+         id, project_id, topic_id, persona_id, text
+       ) values (
+         '10000000-0000-4000-8000-000000043148',
+         '${ids.finalizedProject}',
+         '${ids.topicFinalized}',
+         '${ids.personaFinalized}',
+         'Service role blocked finalized insert'
+       )`,
+    ],
+    [
+      "service_role finalized prompt update",
+      `update public.prompts set text = 'Service role blocked finalized update' where id = '${ids.promptFinalized}'`,
+    ],
+    [
+      "service_role finalized prompt delete",
+      `delete from public.prompts where id = '${ids.promptFinalized}'`,
+    ],
+  ];
+
+  for (const [name, statement] of finalizedCases) {
+    queryLocal(
+      `
+begin;
+${finalizedPromptFixture}
+set local role service_role;
+${statement};
+rollback;
+`,
+      /fixed prompt configuration is finalized/i,
+    );
+    console.log(`PASS ${name}`);
+  }
+}
 function assertDbFixtures(): void {
   queryLocal(`
 begin;
@@ -534,7 +701,7 @@ rollback;
          'Missing metric key',
          ${jsonbLiteral(metricEligibilityJson({ recommendation_input: undefined }))}
        )`,
-      /prompts_metric_eligibility_shape_check|violates check constraint/i,
+      /invalid fixed prompt metric_eligibility structure/i,
     ],
     [
       "extra metric key",
@@ -547,7 +714,7 @@ rollback;
          'Extra metric key',
          ${jsonbLiteral(metricEligibilityJson({ unsupported: { state: "eligible", reason_codes: ["extra_key"] } }))}
        )`,
-      /prompts_metric_eligibility_shape_check|violates check constraint/i,
+      /invalid fixed prompt metric_eligibility structure/i,
     ],
     [
       "invalid metric state",
@@ -560,7 +727,7 @@ rollback;
          'Invalid metric state',
          ${jsonbLiteral(metricEligibilityJson({ visibility: { state: "maybe", reason_codes: ["bad_state"] } }))}
        )`,
-      /prompts_metric_eligibility_shape_check|violates check constraint/i,
+      /invalid fixed prompt metric_eligibility structure/i,
     ],
     [
       "empty reason codes",
@@ -573,7 +740,7 @@ rollback;
          'Empty reason codes',
          ${jsonbLiteral(metricEligibilityJson({ visibility: { state: "eligible", reason_codes: [] } }))}
        )`,
-      /prompts_metric_eligibility_shape_check|violates check constraint/i,
+      /invalid fixed prompt metric_eligibility structure/i,
     ],
     [
       "non-array reason codes",
@@ -586,7 +753,7 @@ rollback;
          'Non-array reason codes',
          ${jsonbLiteral(metricEligibilityJson({ visibility: { state: "eligible", reason_codes: "bad_reason" } }))}
        )`,
-      /prompts_metric_eligibility_shape_check|violates check constraint/i,
+      /invalid fixed prompt metric_eligibility structure/i,
     ],
     [
       "empty reason",
@@ -599,7 +766,7 @@ rollback;
          'Empty reason',
          ${jsonbLiteral(metricEligibilityJson({ visibility: { state: "eligible", reason_codes: [""] } }))}
        )`,
-      /prompts_metric_eligibility_shape_check|violates check constraint/i,
+      /invalid fixed prompt metric_eligibility structure/i,
     ],
     [
       "non-string reason",
@@ -612,7 +779,7 @@ rollback;
          'Non-string reason',
          ${jsonbLiteral(metricEligibilityJson({ visibility: { state: "eligible", reason_codes: [123] } }))}
        )`,
-      /prompts_metric_eligibility_shape_check|violates check constraint/i,
+      /invalid fixed prompt metric_eligibility structure/i,
     ],
     [
       "invalid reason code",
@@ -625,7 +792,7 @@ rollback;
          'Invalid reason code',
          ${jsonbLiteral(metricEligibilityJson({ visibility: { state: "eligible", reason_codes: ["Bad-Reason"] } }))}
        )`,
-      /prompts_metric_eligibility_shape_check|violates check constraint/i,
+      /invalid fixed prompt metric_eligibility structure/i,
     ],
     [
       "finalized prompt insert",
@@ -694,6 +861,7 @@ if (!staticOnly) {
   inspectContainer();
   assertDbCatalog();
   assertDbFixtures();
+  assertServiceRoleRuntime();
 }
 
 console.log(
