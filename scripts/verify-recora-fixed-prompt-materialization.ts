@@ -61,6 +61,26 @@ const seedInput: ProjectSetupSeedInput = {
   knownCompetitors: ["RivalCo"],
   diagnosisGoals: ["non_branded", "comparison", "citation_check", "sentiment"]
 };
+const separatorInsensitiveBrandIdentity = {
+  brandName: "Recora AI",
+  serviceName: "Recora AI",
+  aliases: ["Recora AI", "Recora_AI", "Recora\u30fbAI", "\uff32\uff45\uff43\uff4f\uff52\uff41\u3000\uff21\uff29"],
+  officialSiteUrl: "https://recora-ai.example",
+  domain: "recora-ai.example"
+} as const;
+const separatorInsensitiveBrandInput = {
+  projectId,
+  brandIdentity: separatorInsensitiveBrandIdentity
+} as const;
+const separatorInsensitiveSeedInput: ProjectSetupSeedInput = {
+  ...seedInput,
+  brandName: "Recora AI",
+  officialSiteUrl: "https://recora-ai.example",
+  serviceName: "Recora AI",
+  brandAliases: separatorInsensitiveBrandIdentity.aliases,
+  knownCompetitors: [],
+  avoidCompetitors: []
+};
 
 const completeDraft = createDraft({
   prompts: [
@@ -232,6 +252,22 @@ expectBlocked("brand optional", patchPrompt(completeDraft, 0, {
 expectBlocked("target brand contamination", patchPrompt(completeDraft, 0, {
   text: "Which AI search visibility tools should a team compare, including Recora?"
 }), "target_brand_signal_in_brand_excluded_text");
+[
+  "Recora AI\u3092\u6bd4\u8f03",
+  "Recora-AI\u3092\u6bd4\u8f03",
+  "Recora_AI\u3092\u6bd4\u8f03",
+  "Recora\u30fbAI\u3092\u6bd4\u8f03",
+  "\uff32\uff45\uff43\uff4f\uff52\uff41\u3000\uff21\uff29\u3092\u6bd4\u8f03"
+].forEach((text, index) => {
+  expectBlockedWithInput(`separator-insensitive target brand ${index}`, createDraft({
+    seedInput: separatorInsensitiveSeedInput,
+    prompts: [createPrompt({
+      promptId: `prompt-separator-target-brand-${index}`,
+      text,
+      intentKey: `separator-target-brand-${index}`
+    })]
+  }), separatorInsensitiveBrandInput, "target_brand_signal_in_brand_excluded_text");
+});
 expectBlockedWithInput("caller brand identity cannot erase draft brand", patchPrompt(completeDraft, 0, {
   text: "Which AI search visibility tools should a team compare, including Recora?"
 }), {
@@ -273,6 +309,27 @@ expectBlockedWithInput("approved draft competitor contamination", createDraft({
     text: "Which AI search visibility tools should a team compare, including RivalCo?"
   })]
 }), materializationInputWithoutCompetitors, "known_competitor_signal_without_named_competitor_scope");
+expectBlockedWithInput("seed competitor overlaps target brand", createDraft({
+  seedInput: { ...seedInput, knownCompetitors: ["Recora"], avoidCompetitors: [] }
+}), materializationInputWithoutCompetitors, "competitor_identity_overlaps_target_brand");
+expectBlockedWithInput("input competitor overlaps target brand alias", createDraft({
+  seedInput: { ...seedInput, knownCompetitors: [], avoidCompetitors: [] }
+}), {
+  ...materializationInputWithoutCompetitors,
+  knownCompetitors: ["recora"]
+}, "competitor_identity_overlaps_target_brand");
+expectBlockedWithInput("approved competitor raw name overlaps target brand", createDraft({
+  seedInput: { ...seedInput, knownCompetitors: [], avoidCompetitors: [] },
+  competitors: [createCompetitor({ rawName: "Recora", normalizedName: "recora", brandAliases: [] })]
+}), materializationInputWithoutCompetitors, "competitor_identity_overlaps_target_brand");
+expectBlockedWithInput("approved competitor alias overlaps target brand", createDraft({
+  seedInput: { ...seedInput, knownCompetitors: [], avoidCompetitors: [] },
+  competitors: [createCompetitor({ brandAliases: ["recora"] })]
+}), materializationInputWithoutCompetitors, "competitor_identity_overlaps_target_brand");
+expectBlockedWithInput("approved competitor domain overlaps target brand domain", createDraft({
+  seedInput: { ...seedInput, knownCompetitors: [], avoidCompetitors: [] },
+  competitors: [createCompetitor({ domain: "recora.example" })]
+}), materializationInputWithoutCompetitors, "competitor_identity_overlaps_target_brand");
 expectBlocked("unapproved draft competitor", createDraft({
   competitors: [createCompetitor({ reviewStatus: "needs_review" })]
 }), "competitor competitor-rivalco review_status_not_approved");
@@ -615,8 +672,10 @@ console.log(JSON.stringify({
     targetBrandContaminationFails: true,
     callerBrandIdentityCannotEraseDraftBrand: true,
     matchingCallerBrandIdentityPasses: true,
+    separatorInsensitiveTargetBrandFails: true,
     knownCompetitorContaminationFails: true,
     approvedDraftCompetitorContaminationFails: true,
+    competitorIdentityOverlapFails: true,
     unapprovedDraftCompetitorFails: true,
     riskFlagHeuristicRemoved: true,
     competitorOnlyTargetBrandFails: true,

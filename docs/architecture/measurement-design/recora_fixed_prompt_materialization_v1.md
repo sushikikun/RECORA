@@ -65,11 +65,13 @@ or:
 
 Every metric has non-empty deterministic reason codes. Reason codes are deduplicated and sorted lexicographically.
 
-Market metrics require a brand-excluded prompt, no known competitor pre-seeding, no brand-optional wording, no forced citation request, a market-capable response shape, acceptable seed contamination, and direct or likely candidate/ranking opportunity. SOV requires visibility eligibility.
+Market metrics require a brand-excluded prompt, no separator-insensitive target-brand signal, no known competitor pre-seeding, no brand-optional wording, no forced citation request, a market-capable response shape, acceptable seed contamination, and direct or likely candidate/ranking opportunity. SOV requires visibility eligibility.
 
 Authoritative competitor context is a conservative merge of `seedInput.knownCompetitors`, `seedInput.avoidCompetitors`, approved `draft.competitors` identity fields (`rawName`, `normalizedName`, `brandAliases`, `companyName`, `productName`, and `domain`), and explicit caller-provided known competitors or aliases. Caller input adds to this context; it does not erase approved draft context. Any unapproved draft competitor blocks formal materialization. `competitor_only` and `named_competitors` prompts require both non-empty authoritative known competitor context and a known competitor signal in the prompt text; missing context fails with `known_competitor_identity_context_missing`, and missing text signal fails with `competitor_only_text_missing_known_competitor` or `named_competitor_text_missing_known_competitor`.
 
-Authoritative target brand context is also conservative. Caller `input.brandIdentity` cannot erase the Draft brand identity: Draft brand name remains primary, Draft service/site/domain fields are preserved when present, and caller brand values only fill missing fields or add aliases for matching/contamination detection.
+Authoritative target brand context is also conservative. Caller `input.brandIdentity` cannot erase the Draft brand identity: Draft brand name remains primary, Draft service/site/domain fields are preserved when present, and caller brand values only fill missing fields or add aliases for matching/contamination detection. Target-brand signals are built from Draft brand name, service name, aliases, official-site hostname, domain, and conservatively merged caller brand identity. B1 normalizes target and competitor signals with NFKC, lowercase, and separator removal so spaces, hyphens, underscores, punctuation, and width differences cannot hide identity matches. Metric eligibility, identity validation, and compatibility projection use this same target-brand detector.
+
+Target-brand and known-competitor normalized signal sets must be disjoint. Any intersection fails formal materialization with `competitor_identity_overlaps_target_brand`. Named-comparison and competitor-only text matching must be satisfied by a distinct known competitor signal that does not overlap target-brand identity.
 
 Branded metrics require explicit self-branded prompts. Forced citation validation and natural citation observation are mutually exclusive. `risk_check` eligibility is explicit: `intentType === "risk_checking"` or a closed risk semantic intent-key group (`implementation-risk`, `regulated-risk`, `price-reputation-risk`, or `local-price-reputation-risk`). Arbitrary quality or review `riskFlags` are not eligibility authority. Risk-only and recommendation-input-only prompts may be materialized as diagnostic prompts when all other readiness gates pass.
 
@@ -144,10 +146,11 @@ Materialization fails closed for:
 - brand-optional prompts
 - medium or high seed contamination
 - no eligible analysis
-- target brand contamination in brand-excluded prompts
+- target brand contamination in brand-excluded prompts, including separator, punctuation, and width variants
 - known competitor contamination outside named-competitor scope
+- target-brand and known-competitor identity overlap (`competitor_identity_overlaps_target_brand`)
 - missing authoritative known competitor context for competitor-only or named-competitor prompts
-- competitor-only or named-competitor prompt text without a known competitor signal
+- competitor-only or named-competitor prompt text without a distinct known competitor signal
 - unapproved draft competitor records
 - competitor-only prompts that contain the target brand
 - caller brand identity that would otherwise erase Draft brand context
@@ -159,6 +162,6 @@ Diagnostic-only intents are allowed when the prompt has explicit metadata and at
 
 ## Verification
 
-The B1 verifier is `npm run recora:fixed-prompt-materialization:check`. It covers generator metadata, 9-key metric eligibility, negative fail-closed cases, prompt text non-empty checks, approved draft competitor context, required known-competitor context/text signals for competitor-only and named-competitor prompts, conservative caller/Draft brand identity merging, Draft/caller project slug mismatch, risk semantic eligibility without `riskFlags` heuristics, competitor-only identity contradictions, stable UUID repeatability/collision behavior, canonical JSON stability, hash sensitivity, and exact prompt count behavior.
+The B1 verifier is `npm run recora:fixed-prompt-materialization:check`. It covers generator metadata, 9-key metric eligibility, negative fail-closed cases, prompt text non-empty checks, separator-insensitive target-brand detection, approved draft competitor context, required distinct known-competitor context/text signals for competitor-only and named-competitor prompts, target/competitor identity overlap rejection, conservative caller/Draft brand identity merging, Draft/caller project slug mismatch, risk semantic eligibility without `riskFlags` heuristics, competitor-only identity contradictions, stable UUID repeatability/collision behavior, canonical JSON stability, hash sensitivity, and exact prompt count behavior.
 
 Required repository checks for this unit are the Issue #154 command set, including project setup draft checks, generator check/eval, prompt measurement contract check, Unit A static schema check, B1 verifier, preflight, typecheck, lint, build, and `git diff --check`.

@@ -5,7 +5,6 @@ import {
   MIN_PROMPT_QUALITY_SCORE,
   getBrandIdentityFromDraft,
   isApprovedReviewStatus,
-  promptTextContainsBrandSignal,
   validateProjectSetupDraft,
   type BrandIdentityForDraft,
   type CompetitorDraft,
@@ -285,6 +284,9 @@ export function validateFixedPromptMaterializationDraft(
   }
 
   const context = resolveMetricContext(draft, input);
+  if (targetCompetitorIdentityOverlaps(context)) {
+    blockers.push("competitor_identity_overlaps_target_brand");
+  }
   const corePromptIdsByIntentKey = new Map<string, string[]>();
   const robustnessPromptIdsByIntentKey = new Map<string, string[]>();
   for (const persona of draft.personas) {
@@ -445,8 +447,8 @@ export function materializeFixedPromptMetricEligibility(
   prompt: PromptDraft,
   context: FixedPromptMetricEligibilityContext
 ): RecoraFixedPromptMetricEligibility {
-  const targetBrandPresent = promptTextContainsBrandSignal(prompt.text, context.brandIdentity);
-  const knownCompetitorPresent = promptTextContainsKnownCompetitorSignal(prompt.text, context);
+  const targetBrandPresent = promptTextContainsTargetBrandSignal(prompt.text, context);
+  const knownCompetitorPresent = promptTextContainsDistinctKnownCompetitorSignal(prompt.text, context);
   const explicitSelfBranded = isExplicitSelfBrandedPrompt(prompt);
   const brandOptional = prompt.brandingMode === "brand_optional" || prompt.brandMentionRule === "brand_optional";
   const forcedCitation = isForcedCitationPrompt(prompt);
@@ -526,8 +528,8 @@ export function materializeFixedPromptCompatibilityFields(
   metricEligibility: RecoraFixedPromptMetricEligibility,
   context: FixedPromptMetricEligibilityContext
 ): FixedPromptCompatibilityFields {
-  const targetBrandPresent = promptTextContainsBrandSignal(prompt.text, context.brandIdentity);
-  const knownCompetitorPresent = promptTextContainsKnownCompetitorSignal(prompt.text, context);
+  const targetBrandPresent = promptTextContainsTargetBrandSignal(prompt.text, context);
+  const knownCompetitorPresent = promptTextContainsDistinctKnownCompetitorSignal(prompt.text, context);
   const forcedCitation = metricEligibility.forced_citation_validation.state === "eligible";
   const competitorOnly = isCompetitorOnlyPrompt(prompt);
   const explicitSelfBranded = isExplicitSelfBrandedPrompt(prompt) || targetBrandPresent;
@@ -605,6 +607,32 @@ export function promptTextContainsKnownCompetitorSignal(
   const normalizedText = normalizeIdentity(text);
   return getKnownCompetitorSignals(context).some((signal) => normalizedText.includes(signal));
 }
+
+export function promptTextContainsTargetBrandSignal(
+  text: string,
+  context: Pick<FixedPromptMetricEligibilityContext, "brandIdentity">
+): boolean {
+  const normalizedText = normalizeIdentity(text);
+  return getTargetBrandSignals(context).some((signal) => normalizedText.includes(signal));
+}
+
+function promptTextContainsDistinctKnownCompetitorSignal(
+  text: string,
+  context: FixedPromptMetricEligibilityContext
+): boolean {
+  const normalizedText = normalizeIdentity(text);
+  return getDistinctKnownCompetitorSignals(context).some((signal) => normalizedText.includes(signal));
+}
+
+function targetCompetitorIdentityOverlaps(context: FixedPromptMetricEligibilityContext): boolean {
+  return getTargetCompetitorIdentityOverlap(context).length > 0;
+}
+
+function getTargetCompetitorIdentityOverlap(context: FixedPromptMetricEligibilityContext): string[] {
+  const targetSignals = new Set(getTargetBrandSignals(context));
+  return getKnownCompetitorSignals(context).filter((signal) => targetSignals.has(signal));
+}
+
 function resolveMetricContext(
   draft: ProjectSetupDraft,
   input: FixedPromptMaterializationInput
@@ -763,8 +791,8 @@ function validatePromptIdentityBoundary(
   context: FixedPromptMetricEligibilityContext
 ): string[] {
   const blockers: string[] = [];
-  const targetBrandPresent = promptTextContainsBrandSignal(prompt.text, context.brandIdentity);
-  const knownCompetitorPresent = promptTextContainsKnownCompetitorSignal(prompt.text, context);
+  const targetBrandPresent = promptTextContainsTargetBrandSignal(prompt.text, context);
+  const knownCompetitorPresent = promptTextContainsDistinctKnownCompetitorSignal(prompt.text, context);
   const marketEligible =
     metricEligibility.visibility.state === "eligible" ||
     metricEligibility.ranking.state === "eligible" ||
@@ -782,7 +810,7 @@ function validatePromptIdentityBoundary(
   if (knownCompetitorPresent && !isNamedCompetitorPrompt(prompt)) {
     blockers.push("known_competitor_signal_without_named_competitor_scope");
   }
-  if (isKnownCompetitorScopedPrompt(prompt) && getKnownCompetitorSignals(context).length === 0) {
+  if (isKnownCompetitorScopedPrompt(prompt) && getDistinctKnownCompetitorSignals(context).length === 0) {
     blockers.push("known_competitor_identity_context_missing");
   } else if (isKnownCompetitorScopedPrompt(prompt) && !knownCompetitorPresent) {
     blockers.push(
@@ -984,6 +1012,22 @@ function normalizeCanonicalText(value: string): string {
   return value.normalize("NFC").replace(/\r\n?/g, "\n").trim();
 }
 
+function getTargetBrandSignals(
+  context: Pick<FixedPromptMetricEligibilityContext, "brandIdentity">
+): string[] {
+  const brandIdentity = context.brandIdentity;
+  return uniqueStrings([
+    brandIdentity.brandName,
+    brandIdentity.serviceName,
+    brandIdentity.domain,
+    brandIdentity.officialSiteUrl ? extractHostname(brandIdentity.officialSiteUrl) : null,
+    ...(brandIdentity.aliases ?? [])
+  ]
+    .filter(hasText)
+    .map(normalizeIdentity)
+    .filter((signal) => signal.length >= 2));
+}
+
 function getKnownCompetitorSignals(
   context: Pick<FixedPromptMetricEligibilityContext, "knownCompetitors" | "knownCompetitorAliases">
 ): string[] {
@@ -993,6 +1037,19 @@ function getKnownCompetitorSignals(
   ]
     .map(normalizeIdentity)
     .filter((signal) => signal.length >= 2));
+}
+
+function getDistinctKnownCompetitorSignals(context: FixedPromptMetricEligibilityContext): string[] {
+  const targetSignals = new Set(getTargetBrandSignals(context));
+  return getKnownCompetitorSignals(context).filter((signal) => !targetSignals.has(signal));
+}
+
+function extractHostname(value: string): string {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return value;
+  }
 }
 
 function normalizeIdentity(value: string): string {
