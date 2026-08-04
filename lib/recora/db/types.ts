@@ -65,6 +65,35 @@ export type RecoraSourceFreshnessStatus =
   | "stale"
   | "unknown"
   | "not_checked";
+export type RecoraFixedPromptPanelRole = "core" | "robustness" | "diagnostic";
+export type RecoraFixedPromptResponseShape =
+  | "candidate_list"
+  | "ranked_recommendation"
+  | "comparative_set"
+  | "evaluation_criteria"
+  | "explanatory_answer"
+  | "evidence_answer"
+  | "branded_sentiment_answer";
+export type RecoraFixedPromptCandidateMentionOpportunity = "direct" | "likely" | "weak" | "none";
+export type RecoraFixedPromptRankingOpportunity = "direct" | "comparable_set" | "weak" | "none";
+export type RecoraFixedPromptMetricKey =
+  | "visibility"
+  | "ranking"
+  | "sov"
+  | "sentiment"
+  | "brand_perception"
+  | "natural_citation_observation"
+  | "forced_citation_validation"
+  | "risk_check"
+  | "recommendation_input";
+export type RecoraFixedPromptMetricEligibilityState = "eligible" | "excluded";
+export type RecoraFixedPromptMetricEligibility = Record<
+  RecoraFixedPromptMetricKey,
+  {
+    state: RecoraFixedPromptMetricEligibilityState;
+    reason_codes: string[];
+  }
+>;
 
 export type RecoraOrganizationRow = {
   id: string;
@@ -100,6 +129,10 @@ export type RecoraProjectRow = {
   language: string;
   region: string;
   default_period: string | null;
+  prompt_configuration_finalized_at?: string | null;
+  prompt_configuration_hash?: string | null;
+  prompt_configuration_contract_version?: string | null;
+  prompt_configuration_count?: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -206,6 +239,12 @@ export type RecoraPromptRow = {
   text: string;
   intent: string | null;
   buyer_stage: string | null;
+  intent_key?: string | null;
+  panel_role?: RecoraFixedPromptPanelRole | null;
+  response_shape?: RecoraFixedPromptResponseShape | null;
+  candidate_mention_opportunity?: RecoraFixedPromptCandidateMentionOpportunity | null;
+  ranking_opportunity?: RecoraFixedPromptRankingOpportunity | null;
+  metric_eligibility?: RecoraFixedPromptMetricEligibility | null;
   priority: RecoraPriority;
   is_active: boolean;
   created_at: string;
