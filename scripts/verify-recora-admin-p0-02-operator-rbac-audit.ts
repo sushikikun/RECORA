@@ -5,16 +5,18 @@ import fs from "node:fs";
 import path from "node:path";
 
 const repoRoot = process.cwd();
-const expectedBaseline = "ed37aa85f2996b33429e34c86918d047be36e6b8";
-const expectedContainer = "supabase_db_recora-admin-p0-m02";
+const expectedBaseline = "dc5cad4e3a2946b6993716b1d66bc0ef5c5ed8f3";
+const expectedContainer = "supabase_db_recora-admin-p0-m03";
 const expectedM00Stem = "recora_admin_p0_00_baseline_contract";
 const expectedM01Stem = "recora_admin_p0_01_common_infrastructure";
 const expectedM02Stem = "recora_admin_p0_02_operator_rbac_audit";
+const expectedM03Stem = "recora_admin_p0_03_static_catalogs";
 const expectedCanonicalHash = "f376867ccae596fdc5d8d66b12cbc16a9a95a1b4de464f34738088909859ed3a";
 const expectedPhysicalHash = "d6d57dbadc341e4e1570e02fd22cd1f5ff8bc423c0740c97b8efbdb9c87a121a";
 const migrationDirectory = path.join(repoRoot, "supabase", "migrations");
 const canonicalPath = "docs/architecture/recora-admin-p0/canonical/recora_admin_p0_canonical_manifest_v1.json";
 const physicalPath = "docs/architecture/recora-admin-p0/database/recora_admin_p0_physical_schema_manifest_v1_3.json";
+const m03CatalogManifestPath = "docs/architecture/recora-admin-p0/database/recora_admin_p0_m03_static_catalogs_manifest_v1.json";
 const expectedRelations = [
   "recora_operator.admin_accounts",
   "recora_operator.admin_identity_security_projections",
@@ -36,8 +38,12 @@ assert.equal(sha256(readHeadBlob(physicalPath)), expectedPhysicalHash);
 const m00Path = findMigration(expectedM00Stem);
 const m01Path = findMigration(expectedM01Stem);
 const m02Path = findMigration(expectedM02Stem);
+const m03Path = findOptionalMigration(expectedM03Stem);
 assert.ok(migrationTimestamp(m00Path) < migrationTimestamp(m01Path));
 assert.ok(migrationTimestamp(m01Path) < migrationTimestamp(m02Path));
+if (m03Path) {
+  assert.ok(migrationTimestamp(m02Path) < migrationTimestamp(m03Path));
+}
 
 const migrationSql = fs.readFileSync(m02Path, "utf8");
 const executableMigrationSql = stripSqlLineComments(migrationSql);
@@ -59,7 +65,8 @@ console.log(JSON.stringify({
     m03CatalogSeedAbsent: true,
     manifestGitBlobsValidated: true,
     databaseRlsAndAclValidated: !staticOnly,
-    normalResetCatalogEmptyValidated: !staticOnly,
+    preM03CatalogEmptyValidated: !staticOnly && !m03Path,
+    postM03CatalogExactValidated: !staticOnly && Boolean(m03Path),
     accountMfaRoleScopeValidated: !staticOnly,
     lastAdminAndSelfEscalationValidated: !staticOnly,
     humanReceiptAndAuditValidated: !staticOnly,
@@ -184,17 +191,7 @@ function verifyLocalDatabase(): void {
     "$m02_structural$;",
   ].join("\n"));
 
-  queryLocal([
-    "do $catalog$",
-    "begin",
-    "  if (select count(*) from recora_operator.admin_roles) <> 0",
-    "    or (select count(*) from recora_operator.admin_capabilities) <> 0",
-    "    or (select count(*) from recora_operator.admin_role_capabilities) <> 0 then",
-    "    raise exception 'M02 normal reset must leave M03 catalog empty';",
-    "  end if;",
-    "end;",
-    "$catalog$;",
-  ].join("\n"));
+  verifyM03CatalogState();
 
   for (const protectedRole of ["anon", "authenticated", "service_role"]) {
     queryLocal(
@@ -222,7 +219,7 @@ function verifyLocalDatabase(): void {
     "  'm02-catalog-empty', '" + "a".repeat(64) + "', gen_random_uuid(), gen_random_uuid(), 'denied', 'm02_not_ready', gen_random_uuid()",
     ");",
     "rollback;",
-  ].join("\n"), /disabled until M02/i);
+  ].join("\n"), /active admin account/i);
 
   queryLocal(fixtureSql([
     globalReceiptSql(),
@@ -419,7 +416,7 @@ function verifyLocalDatabase(): void {
   ]), /revoked or expired scope assignments are terminal/i);
 
   queryLocal(fixtureSql([
-    "insert into recora_operator.admin_role_assignments (id, admin_account_id, role_id, assigned_by_admin_account_id) values ('82000000-0000-4000-8000-000000000034', '82000000-0000-4000-8000-000000000009', '82000000-0000-4000-8000-000000000011', '82000000-0000-4000-8000-000000000009');",
+    "insert into recora_operator.admin_role_assignments (id, admin_account_id, role_id, assigned_by_admin_account_id) values ('82000000-0000-4000-8000-000000000034', '82000000-0000-4000-8000-000000000009', '83000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000009');",
     "rollback;",
   ]), /admin_role_assignments_active_unique/i);
 
@@ -465,8 +462,7 @@ function verifyLocalDatabase(): void {
   ]), /active role assignments require an active scope/i);
 
   queryLocal(fixtureSql([
-    "insert into recora_operator.admin_roles (id, role_code, display_name, description) values ('82000000-0000-4000-8000-000000000034', 'system_operator', 'System operator', 'fixture role');",
-    "insert into recora_operator.admin_role_assignments (id, admin_account_id, role_id, assigned_by_admin_account_id) values ('82000000-0000-4000-8000-000000000035', '82000000-0000-4000-8000-000000000010', '82000000-0000-4000-8000-000000000034', '82000000-0000-4000-8000-000000000009');",
+    "insert into recora_operator.admin_role_assignments (id, admin_account_id, role_id, assigned_by_admin_account_id) values ('82000000-0000-4000-8000-000000000035', '82000000-0000-4000-8000-000000000010', '83000000-0000-4000-8000-000000000006', '82000000-0000-4000-8000-000000000009');",
     "insert into recora_operator.admin_scope_assignments (id, role_assignment_id, scope_type, organization_id, assigned_by_admin_account_id) values ('82000000-0000-4000-8000-000000000036', '82000000-0000-4000-8000-000000000035', 'customer', '82000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000009');",
     "set constraints all immediate;",
     "rollback;",
@@ -614,6 +610,87 @@ function verifyLocalDatabase(): void {
   queryLocal(["begin;", migrationSql, migrationSql, "rollback;"].join("\n"));
 }
 
+type M03CatalogManifest = {
+  roles: Array<{ id: string; role_code: string; display_name: string; description: string }>;
+  capabilities: Array<{ id: string; capability_code: string; domain_code: string; sensitivity: string }>;
+  role_capabilities: Array<{ role_code: string; capability_code: string }>;
+};
+
+function verifyM03CatalogState(): void {
+  if (!m03Path) {
+    queryLocal([
+      "do $catalog$",
+      "begin",
+      "  if (select count(*) from recora_operator.admin_roles) <> 0",
+      "    or (select count(*) from recora_operator.admin_capabilities) <> 0",
+      "    or (select count(*) from recora_operator.admin_role_capabilities) <> 0 then",
+      "    raise exception 'M02 normal reset must leave M03 catalog empty';",
+      "  end if;",
+      "end;",
+      "$catalog$;",
+    ].join("\n"));
+    return;
+  }
+
+  const manifestPath = path.join(repoRoot, m03CatalogManifestPath);
+  assert.ok(fs.existsSync(manifestPath), "M03 catalog manifest is missing.");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as M03CatalogManifest;
+  assert.equal(manifest.roles.length, 8);
+  assert.equal(manifest.capabilities.length, 64);
+  assert.equal(manifest.role_capabilities.length, 185);
+
+  const expectedCatalog = {
+    roles: manifest.roles
+      .map((role) => ({
+        id: role.id,
+        role_code: role.role_code,
+        display_name: role.display_name,
+        description: role.description,
+        is_system_defined: true,
+        is_editable: false,
+      }))
+      .sort((left, right) => (left.role_code < right.role_code ? -1 : left.role_code > right.role_code ? 1 : 0)),
+    capabilities: manifest.capabilities
+      .map((capability) => ({
+        id: capability.id,
+        capability_code: capability.capability_code,
+        domain_code: capability.domain_code,
+        sensitivity: capability.sensitivity,
+      }))
+      .sort((left, right) => (left.capability_code < right.capability_code ? -1 : left.capability_code > right.capability_code ? 1 : 0)),
+    mappings: manifest.role_capabilities
+      .map((mapping) => ({
+        role_code: mapping.role_code,
+        capability_code: mapping.capability_code,
+      }))
+      .sort((left, right) => {
+        if (left.role_code < right.role_code) return -1;
+        if (left.role_code > right.role_code) return 1;
+        return left.capability_code < right.capability_code ? -1 : left.capability_code > right.capability_code ? 1 : 0;
+      }),
+  };
+  const expectedCatalogJson = JSON.stringify(expectedCatalog).replaceAll("'", "''");
+
+  queryLocal([
+    "do $m03_catalog_state$",
+    "declare expected_catalog jsonb := '" + expectedCatalogJson + "'::jsonb;",
+    "begin",
+    "  if (select count(*) from recora_operator.admin_roles) <> 8",
+    "    or (select count(*) from recora_operator.admin_capabilities) <> 64",
+    "    or (select count(*) from recora_operator.admin_role_capabilities) <> 185 then",
+    "    raise exception 'M03 catalog state does not match the approved manifest';",
+    "  end if;",
+    "  if coalesce((select jsonb_agg(jsonb_build_object('id', id::text, 'role_code', role_code, 'display_name', display_name, 'description', description, 'is_system_defined', is_system_defined, 'is_editable', is_editable) order by encode(convert_to(role_code, 'UTF8'), 'hex')) from recora_operator.admin_roles), '[]'::jsonb) <> (expected_catalog -> 'roles')",
+    "    or coalesce((select jsonb_agg(jsonb_build_object('id', id::text, 'capability_code', capability_code, 'domain_code', domain_code, 'sensitivity', sensitivity) order by encode(convert_to(capability_code, 'UTF8'), 'hex')) from recora_operator.admin_capabilities), '[]'::jsonb) <> (expected_catalog -> 'capabilities')",
+    "    or coalesce((select jsonb_agg(jsonb_build_object('role_code', role_row.role_code, 'capability_code', capability_row.capability_code) order by encode(convert_to(role_row.role_code, 'UTF8'), 'hex'), encode(convert_to(capability_row.capability_code, 'UTF8'), 'hex')) from recora_operator.admin_role_capabilities map_row join recora_operator.admin_roles role_row on role_row.id = map_row.role_id join recora_operator.admin_capabilities capability_row on capability_row.id = map_row.capability_id), '[]'::jsonb) <> (expected_catalog -> 'mappings') then",
+    "    raise exception 'M03 catalog state does not match the approved manifest';",
+    "  end if;",
+    "end;",
+    "$m03_catalog_state$;",
+  ].join("\n"));
+}
+
+
 function fixtureSql(tail: string[]): string {
   return fixturePrelude().concat(tail).join("\n");
 }
@@ -640,17 +717,16 @@ function fixturePrelude(): string[] {
   "  ('82000000-0000-4000-8000-000000000009', 'enrolled', now(), 'fixture-1'),",
   "  ('82000000-0000-4000-8000-000000000010', 'enrolled', now(), 'fixture-1');",
   "insert into recora_operator.admin_roles (id, role_code, display_name, description, is_system_defined, is_editable) values",
-  "  ('82000000-0000-4000-8000-000000000011', 'platform_admin', 'Platform admin', 'fixture role', true, false),",
-  "  ('82000000-0000-4000-8000-000000000012', 'scoped_operator', 'Scoped operator', 'fixture role', true, false);",
+  "  ('82000000-0000-4000-8000-000000000012', 'm02_scoped_operator', 'Scoped operator', 'fixture role', true, false);",
   "insert into recora_operator.admin_capabilities (id, capability_code, domain_code, sensitivity) values",
   "  ('82000000-0000-4000-8000-000000000013', 'admin.fixture.execute', 'admin', 'W2'),",
   "  ('82000000-0000-4000-8000-000000000014', 'admin.fixture.scoped', 'admin', 'W2'),",
   "  ('82000000-0000-4000-8000-000000000015', 'admin.fixture.other', 'admin', 'W2');",
   "insert into recora_operator.admin_role_capabilities (role_id, capability_id) values",
-  "  ('82000000-0000-4000-8000-000000000011', '82000000-0000-4000-8000-000000000013'),",
+  "  ('83000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000013'),",
   "  ('82000000-0000-4000-8000-000000000012', '82000000-0000-4000-8000-000000000014');",
   "insert into recora_operator.admin_role_assignments (id, admin_account_id, role_id, assigned_by_admin_account_id) values",
-  "  ('82000000-0000-4000-8000-000000000016', '82000000-0000-4000-8000-000000000009', '82000000-0000-4000-8000-000000000011', '82000000-0000-4000-8000-000000000009'),",
+  "  ('82000000-0000-4000-8000-000000000016', '82000000-0000-4000-8000-000000000009', '83000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000009'),",
   "  ('82000000-0000-4000-8000-000000000018', '82000000-0000-4000-8000-000000000010', '82000000-0000-4000-8000-000000000012', '82000000-0000-4000-8000-000000000009');",
   "insert into recora_operator.admin_scope_assignments (id, role_assignment_id, scope_type, organization_id, assigned_by_admin_account_id) values",
   "  ('82000000-0000-4000-8000-000000000017', '82000000-0000-4000-8000-000000000016', 'global', null, '82000000-0000-4000-8000-000000000009'),",
@@ -783,10 +859,16 @@ function assertPostgresIdentifierLengths(sql: string): void {
 }
 
 function findMigration(stem: string): string {
+  const match = findOptionalMigration(stem);
+  assert.ok(match, "Expected exactly one migration for " + stem);
+  return match;
+}
+
+function findOptionalMigration(stem: string): string | undefined {
   const matches = fs.readdirSync(migrationDirectory)
     .filter((fileName) => fileName.endsWith("_" + stem + ".sql"))
     .map((fileName) => path.join(migrationDirectory, fileName));
-  assert.equal(matches.length, 1, "Expected exactly one migration for " + stem);
+  assert.ok(matches.length <= 1, "Expected at most one migration for " + stem);
   return matches[0];
 }
 
