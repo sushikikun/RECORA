@@ -95,12 +95,7 @@ export async function renderCustomerReadyReportRoute(
   }
 
   if (canUseDesignCheckReport(normalizedSlug)) {
-    return (
-      <>
-        <DesignCheckPreviewNotice />
-        {await renderReadyRoute()}
-      </>
-    );
+    return renderReadyRoute();
   }
 
   assertPublicReportRouteAllowed(normalizedSlug);
@@ -172,11 +167,12 @@ export function DesignCheckPreviewNotice() {
   const label = getRecoraDesignPreviewLabel();
 
   if (!label) return null;
+  const displayLabel = label === "LOCAL DESIGN PREVIEW" ? "表示例" : label;
 
   return (
     <div className="mb-2 flex min-h-6 min-w-0 items-center gap-2 overflow-hidden text-xs text-[#005C50]">
       <span className="inline-flex h-5 shrink-0 items-center rounded-sm border border-[#BFDAD4] bg-[#E6F4F1] px-2 text-[10px] font-bold">
-        {label}
+        {displayLabel}
       </span>
       <span className="min-w-0 truncate font-semibold text-[#0F766E]">本物の顧客データではありません</span>
     </div>

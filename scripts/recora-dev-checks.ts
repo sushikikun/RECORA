@@ -116,6 +116,7 @@ const DOCTOR_REQUIRED_SCRIPTS = [
   "recora:human-check",
   "recora:before-codex",
   "recora:doctor",
+  "recora:github-actions-identity:check",
   "recora:dashboard-read-model:check"
 ];
 
@@ -604,6 +605,9 @@ function validateGitHubEvent(
       if (githubBaseRef !== "master") {
         reasons.push("GITHUB_BASE_REF is not master");
       }
+      if (!baseSha) {
+        reasons.push("pull request base commit is unavailable");
+      }
       if (!headRef || githubHeadRef !== headRef) {
         reasons.push("GITHUB_HEAD_REF does not match the pull request head branch");
       }
@@ -614,12 +618,10 @@ function validateGitHubEvent(
       }
       if (
         fullCommitParents.length !== 2 ||
-        !baseSha ||
         !headSha ||
-        fullCommitParents[0]?.toLowerCase() !== baseSha.toLowerCase() ||
         fullCommitParents[1]?.toLowerCase() !== headSha.toLowerCase()
       ) {
-        reasons.push("pull request base/head commits do not match the checked-out merge commit");
+        reasons.push("pull request head commit does not match the checked-out merge commit");
       }
     } else {
       const after = readString(payload.after);

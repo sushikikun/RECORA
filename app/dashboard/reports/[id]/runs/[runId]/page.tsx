@@ -1,8 +1,6 @@
-import { RunDetailPage } from "@/components/recora/run-detail-page";
+import { redirect } from "next/navigation";
 import {
-  canUseDesignCheckReport,
-  normalizeReportSlug,
-  renderCustomerReadyReportRoute
+  normalizeReportSlug
 } from "../../../report-route-guard";
 
 type ReportRunDetailPageProps = {
@@ -14,27 +12,8 @@ type ReportRunDetailPageProps = {
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportRunDetailPage({ params }: ReportRunDetailPageProps) {
+export default function ReportRunDetailPage({ params }: ReportRunDetailPageProps) {
   const projectSlug = normalizeReportSlug(params.id);
 
-  return renderCustomerReadyReportRoute(projectSlug, async () => {
-    if (canUseDesignCheckReport(projectSlug)) {
-      return <RunDetailPage data={null} projectSlug={projectSlug} runId={params.runId} />;
-    }
-
-    const runDetailData = await getRunDetailDataOrNull(projectSlug, params.runId);
-
-    return <RunDetailPage data={runDetailData} projectSlug={projectSlug} runId={params.runId} />;
-  });
-}
-
-async function getRunDetailDataOrNull(projectSlug: string, runId: string) {
-  try {
-    const { getRecoraRunDetailData } = await import("@/lib/recora/db");
-    const data = await getRecoraRunDetailData(projectSlug, runId);
-    return data.project ? data : null;
-  } catch (error) {
-    console.warn("Failed to load Recora run detail data.", error);
-    return null;
-  }
+  redirect(`/dashboard/reports/${projectSlug}`);
 }

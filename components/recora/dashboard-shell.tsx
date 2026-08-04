@@ -2,8 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, PanelTop, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Menu,
+  PanelTop,
+  Sparkles,
+  X
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { RecoraNavGroup, RecoraNavItem, RecoraNavSection } from "@/lib/recora/nav-config";
 import { buildRecoraNavGroups } from "@/lib/recora/nav-config";
@@ -19,7 +26,7 @@ import {
   withRecoraRealDbPreviewSearchParam
 } from "@/lib/recora/dev-preview/real-db-preview-url";
 
-const alwaysVisibleSections: RecoraNavSection[] = ["ホーム", "レポート"];
+const alwaysVisibleSections: RecoraNavSection[] = ["顧客レポート"];
 const reportContextSettingPaths = [
   "/dashboard/config/personas",
   "/dashboard/config/topics-prompts",
@@ -36,6 +43,25 @@ function getSelectedReportId(pathname: string) {
   }
 
   return segment;
+}
+
+const customerReportAnalysisPathPatterns = [
+  /^leaderboard\/[^/]+$/,
+  /^persona-topics\/personas\/[^/]+$/,
+  /^persona-topics\/topics\/[^/]+$/,
+  /^prompts\/[^/]+$/,
+  /^conversations\/[^/]+$/,
+  /^sources\/domains\/[^/]+$/,
+  /^sources\/gaps$/,
+  /^sources\/pages\/[^/]+$/,
+  /^brand-perception\/claims\/[^/]+$/,
+  /^trends\/changes$/,
+  /^recommendations\/[^/]+$/
+];
+
+function isCustomerReportAnalysisPath(pathname: string) {
+  const reportPath = pathname.match(/^\/dashboard\/reports\/[^/]+\/(.+?)\/?$/)?.[1];
+  return Boolean(reportPath && customerReportAnalysisPathPatterns.some((pattern) => pattern.test(reportPath)));
 }
 
 function isNavItemActive(item: RecoraNavItem, pathname: string) {
@@ -77,10 +103,12 @@ function buildInitialExpandedSections(navGroups: RecoraNavGroup[], pathname: str
 
 export function DashboardShell({
   children,
-  designPreviewEnabled = false
+  designPreviewEnabled = false,
+  recommendationsEnabled = true
 }: {
   children: React.ReactNode;
   designPreviewEnabled?: boolean;
+  recommendationsEnabled?: boolean;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -89,25 +117,76 @@ export function DashboardShell({
     searchParams.get(RECORA_REAL_DB_PREVIEW_SEARCH_PARAM) === RECORA_REAL_DB_PREVIEW_SEARCH_VALUE;
   const isDataRichFinal = visualVariant === "data-rich-final";
   const reportId = getSelectedReportId(pathname);
+  const recommendationsPreviewDisabled = designPreviewEnabled && reportId === "design-check" && searchParams.get("recommendations") === "0";
+  const effectiveRecommendationsEnabled = recommendationsEnabled && !recommendationsPreviewDisabled;
   const projectCardLabel = realDbPreviewActive
     ? getRecoraRealDbPreviewProjectDisplayName(reportId)
     : "Recora";
   const showReportContextItems = Boolean(reportId) || isReportContextSettingPath(pathname);
-  const withPreviewHref = (href: string) =>
-    withRecoraRealDbPreviewSearchParam(withRecoraVisualVariantSearchParam(href, visualVariant), realDbPreviewActive);
+  const withPreviewHref = (href: string) => {
+    const previewHref = withRecoraRealDbPreviewSearchParam(withRecoraVisualVariantSearchParam(href, visualVariant), realDbPreviewActive);
+    if (!recommendationsPreviewDisabled || !previewHref.startsWith("/dashboard/reports/design-check")) return previewHref;
+    const url = new URL(previewHref, "https://recora.local");
+    url.searchParams.set("recommendations", "0");
+    return `${url.pathname}${url.search}${url.hash}`;
+  };
   const currentReportHref = withPreviewHref(reportId ? `/dashboard/reports/${reportId}` : "/dashboard/reports");
   const navGroups = useMemo(
-    () => buildRecoraNavGroups(reportId, { showReportContextItems }),
-    [reportId, showReportContextItems]
+    () => buildRecoraNavGroups(reportId, { showReportContextItems, showRecommendations: effectiveRecommendationsEnabled }),
+    [effectiveRecommendationsEnabled, reportId, showReportContextItems]
   );
   const activeSection = getActiveSection(navGroups, pathname);
   const [expandedSections, setExpandedSections] = useState<Partial<Record<RecoraNavSection, boolean>>>(() =>
     buildInitialExpandedSections(navGroups, pathname)
   );
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const mobileNavTriggerRef = useRef<HTMLButtonElement>(null);
+  const mobileNavCloseRef = useRef<HTMLButtonElement>(null);
+  const mobileNavPanelRef = useRef<HTMLElement>(null);
+
+  const closeMobileNav = useCallback(() => {
+    setMobileNavOpen(false);
+    window.requestAnimationFrame(() => mobileNavTriggerRef.current?.focus());
+  }, []);
+
+  function trapMobileNavFocus(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key !== "Tab" || !mobileNavPanelRef.current) return;
+    const focusable = Array.from(mobileNavPanelRef.current.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 
   useEffect(() => {
     setExpandedSections(buildInitialExpandedSections(navGroups, pathname));
+    setMobileNavOpen(false);
   }, [navGroups, pathname]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMobileNav();
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    window.requestAnimationFrame(() => mobileNavCloseRef.current?.focus());
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [closeMobileNav, mobileNavOpen]);
 
   function toggleSection(section: RecoraNavSection) {
     setExpandedSections((current) => ({
@@ -116,11 +195,163 @@ export function DashboardShell({
     }));
   }
 
+  if (isDataRichFinal && reportId) {
+    if (isCustomerReportAnalysisPath(pathname)) {
+      return (
+        <div className="min-h-screen bg-white text-[#111827]" data-recora-visual="customer-report-v5">
+          <header className="sticky top-0 z-40 border-b border-[#E5E7EB] bg-white/95 backdrop-blur">
+            <div className="mx-auto flex h-16 max-w-[1680px] items-center px-4 sm:px-6">
+              <Link href={currentReportHref} className="flex min-w-0 items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B382D] focus-visible:ring-offset-2">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#0B382D] text-xs font-bold text-white">R</span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-bold tracking-tight text-[#101828]">Recora 顧客レポート</span>
+                  <span className="block truncate text-[11px] text-[#667085]">{projectCardLabel} / AI検索可視性</span>
+                </span>
+              </Link>
+            </div>
+          </header>
+
+          <main className="min-w-0 bg-white px-4 pb-16 pt-6 sm:px-6 lg:px-8 xl:px-10">
+            <div className="mx-auto max-w-[1440px]">{children}</div>
+          </main>
+        </div>
+      );
+    }
+
+    const reportBasePath = `/dashboard/reports/${reportId}`;
+    const customerReportItems = navGroups
+      .flatMap((group) => group.items)
+      .filter((item) => item.href === reportBasePath || item.href.startsWith(`${reportBasePath}/`));
+
+    return (
+      <div className="min-h-screen bg-white text-[#111827]" data-recora-visual="customer-report-v5">
+        <header className="sticky top-0 z-40 border-b border-[#E5E7EB] bg-white/95 backdrop-blur">
+          <div className="mx-auto flex h-16 max-w-[1680px] items-center gap-3 px-4 sm:px-6">
+            <button
+              ref={mobileNavTriggerRef}
+              type="button"
+              aria-expanded={mobileNavOpen}
+              aria-controls="recora-mobile-navigation"
+              aria-label="ナビゲーションを開く"
+              className="grid h-11 w-11 place-items-center rounded-lg border border-[#DBE1EA] text-[#17243A] lg:hidden"
+              onClick={() => setMobileNavOpen(true)}
+            >
+              <Menu className="h-5 w-5" aria-hidden="true" />
+            </button>
+            <Link href={currentReportHref} className="flex min-w-0 items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B382D] focus-visible:ring-offset-2">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#0B382D] text-xs font-bold text-white">R</span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-bold tracking-tight text-[#101828]">Recora 顧客レポート</span>
+                <span className="block truncate text-[11px] text-[#667085]">{projectCardLabel} / AI検索可視性</span>
+              </span>
+            </Link>
+          </div>
+        </header>
+
+        {mobileNavOpen ? (
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="メニューを閉じる"
+            className="fixed inset-0 z-40 bg-[#10233D]/45 lg:hidden"
+            onClick={closeMobileNav}
+          />
+        ) : null}
+
+        <div className="mx-auto grid min-h-[calc(100vh-64px)] max-w-[1680px] lg:grid-cols-[224px_minmax(0,1fr)]">
+          <aside
+            ref={mobileNavPanelRef}
+            id="recora-mobile-navigation"
+            onKeyDown={trapMobileNavFocus}
+            className={cn(
+              "fixed inset-y-0 left-0 z-50 hidden w-[min(22rem,calc(100vw-2rem))] -translate-x-full overflow-y-auto overscroll-contain border-r border-[#E5E7EB] bg-[#FBFCFE] px-3 py-5 transition-transform duration-200 lg:sticky lg:top-16 lg:z-auto lg:block lg:h-[calc(100vh-64px)] lg:w-auto lg:translate-x-0",
+              mobileNavOpen && "block translate-x-0"
+            )}
+          >
+            <div className="flex items-center justify-between px-3 lg:block">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#667085]">Customer report</p>
+              <button
+                ref={mobileNavCloseRef}
+                type="button"
+                aria-label="メニューを閉じる"
+                className="grid h-11 w-11 place-items-center rounded-md border border-[#D9DEE7] bg-white text-[#475467] lg:hidden"
+                onClick={closeMobileNav}
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+            <nav className="mt-3 space-y-1" aria-label="顧客レポートのページ">
+              {customerReportItems.map((item, index) => {
+                const Icon = item.icon;
+                const active = isNavItemActive(item, pathname);
+                const reportNumber = String(index + 1).padStart(2, "0");
+
+                return (
+                  <div key={item.href} className={item.label === "改善提案・施策" ? "mt-4 border-t border-[#E5E7EB] pt-4" : undefined}>
+                    <Link
+                      href={withPreviewHref(item.href)}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B382D] focus-visible:ring-offset-2",
+                        active ? "bg-[#0B382D] text-white shadow-sm" : "text-[#344054] hover:bg-[#EEF2F7]"
+                      )}
+                    >
+                      <span className={cn(
+                        "grid h-7 w-7 shrink-0 place-items-center rounded-md text-[10px] font-bold",
+                        active ? "bg-white/15 text-white" : "bg-white text-[#667085] ring-1 ring-[#E3E7EE]"
+                      )}>
+                        {reportNumber}
+                      </span>
+                      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span className="min-w-0">
+                        <span className="block text-[13px] font-bold leading-5">{item.label}</span>
+                      </span>
+                    </Link>
+                  </div>
+                );
+              })}
+            </nav>
+          </aside>
+
+          <main className="min-w-0 bg-white px-4 pb-16 pt-6 sm:px-6 lg:px-8 xl:px-10">
+            <div className="mx-auto max-w-[1440px]">{children}</div>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
   if (isDataRichFinal) {
     return (
       <div className="min-h-screen bg-[#F6F8F7] text-[#0F172A]" data-recora-visual={visualVariant}>
+        {mobileNavOpen ? (
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="メニューを閉じる"
+            className="fixed inset-0 z-40 bg-[#101828]/35 lg:hidden"
+            onClick={closeMobileNav}
+          />
+        ) : null}
         <div className="grid min-h-screen lg:grid-cols-[204px_minmax(0,1fr)]">
-          <aside className="border-b border-[#DFE6E2] bg-white text-[#0F172A] lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+          <aside
+            ref={mobileNavPanelRef}
+            id="recora-mobile-navigation"
+            onKeyDown={trapMobileNavFocus}
+            className={cn(
+              "fixed inset-y-0 left-0 z-50 hidden w-[min(20rem,calc(100vw-2rem))] -translate-x-full overflow-y-auto overscroll-contain border-r border-[#DFE6E2] bg-white text-[#0F172A] transition-transform duration-200 lg:sticky lg:inset-auto lg:top-0 lg:z-auto lg:block lg:h-screen lg:w-auto lg:translate-x-0 lg:border-b-0",
+              mobileNavOpen && "block translate-x-0"
+            )}
+          >
+            <button
+              ref={mobileNavCloseRef}
+              type="button"
+              aria-label="メニューを閉じる"
+              className="absolute right-3 top-3 grid h-11 w-11 place-items-center border border-[#DFE6E2] bg-white text-[#475467] lg:hidden"
+              onClick={closeMobileNav}
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
             <div className="flex h-full flex-col bg-white">
               <div className="px-3 py-3">
                 <Link href={withPreviewHref("/dashboard")} className="flex items-center gap-2 rounded-md px-1 py-1 transition hover:bg-[#F6F8F7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#006B57]/80">
@@ -182,6 +413,20 @@ export function DashboardShell({
 
           <main className="min-w-0 bg-[#F6F8F7]">
             <div className="mx-auto w-full max-w-[1504px] px-4 py-4 sm:px-5 lg:px-6 xl:px-7">
+              <div className="mb-4 flex items-center justify-between lg:hidden">
+                <button
+                  ref={mobileNavTriggerRef}
+                  type="button"
+                  aria-expanded={mobileNavOpen}
+                  aria-controls="recora-mobile-navigation"
+                  className="inline-flex min-h-11 items-center gap-2 border border-[#DFE5EE] bg-white px-3 text-xs font-bold text-[#344054]"
+                  onClick={() => setMobileNavOpen(true)}
+                >
+                  <Menu className="h-4 w-4 text-[#075E44]" aria-hidden="true" />
+                  メニュー
+                </button>
+                <span className="text-[11px] font-bold tracking-[0.08em] text-[#667085]">Recora レポート</span>
+              </div>
               {children}
             </div>
           </main>
@@ -311,7 +556,7 @@ function NavGroup({
               pathname={pathname}
               withVisualHref={withVisualHref}
               variant={variant}
-              nested={group.label === "レポート" && index > 0}
+              nested={group.label === "顧客レポート" && index > 0}
             />
           ))}
         </div>
