@@ -845,11 +845,6 @@ begin
       raise exception 'admin command receipt capability is not granted by role assignment';
     end if;
 
-    if new.organization_id is not null
-      and new.outcome in ('accepted', 'committed', 'reconciliation_required')
-      and new.operator_command_receipt_id is null then
-      raise exception 'scoped admin command receipt requires matching legacy operator receipt';
-    end if;
   end if;
 
   if new.operator_command_receipt_id is not null then

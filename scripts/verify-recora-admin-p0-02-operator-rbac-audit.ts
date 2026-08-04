@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const repoRoot = process.cwd();
-const expectedBaseline = "de9f7311d08783a6a7c13dfae8cf683029007a0c";
+const expectedBaseline = "ed37aa85f2996b33429e34c86918d047be36e6b8";
 const expectedContainer = "supabase_db_recora-admin-p0-m02";
 const expectedM00Stem = "recora_admin_p0_00_baseline_contract";
 const expectedM01Stem = "recora_admin_p0_01_common_infrastructure";
@@ -103,21 +103,34 @@ function verifyMigrationSource(): void {
     executableMigrationSql,
     /\bgrant\s+(?:usage|select|insert|update|delete|execute|all)[\s\S]{0,180}\bto\s+(?:anon|authenticated|service_role)\b/i,
   );
+  assert.doesNotMatch(
+    executableMigrationSql,
+    /scoped admin command receipt requires matching legacy operator receipt/i,
+  );
+  assert.match(
+    normalizedMigrationSql,
+    /if new\.operator_command_receipt_id is not null then/,
+    "M02 must validate a supplied legacy operator receipt bridge.",
+  );
   assert.doesNotMatch(executableMigrationSql, /\b(drop\s+(?:table|schema)|truncate\s+table)\b/i);
 }
 
 function verifyRepositoryBaseline(): void {
   const mode = process.env.RECORA_ADMIN_P0_BASELINE_MODE ?? "ancestor";
-  assert.ok(mode === "ancestor" || mode === "exact");
+  assert.ok(mode === "ancestor" || mode === "exact", "Unknown M02 baseline mode: " + mode);
   const head = run("git", ["rev-parse", "HEAD"]).trim();
-  assert.equal(run("git", ["rev-parse", "origin/master"]).trim(), expectedBaseline);
   const ancestor = spawnSync(
     "git",
     ["merge-base", "--is-ancestor", expectedBaseline, "HEAD"],
     { cwd: repoRoot, encoding: "utf8", env: { ...process.env, NO_COLOR: "1" } },
   );
   assert.equal(ancestor.status, 0, "M02 baseline is not an ancestor of HEAD " + head);
-  if (mode === "exact") assert.equal(head, expectedBaseline);
+  if (mode === "exact") {
+    assert.equal(head, expectedBaseline);
+    const approvedBaseRef = process.env.RECORA_ADMIN_P0_APPROVED_BASE_REF ?? "origin/master";
+    const approvedBase = run("git", ["rev-parse", approvedBaseRef]).trim();
+    assert.equal(approvedBase, expectedBaseline);
+  }
 }
 
 function verifyLocalDatabase(): void {
@@ -213,6 +226,17 @@ function verifyLocalDatabase(): void {
 
   queryLocal(fixtureSql([
     globalReceiptSql(),
+    "set constraints all immediate;",
+    "rollback;",
+  ]));
+
+  queryLocal(fixtureSql([
+    scopedReceiptWithoutLegacyBridgeSql(),
+    "set constraints all immediate;",
+    "rollback;",
+  ]));
+
+  queryLocal(fixtureSql([
     scopedReceiptSql(),
     "set constraints all immediate;",
     "rollback;",
@@ -676,6 +700,27 @@ function scopedReceiptSql(): string {
     "  'admin', '82000000-0000-4000-8000-000000000009', 'VerifyM02ScopedCommand', '82000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000003',",
     "  'project', '82000000-0000-4000-8000-000000000003', 'm02-scoped-key', '" + "b".repeat(64) + "', '82000000-0000-4000-8000-000000000026',",
     "  '82000000-0000-4000-8000-000000000027', 'accepted', 'ok', '82000000-0000-4000-8000-000000000021', '82000000-0000-4000-8000-000000000022'",
+    ");",
+  ].join("\n");
+}
+
+function scopedReceiptWithoutLegacyBridgeSql(): string {
+  return [
+    "insert into recora_audit.operator_events (",
+    "  id, actor_operator_id, organization_id, project_id, action, target_type, target_id, reason, before_summary, after_summary, request_id, correlation_id, outcome,",
+    "  actor_type, risk_class, operation_outcome, idempotency_key, admin_account_id, capability_code, role_assignment_id, scope_assignment_id, auth_assurance",
+    ") values (",
+    "  '82000000-0000-4000-8000-000000000021', '82000000-0000-4000-8000-000000000007', '82000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000003',",
+    "  'verifym02scopedcommand', 'project', '82000000-0000-4000-8000-000000000003', 'fixture', '{}'::jsonb, '{}'::jsonb,",
+    "  '82000000-0000-4000-8000-000000000026', '82000000-0000-4000-8000-000000000027', 'success', 'admin', 'W2', 'accepted', 'm02-scoped-key',",
+    "  '82000000-0000-4000-8000-000000000009', 'admin.fixture.execute', '82000000-0000-4000-8000-000000000016', '82000000-0000-4000-8000-000000000017', 'mfa'",
+    ");",
+    "insert into recora_private.admin_command_receipts (",
+    "  actor_type, admin_account_id, command_name, organization_id, project_id, target_type, target_id, idempotency_key, request_fingerprint, request_id, correlation_id, outcome, stable_reason_code, audit_event_id",
+    ") values (",
+    "  'admin', '82000000-0000-4000-8000-000000000009', 'VerifyM02ScopedCommand', '82000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000003',",
+    "  'project', '82000000-0000-4000-8000-000000000003', 'm02-scoped-key', '" + "b".repeat(64) + "', '82000000-0000-4000-8000-000000000026',",
+    "  '82000000-0000-4000-8000-000000000027', 'accepted', 'ok', '82000000-0000-4000-8000-000000000021'",
     ");",
   ].join("\n");
 }

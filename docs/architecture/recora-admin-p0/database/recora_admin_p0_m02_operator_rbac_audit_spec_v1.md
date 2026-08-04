@@ -5,7 +5,7 @@
 M02 adds the private operator authorization and audit convergence substrate for Recora Admin P0.
 
 - Issue: #139
-- Baseline: \`de9f7311d08783a6a7c13dfae8cf683029007a0c\`
+- Baseline: \`ed37aa85f2996b33429e34c86918d047be36e6b8\`
 - Migration: \`recora_admin_p0_02_operator_rbac_audit\`
 - M03 fixed role/capability seed, business tables, UI, routes, APIs, and generic mutation RPCs are out of scope.
 
@@ -78,9 +78,12 @@ M02 replaces M01's provisional human receipt rejection with final authorization 
 - an active unexpired scope assignment that covers the receipt;
 - audit actor, request, correlation, normalized action, target, outcome, idempotency, capability, role, scope, and assurance evidence;
 - fresh step-up evidence for W3;
-- a matching legacy \`operator_command_receipt\` for successful organization or project scoped commands.
 
-A global human receipt does not require a legacy organization receipt. M02 normal reset remains fail-closed because the M03 catalog is empty.
+A global human receipt does not require a legacy operator command receipt. A successful
+organization/project-scoped admin receipt may omit the legacy operator command receipt.
+When a compatibility bridge is supplied, the legacy receipt must match the audit event,
+scope, action, target, request, and correlation evidence exactly. M02 normal reset remains
+fail-closed because the M03 catalog is empty.
 
 ## Boundary And Validation
 
