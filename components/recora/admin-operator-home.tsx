@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -6,154 +5,167 @@ import {
   ArrowRight,
   CheckCircle2,
   CircleAlert,
-  Send
+  Database,
+  Send,
+  ShieldCheck
 } from "lucide-react";
 
 import { DataCard, PageHeader } from "@/components/recora/ui";
 import { Badge } from "@/components/ui/badge";
 import type {
-  RecoraAdminOperationProjectSummary,
-  RecoraAdminOperationsData
-} from "@/lib/recora/db/admin-operations";
+  AdminAttentionLevel,
+  AdminAttentionWorkItem,
+  AdminOperationalSignal,
+  AdminOperationsHomeSnapshot
+} from "@/lib/recora/admin-operations-home";
 import { cn } from "@/lib/utils";
 
 type Tone = "green" | "amber" | "rose" | "slate";
-type QueueItem = {
-  id: string;
-  project: RecoraAdminOperationProjectSummary;
-  area: "測定" | "品質" | "公開";
-  priority: "高" | "中" | "低";
-  message: string;
-};
 
-export function AdminOperatorHome({
-  data,
-  loadError
-}: {
-  data: RecoraAdminOperationsData;
-  loadError?: string | null;
-}) {
-  const queue = buildQueue(data);
-  const affectedProjects = new Set(queue.map((item) => item.project.projectSlug)).size;
-  const failedMeasurements = data.projects.filter((project) => project.measurementStatus === "失敗").length;
-  const publicationPending = data.projects.filter((project) => project.reportReadyStatus !== "customer_ready").length;
-  const readyCount = data.projects.length - publicationPending;
-  const latestObservation = latestObservationAt(data);
+export function AdminOperatorHome({ snapshot }: { snapshot: AdminOperationsHomeSnapshot }) {
+  const verdict = snapshot.operationalVerdict;
+  const queue = snapshot.humanAttention.items;
+  const signals = snapshot.operationalSignals;
 
   return (
     <div className="min-w-0 space-y-6">
       <PageHeader
         eyebrow="Recora Admin Control Room"
         title="運用ホーム"
-        description="例外・停止・未完了を、優先度の高い順に確認します。"
-        actions={<Pill label="対象: 全体" tone="slate" />}
+        description="明示されたreason codeと運用状態だけを使い、人の対応と自動処理シグナルを分けて表示します。"
       />
 
-      <section
-        className={cn(
-          "rounded-[20px] border px-6 py-5",
-          loadError
-            ? "border-rose-200 bg-rose-50"
-            : queue.length > 0
-              ? "border-amber-200 bg-[#FFF9EE]"
-              : "border-emerald-200 bg-[#F1FBF7]"
-        )}
-      >
+      <section className={cn("rounded-[18px] border px-6 py-5", verdictClass(verdict.state))}>
         <div className="flex items-start gap-4">
-          <span className={cn(
-            "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-            loadError
-              ? "bg-rose-100 text-rose-700"
-              : queue.length > 0
-                ? "bg-amber-100 text-amber-800"
-                : "bg-emerald-100 text-emerald-700"
-          )}>
-            {loadError ? <AlertTriangle className="h-5 w-5" /> : queue.length > 0 ? <CircleAlert className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+          <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", verdictIconClass(verdict.state))}>
+            {verdict.state === "unavailable" ? (
+              <AlertTriangle className="h-5 w-5" />
+            ) : verdict.state === "normal" ? (
+              <CheckCircle2 className="h-5 w-5" />
+            ) : (
+              <CircleAlert className="h-5 w-5" />
+            )}
           </span>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-black uppercase tracking-[0.14em] text-[#667872]">現在の運用判断</p>
             <h2 className="mt-2 text-2xl font-black tracking-[-0.035em] text-[#10231F]">
-              {loadError
-                ? "運用データを読み取れません"
-                : queue.length > 0
-                  ? `${affectedProjects} Projectで${queue.length}件の対応が必要です`
-                  : "現在、対応が必要な例外はありません"}
+              {verdictTitle(snapshot)}
             </h2>
             <p className="mt-2 text-sm font-semibold leading-6 text-[#61736D]">
-              {loadError ?? (queue.length > 0 ? "優先度の高い項目から確認してください。通常処理は自動で継続します。" : "接続済みデータの範囲では、測定・品質・公開に対応待ちはありません。")}
+              {verdictDescription(snapshot)}
             </p>
           </div>
         </div>
       </section>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Summary label="測定失敗" value={`${failedMeasurements}件`} note="最新の測定状態" tone={failedMeasurements > 0 ? "rose" : "green"} />
-        <Summary label="公開未完了" value={`${publicationPending}件`} note={`${readyCount}件が公開可能`} tone={publicationPending > 0 ? "amber" : "green"} />
-        <Summary label="未解決の例外" value={`${queue.length}件`} note={`${affectedProjects} Projectが対象`} tone={queue.length > 0 ? "amber" : "green"} />
-        <Summary label="最終観測" value={formatDateTime(latestObservation)} note="接続済み測定データ" tone="slate" />
+        <Summary
+          label="人の対応"
+          value={`${verdict.humanAttentionCount}件`}
+          note={`${snapshot.humanAttention.byDomain.quality}品質 / ${snapshot.humanAttention.byDomain.publication}公開`}
+          tone={verdict.humanAttentionCount > 0 ? "amber" : "green"}
+        />
+        <Summary
+          label="測定失敗"
+          value={`${snapshot.measurementStatus.failedProjectCount}件`}
+          note={`${snapshot.measurementStatus.projectsWithCompletedRuns}/${snapshot.measurementStatus.totalProjectCount || 0} Projectに完了run`}
+          tone={snapshot.measurementStatus.failedProjectCount > 0 ? "rose" : "green"}
+        />
+        <Summary
+          label="公開可能"
+          value={`${snapshot.publicationStatus.customerReadyProjectCount}件`}
+          note={`準備中 ${snapshot.publicationStatus.notReadyProjectCount}件・人対応へ自動計上しない`}
+          tone="slate"
+        />
+        <Summary
+          label="未分類reason"
+          value={`${verdict.unclassifiedReasonCount}件`}
+          note="本文から推測せずadapter警告へ分離"
+          tone={verdict.unclassifiedReasonCount > 0 ? "amber" : "green"}
+        />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,.55fr)]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(310px,.55fr)]">
         <DataCard
-          title="要対応キュー"
-          description="問題1件単位で、優先度・領域・Projectを表示します。"
+          title="人の対応キュー"
+          description="既知reason codeから明示的に人対応と定義された項目だけを表示します。"
           action={<Pill label={`${queue.length}件`} tone={queue.length > 0 ? "amber" : "green"} />}
         >
           {queue.length === 0 ? (
-            <Empty />
+            <Empty
+              icon={<CheckCircle2 className="h-7 w-7" />}
+              title="明示された人対応項目はありません"
+              text="測定失敗などの自動処理シグナルは右側に分離して表示します。"
+              positive
+            />
           ) : (
             <div className="divide-y divide-[#E2EAE8]">
-              {queue.slice(0, 12).map((item) => (
-                <Link
-                  key={item.id}
-                  href={`/internal/projects/${encodeURIComponent(item.project.projectSlug)}`}
-                  className="group grid gap-3 py-4 md:grid-cols-[80px_minmax(140px,.8fr)_minmax(260px,1.7fr)_40px] md:items-center"
-                >
-                  <Pill label={`優先度 ${item.priority}`} tone={item.priority === "高" ? "rose" : item.priority === "中" ? "amber" : "slate"} />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-black text-[#10231F]">{item.project.projectName}</p>
-                    <p className="mt-1 truncate text-xs font-semibold text-[#7A8D87]">{item.project.brandName}</p>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2"><Pill label={item.area} tone={item.area === "測定" ? "rose" : item.area === "品質" ? "amber" : "slate"} /></div>
-                    <p className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-[#334A44]">{item.message}</p>
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-[#00796B] transition-transform group-hover:translate-x-0.5" />
-                </Link>
-              ))}
+              <div className="hidden grid-cols-[92px_minmax(150px,.8fr)_minmax(280px,1.7fr)_44px] gap-3 px-1 pb-3 text-[11px] font-black uppercase tracking-[0.08em] text-[#84938F] md:grid">
+                <span>重要度</span><span>Project</span><span>対応理由</span><span />
+              </div>
+              {queue.slice(0, 10).map((item) => <AttentionRow key={item.workItemId} item={item} />)}
             </div>
           )}
         </DataCard>
 
         <div className="space-y-5">
-          <DataCard title="運用状態" description="接続済みデータから判断します。" dense>
-            <div className="space-y-3">
-              <Status icon={<Activity className="h-4 w-4" />} label="測定" value={failedMeasurements > 0 ? `${failedMeasurements}件失敗` : "失敗なし"} tone={failedMeasurements > 0 ? "rose" : "green"} />
-              <Status icon={<CircleAlert className="h-4 w-4" />} label="品質" value={`${queue.filter((item) => item.area === "品質").length}件要確認`} tone={queue.some((item) => item.area === "品質") ? "amber" : "green"} />
-              <Status icon={<Send className="h-4 w-4" />} label="公開" value={`${readyCount}/${data.projects.length || 0} Project公開可能`} tone={publicationPending > 0 ? "amber" : "green"} />
-            </div>
+          <DataCard title="自動処理シグナル" description="人のdecisionではなく、専門画面で状態を確認する項目です。" dense>
+            {signals.length === 0 ? (
+              <Empty
+                icon={<Activity className="h-7 w-7" />}
+                title="運用シグナルはありません"
+                text="接続済みデータの範囲では失敗や処理不足を検出していません。"
+                compact
+                positive
+              />
+            ) : (
+              <div className="space-y-2.5">
+                {signals.slice(0, 6).map((signal) => <SignalRow key={signal.signalId} signal={signal} />)}
+              </div>
+            )}
           </DataCard>
-          <DataCard title="データ接続状況" description="業務状態とは分離しています。" dense>
-            <Connection label="顧客・測定・品質・公開" value={loadError ? "取得失敗" : "接続中"} tone={loadError ? "rose" : "green"} />
-            <Connection label="障害・監査" value="未接続" tone="slate" />
-            <Connection label="利用量・コスト" value="未接続" tone="slate" />
-            <Connection label="管理設定" value="M05接続前" tone="slate" />
+
+          <DataCard title="adapter整合性" description="正式AttentionWorkItem接続までの安全境界です。" dense>
+            <Connection label="正式AttentionWorkItem" value="未接続" tone="slate" icon={<Database className="h-4 w-4" />} />
+            <Connection label="code-based adapter" value={snapshot.pageContext.adapterKind === "phase1_compatibility" ? "有効" : "取得失敗"} tone={snapshot.pageContext.adapterKind === "phase1_compatibility" ? "green" : "rose"} icon={<ShieldCheck className="h-4 w-4" />} />
+            <Connection label="未分類reason" value={`${snapshot.adapterWarnings.unclassifiedReasons.length}件`} tone={snapshot.adapterWarnings.unclassifiedReasons.length > 0 ? "amber" : "green"} icon={<AlertTriangle className="h-4 w-4" />} />
+            {snapshot.adapterWarnings.ignoredReasonCount > 0 ? (
+              <p className="mt-3 text-xs font-semibold leading-5 text-[#71837D]">
+                プラン依存の改善提案理由を共通運用キューから{snapshot.adapterWarnings.ignoredReasonCount}件除外しました。
+              </p>
+            ) : null}
           </DataCard>
         </div>
       </div>
 
-      <DataCard title="Project進行状況" description="測定・集計・公開準備を一覧で確認します。">
-        {data.projects.length === 0 ? (
-          <p className="py-10 text-center text-sm font-semibold text-[#7A8D87]">表示できるProjectがありません。</p>
+      <DataCard
+        title="要確認Project"
+        description="正常Projectの全件一覧は置かず、人対応または運用シグナルがあるProjectだけを表示します。"
+      >
+        {snapshot.affectedProjects.length === 0 ? (
+          <Empty
+            icon={<Send className="h-7 w-7" />}
+            title="要確認Projectはありません"
+            text="全Projectの通常確認は顧客管理・測定管理から行います。"
+            positive
+          />
         ) : (
           <div className="divide-y divide-[#E2EAE8]">
-            {data.projects.slice(0, 10).map((project) => (
-              <Link key={project.projectSlug} href={`/internal/projects/${encodeURIComponent(project.projectSlug)}`} className="group grid gap-3 py-4 lg:grid-cols-[minmax(180px,1.2fr)_110px_110px_130px_90px_32px] lg:items-center">
-                <div className="min-w-0"><p className="truncate text-sm font-black text-[#10231F]">{project.projectName}</p><p className="mt-1 truncate text-xs font-semibold text-[#7A8D87]">{project.projectSlug}</p></div>
-                <Pill label={project.measurementStatus} tone={project.measurementStatus === "失敗" ? "rose" : "slate"} />
-                <Pill label={project.aggregateStatus} tone={project.aggregateStatus === "失敗" ? "rose" : "slate"} />
-                <Pill label={project.reportReadyStatusLabel} tone={project.reportReadyStatus === "customer_ready" ? "green" : "slate"} />
-                <Pill label={`${project.currentRemainingIssues.length}件`} tone={project.currentRemainingIssues.length > 0 ? "amber" : "green"} />
+            <div className="hidden grid-cols-[minmax(220px,1.4fr)_120px_120px_44px] gap-3 px-1 pb-3 text-[11px] font-black uppercase tracking-[0.08em] text-[#84938F] md:grid">
+              <span>Project</span><span>人の対応</span><span>シグナル</span><span />
+            </div>
+            {snapshot.affectedProjects.map((project) => (
+              <Link
+                key={project.projectSlug}
+                href={project.relatedRoute}
+                className="group grid gap-3 py-4 md:grid-cols-[minmax(220px,1.4fr)_120px_120px_44px] md:items-center"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-black text-[#10231F]">{project.projectName}</p>
+                  <p className="mt-1 truncate text-xs font-semibold text-[#7A8D87]">{project.brandName}</p>
+                </div>
+                <Pill label={`${project.attentionCount}件`} tone={project.attentionCount > 0 ? "amber" : "green"} />
+                <Pill label={`${project.signalCount}件`} tone={project.signalCount > 0 ? "slate" : "green"} />
                 <ArrowRight className="h-4 w-4 text-[#00796B] transition-transform group-hover:translate-x-0.5" />
               </Link>
             ))}
@@ -164,40 +176,113 @@ export function AdminOperatorHome({
   );
 }
 
-function buildQueue(data: RecoraAdminOperationsData): QueueItem[] {
-  const items: QueueItem[] = [];
-  for (const project of data.projects) {
-    project.currentRemainingIssues.forEach((issue, index) => {
-      const message = issue.message?.trim() || "要確認理由を取得できません。";
-      const area = classifyArea(message, project);
-      items.push({ id: `${project.projectSlug}-${index}`, project, area, priority: classifyPriority(message, project, area), message });
-    });
-    if (project.measurementStatus === "失敗" && !items.some((item) => item.project.projectSlug === project.projectSlug && item.area === "測定")) {
-      items.push({ id: `${project.projectSlug}-measurement`, project, area: "測定", priority: "高", message: "最新の測定runが失敗しています。" });
-    }
-    if (project.reportReadyStatus !== "customer_ready" && project.currentRemainingIssues.length === 0) {
-      items.push({ id: `${project.projectSlug}-publication`, project, area: "公開", priority: "中", message: "顧客公開の準備が完了していません。" });
-    }
-  }
-  return items.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+function AttentionRow({ item }: { item: AdminAttentionWorkItem }) {
+  return (
+    <Link
+      href={item.relatedRoute}
+      className="group grid gap-3 py-4 first:pt-1 md:grid-cols-[92px_minmax(150px,.8fr)_minmax(280px,1.7fr)_44px] md:items-center"
+    >
+      <Pill label={formatAttentionLevel(item.attentionLevel)} tone={attentionTone(item.attentionLevel)} />
+      <div className="min-w-0">
+        <p className="truncate text-sm font-black text-[#10231F]">{item.projectName}</p>
+        <p className="mt-1 truncate text-xs font-semibold text-[#7A8D87]">{item.brandName}</p>
+      </div>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <Pill label={item.navigationDomain === "quality" ? "品質" : "公開"} tone={item.navigationDomain === "quality" ? "amber" : "slate"} />
+          <span className="font-mono text-[10px] font-bold text-[#7A8D87]">{item.reasonCode}</span>
+        </div>
+        <p className="mt-1 text-sm font-black text-[#243832]">{item.title}</p>
+        <p className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-[#61736D]">{item.summary}</p>
+      </div>
+      <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[#D8E4E1] bg-white text-[#00796B] group-hover:border-[#8CBDB1] group-hover:bg-[#EAF6F2]">
+        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+      </span>
+    </Link>
+  );
 }
 
-function classifyArea(message: string, project: RecoraAdminOperationProjectSummary): QueueItem["area"] {
-  if (project.measurementStatus === "失敗" || /測定|measurement|run|回答/i.test(message)) return "測定";
-  if (/公開|publication|report-ready|配信/i.test(message)) return "公開";
-  return "品質";
+function SignalRow({ signal }: { signal: AdminOperationalSignal }) {
+  return (
+    <Link href={signal.relatedRoute} className="block rounded-xl border border-[#E2EAE8] bg-[#FCFEFD] px-3 py-3 hover:border-[#A9CDC3] hover:bg-[#F5FBF9]">
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-xs font-black text-[#243832]">{signal.projectName}</p>
+        <Pill label={formatSignalLevel(signal.level)} tone={signalTone(signal.level)} />
+      </div>
+      <p className="mt-2 text-sm font-black text-[#334A44]">{signal.title}</p>
+      <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[#71837D]">{signal.summary}</p>
+    </Link>
+  );
 }
-function classifyPriority(message: string, project: RecoraAdminOperationProjectSummary, area: QueueItem["area"]): QueueItem["priority"] {
-  if (project.measurementStatus === "失敗" || /失敗|停止|不足|欠落|無効/.test(message)) return "高";
-  return area === "公開" ? "中" : "低";
-}
-function priorityRank(value: QueueItem["priority"]) { return value === "高" ? 0 : value === "中" ? 1 : 2; }
-function latestObservationAt(data: RecoraAdminOperationsData) { return data.projects.map((project) => project.latestMeasurementAt).filter((value): value is string => Boolean(value)).sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null; }
-function formatDateTime(value: string | null) { if (!value) return "未観測"; const date = new Date(value); if (Number.isNaN(date.getTime())) return value; return new Intl.DateTimeFormat("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Tokyo" }).format(date); }
 
-function Summary({ label, value, note, tone }: { label: string; value: string; note: string; tone: Tone }) { return <div className="rounded-2xl border border-[#DDE7E4] bg-white px-4 py-4"><p className="text-xs font-bold text-[#71837D]">{label}</p><p className="mt-1 text-xl font-black text-[#10231F]">{value}</p><p className="mt-2 text-xs font-semibold text-[#879691]">{note}</p><span className={cn("mt-3 block h-1 rounded-full", barTone(tone))} /></div>; }
-function Status({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string; tone: Tone }) { return <div className="flex items-center justify-between rounded-xl border border-[#E2EAE8] bg-[#FCFEFD] px-3 py-3"><div className="flex items-center gap-2 text-[#60736C]">{icon}<span className="text-xs font-bold">{label}</span></div><Pill label={value} tone={tone} /></div>; }
-function Connection({ label, value, tone }: { label: string; value: string; tone: Tone }) { return <div className="mt-2 flex items-center justify-between rounded-xl bg-[#F7FAF9] px-3 py-2.5"><p className="text-xs font-bold text-[#435953]">{label}</p><Pill label={value} tone={tone} /></div>; }
-function Pill({ label, tone }: { label: string; tone: Tone }) { return <Badge variant="outline" className={cn("whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold", tone === "green" && "border-emerald-200 bg-emerald-50 text-emerald-700", tone === "amber" && "border-amber-200 bg-amber-50 text-amber-800", tone === "rose" && "border-rose-200 bg-rose-50 text-rose-700", tone === "slate" && "border-slate-200 bg-slate-50 text-slate-600")}>{label}</Badge>; }
-function Empty() { return <div className="flex min-h-40 flex-col items-center justify-center rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/60 px-5 text-center"><CheckCircle2 className="h-7 w-7 text-emerald-600" /><p className="mt-3 text-sm font-black text-emerald-900">対応待ちの例外はありません</p><p className="mt-1 text-xs font-semibold text-emerald-700">新しい問題が発生した場合、このキューに表示します。</p></div>; }
-function barTone(tone: Tone) { if (tone === "green") return "bg-emerald-500"; if (tone === "amber") return "bg-amber-500"; if (tone === "rose") return "bg-rose-500"; return "bg-slate-400"; }
+function Summary({ label, value, note, tone }: { label: string; value: string; note: string; tone: Tone }) {
+  return (
+    <div className="rounded-2xl border border-[#DDE7E4] bg-white px-4 py-4">
+      <p className="text-xs font-bold text-[#71837D]">{label}</p>
+      <p className="mt-1 text-xl font-black text-[#10231F]">{value}</p>
+      <p className="mt-2 text-xs font-semibold leading-5 text-[#879691]">{note}</p>
+      <span className={cn("mt-3 block h-1 rounded-full", barTone(tone))} />
+    </div>
+  );
+}
+
+function Connection({ label, value, tone, icon }: { label: string; value: string; tone: Tone; icon: React.ReactNode }) {
+  return (
+    <div className="mt-2 flex items-center justify-between gap-3 rounded-xl bg-[#F7FAF9] px-3 py-2.5">
+      <div className="flex items-center gap-2 text-[#60736C]">{icon}<p className="text-xs font-bold text-[#435953]">{label}</p></div>
+      <Pill label={value} tone={tone} />
+    </div>
+  );
+}
+
+function Empty({ icon, title, text, positive = false, compact = false }: { icon: React.ReactNode; title: string; text: string; positive?: boolean; compact?: boolean }) {
+  return (
+    <div className={cn("flex flex-col items-center justify-center rounded-2xl border border-dashed px-5 text-center", compact ? "min-h-32" : "min-h-40", positive ? "border-emerald-200 bg-emerald-50/60 text-emerald-700" : "border-[#CBD9D5] bg-[#F7FAF9] text-[#70847E]")}> 
+      {icon}
+      <p className={cn("mt-3 text-sm font-black", positive ? "text-emerald-900" : "text-[#334A44]")}>{title}</p>
+      <p className={cn("mt-1 max-w-md text-xs font-semibold leading-5", positive ? "text-emerald-700" : "text-[#7A8D87]")}>{text}</p>
+    </div>
+  );
+}
+
+function Pill({ label, tone }: { label: string; tone: Tone }) {
+  return <Badge variant="outline" className={cn("whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold", tone === "green" && "border-emerald-200 bg-emerald-50 text-emerald-700", tone === "amber" && "border-amber-200 bg-amber-50 text-amber-800", tone === "rose" && "border-rose-200 bg-rose-50 text-rose-700", tone === "slate" && "border-slate-200 bg-slate-50 text-slate-600")}>{label}</Badge>;
+}
+
+function verdictTitle(snapshot: AdminOperationsHomeSnapshot) {
+  const verdict = snapshot.operationalVerdict;
+  if (verdict.state === "unavailable") return "運用データを読み取れません";
+  if (verdict.humanAttentionCount > 0) return `${verdict.affectedProjectCount} Projectで${verdict.humanAttentionCount}件の人対応が必要です`;
+  if (verdict.operationalSignalCount > 0 || verdict.unclassifiedReasonCount > 0) return "人の対応は未確定ですが、確認すべき運用シグナルがあります";
+  return "明示された人対応項目はありません";
+}
+
+function verdictDescription(snapshot: AdminOperationsHomeSnapshot) {
+  if (snapshot.loadError) return snapshot.loadError;
+  if (snapshot.operationalVerdict.humanAttentionCount > 0) return "重要度順に専門領域へ移動してください。本文の表現から重要度を推測していません。";
+  if (snapshot.operationalVerdict.unclassifiedReasonCount > 0) return "未知のreason codeを推測分類せず、adapter警告として停止しています。";
+  if (snapshot.operationalVerdict.operationalSignalCount > 0) return "測定・集計のシグナルを確認してください。これらは自動的に人のdecision件数へ含めません。";
+  return "code-based adapterで確認できる範囲では、品質・公開の人対応はありません。";
+}
+
+function verdictClass(state: AdminOperationsHomeSnapshot["operationalVerdict"]["state"]) {
+  if (state === "unavailable") return "border-rose-200 bg-rose-50";
+  if (state === "attention_required") return "border-amber-200 bg-[#FFF9EE]";
+  if (state === "signal_detected") return "border-slate-200 bg-slate-50";
+  return "border-emerald-200 bg-[#F1FBF7]";
+}
+
+function verdictIconClass(state: AdminOperationsHomeSnapshot["operationalVerdict"]["state"]) {
+  if (state === "unavailable") return "bg-rose-100 text-rose-700";
+  if (state === "attention_required") return "bg-amber-100 text-amber-800";
+  if (state === "signal_detected") return "bg-slate-200 text-slate-700";
+  return "bg-emerald-100 text-emerald-700";
+}
+
+function formatAttentionLevel(level: AdminAttentionLevel) {
+  return level === "critical" ? "Critical" : level === "high" ? "High" : level === "medium" ? "Medium" : "Low";
+}
+function attentionTone(level: AdminAttentionLevel): Tone { return level === "critical" || level === "high" ? "rose" : level === "medium" ? "amber" : "slate"; }
+function formatSignalLevel(level: AdminOperationalSignal["level"]) { return level === "high" ? "高" : level === "medium" ? "中" : "低"; }
+function signalTone(level: AdminOperationalSignal["level"]): Tone { return level === "high" ? "rose" : level === "medium" ? "amber" : "slate"; }
+function barTone(tone: Tone) { return tone === "green" ? "bg-emerald-500" : tone === "amber" ? "bg-amber-500" : tone === "rose" ? "bg-rose-500" : "bg-slate-300"; }
