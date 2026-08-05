@@ -9,6 +9,7 @@
 | 文書 | 担当領域 |
 |---|---|
 | [`recora-agentic-sdlc.md`](./recora-agentic-sdlc.md) | **開発ライフサイクルとAIエージェント運用の正本**。Risk、Spec level、Execution lane、Ready、承認ゲート、タスク状態、Git・外部作用の境界を定義する |
+| [`recora-development-domains.md`](./recora-development-domains.md) | **Recora全体の開発領域・進捗分類の正本**。9つの最上位開発領域、Phase・画面内分類・内部層との関係、Issueの主領域・関連領域の記録方法を定義する |
 | [`exec-plans/README.md`](./exec-plans/README.md) | **Exec Plan運用の正本**。適用基準、Issueとの役割分担、命名、active / completedの移動、更新責任を定義する |
 | [`recora-prompt-measurement-contract-v1.md`](./recora-prompt-measurement-contract-v1.md) | **プロンプト設計・固定運用・指標適格性・測定・集計の正式契約**。既存Persona / Topic / Prompt基盤、Intent grouping、Core / Robustness / Diagnostic、metric eligibility、実行・分母境界を定義する |
 | [`recora-measurement-design-existing-foundation-v1.md`](./recora-measurement-design-existing-foundation-v1.md) | **Measurement Designの物理方針**。既存`public.personas`、`public.topics`、`public.prompts`、run/item/conversation証跡を正式な土台とし、固定Prompt運用に不足する項目だけを最小追加する。新しいidentity/revision・Prompt Set DBは初期要件ではない |
@@ -20,7 +21,9 @@
 
 これらは互いを無条件に上書きする文書ではない。現在のIssueで確定した原則と最新OWNER決定が最優先であり、既存のアーキテクチャ文書、PR、未merge branchは、その決定と一致する範囲の参考資料として扱う。
 
-PR #71は、未mergeのコード実装、デザイン値、モック値を再設計・修正可能な参考資料として扱う。一方、OWNERが採用した10の主要顧客画面と主要詳細画面の情報構成は正式な製品基準であり、Phase 3はこれを削除・変更せず安全なtenant / RLS / grant / classification境界を定義し、実際の画面実装とデータ接続はPhase 8が所有する。
+`recora-development-domains.md`の9分類は「何を開発しているか」を示す最上位分類である。Phaseは実装順、顧客画面・管理画面の領域は画面内の下位構成、`api / publication / measurement / control / audit`は技術配置として別軸で維持する。9分類の番号をPhase番号として扱わない。完了条件、承認、状態遷移は`recora-agentic-sdlc.md`が定義し、この分類は所有しない。
+
+PR #71でmasterへ統合された顧客画面UIは、採用済みの画面構成と実装baselineとして扱う。データの実測正確性、本番接続、Product Truthは別途検証対象とする。
 
 同じ対象領域について内容が異なる場合は、次の順で扱う。
 
@@ -71,6 +74,7 @@ Phase 1資料と正式アーキテクチャが矛盾する場合は、既存処�
 ## 変更時のルール
 
 - 開発方式またはAIエージェント運用を変更する場合は`recora-agentic-sdlc.md`を更新する
+- 最上位の9開発領域、その責務、Issue分類方法を変更する場合は`recora-development-domains.md`と本READMEを同じIssueで更新する
 - Exec Planの適用基準、テンプレート、保存先、更新責任を変更する場合は`exec-plans/README.md`と関連文書を更新する
 - プロンプト設計、固定Prompt運用、Intent grouping、panel role、指標適格性、測定条件、集計契約を変更する場合は`recora-prompt-measurement-contract-v1.md`を更新する
 - Persona / Topic / Promptと測定証跡の物理利用方針、最小追加項目を変更する場合はIssue #144と`recora-measurement-design-existing-foundation-v1.md`を更新する
