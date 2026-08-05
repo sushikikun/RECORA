@@ -81,8 +81,8 @@ jobs:
       - name: Run dedicated Persona verifier
         run: npx --no-install tsx scripts/verify-recora-measurement-persona-compiler.ts
 
-      - name: Run Recora preflight
-        run: npm run recora:preflight:full
+      - name: Typecheck
+        run: npm run typecheck
 
       - name: Lint
         run: npm run lint
