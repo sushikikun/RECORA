@@ -1,4 +1,4 @@
-import { AdminOperatorHome } from "@/components/recora/admin-operator-home";
+import { AdminTypedOperatorHome } from "@/components/recora/admin-typed-operator-home";
 import {
   createAdminOperationsHomeSnapshot,
   createUnavailableAdminOperationsHomeSnapshot
@@ -10,11 +10,11 @@ export const dynamic = "force-dynamic";
 export default async function InternalHomePage() {
   try {
     const data = await getRecoraAdminOperationsData();
-    return <AdminOperatorHome snapshot={createAdminOperationsHomeSnapshot(data)} />;
+    return <AdminTypedOperatorHome snapshot={createAdminOperationsHomeSnapshot(data)} />;
   } catch (error) {
     console.warn("Failed to load Recora admin control room data.", getSafeErrorMessage(error));
     return (
-      <AdminOperatorHome
+      <AdminTypedOperatorHome
         snapshot={createUnavailableAdminOperationsHomeSnapshot(
           "Supabase read設定が未設定、またはread modelの取得に失敗しました。架空の代替データは表示していません。"
         )}
