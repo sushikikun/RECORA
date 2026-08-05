@@ -147,25 +147,29 @@ export function ProjectSetupWizardPolished() {
         header.dataset.recoraSheetHeader = "true";
         panel.prepend(header);
       }
-      header.replaceChildren();
-      const eyebrow = document.createElement("p");
-      eyebrow.className = "recora-sheet-eyebrow";
-      eyebrow.textContent = "候補を変更";
-      const heading = document.createElement("h2");
-      heading.id = titleId;
-      heading.className = "recora-sheet-heading";
-      heading.textContent = `${slot}を変更`;
-      const selected = document.createElement("div");
-      selected.className = "recora-current-selection";
-      const caption = document.createElement("span");
-      caption.textContent = "現在の選択";
-      const value = document.createElement("strong");
-      value.textContent = current;
-      selected.append(caption, value);
-      const description = document.createElement("p");
-      description.className = "recora-sheet-description";
-      description.textContent = "別の候補を選択してください。別の枠で選択中の候補は選べません。";
-      header.append(eyebrow, heading, selected, description);
+      const headerKey = `${slot}::${current}`;
+      if (header.dataset.recoraHeaderKey !== headerKey) {
+        header.dataset.recoraHeaderKey = headerKey;
+        header.replaceChildren();
+        const eyebrow = document.createElement("p");
+        eyebrow.className = "recora-sheet-eyebrow";
+        eyebrow.textContent = "候補を変更";
+        const heading = document.createElement("h2");
+        heading.id = titleId;
+        heading.className = "recora-sheet-heading";
+        heading.textContent = `${slot}を変更`;
+        const selected = document.createElement("div");
+        selected.className = "recora-current-selection";
+        const caption = document.createElement("span");
+        caption.textContent = "現在の選択";
+        const value = document.createElement("strong");
+        value.textContent = current;
+        selected.append(caption, value);
+        const description = document.createElement("p");
+        description.className = "recora-sheet-description";
+        description.textContent = "別の候補を選択してください。別の枠で選択中の候補は選べません。";
+        header.append(eyebrow, heading, selected, description);
+      }
 
       const originalTitle = Array.from(panel.children).find(
         (child) => child !== header && child.tagName === "P"
@@ -266,24 +270,25 @@ export function ProjectSetupWizardPolished() {
       <ProjectSetupWizardV2 />
       {mounted && sheet &&
         createPortal(
-          <>
-            <button
-              type="button"
-              className="recora-sheet-backdrop"
-              aria-label="候補選択を閉じる"
-              onClick={closeSheet}
-            />
-            <button
-              ref={closeRef}
-              type="button"
-              className="recora-sheet-close"
-              aria-label="候補選択を閉じる"
-              onClick={closeSheet}
-            >
-              <X className="size-5" />
-            </button>
-          </>,
+          <div
+            className="recora-sheet-backdrop"
+            aria-hidden="true"
+            onMouseDown={closeSheet}
+          />,
           document.body
+        )}
+      {mounted && sheet &&
+        createPortal(
+          <button
+            ref={closeRef}
+            type="button"
+            className="recora-sheet-close"
+            aria-label="候補選択を閉じる"
+            onClick={closeSheet}
+          >
+            <X className="size-5" />
+          </button>,
+          sheet.panel
         )}
       {mounted && undo &&
         createPortal(
