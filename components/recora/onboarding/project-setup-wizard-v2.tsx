@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import {
   ArrowLeft,
@@ -14,6 +14,7 @@ import {
   MessageSquareText,
   Pencil,
   Plus,
+  RefreshCw,
   RotateCcw,
   Sparkles,
   Target,
@@ -40,7 +41,7 @@ const STEPS = [
   ["最終確認", ClipboardCheck]
 ] as const;
 
-const SUBJECTS = [
+const SUBJECT_TYPES = [
   "企業",
   "ブランド",
   "サービス",
@@ -49,7 +50,7 @@ const SUBJECTS = [
   "専門家・個人"
 ] as const;
 
-const DOMAINS = [
+const BUSINESS_DOMAINS = [
   "IT・ソフトウェア",
   "マーケティング・広告",
   "法律・会計・士業",
@@ -67,7 +68,7 @@ const DOMAINS = [
   "その他"
 ] as const;
 
-const MODELS = [
+const OFFERING_MODELS = [
   "SaaS・ソフトウェア",
   "代行・受託サービス",
   "専門相談",
@@ -79,7 +80,7 @@ const MODELS = [
   "その他"
 ] as const;
 
-const ACTIONS = [
+const CUSTOMER_ACTIONS = [
   "購入",
   "定期購入・会員登録",
   "予約",
@@ -94,87 +95,105 @@ const ACTIONS = [
   "閲覧・購読"
 ] as const;
 
-type Form = {
+const LOCALITY_DOMAINS = new Set([
+  "医療・ヘルスケア",
+  "教育",
+  "不動産",
+  "旅行・宿泊",
+  "飲食・美容・生活サービス",
+  "建設・住宅サービス"
+]);
+
+type AudienceScope = "b2b" | "b2c" | "both";
+type AudiencePriority = "b2b" | "b2c" | "balanced";
+type DeliveryMode = "online" | "in_person" | "hybrid";
+type TopicPriority = "高" | "中" | "低";
+
+type OnboardingForm = {
   subjectType: string;
-  subject: string;
-  company: string;
-  same: boolean;
-  url: string;
+  subjectName: string;
+  operatorCompanyName: string;
+  operatorSameAsSubject: boolean;
+  officialUrl: string;
   aliases: string[];
-  audience: "b2b" | "b2c" | "both";
-  priority: "b2b" | "b2c" | "balanced";
-  domain: string;
-  model: string;
-  summary: string;
-  action: string;
-  subActions: string[];
-  delivery: "online" | "in_person" | "hybrid";
-  areas: string[];
-  locations: string[];
-  facilities: string[];
+  audienceScope: AudienceScope;
+  audiencePriority: AudiencePriority;
+  businessDomain: string;
+  offeringModel: string;
+  businessSummary: string;
+  primaryAction: string;
+  secondaryActions: string[];
+  deliveryMode: DeliveryMode;
+  serviceAreas: string[];
+  locationAddresses: string[];
+  targetFacilities: string[];
 };
 
-type Persona = {
+type PersonaCard = {
   id: number;
   name: string;
-  audience: string;
+  audience: "BtoB" | "BtoC";
   role: string;
   issue: string;
   emphasis: string;
-  action: string;
+  finalAction: string;
   adopted: boolean;
 };
 
-type Topic = {
+type TopicCard = {
   id: number;
   name: string;
   personaIds: number[];
   summary: string;
-  example: string;
-  priority: "高" | "中" | "低";
+  questionExample: string;
+  priority: TopicPriority;
   adopted: boolean;
 };
 
-type Question = {
+type MeasurementQuestion = {
   id: string;
   text: string;
   personaId: number;
   topicId: number;
   reason: string;
   important: boolean;
+  customerAdded: boolean;
 };
 
-type Inspection =
+type SiteInspectionState =
   | { status: "idle" | "loading" }
   | { status: "success"; result: SiteInspectionResult }
   | { status: "failed"; message: string };
 
-const INITIAL: Form = {
+const INITIAL_FORM: OnboardingForm = {
   subjectType: "サービス",
-  subject: "",
-  company: "",
-  same: false,
-  url: "",
+  subjectName: "",
+  operatorCompanyName: "",
+  operatorSameAsSubject: false,
+  officialUrl: "",
   aliases: [],
-  audience: "b2b",
-  priority: "b2b",
-  domain: "IT・ソフトウェア",
-  model: "SaaS・ソフトウェア",
-  summary: "",
-  action: "問い合わせ",
-  subActions: [],
-  delivery: "online",
-  areas: [],
-  locations: [],
-  facilities: []
+  audienceScope: "b2b",
+  audiencePriority: "b2b",
+  businessDomain: "IT・ソフトウェア",
+  offeringModel: "SaaS・ソフトウェア",
+  businessSummary: "",
+  primaryAction: "問い合わせ",
+  secondaryActions: [],
+  deliveryMode: "online",
+  serviceAreas: [],
+  locationAddresses: [],
+  targetFacilities: []
 };
 
-function personasFor(form: Form): Persona[] {
-  const b2c =
-    form.audience === "b2c" ||
-    (form.audience === "both" && form.priority === "b2c");
-  const action = form.action || "問い合わせ";
-  const rows = b2c
+function buildPersonas(form: OnboardingForm): PersonaCard[] {
+  const prioritizeB2c =
+    form.audienceScope === "b2c" ||
+    (form.audienceScope === "both" && form.audiencePriority === "b2c");
+  const action = form.primaryAction || "問い合わせ";
+
+  const rows: Array<
+    [string, "BtoB" | "BtoC", string, string, string, string]
+  > = prioritizeB2c
     ? [
         [
           "初めて選ぶ人",
@@ -187,8 +206,8 @@ function personasFor(form: Form): Persona[] {
         [
           "候補を比較する人",
           "BtoC",
-          "複数候補を比較する利用者",
-          "料金以外の違いが分からない",
+          "複数の候補を比較する利用者",
+          "料金以外の違いを整理しにくい",
           "料金、品質、口コミ",
           action
         ],
@@ -209,10 +228,10 @@ function personasFor(form: Form): Persona[] {
           "相談"
         ],
         [
-          form.audience === "both"
+          form.audienceScope === "both"
             ? "法人利用を検討する担当者"
             : "継続・乗り換えを考える人",
-          form.audience === "both" ? "BtoB" : "BtoC",
+          form.audienceScope === "both" ? "BtoB" : "BtoC",
           "別の利用方法を検討する人",
           "変更する価値を判断したい",
           "費用、使いやすさ、継続条件",
@@ -248,15 +267,15 @@ function personasFor(form: Form): Persona[] {
           "費用・契約確認者",
           "BtoB",
           "予算と契約を確認する担当者",
-          "総費用を説明したい",
+          "総費用を社内で説明したい",
           "料金、期間、解約条件",
           "契約"
         ],
         [
-          form.audience === "both"
+          form.audienceScope === "both"
             ? "個人として利用する人"
             : "信頼性を確認する担当者",
-          form.audience === "both" ? "BtoC" : "BtoB",
+          form.audienceScope === "both" ? "BtoC" : "BtoB",
           "根拠を確認する人",
           "信頼できるか判断したい",
           "実績、公式情報、支援体制",
@@ -271,23 +290,22 @@ function personasFor(form: Form): Persona[] {
     role: row[2],
     issue: row[3],
     emphasis: row[4],
-    action: row[5],
+    finalAction: row[5],
     adopted: true
   }));
 }
 
-function topicsFor(form: Form): Topic[] {
-  const subject = form.subject || "このサービス";
-  const local =
-    form.subjectType === "店舗・施設・拠点" ||
-    form.delivery !== "online" ||
-    ["予約", "来店・来院"].includes(form.action);
-  const rows = [
+function buildTopics(form: OnboardingForm): TopicCard[] {
+  const subject = form.subjectName || "このサービス";
+  const localityRelevant = isLocalityRelevant(form);
+  const rows: Array<
+    [string, number[], string, string, TopicPriority]
+  > = [
     [
       `${subject}が選択肢に入る場面`,
       [1, 2],
       "課題や目的から候補を探す場面を確認します。",
-      `${form.domain}でおすすめの選択肢を選ぶとき、何を比較すべきですか？`,
+      `${form.businessDomain}でおすすめの選択肢を選ぶとき、何を比較すべきですか？`,
       "高"
     ],
     [
@@ -298,7 +316,7 @@ function topicsFor(form: Form): Topic[] {
       "高"
     ],
     [
-      form.model === "商品"
+      form.offeringModel === "商品"
         ? "品質・仕様と目的への適合"
         : "利用・導入前の不安",
       [3, 5],
@@ -309,7 +327,7 @@ function topicsFor(form: Form): Topic[] {
     [
       "料金・契約・申込条件",
       [1, 4],
-      `${form.action}前の料金や手続きを確認します。`,
+      `${form.primaryAction}前の料金や手続きを確認します。`,
       `${subject}の料金や契約条件で見落としやすい点はありますか？`,
       "中"
     ],
@@ -321,125 +339,258 @@ function topicsFor(form: Form): Topic[] {
       "中"
     ],
     [
-      local
+      localityRelevant
         ? "地域・アクセス・利用しやすさ"
         : "利用開始後の運用・継続",
       [1, 3],
-      local
+      localityRelevant
         ? "地域、アクセス、予約、初回利用を確認します。"
         : "運用負荷、サポート、継続性を確認します。",
-      local
-        ? `${form.areas[0] || "対象地域"}で${subject}を利用するときの確認点は？`
-        : `${subject}の導入後に確認すべき運用やサポートは？`,
+      localityRelevant
+        ? `${form.serviceAreas[0] || "対象地域"}で${subject}を利用するときの確認点は？`
+        : `${subject}の利用開始後に確認すべき運用やサポートは？`,
       "中"
     ]
   ];
 
   return rows.map((row, index) => ({
     id: index + 1,
-    name: row[0] as string,
-    personaIds: row[1] as number[],
-    summary: row[2] as string,
-    example: row[3] as string,
-    priority: row[4] as Topic["priority"],
+    name: row[0],
+    personaIds: row[1],
+    summary: row[2],
+    questionExample: row[3],
+    priority: row[4],
     adopted: true
   }));
 }
 
-function questionsFor(personas: Persona[], topics: Topic[]): Question[] {
-  return topics.flatMap((topic, index) => [
-    {
-      id: `${topic.id}-a`,
-      text: topic.example,
-      personaId: topic.personaIds[0],
-      topicId: topic.id,
-      reason: `${personas[topic.personaIds[0] - 1]?.name}の判断場面を確認するためです。`,
-      important: index < 3
-    },
-    {
-      id: `${topic.id}-b`,
-      text: `${topic.name}について、選ぶ前に確認すべきポイントを教えてください。`,
-      personaId: topic.personaIds[1],
-      topicId: topic.id,
-      reason: "同じテーマを別の顧客視点でも確認するためです。",
-      important: index === 3
-    }
-  ]);
+function buildQuestions(
+  personas: PersonaCard[],
+  topics: TopicCard[]
+): MeasurementQuestion[] {
+  return topics.flatMap((topic, index) => {
+    const firstPersonaId = topic.personaIds[0] ?? 1;
+    const secondPersonaId = topic.personaIds[1] ?? firstPersonaId;
+    const firstPersona = personas.find(
+      (persona) => persona.id === firstPersonaId
+    );
+
+    return [
+      {
+        id: `${topic.id}-a`,
+        text: topic.questionExample,
+        personaId: firstPersonaId,
+        topicId: topic.id,
+        reason: `${firstPersona?.name || "顧客"}の判断場面を確認するためです。`,
+        important: index < 3,
+        customerAdded: false
+      },
+      {
+        id: `${topic.id}-b`,
+        text: `${topic.name}について、選ぶ前に確認すべきポイントを教えてください。`,
+        personaId: secondPersonaId,
+        topicId: topic.id,
+        reason: "同じテーマを別の顧客視点でも確認するためです。",
+        important: index === 3,
+        customerAdded: false
+      }
+    ];
+  });
+}
+
+function isLocalityRelevant(form: OnboardingForm) {
+  if (form.subjectType === "店舗・施設・拠点") return true;
+  if (["予約", "来店・来院"].includes(form.primaryAction)) return true;
+  if (form.offeringModel === "店舗・施設サービス") return true;
+  return (
+    form.deliveryMode !== "online" &&
+    LOCALITY_DOMAINS.has(form.businessDomain)
+  );
+}
+
+function inferBusinessClassification(result: SiteInspectionResult) {
+  const source = [
+    result.suggestedCategory,
+    result.title,
+    result.description,
+    result.h1
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (/クリニック|医療|歯科|病院|health/.test(source)) {
+    return {
+      businessDomain: "医療・ヘルスケア",
+      offeringModel: "店舗・施設サービス"
+    };
+  }
+  if (/学校|スクール|教育|塾|講座|school|education/.test(source)) {
+    return {
+      businessDomain: "教育",
+      offeringModel: /オンライン/.test(source)
+        ? "一般消費者向けサービス"
+        : "店舗・施設サービス"
+    };
+  }
+  if (/不動産|物件|賃貸|売買/.test(source)) {
+    return {
+      businessDomain: "不動産",
+      offeringModel: "専門相談"
+    };
+  }
+  if (/採用|人材|求人|hr/.test(source)) {
+    return {
+      businessDomain: "採用・人材",
+      offeringModel: /saas|システム|ソフト/.test(source)
+        ? "SaaS・ソフトウェア"
+        : "代行・受託サービス"
+    };
+  }
+  if (/ec|通販|オンラインショップ|商品|d2c/.test(source)) {
+    return {
+      businessDomain: "小売・商品販売",
+      offeringModel: "商品"
+    };
+  }
+  if (/法律|弁護士|税理士|会計|社労士|司法書士/.test(source)) {
+    return {
+      businessDomain: "法律・会計・士業",
+      offeringModel: "専門相談"
+    };
+  }
+  if (/マーケティング|広告|seo|広報/.test(source)) {
+    return {
+      businessDomain: "マーケティング・広告",
+      offeringModel: /saas|ツール|ソフト/.test(source)
+        ? "SaaS・ソフトウェア"
+        : "代行・受託サービス"
+    };
+  }
+  if (/saas|ソフトウェア|システム|アプリ|it/.test(source)) {
+    return {
+      businessDomain: "IT・ソフトウェア",
+      offeringModel: "SaaS・ソフトウェア"
+    };
+  }
+  return null;
 }
 
 export function ProjectSetupWizardV2() {
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<Form>(INITIAL);
-  const [inspection, setInspection] = useState<Inspection>({ status: "idle" });
-  const [evidence, setEvidence] = useState(false);
-  const [personas, setPersonas] = useState(() => personasFor(INITIAL));
-  const [topics, setTopics] = useState(() => topicsFor(INITIAL));
+  const [maxVisitedStep, setMaxVisitedStep] = useState(0);
+  const [returnToReview, setReturnToReview] = useState(false);
+  const [form, setForm] = useState<OnboardingForm>(INITIAL_FORM);
+  const [inspection, setInspection] = useState<SiteInspectionState>({
+    status: "idle"
+  });
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [personas, setPersonas] = useState(() => buildPersonas(INITIAL_FORM));
+  const [topics, setTopics] = useState(() => buildTopics(INITIAL_FORM));
   const [questions, setQuestions] = useState(() =>
-    questionsFor(personasFor(INITIAL), topicsFor(INITIAL))
+    buildQuestions(buildPersonas(INITIAL_FORM), buildTopics(INITIAL_FORM))
   );
-  const [deleted, setDeleted] = useState<Question[]>([]);
-  const [filter, setFilter] = useState(0);
+  const [suggestionsInitialized, setSuggestionsInitialized] = useState(false);
+  const [suggestionsStale, setSuggestionsStale] = useState(false);
+  const [deletedQuestions, setDeletedQuestions] = useState<
+    MeasurementQuestion[]
+  >([]);
+  const [topicFilter, setTopicFilter] = useState(0);
   const [newQuestion, setNewQuestion] = useState("");
-  const [showAll, setShowAll] = useState(false);
+  const [showAllQuestions, setShowAllQuestions] = useState(false);
   const [error, setError] = useState("");
   const [complete, setComplete] = useState(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
-  const region = useMemo(
+  const localityRelevant = useMemo(() => isLocalityRelevant(form), [form]);
+  const adoptedPersonaIds = useMemo(
+    () => new Set(personas.filter((persona) => persona.adopted).map((p) => p.id)),
+    [personas]
+  );
+  const adoptedTopicIds = useMemo(
+    () => new Set(topics.filter((topic) => topic.adopted).map((t) => t.id)),
+    [topics]
+  );
+  const activeQuestions = useMemo(
     () =>
-      form.subjectType === "店舗・施設・拠点" ||
-      form.delivery !== "online" ||
-      ["予約", "来店・来院"].includes(form.action) ||
-      ([
-        "医療・ヘルスケア",
-        "教育",
-        "不動産",
-        "旅行・宿泊",
-        "飲食・美容・生活サービス",
-        "建設・住宅サービス"
-      ].includes(form.domain) && form.model === "店舗・施設サービス"),
-    [form]
+      questions.filter(
+        (question) =>
+          adoptedPersonaIds.has(question.personaId) &&
+          adoptedTopicIds.has(question.topicId)
+      ),
+    [adoptedPersonaIds, adoptedTopicIds, questions]
+  );
+  const importantQuestions = activeQuestions
+    .filter((question) => question.important)
+    .slice(0, 6);
+  const filteredQuestions = topicFilter
+    ? activeQuestions.filter((question) => question.topicId === topicFilter)
+    : activeQuestions;
+  const visibleQuestions = filteredQuestions.slice(
+    0,
+    showAllQuestions ? undefined : 8
   );
 
-  const important = questions.filter((question) => question.important).slice(0, 6);
-  const visibleQuestions = (
-    filter ? questions.filter((question) => question.topicId === filter) : questions
-  ).slice(0, showAll ? undefined : 8);
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, [step, complete]);
 
-  const update = <K extends keyof Form>(key: K, value: Form[K]) => {
+  const updateForm = <K extends keyof OnboardingForm>(
+    key: K,
+    value: OnboardingForm[K]
+  ) => {
     setForm((current) => ({
       ...current,
       [key]: value,
-      ...(key === "subject" && current.same
-        ? { company: String(value) }
+      ...(key === "subjectName" && current.operatorSameAsSubject
+        ? { operatorCompanyName: String(value) }
         : {})
     }));
+    if (suggestionsInitialized) setSuggestionsStale(true);
     setError("");
   };
 
-  const add = (
-    key: "aliases" | "areas" | "locations" | "facilities",
+  const addChip = (
+    key:
+      | "aliases"
+      | "serviceAreas"
+      | "locationAddresses"
+      | "targetFacilities",
     value: string
   ) => {
     const normalized = value.trim();
-    if (normalized && !form[key].includes(normalized)) {
-      update(key, [...form[key], normalized]);
-    }
+    if (!normalized || form[key].includes(normalized)) return;
+    updateForm(key, [...form[key], normalized]);
+  };
+
+  const refreshSuggestions = () => {
+    const nextPersonas = buildPersonas(form);
+    const nextTopics = buildTopics(form);
+    setPersonas(nextPersonas);
+    setTopics(nextTopics);
+    setQuestions(buildQuestions(nextPersonas, nextTopics));
+    setDeletedQuestions([]);
+    setSuggestionsInitialized(true);
+    setSuggestionsStale(false);
+    setTopicFilter(0);
+    setShowAllQuestions(false);
   };
 
   async function inspectSite() {
-    if (!form.url.trim()) {
+    if (!form.officialUrl.trim()) {
       setError("公式サイトURLを入力してください。");
       return;
     }
 
     setInspection({ status: "loading" });
+    setError("");
     try {
       const response = await fetch("/api/recora/site-inspect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          url: form.url,
-          brandName: form.subject || undefined,
+          url: form.officialUrl,
+          brandName: form.subjectName || undefined,
           aliases: form.aliases
         })
       });
@@ -453,17 +604,24 @@ export function ProjectSetupWizardV2() {
         return;
       }
 
+      const inferred = inferBusinessClassification(data.result);
       setInspection({ status: "success", result: data.result });
       setForm((current) => ({
         ...current,
-        subject:
-          current.subject || data.result.siteName || data.result.title || "",
-        company: current.company || data.result.siteName || "",
-        summary:
+        subjectName:
+          current.subjectName ||
+          data.result.siteName ||
+          data.result.title ||
+          "",
+        operatorCompanyName:
+          current.operatorCompanyName || data.result.siteName || "",
+        businessSummary:
           data.result.suggestedServiceDescription ||
           data.result.description ||
-          current.summary
+          current.businessSummary,
+        ...(inferred ?? {})
       }));
+      if (suggestionsInitialized) setSuggestionsStale(true);
     } catch {
       setInspection({
         status: "failed",
@@ -472,18 +630,26 @@ export function ProjectSetupWizardV2() {
     }
   }
 
-  function validateStep() {
+  function validateCurrentStep() {
     if (
       step === 0 &&
-      (!form.subject.trim() || !form.company.trim() || !form.url.trim())
+      (!form.subjectName.trim() ||
+        !form.operatorCompanyName.trim() ||
+        !form.officialUrl.trim())
     ) {
       return "分析対象名、運営会社名、公式サイトURLを確認してください。";
     }
-    if (step === 1 && !form.summary.trim()) {
+    if (step === 1 && !form.businessSummary.trim()) {
       return "事業概要を確認してください。";
     }
-    if (step === 1 && region && !form.areas.length && !form.locations.length) {
-      return "対応地域または所在地を入力してください。";
+    if (
+      step === 1 &&
+      localityRelevant &&
+      !form.serviceAreas.length &&
+      !form.locationAddresses.length &&
+      !form.targetFacilities.length
+    ) {
+      return "対応地域、所在地、または分析対象の店舗・施設を入力してください。";
     }
     if (step === 2 && !personas.some((persona) => persona.adopted)) {
       return "少なくとも1件のペルソナを採用してください。";
@@ -491,64 +657,60 @@ export function ProjectSetupWizardV2() {
     if (step === 3 && !topics.some((topic) => topic.adopted)) {
       return "少なくとも1件のトピックを採用してください。";
     }
-    if (step === 4 && !questions.length) {
-      return "質問を1件以上残してください。";
+    if (step === 4 && !activeQuestions.length) {
+      return "測定に使う質問を1件以上残してください。";
+    }
+    if (step === 5 && suggestionsStale) {
+      return "事業内容の変更に合わせて、ペルソナ・トピック・質問の提案を更新してください。";
     }
     return "";
   }
 
-  function next() {
-    const message = validateStep();
+  const goToStep = (nextStep: number, fromReview = false) => {
+    setStep(nextStep);
+    setMaxVisitedStep((current) => Math.max(current, nextStep));
+    setReturnToReview(fromReview || (returnToReview && nextStep < 5));
+    setComplete(false);
+    setError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const next = () => {
+    const message = validateCurrentStep();
     if (message) {
       setError(message);
       return;
     }
 
-    if (step === 1) {
-      const nextPersonas = personasFor(form);
-      const nextTopics = topicsFor(form);
-      setPersonas(nextPersonas);
-      setTopics(nextTopics);
-      setQuestions(questionsFor(nextPersonas, nextTopics));
-    }
-    if (step === 2) {
-      const nextTopics = topicsFor(form);
-      setTopics(nextTopics);
-      setQuestions(questionsFor(personas, nextTopics));
-    }
-    if (step === 3) {
-      setQuestions(questionsFor(personas, topics));
-    }
+    if (step === 1 && !suggestionsInitialized) refreshSuggestions();
+    goToStep(Math.min(step + 1, 5));
+  };
 
-    setDeleted([]);
-    setStep((current) => Math.min(current + 1, 5));
-    setError("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
+  const backToReview = () => {
+    setReturnToReview(false);
+    goToStep(5);
+  };
 
-  function addQuestion(event: FormEvent<HTMLFormElement>) {
+  const addQuestion = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!newQuestion.trim()) return;
+    const text = newQuestion.trim();
+    const firstPersona = personas.find((persona) => persona.adopted);
+    const firstTopic = topics.find((topic) => topic.adopted);
+    if (!text || !firstPersona || !firstTopic) return;
 
     setQuestions((current) => [
       ...current,
       {
-        id: `c-${Date.now()}`,
-        text: newQuestion.trim(),
-        personaId: 1,
-        topicId: 1,
+        id: `customer-${Date.now()}`,
+        text,
+        personaId: firstPersona.id,
+        topicId: firstTopic.id,
         reason: "顧客が追加した確認事項を測定するためです。",
-        important: true
+        important: true,
+        customerAdded: true
       }
     ]);
     setNewQuestion("");
-  }
-
-  const go = (nextStep: number) => {
-    setStep(nextStep);
-    setComplete(false);
-    setError("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const CurrentIcon = STEPS[step][1];
@@ -562,7 +724,9 @@ export function ProjectSetupWizardV2() {
               R
             </span>
             <div>
-              <p className="text-sm font-semibold text-[#173d2c]">Recora 初期設定</p>
+              <p className="text-sm font-semibold text-[#173d2c]">
+                Recora 初期設定
+              </p>
               <p className="hidden text-xs text-[#65766c] sm:block">
                 分析対象から測定質問まで順番に確認します
               </p>
@@ -572,9 +736,9 @@ export function ProjectSetupWizardV2() {
             Step {step + 1} / 6
           </Badge>
         </div>
-        <div className="h-1 bg-[#e4ebe6]">
+        <div className="h-1 bg-[#e4ebe6]" aria-hidden="true">
           <div
-            className="h-full bg-[#2f7652]"
+            className="h-full bg-[#2f7652] transition-[width]"
             style={{ width: `${((step + 1) / 6) * 100}%` }}
           />
         </div>
@@ -585,52 +749,60 @@ export function ProjectSetupWizardV2() {
           aria-label="初期設定ステップ"
           className="mb-6 hidden grid-cols-6 gap-2 lg:grid"
         >
-          {STEPS.map(([title, StepIcon], index) => (
-            <li key={title}>
-              <button
-                type="button"
-                aria-current={step === index ? "step" : undefined}
-                onClick={() => index <= step && go(index)}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-2xl border px-3 py-3 text-left",
-                  step === index
-                    ? "border-[#2f7652] bg-[#eef7f1]"
-                    : index < step
-                      ? "border-[#cfe0d5] bg-white"
-                      : "cursor-default border-[#dde5df] bg-[#f8faf8] text-[#89958d]"
-                )}
-              >
-                <span
+          {STEPS.map(([title, StepIcon], index) => {
+            const available = index <= maxVisitedStep;
+            return (
+              <li key={title}>
+                <button
+                  type="button"
+                  aria-current={step === index ? "step" : undefined}
+                  aria-disabled={!available}
+                  onClick={() => available && goToStep(index)}
                   className={cn(
-                    "flex size-8 items-center justify-center rounded-xl",
+                    "flex w-full items-center gap-2 rounded-2xl border px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7652] focus-visible:ring-offset-2",
                     step === index
-                      ? "bg-[#2f7652] text-white"
-                      : "bg-[#e7eee9] text-[#547060]"
+                      ? "border-[#2f7652] bg-[#eef7f1]"
+                      : available
+                        ? "border-[#cfe0d5] bg-white"
+                        : "cursor-default border-[#dde5df] bg-[#f8faf8] text-[#89958d]"
                   )}
                 >
-                  {index < step ? (
-                    <Check className="size-4" />
-                  ) : (
-                    <StepIcon className="size-4" />
-                  )}
-                </span>
-                <span className="truncate text-sm font-semibold">{title}</span>
-              </button>
-            </li>
-          ))}
+                  <span
+                    className={cn(
+                      "flex size-8 items-center justify-center rounded-xl",
+                      step === index
+                        ? "bg-[#2f7652] text-white"
+                        : "bg-[#e7eee9] text-[#547060]"
+                    )}
+                  >
+                    {index < maxVisitedStep ? (
+                      <Check className="size-4" />
+                    ) : (
+                      <StepIcon className="size-4" />
+                    )}
+                  </span>
+                  <span className="truncate text-sm font-semibold">{title}</span>
+                </button>
+              </li>
+            );
+          })}
         </ol>
 
         <section className="rounded-[28px] border border-[#d9e2dc] bg-white shadow-[0_18px_45px_rgba(33,72,51,0.08)]">
           <div className="border-b border-[#e1e8e3] px-5 py-6 sm:px-8 lg:px-10">
             <div className="flex gap-4">
-              <span className="flex size-11 items-center justify-center rounded-2xl bg-[#e6f2ea] text-[#245b40]">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#e6f2ea] text-[#245b40]">
                 <CurrentIcon className="size-5" />
               </span>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#4e755f]">
                   Step {step + 1}
                 </p>
-                <h1 className="mt-1 text-2xl font-semibold text-[#163d2b] sm:text-3xl">
+                <h1
+                  ref={headingRef}
+                  tabIndex={-1}
+                  className="mt-1 text-2xl font-semibold text-[#163d2b] outline-none sm:text-3xl"
+                >
                   {STEPS[step][0]}
                 </h1>
                 <p className="mt-2 text-sm text-[#66766d]">
@@ -651,68 +823,80 @@ export function ProjectSetupWizardV2() {
 
           <div className="px-5 py-6 sm:px-8 lg:px-10 lg:py-8">
             {complete ? (
-              <Complete onBack={() => setComplete(false)} />
+              <CompleteState onBack={() => setComplete(false)} />
             ) : (
               <>
                 {step === 0 && (
                   <SubjectStep
                     form={form}
                     inspection={inspection}
-                    evidence={evidence}
-                    update={update}
-                    add={add}
+                    showEvidence={showEvidence}
+                    updateForm={updateForm}
+                    addChip={addChip}
                     inspectSite={inspectSite}
-                    setEvidence={setEvidence}
+                    setShowEvidence={setShowEvidence}
                   />
                 )}
                 {step === 1 && (
                   <BusinessStep
                     form={form}
-                    region={region}
-                    update={update}
-                    add={add}
+                    inspection={inspection}
+                    localityRelevant={localityRelevant}
+                    updateForm={updateForm}
+                    addChip={addChip}
                   />
                 )}
                 {step === 2 && (
-                  <PersonaStep personas={personas} setPersonas={setPersonas} />
+                  <PersonaStep
+                    personas={personas}
+                    setPersonas={setPersonas}
+                    suggestionsStale={suggestionsStale}
+                    refreshSuggestions={refreshSuggestions}
+                  />
                 )}
                 {step === 3 && (
                   <TopicStep
                     topics={topics}
                     personas={personas}
                     setTopics={setTopics}
+                    suggestionsStale={suggestionsStale}
+                    refreshSuggestions={refreshSuggestions}
                   />
                 )}
                 {step === 4 && (
                   <QuestionStep
-                    questions={questions}
+                    questions={activeQuestions}
                     setQuestions={setQuestions}
                     personas={personas}
                     topics={topics}
-                    important={important}
-                    visible={visibleQuestions}
-                    filter={filter}
-                    setFilter={setFilter}
+                    importantQuestions={importantQuestions}
+                    visibleQuestions={visibleQuestions}
+                    filteredQuestionCount={filteredQuestions.length}
+                    topicFilter={topicFilter}
+                    setTopicFilter={setTopicFilter}
                     newQuestion={newQuestion}
                     setNewQuestion={setNewQuestion}
                     addQuestion={addQuestion}
-                    deleted={deleted}
-                    setDeleted={setDeleted}
-                    showAll={showAll}
-                    setShowAll={setShowAll}
+                    deletedQuestions={deletedQuestions}
+                    setDeletedQuestions={setDeletedQuestions}
+                    showAllQuestions={showAllQuestions}
+                    setShowAllQuestions={setShowAllQuestions}
                   />
                 )}
                 {step === 5 && (
                   <ReviewStep
                     form={form}
-                    region={region}
+                    localityRelevant={localityRelevant}
                     personas={personas}
                     topics={topics}
-                    questions={questions}
-                    important={important}
-                    go={go}
+                    questions={activeQuestions}
+                    importantQuestions={importantQuestions}
+                    suggestionsStale={suggestionsStale}
+                    refreshSuggestions={refreshSuggestions}
+                    goToEdit={(editStep) => goToStep(editStep, true)}
                   />
                 )}
+
                 {error && (
                   <div
                     role="alert"
@@ -726,37 +910,50 @@ export function ProjectSetupWizardV2() {
           </div>
 
           {!complete && (
-            <div className="flex flex-col-reverse gap-3 border-t border-[#e1e8e3] px-5 py-5 sm:flex-row sm:justify-between sm:px-8 lg:px-10">
+            <div className="flex flex-col-reverse gap-3 border-t border-[#e1e8e3] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10">
               <Button
                 variant="outline"
                 disabled={!step}
-                onClick={() => go(Math.max(0, step - 1))}
+                onClick={() => goToStep(Math.max(0, step - 1))}
                 className="h-11 rounded-xl"
               >
                 <ArrowLeft className="mr-2 size-4" />
                 戻る
               </Button>
-              {step < 5 ? (
-                <Button
-                  onClick={next}
-                  className="h-11 rounded-xl bg-[#1f6745] px-6 text-white"
-                >
-                  次へ
-                  <ArrowRight className="ml-2 size-4" />
-                </Button>
-              ) : (
-                <Button
-                  onClick={() => {
-                    const message = validateStep();
-                    if (message) setError(message);
-                    else setComplete(true);
-                  }}
-                  className="h-11 rounded-xl bg-[#174f36] px-6 text-white"
-                >
-                  <CheckCircle2 className="mr-2 size-4" />
-                  設定を完了する
-                </Button>
-              )}
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                {returnToReview && step < 5 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={backToReview}
+                    className="h-11 rounded-xl"
+                  >
+                    最終確認に戻る
+                  </Button>
+                )}
+                {step < 5 ? (
+                  <Button
+                    onClick={next}
+                    className="h-11 rounded-xl bg-[#1f6745] px-6 text-white"
+                  >
+                    次へ
+                    <ArrowRight className="ml-2 size-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      const message = validateCurrentStep();
+                      if (message) setError(message);
+                      else setComplete(true);
+                    }}
+                    className="h-11 rounded-xl bg-[#174f36] px-6 text-white"
+                  >
+                    <CheckCircle2 className="mr-2 size-4" />
+                    設定を完了する
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </section>
@@ -787,7 +984,7 @@ function Section({
   );
 }
 
-function Choice({
+function ChoiceButton({
   selected,
   title,
   onClick
@@ -799,12 +996,13 @@ function Choice({
   return (
     <button
       type="button"
+      aria-pressed={selected}
       onClick={onClick}
       className={cn(
-        "flex items-center justify-between rounded-2xl border p-4 text-left",
+        "flex items-center justify-between rounded-2xl border p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7652] focus-visible:ring-offset-2",
         selected
           ? "border-[#3d805c] bg-[#edf6f0]"
-          : "border-[#d5dfd8]"
+          : "border-[#d5dfd8] bg-white"
       )}
     >
       <span className="font-semibold text-[#314c3d]">{title}</span>
@@ -826,12 +1024,14 @@ function TextInput({
   label,
   value,
   onChange,
-  disabled
+  disabled,
+  placeholder
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  placeholder?: string;
 }) {
   return (
     <label className="block text-sm font-semibold text-[#284637]">
@@ -839,10 +1039,11 @@ function TextInput({
       <input
         value={value}
         disabled={disabled}
+        placeholder={placeholder}
         onChange={(event: ChangeEvent<HTMLInputElement>) =>
           onChange(event.target.value)
         }
-        className="mt-2 h-11 w-full rounded-xl border border-[#cbd7cf] px-4 text-sm font-normal outline-none focus:border-[#3d805c] disabled:bg-[#f0f3f1]"
+        className="mt-2 h-11 w-full rounded-xl border border-[#cbd7cf] px-4 text-sm font-normal outline-none focus:border-[#3d805c] focus:ring-2 focus:ring-[#d8eadf] disabled:bg-[#f0f3f1]"
       />
     </label>
   );
@@ -867,7 +1068,7 @@ function SelectInput({
         onChange={(event: ChangeEvent<HTMLSelectElement>) =>
           onChange(event.target.value)
         }
-        className="mt-2 h-11 w-full rounded-xl border border-[#cbd7cf] bg-white px-4 text-sm font-normal"
+        className="mt-2 h-11 w-full rounded-xl border border-[#cbd7cf] bg-white px-4 text-sm font-normal outline-none focus:border-[#3d805c] focus:ring-2 focus:ring-[#d8eadf]"
       >
         {options.map((option) => (
           <option key={option}>{option}</option>
@@ -877,16 +1078,18 @@ function SelectInput({
   );
 }
 
-function Chips({
+function ChipInput({
   title,
   values,
-  add,
-  remove
+  onAdd,
+  onRemove,
+  placeholder
 }: {
   title: string;
   values: string[];
-  add: (value: string) => void;
-  remove: (value: string) => void;
+  onAdd: (value: string) => void;
+  onRemove: (value: string) => void;
+  placeholder?: string;
 }) {
   const [value, setValue] = useState("");
 
@@ -896,16 +1099,24 @@ function Chips({
       <div className="mt-2 flex gap-2">
         <input
           value={value}
+          placeholder={placeholder}
           onChange={(event: ChangeEvent<HTMLInputElement>) =>
             setValue(event.target.value)
           }
-          className="h-11 min-w-0 flex-1 rounded-xl border border-[#cbd7cf] px-4 text-sm"
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onAdd(value);
+              setValue("");
+            }
+          }}
+          className="h-11 min-w-0 flex-1 rounded-xl border border-[#cbd7cf] px-4 text-sm outline-none focus:border-[#3d805c] focus:ring-2 focus:ring-[#d8eadf]"
         />
         <Button
           type="button"
           variant="outline"
           onClick={() => {
-            add(value);
+            onAdd(value);
             setValue("");
           }}
           aria-label={`${title}を追加`}
@@ -913,23 +1124,26 @@ function Chips({
           <Plus className="size-4" />
         </Button>
       </div>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {values.map((item) => (
-          <span
-            key={item}
-            className="inline-flex items-center gap-1 rounded-full bg-[#edf6f0] px-3 py-1.5 text-xs text-[#355d47]"
-          >
-            {item}
-            <button
-              type="button"
-              onClick={() => remove(item)}
-              aria-label={`${item}を削除`}
+      {!!values.length && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {values.map((item) => (
+            <span
+              key={item}
+              className="inline-flex items-center gap-1 rounded-full bg-[#edf6f0] px-3 py-1.5 text-xs text-[#355d47]"
             >
-              <X className="size-3" />
-            </button>
-          </span>
-        ))}
-      </div>
+              {item}
+              <button
+                type="button"
+                onClick={() => onRemove(item)}
+                aria-label={`${item}を削除`}
+                className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7652]"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -937,33 +1151,40 @@ function Chips({
 function SubjectStep({
   form,
   inspection,
-  evidence,
-  update,
-  add,
+  showEvidence,
+  updateForm,
+  addChip,
   inspectSite,
-  setEvidence
+  setShowEvidence
 }: {
-  form: Form;
-  inspection: Inspection;
-  evidence: boolean;
-  update: <K extends keyof Form>(key: K, value: Form[K]) => void;
-  add: (
-    key: "aliases" | "areas" | "locations" | "facilities",
+  form: OnboardingForm;
+  inspection: SiteInspectionState;
+  showEvidence: boolean;
+  updateForm: <K extends keyof OnboardingForm>(
+    key: K,
+    value: OnboardingForm[K]
+  ) => void;
+  addChip: (
+    key:
+      | "aliases"
+      | "serviceAreas"
+      | "locationAddresses"
+      | "targetFacilities",
     value: string
   ) => void;
   inspectSite: () => void;
-  setEvidence: (value: boolean) => void;
+  setShowEvidence: (value: boolean) => void;
 }) {
   return (
     <div className="space-y-8">
       <Section title="分析する対象">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {SUBJECTS.map((subject) => (
-            <Choice
-              key={subject}
-              selected={form.subjectType === subject}
-              title={subject}
-              onClick={() => update("subjectType", subject)}
+          {SUBJECT_TYPES.map((subjectType) => (
+            <ChoiceButton
+              key={subjectType}
+              selected={form.subjectType === subjectType}
+              title={subjectType}
+              onClick={() => updateForm("subjectType", subjectType)}
             />
           ))}
         </div>
@@ -973,44 +1194,53 @@ function SubjectStep({
         <div className="grid gap-5 lg:grid-cols-2">
           <TextInput
             label="分析対象名"
-            value={form.subject}
-            onChange={(value) => update("subject", value)}
+            value={form.subjectName}
+            placeholder="例：Recora"
+            onChange={(value) => updateForm("subjectName", value)}
           />
           <div>
             <TextInput
               label="運営会社名"
-              value={form.company}
-              disabled={form.same}
-              onChange={(value) => update("company", value)}
+              value={form.operatorCompanyName}
+              disabled={form.operatorSameAsSubject}
+              placeholder="例：株式会社〇〇"
+              onChange={(value) => updateForm("operatorCompanyName", value)}
             />
-            <label className="mt-3 flex gap-2 text-sm font-normal">
+            <label className="mt-3 flex items-center gap-2 text-sm font-normal">
               <input
                 type="checkbox"
-                checked={form.same}
+                checked={form.operatorSameAsSubject}
                 onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                  update("same", event.target.checked);
-                  if (event.target.checked) update("company", form.subject);
+                  const checked = event.target.checked;
+                  updateForm("operatorSameAsSubject", checked);
+                  if (checked) {
+                    updateForm("operatorCompanyName", form.subjectName);
+                  }
                 }}
               />
               運営会社名は分析対象名と同じ
             </label>
           </div>
+
           <div className="lg:col-span-2">
-            <p className="text-sm font-semibold">公式サイトURL</p>
+            <p className="text-sm font-semibold text-[#284637]">
+              公式サイトURL
+            </p>
             <div className="mt-2 flex flex-col gap-3 sm:flex-row">
               <input
-                value={form.url}
+                value={form.officialUrl}
                 onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                  update("url", event.target.value)
+                  updateForm("officialUrl", event.target.value)
                 }
                 placeholder="https://example.com"
-                className="h-11 min-w-0 flex-1 rounded-xl border border-[#cbd7cf] px-4 text-sm"
+                inputMode="url"
+                className="h-11 min-w-0 flex-1 rounded-xl border border-[#cbd7cf] px-4 text-sm outline-none focus:border-[#3d805c] focus:ring-2 focus:ring-[#d8eadf]"
               />
               <Button
                 type="button"
                 onClick={inspectSite}
                 disabled={inspection.status === "loading"}
-                className="h-11 bg-[#e4f0e8] text-[#245b40]"
+                className="h-11 bg-[#e4f0e8] text-[#245b40] hover:bg-[#d9eade]"
               >
                 {inspection.status === "loading" ? (
                   <Loader2 className="mr-2 size-4 animate-spin" />
@@ -1024,97 +1254,121 @@ function SubjectStep({
         </div>
       </Section>
 
-      <Chips
+      <ChipInput
         title="別名・略称（任意）"
         values={form.aliases}
-        add={(value) => add("aliases", value)}
-        remove={(value) =>
-          update(
+        placeholder="例：レコラ"
+        onAdd={(value) => addChip("aliases", value)}
+        onRemove={(value) =>
+          updateForm(
             "aliases",
             form.aliases.filter((item) => item !== value)
           )
         }
       />
 
-      {inspection.status === "idle" && (
-        <div className="rounded-2xl border border-dashed border-[#cbd8cf] bg-[#f8faf8] p-5 text-sm text-[#64746b]">
-          サイトを読み取れない場合も手動入力で続けられます。
-        </div>
-      )}
-      {inspection.status === "failed" && (
-        <div className="rounded-2xl border border-[#e5d3c8] bg-[#fff9f4] p-5">
-          <p className="font-semibold">読み取れませんでした</p>
-          <p className="mt-1 text-sm">{inspection.message}</p>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={inspectSite}
-            className="mt-3"
-          >
-            再試行
-          </Button>
-        </div>
-      )}
-      {inspection.status === "success" && (
-        <div className="rounded-2xl border border-[#cfe0d5] bg-[#f2f8f4] p-5">
-          <div className="flex justify-between gap-3">
-            <div>
-              <p className="font-semibold text-[#245b40]">サイトを読み取りました</p>
-              <p className="text-sm text-[#5e7065]">内容は修正できます。</p>
-            </div>
+      <div aria-live="polite">
+        {inspection.status === "idle" && (
+          <div className="rounded-2xl border border-dashed border-[#cbd8cf] bg-[#f8faf8] p-5 text-sm text-[#64746b]">
+            サイトを読み取れない場合も手動入力で続けられます。
+          </div>
+        )}
+        {inspection.status === "loading" && (
+          <div className="rounded-2xl border border-[#cfe0d5] bg-[#f2f8f4] p-5 text-sm text-[#4c6d59]">
+            公式サイトを読み取っています。
+          </div>
+        )}
+        {inspection.status === "failed" && (
+          <div className="rounded-2xl border border-[#e5d3c8] bg-[#fff9f4] p-5">
+            <p className="font-semibold">読み取れませんでした</p>
+            <p className="mt-1 text-sm">{inspection.message}</p>
             <Button
               type="button"
-              variant="ghost"
-              onClick={() => setEvidence(!evidence)}
+              variant="outline"
+              onClick={inspectSite}
+              className="mt-3"
             >
-              読み取り根拠
+              再試行
             </Button>
           </div>
-          {evidence && (
-            <div className="mt-4 grid gap-3 border-t pt-4 md:grid-cols-2">
-              {[
-                ["ページタイトル", inspection.result.title],
-                ["サイト名", inspection.result.siteName],
-                ["主要見出し", inspection.result.h1],
-                ["説明文", inspection.result.description]
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-xl bg-white p-3">
-                  <p className="text-xs font-semibold">{label}</p>
-                  <p className="mt-1 text-sm">
-                    {value || "取得できませんでした"}
-                  </p>
-                </div>
-              ))}
+        )}
+        {inspection.status === "success" && (
+          <div className="rounded-2xl border border-[#cfe0d5] bg-[#f2f8f4] p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="font-semibold text-[#245b40]">
+                  サイトを読み取りました
+                </p>
+                <p className="text-sm text-[#5e7065]">
+                  読み取った内容は次のステップで修正できます。
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                aria-expanded={showEvidence}
+                onClick={() => setShowEvidence(!showEvidence)}
+              >
+                読み取り根拠
+              </Button>
             </div>
-          )}
-        </div>
-      )}
+            {showEvidence && (
+              <div className="mt-4 grid gap-3 border-t border-[#d7e5dc] pt-4 md:grid-cols-2">
+                {[
+                  ["ページタイトル", inspection.result.title],
+                  ["サイト名", inspection.result.siteName],
+                  ["主要見出し", inspection.result.h1],
+                  ["説明文", inspection.result.description]
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-xl bg-white p-3">
+                    <p className="text-xs font-semibold">{label}</p>
+                    <p className="mt-1 text-sm">
+                      {value || "取得できませんでした"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 function BusinessStep({
   form,
-  region,
-  update,
-  add
+  inspection,
+  localityRelevant,
+  updateForm,
+  addChip
 }: {
-  form: Form;
-  region: boolean;
-  update: <K extends keyof Form>(key: K, value: Form[K]) => void;
-  add: (
-    key: "aliases" | "areas" | "locations" | "facilities",
+  form: OnboardingForm;
+  inspection: SiteInspectionState;
+  localityRelevant: boolean;
+  updateForm: <K extends keyof OnboardingForm>(
+    key: K,
+    value: OnboardingForm[K]
+  ) => void;
+  addChip: (
+    key:
+      | "aliases"
+      | "serviceAreas"
+      | "locationAddresses"
+      | "targetFacilities",
     value: string
   ) => void;
 }) {
   const toggleSecondaryAction = (value: string) => {
-    if (form.subActions.includes(value)) {
-      update(
-        "subActions",
-        form.subActions.filter((item) => item !== value)
+    if (form.secondaryActions.includes(value)) {
+      updateForm(
+        "secondaryActions",
+        form.secondaryActions.filter((item) => item !== value)
       );
-    } else if (form.subActions.length < 2 && value !== form.action) {
-      update("subActions", [...form.subActions, value]);
+      return;
+    }
+    if (form.secondaryActions.length < 2 && value !== form.primaryAction) {
+      updateForm("secondaryActions", [...form.secondaryActions, value]);
     }
   };
 
@@ -1127,57 +1381,80 @@ function BusinessStep({
             ["b2c", "BtoC"],
             ["both", "両方"]
           ].map(([value, label]) => (
-            <Choice
+            <ChoiceButton
               key={value}
-              selected={form.audience === value}
+              selected={form.audienceScope === value}
               title={label}
-              onClick={() => update("audience", value as Form["audience"])}
+              onClick={() =>
+                updateForm("audienceScope", value as AudienceScope)
+              }
             />
           ))}
         </div>
-        {form.audience === "both" && (
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            {[
-              ["b2b", "法人向けを中心"],
-              ["b2c", "個人向けを中心"],
-              ["balanced", "両方を同じ程度"]
-            ].map(([value, label]) => (
-              <Choice
-                key={value}
-                selected={form.priority === value}
-                title={label}
-                onClick={() =>
-                  update("priority", value as Form["priority"])
-                }
-              />
-            ))}
+
+        {form.audienceScope === "both" && (
+          <div className="mt-5 rounded-2xl border border-[#d9e3dc] bg-[#f8faf8] p-4">
+            <p className="mb-3 text-sm font-semibold text-[#284637]">
+              主に測定したい顧客
+            </p>
+            <div className="grid gap-3 md:grid-cols-3">
+              {[
+                ["b2b", "法人向けを中心"],
+                ["b2c", "個人向けを中心"],
+                ["balanced", "両方を同じ程度"]
+              ].map(([value, label]) => (
+                <ChoiceButton
+                  key={value}
+                  selected={form.audiencePriority === value}
+                  title={label}
+                  onClick={() =>
+                    updateForm(
+                      "audiencePriority",
+                      value as AudiencePriority
+                    )
+                  }
+                />
+              ))}
+            </div>
           </div>
         )}
       </Section>
 
-      <Section title="Recoraの推定" description="この内容で合っていますか？">
+      <Section
+        title={
+          inspection.status === "success"
+            ? "サイトからの推定"
+            : "事業内容の初期候補"
+        }
+        description={
+          inspection.status === "success"
+            ? "Recoraが公式サイトから読み取った内容です。合っているか確認してください。"
+            : "サイト読み取り前の初期候補です。実際の内容に合わせて修正してください。"
+        }
+      >
         <div className="grid gap-5 lg:grid-cols-2">
           <SelectInput
             label="事業領域"
-            value={form.domain}
-            options={DOMAINS}
-            onChange={(value) => update("domain", value)}
+            value={form.businessDomain}
+            options={BUSINESS_DOMAINS}
+            onChange={(value) => updateForm("businessDomain", value)}
           />
           <SelectInput
             label="提供しているもの・サービスの形"
-            value={form.model}
-            options={MODELS}
-            onChange={(value) => update("model", value)}
+            value={form.offeringModel}
+            options={OFFERING_MODELS}
+            onChange={(value) => updateForm("offeringModel", value)}
           />
-          <label className="text-sm font-semibold lg:col-span-2">
+          <label className="text-sm font-semibold text-[#284637] lg:col-span-2">
             Recoraが分析した事業概要
             <textarea
-              value={form.summary}
+              value={form.businessSummary}
               onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                update("summary", event.target.value)
+                updateForm("businessSummary", event.target.value)
               }
               rows={5}
-              className="mt-2 w-full rounded-xl border border-[#cbd7cf] px-4 py-3 text-sm font-normal"
+              placeholder="何を提供し、誰のどのような課題を解決する事業かを確認します。"
+              className="mt-2 w-full rounded-xl border border-[#cbd7cf] px-4 py-3 text-sm font-normal outline-none focus:border-[#3d805c] focus:ring-2 focus:ring-[#d8eadf]"
             />
           </label>
         </div>
@@ -1187,40 +1464,45 @@ function BusinessStep({
         <div className="grid gap-5 lg:grid-cols-2">
           <SelectInput
             label="主な最終行動"
-            value={form.action}
-            options={ACTIONS}
+            value={form.primaryAction}
+            options={CUSTOMER_ACTIONS}
             onChange={(value) => {
-              update("action", value);
-              update(
-                "subActions",
-                form.subActions.filter((item) => item !== value)
+              updateForm("primaryAction", value);
+              updateForm(
+                "secondaryActions",
+                form.secondaryActions.filter((item) => item !== value)
               );
             }}
           />
           <div>
-            <p className="text-sm font-semibold">補助行動（最大2件）</p>
+            <p className="text-sm font-semibold text-[#284637]">
+              補助行動（最大2件）
+            </p>
             <div className="mt-2 flex flex-wrap gap-2">
-              {ACTIONS.filter((action) => action !== form.action).map(
-                (action) => (
+              {CUSTOMER_ACTIONS.filter(
+                (action) => action !== form.primaryAction
+              ).map((action) => {
+                const selected = form.secondaryActions.includes(action);
+                const disabled =
+                  !selected && form.secondaryActions.length >= 2;
+                return (
                   <button
                     type="button"
                     key={action}
-                    disabled={
-                      !form.subActions.includes(action) &&
-                      form.subActions.length >= 2
-                    }
+                    aria-pressed={selected}
+                    disabled={disabled}
                     onClick={() => toggleSecondaryAction(action)}
                     className={cn(
-                      "rounded-full border px-3 py-2 text-xs",
-                      form.subActions.includes(action)
+                      "rounded-full border px-3 py-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7652] focus-visible:ring-offset-2",
+                      selected
                         ? "border-[#3d805c] bg-[#eaf4ed]"
-                        : "border-[#d3ddd6] disabled:opacity-40"
+                        : "border-[#d3ddd6] bg-white disabled:opacity-40"
                     )}
                   >
                     {action}
                   </button>
-                )
-              )}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -1233,58 +1515,63 @@ function BusinessStep({
             ["in_person", "対面・現地"],
             ["hybrid", "両方"]
           ].map(([value, label]) => (
-            <Choice
+            <ChoiceButton
               key={value}
-              selected={form.delivery === value}
+              selected={form.deliveryMode === value}
               title={label}
               onClick={() =>
-                update("delivery", value as Form["delivery"])
+                updateForm("deliveryMode", value as DeliveryMode)
               }
             />
           ))}
         </div>
       </Section>
 
-      {region && (
+      {localityRelevant && (
         <Section
           title="地域・店舗情報"
-          description="地域性のある事業だけに表示しています。"
+          description="地域性のある事業にだけ表示しています。"
         >
-          <div className="mb-4 flex gap-2 rounded-xl bg-[#f8faf8] p-4 text-sm">
-            <MapPin className="size-4 shrink-0" />
-            地域を使った質問の配分はRecora側で調整します。
+          <div className="mb-5 flex gap-2 rounded-xl bg-[#f8faf8] p-4 text-sm text-[#50675a]">
+            <MapPin className="mt-0.5 size-4 shrink-0" />
+            <span>
+              対応地域や店舗情報だけを確認します。地域を使った質問の配分はRecora側で調整します。
+            </span>
           </div>
           <div className="grid gap-5 xl:grid-cols-3">
-            <Chips
+            <ChipInput
               title="対応地域"
-              values={form.areas}
-              add={(value) => add("areas", value)}
-              remove={(value) =>
-                update(
-                  "areas",
-                  form.areas.filter((item) => item !== value)
+              values={form.serviceAreas}
+              placeholder="例：東京都、関西"
+              onAdd={(value) => addChip("serviceAreas", value)}
+              onRemove={(value) =>
+                updateForm(
+                  "serviceAreas",
+                  form.serviceAreas.filter((item) => item !== value)
                 )
               }
             />
-            <Chips
+            <ChipInput
               title="店舗・施設所在地"
-              values={form.locations}
-              add={(value) => add("locations", value)}
-              remove={(value) =>
-                update(
-                  "locations",
-                  form.locations.filter((item) => item !== value)
+              values={form.locationAddresses}
+              placeholder="例：東京都渋谷区"
+              onAdd={(value) => addChip("locationAddresses", value)}
+              onRemove={(value) =>
+                updateForm(
+                  "locationAddresses",
+                  form.locationAddresses.filter((item) => item !== value)
                 )
               }
             />
-            <Chips
+            <ChipInput
               title="分析対象とする店舗・施設"
-              values={form.facilities}
-              add={(value) => add("facilities", value)}
-              remove={(value) =>
-                update(
-                  "facilities",
-                  form.facilities.filter((item) => item !== value)
+              values={form.targetFacilities}
+              placeholder="例：渋谷院"
+              onAdd={(value) => addChip("targetFacilities", value)}
+              onRemove={(value) =>
+                updateForm(
+                  "targetFacilities",
+                  form.targetFacilities.filter((item) => item !== value)
                 )
               }
             />
@@ -1295,19 +1582,49 @@ function BusinessStep({
   );
 }
 
+function SuggestionRefreshBanner({
+  refreshSuggestions
+}: {
+  refreshSuggestions: () => void;
+}) {
+  return (
+    <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-[#dfd6b9] bg-[#fffaf0] p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="font-semibold text-[#705d24]">事業内容が変更されています</p>
+        <p className="mt-1 text-sm text-[#796b42]">
+          現在の編集内容は保持しています。「提案を更新」を押すと、編集したペルソナ・トピック・質問を新しい内容で作り直します。
+        </p>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={refreshSuggestions}
+        className="shrink-0"
+      >
+        <RefreshCw className="mr-2 size-4" />
+        提案を更新
+      </Button>
+    </div>
+  );
+}
+
 function PersonaStep({
   personas,
-  setPersonas
+  setPersonas,
+  suggestionsStale,
+  refreshSuggestions
 }: {
-  personas: Persona[];
+  personas: PersonaCard[];
   setPersonas: (
-    value: Persona[] | ((current: Persona[]) => Persona[])
+    value: PersonaCard[] | ((current: PersonaCard[]) => PersonaCard[])
   ) => void;
+  suggestionsStale: boolean;
+  refreshSuggestions: () => void;
 }) {
-  const patch = (
+  const patchPersona = <K extends keyof PersonaCard>(
     id: number,
-    key: keyof Persona,
-    value: Persona[keyof Persona]
+    key: K,
+    value: PersonaCard[K]
   ) => {
     setPersonas((current) =>
       current.map((persona) =>
@@ -1318,11 +1635,14 @@ function PersonaStep({
 
   return (
     <div>
+      {suggestionsStale && (
+        <SuggestionRefreshBanner refreshSuggestions={refreshSuggestions} />
+      )}
       <div className="mb-5 flex items-center justify-between gap-3">
         <p className="text-sm text-[#68786f]">
           測定に使う顧客の視点を5件だけ確認します。
         </p>
-        <Badge>5件</Badge>
+        <Badge className="bg-[#edf6f0] text-[#245b40]">5件</Badge>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
         {personas.map((persona, index) => (
@@ -1330,51 +1650,68 @@ function PersonaStep({
             key={persona.id}
             className={cn(
               "rounded-2xl border p-5",
-              !persona.adopted && "bg-[#f7f8f7] opacity-70"
+              persona.adopted
+                ? "border-[#d4dfd7] bg-white"
+                : "border-[#e0e5e1] bg-[#f7f8f7] opacity-70"
             )}
           >
             <div className="flex justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-xs text-[#6c7a72]">PERSONA {index + 1}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold tracking-[0.12em] text-[#6c7a72]">
+                  PERSONA {index + 1}
+                </p>
                 <input
                   value={persona.name}
+                  aria-label={`ペルソナ${index + 1}の名前`}
                   onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                    patch(persona.id, "name", event.target.value)
+                    patchPersona(persona.id, "name", event.target.value)
                   }
-                  className="mt-1 w-full bg-transparent text-lg font-semibold outline-none"
+                  className="mt-1 w-full bg-transparent text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#d8eadf]"
                 />
-                <Badge variant="outline">{persona.audience}</Badge>
+                <Badge variant="outline" className="mt-2">
+                  {persona.audience}
+                </Badge>
               </div>
               <button
                 type="button"
+                aria-pressed={persona.adopted}
                 onClick={() =>
-                  patch(persona.id, "adopted", !persona.adopted)
+                  patchPersona(persona.id, "adopted", !persona.adopted)
                 }
-                className="h-fit shrink-0 rounded-full bg-[#edf6f0] px-3 py-1.5 text-xs"
+                className={cn(
+                  "h-fit shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7652] focus-visible:ring-offset-2",
+                  persona.adopted
+                    ? "bg-[#e7f3eb] text-[#245b40]"
+                    : "bg-[#ecefed] text-[#68756e]"
+                )}
               >
                 {persona.adopted ? "採用中" : "除外中"}
               </button>
             </div>
-            <div className="mt-4 grid gap-3 border-t pt-4">
+            <div className="mt-4 grid gap-3 border-t border-[#e1e7e3] pt-4">
               <EditableField
                 label="立場・役割"
                 value={persona.role}
-                onChange={(value) => patch(persona.id, "role", value)}
+                onChange={(value) => patchPersona(persona.id, "role", value)}
               />
               <EditableField
                 label="主な課題"
                 value={persona.issue}
-                onChange={(value) => patch(persona.id, "issue", value)}
+                onChange={(value) => patchPersona(persona.id, "issue", value)}
               />
               <EditableField
                 label="比較時に重視すること"
                 value={persona.emphasis}
-                onChange={(value) => patch(persona.id, "emphasis", value)}
+                onChange={(value) =>
+                  patchPersona(persona.id, "emphasis", value)
+                }
               />
               <EditableField
                 label="最終行動"
-                value={persona.action}
-                onChange={(value) => patch(persona.id, "action", value)}
+                value={persona.finalAction}
+                onChange={(value) =>
+                  patchPersona(persona.id, "finalAction", value)
+                }
               />
             </div>
           </article>
@@ -1387,16 +1724,22 @@ function PersonaStep({
 function TopicStep({
   topics,
   personas,
-  setTopics
+  setTopics,
+  suggestionsStale,
+  refreshSuggestions
 }: {
-  topics: Topic[];
-  personas: Persona[];
-  setTopics: (value: Topic[] | ((current: Topic[]) => Topic[])) => void;
+  topics: TopicCard[];
+  personas: PersonaCard[];
+  setTopics: (
+    value: TopicCard[] | ((current: TopicCard[]) => TopicCard[])
+  ) => void;
+  suggestionsStale: boolean;
+  refreshSuggestions: () => void;
 }) {
-  const patch = (
+  const patchTopic = <K extends keyof TopicCard>(
     id: number,
-    key: keyof Topic,
-    value: Topic[keyof Topic]
+    key: K,
+    value: TopicCard[K]
   ) => {
     setTopics((current) =>
       current.map((topic) =>
@@ -1407,11 +1750,14 @@ function TopicStep({
 
   return (
     <div>
+      {suggestionsStale && (
+        <SuggestionRefreshBanner refreshSuggestions={refreshSuggestions} />
+      )}
       <div className="mb-5 flex items-center justify-between gap-3">
         <p className="text-sm text-[#68786f]">
           測定するテーマを6件だけ確認します。
         </p>
-        <Badge>6件</Badge>
+        <Badge className="bg-[#edf6f0] text-[#245b40]">6件</Badge>
       </div>
       <div className="space-y-4">
         {topics.map((topic, index) => (
@@ -1419,39 +1765,56 @@ function TopicStep({
             key={topic.id}
             className={cn(
               "rounded-2xl border p-5",
-              !topic.adopted && "bg-[#f7f8f7] opacity-70"
+              topic.adopted
+                ? "border-[#d4dfd7] bg-white"
+                : "border-[#e0e5e1] bg-[#f7f8f7] opacity-70"
             )}
           >
             <div className="flex flex-col gap-3 lg:flex-row lg:justify-between">
-              <div className="min-w-0">
-                <p className="text-xs text-[#6c7a72]">TOPIC {index + 1}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold tracking-[0.12em] text-[#6c7a72]">
+                  TOPIC {index + 1}
+                </p>
                 <input
                   value={topic.name}
+                  aria-label={`トピック${index + 1}の名前`}
                   onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                    patch(topic.id, "name", event.target.value)
+                    patchTopic(topic.id, "name", event.target.value)
                   }
-                  className="w-full bg-transparent text-lg font-semibold outline-none"
+                  className="mt-1 w-full bg-transparent text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#d8eadf]"
                 />
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {topic.personaIds.map((personaId) => (
-                    <Badge key={personaId} variant="outline">
-                      {personas.find((persona) => persona.id === personaId)?.name}
-                    </Badge>
-                  ))}
+                  {topic.personaIds.map((personaId) => {
+                    const persona = personas.find(
+                      (candidate) => candidate.id === personaId
+                    );
+                    return (
+                      <Badge
+                        key={personaId}
+                        variant="outline"
+                        className={cn(!persona?.adopted && "opacity-50")}
+                      >
+                        {persona?.name || "未設定のペルソナ"}
+                      </Badge>
+                    );
+                  })}
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <label className="sr-only" htmlFor={`topic-priority-${topic.id}`}>
+                  {topic.name}の優先度
+                </label>
                 <select
+                  id={`topic-priority-${topic.id}`}
                   value={topic.priority}
                   onChange={(event: ChangeEvent<HTMLSelectElement>) =>
-                    patch(
+                    patchTopic(
                       topic.id,
                       "priority",
-                      event.target.value as Topic["priority"]
+                      event.target.value as TopicPriority
                     )
                   }
-                  className="h-9 rounded-xl border px-3 text-xs"
-                  aria-label={`${topic.name}の優先度`}
+                  className="h-9 rounded-xl border border-[#cfd9d2] bg-white px-3 text-xs outline-none focus:ring-2 focus:ring-[#d8eadf]"
                 >
                   <option>高</option>
                   <option>中</option>
@@ -1459,23 +1822,33 @@ function TopicStep({
                 </select>
                 <button
                   type="button"
-                  onClick={() => patch(topic.id, "adopted", !topic.adopted)}
-                  className="h-9 rounded-full bg-[#edf6f0] px-3 text-xs"
+                  aria-pressed={topic.adopted}
+                  onClick={() =>
+                    patchTopic(topic.id, "adopted", !topic.adopted)
+                  }
+                  className={cn(
+                    "h-9 rounded-full px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7652] focus-visible:ring-offset-2",
+                    topic.adopted
+                      ? "bg-[#e7f3eb] text-[#245b40]"
+                      : "bg-[#ecefed] text-[#68756e]"
+                  )}
                 >
                   {topic.adopted ? "採用中" : "除外中"}
                 </button>
               </div>
             </div>
-            <div className="mt-4 grid gap-3 border-t pt-4 lg:grid-cols-2">
+            <div className="mt-4 grid gap-3 border-t border-[#e1e7e3] pt-4 lg:grid-cols-2">
               <EditableField
                 label="何を確認するテーマか"
                 value={topic.summary}
-                onChange={(value) => patch(topic.id, "summary", value)}
+                onChange={(value) => patchTopic(topic.id, "summary", value)}
               />
               <EditableField
                 label="質問例"
-                value={topic.example}
-                onChange={(value) => patch(topic.id, "example", value)}
+                value={topic.questionExample}
+                onChange={(value) =>
+                  patchTopic(topic.id, "questionExample", value)
+                }
               />
             </div>
           </article>
@@ -1495,7 +1868,7 @@ function EditableField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="text-xs font-semibold">
+    <label className="text-xs font-semibold text-[#3f594a]">
       {label}
       <textarea
         value={value}
@@ -1503,7 +1876,7 @@ function EditableField({
           onChange(event.target.value)
         }
         rows={2}
-        className="mt-1 w-full resize-none rounded-xl border px-3 py-2 text-sm font-normal"
+        className="mt-1 w-full resize-none rounded-xl border border-[#d2ddd5] px-3 py-2 text-sm font-normal outline-none focus:border-[#3d805c] focus:ring-2 focus:ring-[#d8eadf]"
       />
     </label>
   );
@@ -1514,75 +1887,90 @@ function QuestionStep({
   setQuestions,
   personas,
   topics,
-  important,
-  visible,
-  filter,
-  setFilter,
+  importantQuestions,
+  visibleQuestions,
+  filteredQuestionCount,
+  topicFilter,
+  setTopicFilter,
   newQuestion,
   setNewQuestion,
   addQuestion,
-  deleted,
-  setDeleted,
-  showAll,
-  setShowAll
+  deletedQuestions,
+  setDeletedQuestions,
+  showAllQuestions,
+  setShowAllQuestions
 }: {
-  questions: Question[];
+  questions: MeasurementQuestion[];
   setQuestions: (
-    value: Question[] | ((current: Question[]) => Question[])
+    value:
+      | MeasurementQuestion[]
+      | ((current: MeasurementQuestion[]) => MeasurementQuestion[])
   ) => void;
-  personas: Persona[];
-  topics: Topic[];
-  important: Question[];
-  visible: Question[];
-  filter: number;
-  setFilter: (value: number) => void;
+  personas: PersonaCard[];
+  topics: TopicCard[];
+  importantQuestions: MeasurementQuestion[];
+  visibleQuestions: MeasurementQuestion[];
+  filteredQuestionCount: number;
+  topicFilter: number;
+  setTopicFilter: (value: number) => void;
   newQuestion: string;
   setNewQuestion: (value: string) => void;
   addQuestion: (event: FormEvent<HTMLFormElement>) => void;
-  deleted: Question[];
-  setDeleted: (
-    value: Question[] | ((current: Question[]) => Question[])
+  deletedQuestions: MeasurementQuestion[];
+  setDeletedQuestions: (
+    value:
+      | MeasurementQuestion[]
+      | ((current: MeasurementQuestion[]) => MeasurementQuestion[])
   ) => void;
-  showAll: boolean;
-  setShowAll: (value: boolean) => void;
+  showAllQuestions: boolean;
+  setShowAllQuestions: (value: boolean) => void;
 }) {
-  const patch = (id: string, text: string) => {
+  const patchQuestion = (id: string, text: string) => {
     setQuestions((current) =>
       current.map((question) =>
         question.id === id ? { ...question, text } : question
       )
     );
   };
-  const remove = (question: Question) => {
+
+  const removeQuestion = (question: MeasurementQuestion) => {
     setQuestions((current) =>
       current.filter((item) => item.id !== question.id)
     );
-    setDeleted((current) => [question, ...current]);
+    setDeletedQuestions((current) => [question, ...current]);
   };
-  const undo = () => {
-    const [question, ...rest] = deleted;
-    if (question) {
-      setQuestions((current) => [...current, question]);
-      setDeleted(rest);
-    }
+
+  const undoDelete = () => {
+    const [question, ...rest] = deletedQuestions;
+    if (!question) return;
+    setQuestions((current) => [...current, question]);
+    setDeletedQuestions(rest);
   };
+
+  const adoptedTopics = topics.filter((topic) => topic.adopted);
 
   return (
     <div className="space-y-8">
+      <div className="rounded-2xl border border-[#d7e2da] bg-[#f8faf8] p-4 text-sm text-[#52675a]">
+        測定に使う質問を確認します。実際の質問数は契約プランから自動決定され、この画面で件数を選ぶ必要はありません。
+      </div>
+
       <Section title="重要な質問">
         <div className="grid gap-3 lg:grid-cols-2">
-          {important.map((question, index) => (
+          {importantQuestions.map((question, index) => (
             <div
               key={question.id}
               className="rounded-2xl bg-[#f2f8f4] p-5"
             >
               <div className="flex gap-3">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-[#2f7652] text-white">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-[#2f7652] text-sm font-semibold text-white">
                   {index + 1}
                 </span>
                 <div>
                   <p className="font-semibold">{question.text}</p>
-                  <p className="mt-2 text-xs">{question.reason}</p>
+                  <p className="mt-2 text-xs text-[#637369]">
+                    {question.reason}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1591,16 +1979,17 @@ function QuestionStep({
       </Section>
 
       <Section title="質問を追加">
-        <form onSubmit={addQuestion} className="flex gap-3">
+        <form onSubmit={addQuestion} className="flex flex-col gap-3 sm:flex-row">
           <input
             value={newQuestion}
             onChange={(event: ChangeEvent<HTMLInputElement>) =>
               setNewQuestion(event.target.value)
             }
-            className="h-11 min-w-0 flex-1 rounded-xl border px-4"
+            placeholder="追加したい質問を入力"
+            className="h-11 min-w-0 flex-1 rounded-xl border border-[#cbd7cf] px-4 outline-none focus:border-[#3d805c] focus:ring-2 focus:ring-[#d8eadf]"
             aria-label="追加する質問"
           />
-          <Button type="submit">
+          <Button type="submit" className="h-11">
             <Plus className="mr-2 size-4" />
             追加
           </Button>
@@ -1609,27 +1998,36 @@ function QuestionStep({
 
       <Section
         title="全質問を確認"
-        description={`${questions.length}件をトピック別に確認できます。`}
+        description={`${questions.length}件の質問プレビューをトピック別に確認できます。`}
       >
-        <div className="mb-4 flex flex-wrap gap-2 border-b pb-4">
-          <FilterButton active={!filter} onClick={() => setFilter(0)}>
+        <div className="mb-4 flex flex-wrap gap-2 border-b border-[#e1e7e3] pb-4">
+          <FilterButton
+            active={!topicFilter}
+            onClick={() => {
+              setTopicFilter(0);
+              setShowAllQuestions(false);
+            }}
+          >
             すべて
           </FilterButton>
-          {topics.map((topic) => (
+          {adoptedTopics.map((topic) => (
             <FilterButton
               key={topic.id}
-              active={filter === topic.id}
-              onClick={() => setFilter(topic.id)}
+              active={topicFilter === topic.id}
+              onClick={() => {
+                setTopicFilter(topic.id);
+                setShowAllQuestions(false);
+              }}
             >
               {topic.name}
             </FilterButton>
           ))}
-          {!!deleted.length && (
+          {!!deletedQuestions.length && (
             <Button
               type="button"
               variant="outline"
-              onClick={undo}
-              className="ml-auto"
+              onClick={undoDelete}
+              className="sm:ml-auto"
             >
               <RotateCcw className="mr-2 size-4" />
               削除を取り消す
@@ -1638,53 +2036,58 @@ function QuestionStep({
         </div>
 
         <div className="space-y-3">
-          {visible.map((question) => (
+          {visibleQuestions.map((question) => (
             <article key={question.id} className="rounded-2xl border p-4">
               <div className="mb-2 flex flex-wrap gap-2">
                 {question.important && <Badge>重要</Badge>}
+                {question.customerAdded && (
+                  <Badge variant="outline">追加した質問</Badge>
+                )}
                 <Badge variant="outline">
-                  {personas.find((persona) => persona.id === question.personaId)
-                    ?.name}
+                  {personas.find(
+                    (persona) => persona.id === question.personaId
+                  )?.name || "ペルソナ未設定"}
                 </Badge>
                 <Badge variant="outline">
-                  {topics.find((topic) => topic.id === question.topicId)?.name}
+                  {topics.find((topic) => topic.id === question.topicId)?.name ||
+                    "トピック未設定"}
                 </Badge>
               </div>
               <div className="flex gap-3">
                 <textarea
                   value={question.text}
+                  aria-label="測定に使う質問"
                   onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                    patch(question.id, event.target.value)
+                    patchQuestion(question.id, event.target.value)
                   }
                   rows={2}
-                  className="min-w-0 flex-1 resize-none rounded-xl border px-3 py-2 text-sm font-semibold"
+                  className="min-w-0 flex-1 resize-none rounded-xl border border-[#d2ddd5] px-3 py-2 text-sm font-semibold outline-none focus:border-[#3d805c] focus:ring-2 focus:ring-[#d8eadf]"
                 />
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => remove(question)}
+                  onClick={() => removeQuestion(question)}
                   aria-label="質問を削除"
+                  className="shrink-0"
                 >
                   <Trash2 className="size-4" />
                 </Button>
               </div>
-              <p className="mt-2 text-sm">
+              <p className="mt-2 text-sm text-[#627269]">
                 この質問を測る理由：{question.reason}
               </p>
             </article>
           ))}
         </div>
 
-        {(filter
-          ? questions.filter((question) => question.topicId === filter).length
-          : questions.length) > 8 && (
+        {filteredQuestionCount > 8 && (
           <Button
             type="button"
             variant="outline"
-            onClick={() => setShowAll(!showAll)}
+            onClick={() => setShowAllQuestions(!showAllQuestions)}
             className="mt-4 w-full"
           >
-            {showAll ? "表示を戻す" : "さらに表示"}
+            {showAllQuestions ? "表示を戻す" : "さらに表示"}
           </Button>
         )}
       </Section>
@@ -1704,10 +2107,13 @@ function FilterButton({
   return (
     <button
       type="button"
+      aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "max-w-full truncate rounded-full border px-3 py-2 text-xs",
-        active && "border-[#3d805c] bg-[#eaf4ed]"
+        "max-w-full truncate rounded-full border px-3 py-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7652] focus-visible:ring-offset-2",
+        active
+          ? "border-[#3d805c] bg-[#eaf4ed]"
+          : "border-[#d3ddd6] bg-white"
       )}
     >
       {children}
@@ -1717,82 +2123,99 @@ function FilterButton({
 
 function ReviewStep({
   form,
-  region,
+  localityRelevant,
   personas,
   topics,
   questions,
-  important,
-  go
+  importantQuestions,
+  suggestionsStale,
+  refreshSuggestions,
+  goToEdit
 }: {
-  form: Form;
-  region: boolean;
-  personas: Persona[];
-  topics: Topic[];
-  questions: Question[];
-  important: Question[];
-  go: (step: number) => void;
+  form: OnboardingForm;
+  localityRelevant: boolean;
+  personas: PersonaCard[];
+  topics: TopicCard[];
+  questions: MeasurementQuestion[];
+  importantQuestions: MeasurementQuestion[];
+  suggestionsStale: boolean;
+  refreshSuggestions: () => void;
+  goToEdit: (step: number) => void;
 }) {
+  const adoptedPersonas = personas.filter((persona) => persona.adopted);
+  const adoptedTopics = topics.filter((topic) => topic.adopted);
+
   return (
     <div className="space-y-5">
-      <ReviewCard title="分析対象" step={0} go={go}>
+      {suggestionsStale && (
+        <SuggestionRefreshBanner refreshSuggestions={refreshSuggestions} />
+      )}
+      <ReviewCard title="分析対象" step={0} goToEdit={goToEdit}>
         <ReviewRow label="種類" value={form.subjectType} />
-        <ReviewRow label="分析対象名" value={form.subject} />
-        <ReviewRow label="運営会社" value={form.company} />
-        <ReviewRow label="公式サイト" value={form.url} />
+        <ReviewRow label="分析対象名" value={form.subjectName} />
+        <ReviewRow label="運営会社" value={form.operatorCompanyName} />
+        <ReviewRow label="公式サイト" value={form.officialUrl} />
       </ReviewCard>
 
-      <ReviewCard title="事業内容" step={1} go={go}>
+      <ReviewCard title="事業内容" step={1} goToEdit={goToEdit}>
         <ReviewRow
           label="顧客層"
           value={
-            form.audience === "b2b"
+            form.audienceScope === "b2b"
               ? "BtoB"
-              : form.audience === "b2c"
+              : form.audienceScope === "b2c"
                 ? "BtoC"
                 : "両方"
           }
         />
-        {form.audience === "both" && (
+        {form.audienceScope === "both" && (
           <ReviewRow
             label="主に測定する顧客"
             value={
-              form.priority === "b2b"
+              form.audiencePriority === "b2b"
                 ? "法人向けを中心"
-                : form.priority === "b2c"
+                : form.audiencePriority === "b2c"
                   ? "個人向けを中心"
                   : "両方を同じ程度"
             }
           />
         )}
-        <ReviewRow label="事業領域" value={form.domain} />
-        <ReviewRow label="サービスの形" value={form.model} />
-        <ReviewRow label="主な最終行動" value={form.action} />
+        <ReviewRow label="事業領域" value={form.businessDomain} />
+        <ReviewRow label="サービスの形" value={form.offeringModel} />
+        <ReviewRow label="主な最終行動" value={form.primaryAction} />
+        <ReviewRow
+          label="補助行動"
+          value={form.secondaryActions.join("、") || "なし"}
+        />
         <ReviewRow
           label="提供方法"
           value={
-            form.delivery === "online"
+            form.deliveryMode === "online"
               ? "オンライン"
-              : form.delivery === "in_person"
+              : form.deliveryMode === "in_person"
                 ? "対面・現地"
                 : "両方"
           }
         />
-        <ReviewRow label="事業概要" value={form.summary} />
-        {region && (
+        <ReviewRow label="事業概要" value={form.businessSummary} />
+        {localityRelevant && (
           <ReviewRow
             label="地域・店舗"
             value={
-              [...form.areas, ...form.locations, ...form.facilities].join("、") ||
-              "未入力"
+              [
+                ...form.serviceAreas,
+                ...form.locationAddresses,
+                ...form.targetFacilities
+              ].join("、") || "未入力"
             }
           />
         )}
       </ReviewCard>
 
       <ReviewCard
-        title={`ペルソナ 5件（採用 ${personas.filter((persona) => persona.adopted).length}件）`}
+        title={`ペルソナ 5件（採用 ${adoptedPersonas.length}件）`}
         step={2}
-        go={go}
+        goToEdit={goToEdit}
       >
         <ReviewGrid
           items={personas.map((persona) => [
@@ -1803,9 +2226,9 @@ function ReviewStep({
       </ReviewCard>
 
       <ReviewCard
-        title={`トピック 6件（採用 ${topics.filter((topic) => topic.adopted).length}件）`}
+        title={`トピック 6件（採用 ${adoptedTopics.length}件）`}
         step={3}
-        go={go}
+        goToEdit={goToEdit}
       >
         <ReviewGrid
           items={topics.map((topic) => [
@@ -1816,11 +2239,14 @@ function ReviewStep({
       </ReviewCard>
 
       <ReviewCard
-        title={`測定に使う質問 ${questions.length}件`}
+        title={`画面で確認する質問 ${questions.length}件`}
         step={4}
-        go={go}
+        goToEdit={goToEdit}
       >
-        {important.map((question, index) => (
+        <p className="mb-4 rounded-xl bg-[#f8faf8] p-3 text-sm text-[#5d6f64]">
+          実際の質問数は契約プランから自動決定します。
+        </p>
+        {importantQuestions.map((question, index) => (
           <div
             key={question.id}
             className="mb-2 flex gap-3 rounded-xl bg-[#f8faf8] p-3"
@@ -1837,19 +2263,19 @@ function ReviewStep({
 function ReviewCard({
   title,
   step,
-  go,
+  goToEdit,
   children
 }: {
   title: string;
   step: number;
-  go: (step: number) => void;
+  goToEdit: (step: number) => void;
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border p-5">
-      <div className="mb-4 flex items-center justify-between gap-3 border-b pb-3">
+    <section className="rounded-2xl border border-[#d8e1da] p-5">
+      <div className="mb-4 flex items-center justify-between gap-3 border-b border-[#e1e7e3] pb-3">
         <h2 className="text-lg font-semibold">{title}</h2>
-        <Button type="button" variant="ghost" onClick={() => go(step)}>
+        <Button type="button" variant="ghost" onClick={() => goToEdit(step)}>
           <Pencil className="mr-2 size-4" />
           変更
         </Button>
@@ -1861,9 +2287,9 @@ function ReviewCard({
 
 function ReviewRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid gap-1 border-b py-3 last:border-0 sm:grid-cols-[180px_1fr]">
+    <div className="grid gap-1 border-b border-[#edf0ee] py-3 last:border-0 sm:grid-cols-[180px_1fr]">
       <p className="text-sm text-[#6b796f]">{label}</p>
-      <p className="text-sm">{value || "未入力"}</p>
+      <p className="break-words text-sm">{value || "未入力"}</p>
     </div>
   );
 }
@@ -1871,27 +2297,27 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
 function ReviewGrid({ items }: { items: string[][] }) {
   return (
     <div className="grid gap-2 md:grid-cols-2">
-      {items.map(([title, description]) => (
-        <div key={title} className="rounded-xl bg-[#f8faf8] p-3">
+      {items.map(([title, description], index) => (
+        <div key={`${title}-${index}`} className="rounded-xl bg-[#f8faf8] p-3">
           <p className="font-semibold">{title}</p>
-          <p className="text-sm">{description}</p>
+          <p className="text-sm text-[#65756b]">{description}</p>
         </div>
       ))}
     </div>
   );
 }
 
-function Complete({ onBack }: { onBack: () => void }) {
+function CompleteState({ onBack }: { onBack: () => void }) {
   return (
     <div className="mx-auto max-w-2xl py-14 text-center">
-      <span className="mx-auto flex size-16 items-center justify-center rounded-3xl bg-[#e3f1e7]">
+      <span className="mx-auto flex size-16 items-center justify-center rounded-3xl bg-[#e3f1e7] text-[#245b40]">
         <CheckCircle2 className="size-8" />
       </span>
-      <h2 className="mt-6 text-2xl font-semibold">
+      <h2 className="mt-6 text-2xl font-semibold text-[#173d2c]">
         設定内容の確認が完了しました
       </h2>
-      <p className="mt-3 text-sm">
-        この画面ではまだ測定は開始されていません。
+      <p className="mt-3 text-sm text-[#627269]">
+        現在は設定内容の確認まで完了しています。測定はまだ開始されていません。
       </p>
       <Button type="button" variant="outline" onClick={onBack} className="mt-6">
         内容をもう一度確認する
