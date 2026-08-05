@@ -266,7 +266,9 @@ export function createAdminOperationsHomeSnapshot(
   const latestObservationAt = getLatestObservationAt(data);
   const humanAttentionProjects = new Set(attentionItems.map((item) => item.projectSlug));
   const signalProjects = new Set(operationalSignals.map((item) => item.projectSlug));
-  const affectedProjectSlugs = new Set([...humanAttentionProjects, ...signalProjects]);
+  const affectedProjectSlugs = new Set<string>();
+  humanAttentionProjects.forEach((projectSlug) => affectedProjectSlugs.add(projectSlug));
+  signalProjects.forEach((projectSlug) => affectedProjectSlugs.add(projectSlug));
 
   return {
     pageContext: {
