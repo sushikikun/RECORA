@@ -205,7 +205,7 @@ export function DashboardShell({
   if (isDataRichFinal && reportId) {
     if (isCustomerReportAnalysisPath(pathname)) {
       return (
-        <div className="min-h-screen bg-white text-[#111827]" data-recora-visual="customer-report-v5">
+        <div className="min-h-screen bg-[#F3F8F5] text-[#111827]" data-recora-visual="customer-report-v5">
           <header className="sticky top-0 z-40 border-b border-[#E5E7EB] bg-white/95 backdrop-blur">
             <div className="mx-auto flex h-16 max-w-[1680px] items-center px-4 sm:px-6">
               <Link href={currentReportHref} className="flex min-w-0 items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B382D] focus-visible:ring-offset-2">
@@ -218,7 +218,7 @@ export function DashboardShell({
             </div>
           </header>
 
-          <main className="min-w-0 bg-white px-4 pb-16 pt-6 sm:px-6 lg:px-8 xl:px-10">
+          <main className="min-w-0 bg-[#F3F8F5] px-4 pb-16 pt-6 sm:px-6 lg:px-8 xl:px-10">
             <div className="mx-auto max-w-[1440px]">{children}</div>
           </main>
         </div>
@@ -231,7 +231,7 @@ export function DashboardShell({
       .filter((item) => item.href === reportBasePath || item.href.startsWith(`${reportBasePath}/`));
 
     return (
-      <div className="min-h-screen bg-white text-[#111827]" data-recora-visual="customer-report-v5">
+      <div className="min-h-screen bg-[#F3F8F5] text-[#111827]" data-recora-visual="customer-report-v5">
         <header className="sticky top-0 z-40 border-b border-[#E5E7EB] bg-white/95 backdrop-blur">
           <div className="mx-auto flex h-16 max-w-[1680px] items-center gap-3 px-4 sm:px-6">
             <button
@@ -320,7 +320,7 @@ export function DashboardShell({
             </nav>
           </aside>
 
-          <main className="min-w-0 bg-white px-4 pb-16 pt-6 sm:px-6 lg:px-8 xl:px-10">
+          <main className="min-w-0 bg-[#F3F8F5] px-4 pb-16 pt-6 sm:px-6 lg:px-8 xl:px-10">
             <div className="mx-auto max-w-[1440px]">{children}</div>
           </main>
         </div>

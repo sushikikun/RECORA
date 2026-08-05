@@ -351,7 +351,7 @@ export function DataRichKpiStrip({
 }) {
   if (layout === "rows") {
     return (
-      <section className="border-y border-[#DCE5E1] bg-white" data-recora-kpi-strip aria-label="主要指標">
+      <section className="overflow-hidden rounded-lg border border-[#D4E0DA] bg-white shadow-[0_1px_3px_rgba(15,56,43,0.05)]" data-recora-kpi-strip aria-label="主要指標">
         <div className="divide-y divide-[#E5E7EB]">
           {items.map((item) => <DataRichKpiRow key={`${item.label}-${item.value}`} item={item} />)}
         </div>
@@ -360,7 +360,7 @@ export function DataRichKpiStrip({
   }
 
   return (
-    <section className="border-y border-[#DCE5E1] bg-white" data-recora-kpi-strip aria-label="主要指標">
+    <section className="overflow-hidden rounded-lg border border-[#D4E0DA] bg-white shadow-[0_1px_3px_rgba(15,56,43,0.05)]" data-recora-kpi-strip aria-label="主要指標">
       <div className={cn("grid min-w-0 [&>*:last-child]:border-b-0", columns)}>
         {items.map((item) => (
           <DataRichKpi key={`${item.label}-${item.value}`} item={item} />
@@ -460,22 +460,22 @@ export function DataRichPanel({
       data-recora-panel
       data-panel-role={resolvedVariant}
       className={cn(
-        "min-w-0 scroll-mt-40 bg-white",
-        resolvedVariant === "summary" && "border-y border-[#BFD2C9] bg-[#F4FAF7]",
-        resolvedVariant === "analysis" && "bg-transparent",
-        resolvedVariant === "evidence" && "border border-[#D6DFDB]",
-        resolvedVariant === "comparison" && "border-y border-[#BFD2C9] bg-white",
-        resolvedVariant === "trend" && "border-y border-[#D5E1DB] bg-white",
+        "min-w-0 scroll-mt-40 overflow-hidden rounded-lg border border-[#D4E0DA] bg-white shadow-[0_1px_3px_rgba(15,56,43,0.05)]",
+        resolvedVariant === "summary" && "border-[#BFD2C9] bg-[#F4FAF7]",
+        resolvedVariant === "analysis" && "bg-white",
+        resolvedVariant === "evidence" && "border-[#D6DFDB]",
+        resolvedVariant === "comparison" && "border-[#BFD2C9] bg-white",
+        resolvedVariant === "trend" && "border-[#D5E1DB] bg-white",
         className
       )}
     >
       <div className={cn(
         "flex min-h-12 min-w-0 flex-col gap-2 border-b border-[#E5E7EB] px-5 py-4 md:flex-row md:items-start md:justify-between",
-        resolvedVariant === "analysis" && "border-b border-[#DCE5E1] px-0 pb-4 pt-2",
+        resolvedVariant === "analysis" && "border-b border-[#DCE5E1] px-5 pb-4 pt-4",
         resolvedVariant === "evidence" && "bg-[#F8FAF9]",
         resolvedVariant === "summary" && "border-[#D5E1DB]",
         resolvedVariant === "comparison" && "border-[#D5E1DB] bg-[#F7FAF8]",
-        resolvedVariant === "trend" && "border-[#DCE5E1] px-0 pb-4"
+        resolvedVariant === "trend" && "border-[#DCE5E1] px-5 pb-4 pt-4"
       )}>
         <div className="min-w-0">
           <h2 className={cn("font-semibold text-[#101828]", resolvedVariant === "evidence" ? "text-[17px] leading-6" : "text-xl leading-7")}>{title}</h2>
@@ -485,8 +485,8 @@ export function DataRichPanel({
       </div>
       <div className={cn(
         "min-w-0 p-5",
-        resolvedVariant === "analysis" && "px-0 pb-7 pt-5",
-        resolvedVariant === "trend" && "px-0 pb-6 pt-5",
+        resolvedVariant === "analysis" && "px-5 pb-7 pt-5",
+        resolvedVariant === "trend" && "px-5 pb-6 pt-5",
         bodyClassName
       )}>{children}</div>
     </section>
@@ -495,7 +495,7 @@ export function DataRichPanel({
 
 export function DataRichSplit({ main, aside, className }: { main: ReactNode; aside: ReactNode; className?: string }) {
   return (
-    <section className={cn("grid min-w-0 overflow-hidden border border-[#DFE5EE] bg-white xl:grid-cols-[minmax(0,1fr)_minmax(270px,28%)]", className)}>
+    <section className={cn("grid min-w-0 overflow-hidden rounded-lg border border-[#D4E0DA] bg-white shadow-[0_1px_3px_rgba(15,56,43,0.05)] xl:grid-cols-[minmax(0,1fr)_minmax(270px,28%)]", className)}>
       <div className="min-w-0">{main}</div>
       <aside className="min-w-0 border-t border-[#E5E7EB] bg-[#FBFCFE] xl:border-l xl:border-t-0">{aside}</aside>
     </section>
