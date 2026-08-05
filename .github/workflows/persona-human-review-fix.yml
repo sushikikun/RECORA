@@ -48,29 +48,25 @@ jobs:
               '''      triggerSituation: `${selectionInput.subject.semanticName}について候補を探し、比較し、判断する場面`,'''
           )
           """
-          replace_both = """content = read(COMPILER)
+          replace_first = """content = read(COMPILER)
           old_trigger_situation = '''      triggerSituation: `${input.subject.primary.name}について候補を探し、比較し、判断する場面`,'''
           new_trigger_situation = '''      triggerSituation: `${selectionInput.subject.semanticName}について候補を探し、比較し、判断する場面`,'''
           if content.count(old_trigger_situation) != 2:
               raise RuntimeError("measurement-persona-compiler.ts: expected two triggerSituation matches")
-          write(COMPILER, content.replace(old_trigger_situation, new_trigger_situation))
+          write(COMPILER, content.replace(old_trigger_situation, new_trigger_situation, 1))
           """
-          redundant = """replace_once(
-              COMPILER,
-              '''      triggerSituation: `${input.subject.primary.name}について候補を探し、比較し、判断する場面`,''',
-              '''      triggerSituation: `${input.subject.semanticName}について候補を探し、比較し、判断する場面`,'''
-          )
-          """
+          profile_sizes = '''  const projections = [50, 100, 200].map((size) =>'''
+          typed_profile_sizes = '''  const projections = ([50, 100, 200] as const).map((size) =>'''
 
           if text.count(ambiguous) != 1:
               raise SystemExit(f"decoded patch ambiguous target mismatch: {text.count(ambiguous)}")
-          text = text.replace(ambiguous, replace_both, 1)
-          if text.count(redundant) != 1:
-              raise SystemExit(f"decoded patch redundant target mismatch: {text.count(redundant)}")
-          text = text.replace(redundant, "", 1)
+          text = text.replace(ambiguous, replace_first, 1)
+          if text.count(profile_sizes) != 1:
+              raise SystemExit(f"decoded patch profile-size target mismatch: {text.count(profile_sizes)}")
+          text = text.replace(profile_sizes, typed_profile_sizes, 1)
           path.write_text(text, encoding="utf-8", newline="\n")
           PY
-          echo "59ca57feac83d6bc388258a797c885878681d43cb253ccf7aa481b4515b921ca  /tmp/apply-persona-human-review-fixes.py" | sha256sum --check
+          echo "b61c931c697ea7ab8ecf1d9d6fbafe2506a7020c56d27fd8b256b5210b8633bb  /tmp/apply-persona-human-review-fixes.py" | sha256sum --check
           python -m py_compile /tmp/apply-persona-human-review-fixes.py
           python /tmp/apply-persona-human-review-fixes.py
           git diff --check
