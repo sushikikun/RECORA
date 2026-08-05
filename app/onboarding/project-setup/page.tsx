@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { ProjectSetupWizardV2 } from "@/components/recora/onboarding/project-setup-wizard-v2";
+import { ProjectSetupWizardPolished } from "@/components/recora/onboarding/project-setup-wizard-polished";
 
 export const metadata: Metadata = {
   title: "初期設定 | Recora",
@@ -9,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function ProjectSetupOnboardingPage() {
-  return <ProjectSetupWizardV2 />;
+  return <ProjectSetupWizardPolished />;
 }
