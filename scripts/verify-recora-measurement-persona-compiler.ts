@@ -235,7 +235,7 @@ function verifyCatalogGapFixtures() {
   assert.equal(result2.status, "catalog_gap", fixtures[1].caseKey);
 
   const insufficient = RECORA_PERSONA_BLUEPRINT_CATALOG_V3.map((item) =>
-    item.blueprintKey === "local.nearby_need_owner"
+    item.blueprintKey === "local.provider_comparator"
       ? {
           ...item,
           topicInfluenceDimensions: ["need_and_candidate_discovery"] as const
