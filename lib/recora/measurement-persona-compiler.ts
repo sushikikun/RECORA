@@ -17,16 +17,14 @@ import {
   type RecoraPersonaCoverageDimension,
   type RecoraPersonaExcludedV3,
   type RecoraPersonaReviewQuestionV3,
+  type RecoraPersonaSelectionRecipeV3,
   type RecoraSelectedPersonaV3
 } from "./measurement-persona-contract";
 import {
   RECORA_PERSONA_BLUEPRINT_CATALOG_V3,
   validateRecoraPersonaBlueprintCatalogV3
 } from "./measurement-persona-catalog";
-import {
-  matchRecoraPersonaSelectionRecipesV3,
-  type RecoraPersonaSelectionRecipeV3
-} from "./measurement-persona-selection-rules";
+import { matchRecoraPersonaSelectionRecipesV3 } from "./measurement-persona-selection-rules";
 
 export type RecoraMeasurementPersonaCompilerOptions = {
   catalog?: readonly RecoraPersonaBlueprintV3[];
@@ -120,6 +118,7 @@ function compileReadyInput(
       missingKeys.push(selection.primaryBlueprintKey);
       return;
     }
+
     const supporting = (selection.supportingBlueprintKeys ?? [])
       .map((key) => byKey.get(key))
       .filter((item): item is RecoraPersonaBlueprintV3 => Boolean(item));
@@ -262,7 +261,12 @@ function compileReadyInput(
     blockers: [],
     warnings:
       recipes.length > 1
-        ? [`lower_priority_recipes_ignored:${recipes.slice(1).map((item) => item.recipeKey).join(",")}`]
+        ? [
+            `lower_priority_recipes_ignored:${recipes
+              .slice(1)
+              .map((item) => item.recipeKey)
+              .join(",")}`
+          ]
         : [],
     recipeKey: recipe.recipeKey,
     personaSelectionFingerprint: fingerprint
@@ -282,13 +286,19 @@ function findDistinctActorReview(
 
   for (const selection of recipe.selections) {
     for (const supportingKey of selection.supportingBlueprintKeys ?? []) {
-      const pair = [selection.primaryBlueprintKey, supportingKey].sort().join("|");
+      const pair = [selection.primaryBlueprintKey, supportingKey]
+        .sort()
+        .join("|");
       if (relationMap.get(pair) === "distinct_actors") {
         return {
           code: "actor_relation_changes_persona_count",
           message:
             "同一Personaへまとめる予定の役割が別人物として確認されています。優先する5件を確認してください。",
-          allowedAnswers: ["keep_primary", "promote_supporting", "review_persona_set"]
+          allowedAnswers: [
+            "keep_primary",
+            "promote_supporting",
+            "review_persona_set"
+          ]
         };
       }
     }
@@ -323,7 +333,10 @@ function validateSelected(
   if (selected.length !== RECORA_MEASUREMENT_PERSONA_SELECTED_COUNT) {
     blockers.push("selected_count_mismatch");
   }
-  if (new Set(selected.map((item) => item.selectionSemanticKey)).size !== selected.length) {
+  if (
+    new Set(selected.map((item) => item.selectionSemanticKey)).size !==
+    selected.length
+  ) {
     blockers.push("selected_semantic_duplicate");
   }
   if (new Set(selected.map((item) => item.personaId)).size !== selected.length) {
@@ -333,9 +346,7 @@ function validateSelected(
     blockers.push("selected_topic_effects_insufficient");
   }
 
-  const coverage = new Set(
-    selected.flatMap((item) => item.coverageDimensions)
-  );
+  const coverage = new Set(selected.flatMap((item) => item.coverageDimensions));
   for (const required of recipe.requiredCoverage) {
     if (!coverage.has(required)) blockers.push("required_coverage_missing");
   }
@@ -345,7 +356,9 @@ function validateSelected(
     ...selected.flatMap((item) => item.marketSides)
   ]);
   for (const required of recipe.requiredMarketSides) {
-    if (!marketSides.has(required)) blockers.push("required_market_side_missing");
+    if (!marketSides.has(required)) {
+      blockers.push("required_market_side_missing");
+    }
   }
 
   return unique(blockers);
@@ -377,7 +390,9 @@ function replaceDuplicateSelections(
     .map((key) => byKey.get(key))
     .filter((item): item is RecoraPersonaBlueprintV3 => Boolean(item))
     .filter((item) => item.kind !== "modifier")
-    .filter((item) => isConditionalBlueprintApplicable(item, input, recipe.recipeKey));
+    .filter((item) =>
+      isConditionalBlueprintApplicable(item, input, recipe.recipeKey)
+    );
 
   for (const index of duplicateIndexes) {
     const replacement = alternatives.find((item) => {
@@ -446,7 +461,9 @@ function buildAlternatives(
     .filter((item): item is RecoraPersonaBlueprintV3 => Boolean(item))
     .filter((item) => !selectedKeys.has(item.blueprintKey))
     .filter((item) => item.kind !== "modifier")
-    .filter((item) => isConditionalBlueprintApplicable(item, input, recipe.recipeKey))
+    .filter((item) =>
+      isConditionalBlueprintApplicable(item, input, recipe.recipeKey)
+    )
     .map((item, index) => ({
       blueprintKey: item.blueprintKey,
       label: item.label,
@@ -478,18 +495,26 @@ function buildExcluded(
     ]),
     ...alternatives.map((item) => item.blueprintKey)
   ]);
-  const selectedGroups = new Set(
-    selected.flatMap((item) => [item.primaryBlueprintKey, ...item.supportingBlueprintKeys])
-      .map((key) => catalog.find((item) => item.blueprintKey === key)?.semanticGroupKey)
-      .filter(Boolean)
+  const selectedGroups = new Set<string>(
+    selected
+      .flatMap((item) => [
+        item.primaryBlueprintKey,
+        ...item.supportingBlueprintKeys
+      ])
+      .map(
+        (key) =>
+          catalog.find((item) => item.blueprintKey === key)?.semanticGroupKey
+      )
+      .filter((key): key is string => Boolean(key))
   );
 
   return catalog
     .filter((item) => !used.has(item.blueprintKey))
     .map((item) => {
       const reasonCodes: RecoraPersonaExcludedV3["reasonCodes"][number][] = [];
-      if (item.kind === "modifier") reasonCodes.push("modifier_not_standalone");
-      else if (
+      if (item.kind === "modifier") {
+        reasonCodes.push("modifier_not_standalone");
+      } else if (
         item.kind === "conditional" &&
         !isConditionalBlueprintApplicable(item, input, "")
       ) {
@@ -524,7 +549,7 @@ function buildDescription(
 function buildPrimaryGoal(
   coverage: readonly RecoraPersonaCoverageDimension[]
 ): string {
-  const primary = coverage[0];
+  const primary = coverage[0] ?? "C1";
   const goals: Record<RecoraPersonaCoverageDimension, string> = {
     C1: "課題や目的に合う候補を見つける",
     C2: "複数候補を比較し違いを理解する",
@@ -535,7 +560,7 @@ function buildPrimaryGoal(
     C7: "家族・代理・別支払者として判断を支える",
     C8: "継続・更新・解約・乗り換えを判断する"
   };
-  return goals[primary] ?? "分析対象について必要な判断を行う";
+  return goals[primary];
 }
 
 function emptyResult(
