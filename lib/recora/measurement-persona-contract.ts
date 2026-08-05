@@ -339,7 +339,8 @@ export function buildRecoraPersonaSelectionSemanticKey(input: {
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) {
-    return `[${value.map(stableJson).sort().join(",")}]`;
+    const items = Array.from(new Set(value.map(stableJson))).sort();
+    return `[${items.join(",")}]`;
   }
   if (value && typeof value === "object") {
     return `{${Object.entries(value as Record<string, unknown>)
