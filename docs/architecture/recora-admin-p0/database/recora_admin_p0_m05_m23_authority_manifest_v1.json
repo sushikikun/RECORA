@@ -1,0 +1,64 @@
+{
+  "document_id": "RECORA-ADMIN-P0-M05-M23-AUTHORITY",
+  "version": "1.0",
+  "decision_date": "2026-08-06",
+  "status": "accepted-owner-repository-integration-pending",
+  "implemented_baseline": [
+    "M00",
+    "M01",
+    "M02",
+    "M03",
+    "M04"
+  ],
+  "supersedes_for_units": {
+    "from": "M05",
+    "through": "M23",
+    "documents": [
+      "recora_admin_p0_migration_plan_v1_3.md",
+      "recora_admin_p0_database_schema_spec_v1_3.md",
+      "recora_admin_p0_physical_schema_manifest_v1_3.json",
+      "recora_admin_p0_database_design_validation_v1_3.md"
+    ]
+  },
+  "preserves_hash_pinned_bundle": "recora_admin_p0_database_bundle_manifest_v1_3.json",
+  "authority_document": "recora_admin_p0_m05_m23_implementation_authority_v1.md",
+  "migration_units": [
+    {"id": "M05", "stem": "customer_project_access", "primary_domains": ["8", "9"]},
+    {"id": "M06", "stem": "contract_project_entitlement_access_window", "primary_domains": ["8", "9"]},
+    {"id": "M07", "stem": "minimal_settings_core", "primary_domains": ["9"]},
+    {"id": "M08", "stem": "project_setup_finalization_evidence", "primary_domains": ["5", "8", "9"]},
+    {"id": "M09", "stem": "incident_system_event_core", "primary_domains": ["9"]},
+    {"id": "M10", "stem": "daily_targeting", "primary_domains": ["6", "8", "9"]},
+    {"id": "M11", "stem": "measurement_execution_bridge", "primary_domains": ["6", "9"]},
+    {"id": "M12", "stem": "publication_candidate", "primary_domains": ["7", "9"]},
+    {"id": "M13", "stem": "quality_exception", "primary_domains": ["7", "9"]},
+    {"id": "M14", "stem": "publication_delivery", "primary_domains": ["7", "9"]},
+    {"id": "M15", "stem": "incident_recovery_clearance", "primary_domains": ["9"]},
+    {"id": "M16", "stem": "usage_cost", "primary_domains": ["6", "9"]},
+    {"id": "M17", "stem": "cross_domain_constraints", "primary_domains": ["9"]},
+    {"id": "M18", "stem": "transition_immutability_guards", "primary_domains": ["9"]},
+    {"id": "M19", "stem": "indexes", "primary_domains": ["9"]},
+    {"id": "M20", "stem": "security_commands", "primary_domains": ["8", "9"]},
+    {"id": "M21", "stem": "legacy_compatibility_cutover", "primary_domains": ["9"]},
+    {"id": "M22", "stem": "read_models", "primary_domains": ["3", "4", "9"]},
+    {"id": "M23", "stem": "certification", "primary_domains": ["9"]}
+  ],
+  "deferred_product_decisions": [
+    "marketed_plan_names",
+    "pricing",
+    "billing_cadence",
+    "refund_policy",
+    "fixed_50_100_200_marketed_tiers",
+    "legacy_five_plan_formal_seed"
+  ],
+  "external_runtime_not_owned_by_migrations": [
+    "customer_login_ui",
+    "project_selector_ui",
+    "nextjs_customer_api",
+    "inngest_runtime",
+    "stripe_runtime",
+    "email_delivery_worker",
+    "external_monitoring",
+    "admin_ui"
+  ]
+}
