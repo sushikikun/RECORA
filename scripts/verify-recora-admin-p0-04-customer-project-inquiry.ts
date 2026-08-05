@@ -256,8 +256,16 @@ function verifyPackageScripts(): void {
     /verify-recora-admin-p0-04-customer-project-inquiry\.ts/,
   );
   const preflight = scripts["recora:preflight"] ?? "";
+  const m05VerifierPath = path.join(
+    repoRoot,
+    "scripts",
+    "verify-recora-admin-p0-05-customer-project-access.ts",
+  );
+  const expectedM04Successor = fs.existsSync(m05VerifierPath)
+    ? "recora:admin-p0:m04:static-check && npm run recora:admin-p0:m05:static-check && npm run recora:project-setup-draft:check"
+    : "recora:admin-p0:m04:static-check && npm run recora:project-setup-draft:check";
   assert.ok(preflight.includes("recora:admin-p0:m03:static-check && npm run recora:admin-p0:m04:static-check"));
-  assert.ok(preflight.includes("recora:admin-p0:m04:static-check && npm run recora:project-setup-draft:check"));
+  assert.ok(preflight.includes(expectedM04Successor));
 }
 
 function verifySpecification(): void {
