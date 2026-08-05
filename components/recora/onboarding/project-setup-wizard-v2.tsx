@@ -1,13 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent, ReactNode } from "react";
+import type {
+  ChangeEvent,
+  Dispatch,
+  FormEvent,
+  KeyboardEvent,
+  ReactNode,
+  SetStateAction
+} from "react";
 import {
   ArrowLeft,
   ArrowRight,
   Building2,
   Check,
   CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
   Loader2,
   MapPin,
@@ -129,32 +137,38 @@ type OnboardingForm = {
   targetFacilities: string[];
 };
 
-type PersonaCard = {
-  id: number;
+type PersonaCandidate = {
+  candidateKey: string;
   name: string;
   audience: "BtoB" | "BtoC";
   role: string;
   issue: string;
   emphasis: string;
   finalAction: string;
-  adopted: boolean;
 };
 
-type TopicCard = {
-  id: number;
+type PersonaSelection = PersonaCandidate & {
+  slotId: number;
+};
+
+type TopicCandidate = {
+  candidateKey: string;
   name: string;
-  personaIds: number[];
+  personaSlots: number[];
   summary: string;
   questionExample: string;
   priority: TopicPriority;
-  adopted: boolean;
+};
+
+type TopicSelection = TopicCandidate & {
+  slotId: number;
 };
 
 type MeasurementQuestion = {
   id: string;
   text: string;
-  personaId: number;
-  topicId: number;
+  personaSlotId: number;
+  topicSlotId: number;
   reason: string;
   important: boolean;
   customerAdded: boolean;
@@ -185,217 +199,404 @@ const INITIAL_FORM: OnboardingForm = {
   targetFacilities: []
 };
 
-function buildPersonas(form: OnboardingForm): PersonaCard[] {
-  const prioritizeB2c =
-    form.audienceScope === "b2c" ||
-    (form.audienceScope === "both" && form.audiencePriority === "b2c");
+function buildPersonaPool(form: OnboardingForm): PersonaCandidate[] {
   const action = form.primaryAction || "問い合わせ";
 
-  const rows: Array<
-    [string, "BtoB" | "BtoC", string, string, string, string]
-  > = prioritizeB2c
-    ? [
-        [
-          "初めて選ぶ人",
-          "BtoC",
-          "初めて検討する本人",
-          "何を比べるべきか分からない",
-          "安心感、自分に合うか",
-          action
-        ],
-        [
-          "候補を比較する人",
-          "BtoC",
-          "複数の候補を比較する利用者",
-          "料金以外の違いを整理しにくい",
-          "料金、品質、口コミ",
-          action
-        ],
-        [
-          "申込前に確認する人",
-          "BtoC",
-          "購入・予約直前の利用者",
-          "手続きや利用開始後が不安",
-          "条件、手続き、サポート",
-          action
-        ],
-        [
-          "信頼性を確認する人",
-          "BtoC",
-          "失敗を避けたい利用者",
-          "広告と実際の評価を見分けたい",
-          "実績、資格、公式情報",
-          "相談"
-        ],
-        [
-          form.audienceScope === "both"
-            ? "法人利用を検討する担当者"
-            : "継続・乗り換えを考える人",
-          form.audienceScope === "both" ? "BtoB" : "BtoC",
-          "別の利用方法を検討する人",
-          "変更する価値を判断したい",
-          "費用、使いやすさ、継続条件",
-          action
-        ]
-      ]
-    : [
-        [
-          "導入判断者",
-          "BtoB",
-          "導入可否を決める責任者",
-          "効果と費用を判断したい",
-          "費用対効果、実績、リスク",
-          action
-        ],
-        [
-          "比較評価担当者",
-          "BtoB",
-          "複数サービスを調査する担当者",
-          "各社の違いを整理しにくい",
-          "機能、料金、対応範囲",
-          "デモ・無料体験"
-        ],
-        [
-          "実務利用者",
-          "BtoB",
-          "導入後に利用する担当者",
-          "運用負荷が分からない",
-          "操作性、サポート、定着",
-          "問い合わせ"
-        ],
-        [
-          "費用・契約確認者",
-          "BtoB",
-          "予算と契約を確認する担当者",
-          "総費用を社内で説明したい",
-          "料金、期間、解約条件",
-          "契約"
-        ],
-        [
-          form.audienceScope === "both"
-            ? "個人として利用する人"
-            : "信頼性を確認する担当者",
-          form.audienceScope === "both" ? "BtoC" : "BtoB",
-          "根拠を確認する人",
-          "信頼できるか判断したい",
-          "実績、公式情報、支援体制",
-          "問い合わせ"
-        ]
-      ];
-
-  return rows.map((row, index) => ({
-    id: index + 1,
-    name: row[0],
-    audience: row[1],
-    role: row[2],
-    issue: row[3],
-    emphasis: row[4],
-    finalAction: row[5],
-    adopted: true
-  }));
-}
-
-function buildTopics(form: OnboardingForm): TopicCard[] {
-  const subject = form.subjectName || "このサービス";
-  const localityRelevant = isLocalityRelevant(form);
-  const rows: Array<
-    [string, number[], string, string, TopicPriority]
-  > = [
-    [
-      `${subject}が選択肢に入る場面`,
-      [1, 2],
-      "課題や目的から候補を探す場面を確認します。",
-      `${form.businessDomain}でおすすめの選択肢を選ぶとき、何を比較すべきですか？`,
-      "高"
-    ],
-    [
-      "比較される条件と違い",
-      [2, 4],
-      "料金、機能、品質、対応範囲を確認します。",
-      `${subject}を比較するとき、料金以外で確認すべき点は何ですか？`,
-      "高"
-    ],
-    [
-      form.offeringModel === "商品"
-        ? "品質・仕様と目的への適合"
-        : "利用・導入前の不安",
-      [3, 5],
-      "利用前に確認される条件や不安を測定します。",
-      `${subject}を利用する前に確認すべき条件は何ですか？`,
-      "高"
-    ],
-    [
-      "料金・契約・申込条件",
-      [1, 4],
-      `${form.primaryAction}前の料金や手続きを確認します。`,
-      `${subject}の料金や契約条件で見落としやすい点はありますか？`,
-      "中"
-    ],
-    [
-      "信頼性・実績・評判",
-      [4, 5],
-      "実績、口コミ、専門性、公式情報を確認します。",
-      `${subject}が信頼できるか判断するには何を確認すべきですか？`,
-      "中"
-    ],
-    [
-      localityRelevant
-        ? "地域・アクセス・利用しやすさ"
-        : "利用開始後の運用・継続",
-      [1, 3],
-      localityRelevant
-        ? "地域、アクセス、予約、初回利用を確認します。"
-        : "運用負荷、サポート、継続性を確認します。",
-      localityRelevant
-        ? `${form.serviceAreas[0] || "対象地域"}で${subject}を利用するときの確認点は？`
-        : `${subject}の利用開始後に確認すべき運用やサポートは？`,
-      "中"
-    ]
+  const b2b: PersonaCandidate[] = [
+    {
+      candidateKey: "b2b-decision-owner",
+      name: "導入判断者",
+      audience: "BtoB",
+      role: "導入可否を決める責任者",
+      issue: "効果と費用を判断したい",
+      emphasis: "費用対効果、実績、リスク",
+      finalAction: action
+    },
+    {
+      candidateKey: "b2b-evaluator",
+      name: "比較評価担当者",
+      audience: "BtoB",
+      role: "複数サービスを調査する担当者",
+      issue: "各社の違いを整理しにくい",
+      emphasis: "機能、料金、対応範囲",
+      finalAction: "デモ・無料体験"
+    },
+    {
+      candidateKey: "b2b-practical-user",
+      name: "実務利用者",
+      audience: "BtoB",
+      role: "導入後に利用する担当者",
+      issue: "運用負荷や使い勝手が分からない",
+      emphasis: "操作性、サポート、定着",
+      finalAction: "問い合わせ"
+    },
+    {
+      candidateKey: "b2b-economic-buyer",
+      name: "費用・契約確認者",
+      audience: "BtoB",
+      role: "予算と契約条件を確認する担当者",
+      issue: "総費用を社内で説明したい",
+      emphasis: "料金、契約期間、解約条件",
+      finalAction: "契約"
+    },
+    {
+      candidateKey: "b2b-trust-checker",
+      name: "信頼性を確認する担当者",
+      audience: "BtoB",
+      role: "実績や支援体制を確認する人",
+      issue: "安心して任せられるか判断したい",
+      emphasis: "導入実績、公式情報、支援体制",
+      finalAction: "問い合わせ"
+    },
+    {
+      candidateKey: "b2b-technical-reviewer",
+      name: "技術・セキュリティ確認者",
+      audience: "BtoB",
+      role: "システム要件や安全性を確認する担当者",
+      issue: "既存環境へ安全に導入できるか分からない",
+      emphasis: "セキュリティ、連携、データ管理",
+      finalAction: "デモ・無料体験"
+    },
+    {
+      candidateKey: "b2b-procurement",
+      name: "調達・購買担当者",
+      audience: "BtoB",
+      role: "契約手続きと取引条件を確認する担当者",
+      issue: "社内基準を満たすか確認したい",
+      emphasis: "見積もり、契約条件、取引実績",
+      finalAction: "契約"
+    },
+    {
+      candidateKey: "b2b-internal-advocate",
+      name: "社内提案を進める担当者",
+      audience: "BtoB",
+      role: "導入メリットを社内へ説明する人",
+      issue: "稟議に必要な根拠をまとめたい",
+      emphasis: "効果、導入事例、比較根拠",
+      finalAction: "見積もり・資料請求"
+    }
   ];
 
-  return rows.map((row, index) => ({
-    id: index + 1,
-    name: row[0],
-    personaIds: row[1],
-    summary: row[2],
-    questionExample: row[3],
-    priority: row[4],
-    adopted: true
-  }));
+  const b2c: PersonaCandidate[] = [
+    {
+      candidateKey: "b2c-first-time",
+      name: "初めて選ぶ人",
+      audience: "BtoC",
+      role: "初めて検討する本人",
+      issue: "何を比べるべきか分からない",
+      emphasis: "安心感、自分に合うか",
+      finalAction: action
+    },
+    {
+      candidateKey: "b2c-comparer",
+      name: "候補を比較する人",
+      audience: "BtoC",
+      role: "複数の候補を比較する利用者",
+      issue: "料金以外の違いを整理しにくい",
+      emphasis: "料金、品質、口コミ",
+      finalAction: action
+    },
+    {
+      candidateKey: "b2c-ready-to-act",
+      name: "申込前に確認する人",
+      audience: "BtoC",
+      role: "購入・予約直前の利用者",
+      issue: "手続きや利用開始後が不安",
+      emphasis: "条件、手続き、サポート",
+      finalAction: action
+    },
+    {
+      candidateKey: "b2c-trust-checker",
+      name: "信頼性を確認する人",
+      audience: "BtoC",
+      role: "失敗を避けたい利用者",
+      issue: "広告と実際の評価を見分けたい",
+      emphasis: "実績、資格、公式情報",
+      finalAction: "相談"
+    },
+    {
+      candidateKey: "b2c-repeat-switch",
+      name: "継続・乗り換えを考える人",
+      audience: "BtoC",
+      role: "継続利用や別サービスを検討する人",
+      issue: "変更する価値を判断したい",
+      emphasis: "費用、使いやすさ、継続条件",
+      finalAction: action
+    },
+    {
+      candidateKey: "b2c-price-checker",
+      name: "料金を重視する人",
+      audience: "BtoC",
+      role: "予算内で選びたい利用者",
+      issue: "追加料金や総額が分かりにくい",
+      emphasis: "総額、追加費用、解約条件",
+      finalAction: action
+    },
+    {
+      candidateKey: "b2c-family",
+      name: "家族・保護者として確認する人",
+      audience: "BtoC",
+      role: "本人に代わって安全性や条件を確認する人",
+      issue: "本人に適した選択か判断したい",
+      emphasis: "安全性、説明、継続しやすさ",
+      finalAction: "相談"
+    },
+    {
+      candidateKey: "b2c-local-searcher",
+      name: "近くで利用先を探す人",
+      audience: "BtoC",
+      role: "通いやすい候補を探す利用者",
+      issue: "場所と利用条件をまとめて比較したい",
+      emphasis: "地域、アクセス、営業時間",
+      finalAction: ["予約", "来店・来院"].includes(action) ? action : "予約"
+    }
+  ];
+
+  if (form.audienceScope === "b2b") return b2b;
+  if (form.audienceScope === "b2c") return b2c;
+
+  if (form.audiencePriority === "b2b") {
+    return [
+      b2b[0],
+      b2b[1],
+      b2b[2],
+      b2b[3],
+      b2c[0],
+      ...b2b.slice(4),
+      ...b2c.slice(1)
+    ];
+  }
+  if (form.audiencePriority === "b2c") {
+    return [
+      b2c[0],
+      b2c[1],
+      b2c[2],
+      b2c[3],
+      b2b[0],
+      ...b2c.slice(4),
+      ...b2b.slice(1)
+    ];
+  }
+
+  return [
+    b2b[0],
+    b2c[0],
+    b2b[1],
+    b2c[1],
+    b2b[2],
+    b2c[2],
+    ...b2b.slice(3),
+    ...b2c.slice(3)
+  ];
 }
 
-function buildQuestions(
-  personas: PersonaCard[],
-  topics: TopicCard[]
+function buildDefaultPersonas(form: OnboardingForm): PersonaSelection[] {
+  return buildPersonaPool(form)
+    .slice(0, 5)
+    .map((candidate, index) => ({ ...candidate, slotId: index + 1 }));
+}
+
+function buildTopicPool(form: OnboardingForm): TopicCandidate[] {
+  const subject = form.subjectName || "このサービス";
+  const localityRelevant = isLocalityRelevant(form);
+  const topics: TopicCandidate[] = [
+    {
+      candidateKey: "candidate-entry",
+      name: `${subject}が選択肢に入る場面`,
+      personaSlots: [1, 2],
+      summary: "課題や目的から候補を探す場面を確認します。",
+      questionExample: `${form.businessDomain}でおすすめの選択肢を選ぶとき、何を比較すべきですか？`,
+      priority: "高"
+    },
+    {
+      candidateKey: "comparison-differences",
+      name: "比較される条件と違い",
+      personaSlots: [2, 4],
+      summary: "料金、機能、品質、対応範囲の違いを確認します。",
+      questionExample: `${subject}を比較するとき、料金以外で確認すべき点は何ですか？`,
+      priority: "高"
+    },
+    {
+      candidateKey: "pre-use-concerns",
+      name:
+        form.offeringModel === "商品"
+          ? "品質・仕様と目的への適合"
+          : "利用・導入前の不安",
+      personaSlots: [3, 5],
+      summary: "利用前に確認される条件や不安を測定します。",
+      questionExample: `${subject}を利用する前に確認すべき条件は何ですか？`,
+      priority: "高"
+    },
+    {
+      candidateKey: "price-contract",
+      name: "料金・契約・申込条件",
+      personaSlots: [1, 4],
+      summary: `${form.primaryAction}前の料金や手続きを確認します。`,
+      questionExample: `${subject}の料金や契約条件で見落としやすい点はありますか？`,
+      priority: "高"
+    },
+    {
+      candidateKey: "trust-reputation",
+      name: "信頼性・実績・評判",
+      personaSlots: [4, 5],
+      summary: "実績、口コミ、専門性、公式情報を確認します。",
+      questionExample: `${subject}が信頼できるか判断するには何を確認すべきですか？`,
+      priority: "中"
+    },
+    {
+      candidateKey: localityRelevant ? "local-access" : "operation-continuity",
+      name: localityRelevant
+        ? "地域・アクセス・利用しやすさ"
+        : "利用開始後の運用・継続",
+      personaSlots: [1, 3],
+      summary: localityRelevant
+        ? "地域、アクセス、予約、初回利用を確認します。"
+        : "運用負荷、サポート、継続性を確認します。",
+      questionExample: localityRelevant
+        ? `${form.serviceAreas[0] || "対象地域"}で${subject}を利用するときの確認点は？`
+        : `${subject}の利用開始後に確認すべき運用やサポートは？`,
+      priority: "中"
+    },
+    {
+      candidateKey: "alternatives",
+      name: "代替手段・別の選択肢",
+      personaSlots: [1, 2],
+      summary: "別カテゴリや別の解決方法と比較される場面を確認します。",
+      questionExample: `${subject}以外には、どのような選択肢がありますか？`,
+      priority: "中"
+    },
+    {
+      candidateKey: "support-aftercare",
+      name: "サポート・利用後の対応",
+      personaSlots: [3, 5],
+      summary: "導入後や購入後の支援、問い合わせ対応を確認します。",
+      questionExample: `${subject}の利用後に受けられるサポートは何を確認すべきですか？`,
+      priority: "中"
+    },
+    {
+      candidateKey: "proof-evidence",
+      name: "公式情報・根拠の確認",
+      personaSlots: [4, 5],
+      summary: "説明の根拠や公式情報の分かりやすさを確認します。",
+      questionExample: `${subject}の特徴や実績を確認できる公式な根拠はありますか？`,
+      priority: "中"
+    },
+    {
+      candidateKey: "first-step",
+      name: "初回利用・導入の進め方",
+      personaSlots: [1, 3],
+      summary: "最初の相談、体験、申込みまでの流れを確認します。",
+      questionExample: `${subject}を初めて利用するとき、どのように進めればよいですか？`,
+      priority: "中"
+    },
+    {
+      candidateKey: "fit-not-fit",
+      name: "向いている人・向いていない人",
+      personaSlots: [1, 2],
+      summary: "利用目的や条件との相性を確認します。",
+      questionExample: `${subject}はどのような人や企業に向いていますか？`,
+      priority: "低"
+    },
+    {
+      candidateKey: "risk-cautions",
+      name: "注意点・リスク・失敗しやすい点",
+      personaSlots: [4, 5],
+      summary: "選択前に確認すべき注意点やリスクを確認します。",
+      questionExample: `${subject}を選ぶ前に注意すべき点はありますか？`,
+      priority: "中"
+    }
+  ];
+
+  if (form.offeringModel === "SaaS・ソフトウェア") {
+    topics.push(
+      {
+        candidateKey: "integration-migration",
+        name: "連携・移行・導入負荷",
+        personaSlots: [2, 3],
+        summary: "既存システム連携やデータ移行の負荷を確認します。",
+        questionExample: `${subject}の導入時に、連携やデータ移行で確認すべき点は何ですか？`,
+        priority: "中"
+      },
+      {
+        candidateKey: "security-data",
+        name: "セキュリティ・データ管理",
+        personaSlots: [4, 5],
+        summary: "安全性、権限、データの取り扱いを確認します。",
+        questionExample: `${subject}のセキュリティやデータ管理で確認すべき点は何ですか？`,
+        priority: "高"
+      }
+    );
+  }
+
+  if (form.offeringModel === "商品") {
+    topics.push(
+      {
+        candidateKey: "delivery-return",
+        name: "配送・返品・交換",
+        personaSlots: [2, 3],
+        summary: "購入後の配送条件と返品・交換条件を確認します。",
+        questionExample: `${subject}の配送や返品条件で確認すべき点は何ですか？`,
+        priority: "中"
+      },
+      {
+        candidateKey: "materials-spec",
+        name: "素材・成分・仕様",
+        personaSlots: [2, 4],
+        summary: "商品を選ぶ際の素材、成分、仕様を確認します。",
+        questionExample: `${subject}の素材や仕様は、どのように比較すればよいですか？`,
+        priority: "高"
+      }
+    );
+  }
+
+  return topics;
+}
+
+function buildDefaultTopics(form: OnboardingForm): TopicSelection[] {
+  return buildTopicPool(form)
+    .slice(0, 6)
+    .map((candidate, index) => ({ ...candidate, slotId: index + 1 }));
+}
+
+function buildGeneratedQuestions(
+  personas: PersonaSelection[],
+  topics: TopicSelection[]
 ): MeasurementQuestion[] {
   return topics.flatMap((topic, index) => {
-    const firstPersonaId = topic.personaIds[0] ?? 1;
-    const secondPersonaId = topic.personaIds[1] ?? firstPersonaId;
+    const firstPersonaSlot = topic.personaSlots[0] ?? 1;
+    const secondPersonaSlot = topic.personaSlots[1] ?? firstPersonaSlot;
     const firstPersona = personas.find(
-      (persona) => persona.id === firstPersonaId
+      (persona) => persona.slotId === firstPersonaSlot
     );
 
     return [
       {
-        id: `${topic.id}-a`,
+        id: `generated-${topic.slotId}-a`,
         text: topic.questionExample,
-        personaId: firstPersonaId,
-        topicId: topic.id,
+        personaSlotId: firstPersonaSlot,
+        topicSlotId: topic.slotId,
         reason: `${firstPersona?.name || "顧客"}の判断場面を確認するためです。`,
         important: index < 3,
         customerAdded: false
       },
       {
-        id: `${topic.id}-b`,
+        id: `generated-${topic.slotId}-b`,
         text: `${topic.name}について、選ぶ前に確認すべきポイントを教えてください。`,
-        personaId: secondPersonaId,
-        topicId: topic.id,
+        personaSlotId: secondPersonaSlot,
+        topicSlotId: topic.slotId,
         reason: "同じテーマを別の顧客視点でも確認するためです。",
         important: index === 3,
         customerAdded: false
       }
     ];
   });
+}
+
+function preserveCustomerQuestions(
+  current: MeasurementQuestion[],
+  generated: MeasurementQuestion[]
+) {
+  return [...generated, ...current.filter((question) => question.customerAdded)];
 }
 
 function isLocalityRelevant(form: OnboardingForm) {
@@ -434,10 +635,7 @@ function inferBusinessClassification(result: SiteInspectionResult) {
     };
   }
   if (/不動産|物件|賃貸|売買/.test(source)) {
-    return {
-      businessDomain: "不動産",
-      offeringModel: "専門相談"
-    };
+    return { businessDomain: "不動産", offeringModel: "専門相談" };
   }
   if (/採用|人材|求人|hr/.test(source)) {
     return {
@@ -448,16 +646,10 @@ function inferBusinessClassification(result: SiteInspectionResult) {
     };
   }
   if (/ec|通販|オンラインショップ|商品|d2c/.test(source)) {
-    return {
-      businessDomain: "小売・商品販売",
-      offeringModel: "商品"
-    };
+    return { businessDomain: "小売・商品販売", offeringModel: "商品" };
   }
   if (/法律|弁護士|税理士|会計|社労士|司法書士/.test(source)) {
-    return {
-      businessDomain: "法律・会計・士業",
-      offeringModel: "専門相談"
-    };
+    return { businessDomain: "法律・会計・士業", offeringModel: "専門相談" };
   }
   if (/マーケティング|広告|seo|広報/.test(source)) {
     return {
@@ -485,10 +677,17 @@ export function ProjectSetupWizardV2() {
     status: "idle"
   });
   const [showEvidence, setShowEvidence] = useState(false);
-  const [personas, setPersonas] = useState(() => buildPersonas(INITIAL_FORM));
-  const [topics, setTopics] = useState(() => buildTopics(INITIAL_FORM));
-  const [questions, setQuestions] = useState(() =>
-    buildQuestions(buildPersonas(INITIAL_FORM), buildTopics(INITIAL_FORM))
+  const [personas, setPersonas] = useState<PersonaSelection[]>(() =>
+    buildDefaultPersonas(INITIAL_FORM)
+  );
+  const [topics, setTopics] = useState<TopicSelection[]>(() =>
+    buildDefaultTopics(INITIAL_FORM)
+  );
+  const [questions, setQuestions] = useState<MeasurementQuestion[]>(() =>
+    buildGeneratedQuestions(
+      buildDefaultPersonas(INITIAL_FORM),
+      buildDefaultTopics(INITIAL_FORM)
+    )
   );
   const [suggestionsInitialized, setSuggestionsInitialized] = useState(false);
   const [suggestionsStale, setSuggestionsStale] = useState(false);
@@ -503,29 +702,14 @@ export function ProjectSetupWizardV2() {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   const localityRelevant = useMemo(() => isLocalityRelevant(form), [form]);
-  const adoptedPersonaIds = useMemo(
-    () => new Set(personas.filter((persona) => persona.adopted).map((p) => p.id)),
-    [personas]
-  );
-  const adoptedTopicIds = useMemo(
-    () => new Set(topics.filter((topic) => topic.adopted).map((t) => t.id)),
-    [topics]
-  );
-  const activeQuestions = useMemo(
-    () =>
-      questions.filter(
-        (question) =>
-          adoptedPersonaIds.has(question.personaId) &&
-          adoptedTopicIds.has(question.topicId)
-      ),
-    [adoptedPersonaIds, adoptedTopicIds, questions]
-  );
-  const importantQuestions = activeQuestions
+  const personaPool = useMemo(() => buildPersonaPool(form), [form]);
+  const topicPool = useMemo(() => buildTopicPool(form), [form]);
+  const importantQuestions = questions
     .filter((question) => question.important)
     .slice(0, 6);
   const filteredQuestions = topicFilter
-    ? activeQuestions.filter((question) => question.topicId === topicFilter)
-    : activeQuestions;
+    ? questions.filter((question) => question.topicSlotId === topicFilter)
+    : questions;
   const visibleQuestions = filteredQuestions.slice(
     0,
     showAllQuestions ? undefined : 8
@@ -564,16 +748,66 @@ export function ProjectSetupWizardV2() {
   };
 
   const refreshSuggestions = () => {
-    const nextPersonas = buildPersonas(form);
-    const nextTopics = buildTopics(form);
+    const nextPersonas = buildDefaultPersonas(form);
+    const nextTopics = buildDefaultTopics(form);
     setPersonas(nextPersonas);
     setTopics(nextTopics);
-    setQuestions(buildQuestions(nextPersonas, nextTopics));
+    setQuestions((current) =>
+      preserveCustomerQuestions(
+        current,
+        buildGeneratedQuestions(nextPersonas, nextTopics)
+      )
+    );
     setDeletedQuestions([]);
     setSuggestionsInitialized(true);
     setSuggestionsStale(false);
     setTopicFilter(0);
     setShowAllQuestions(false);
+  };
+
+  const replacePersona = (slotId: number, candidateKey: string) => {
+    const candidate = personaPool.find(
+      (item) => item.candidateKey === candidateKey
+    );
+    if (!candidate) return;
+    const nextPersonas = personas.map((persona) =>
+      persona.slotId === slotId ? { ...candidate, slotId } : persona
+    );
+    setPersonas(nextPersonas);
+    setQuestions((current) =>
+      preserveCustomerQuestions(
+        current,
+        buildGeneratedQuestions(nextPersonas, topics)
+      )
+    );
+    setDeletedQuestions([]);
+  };
+
+  const replaceTopic = (slotId: number, candidateKey: string) => {
+    const candidate = topicPool.find(
+      (item) => item.candidateKey === candidateKey
+    );
+    if (!candidate) return;
+    const nextTopics = topics.map((topic) =>
+      topic.slotId === slotId ? { ...candidate, slotId } : topic
+    );
+    setTopics(nextTopics);
+    setQuestions((current) =>
+      preserveCustomerQuestions(
+        current,
+        buildGeneratedQuestions(personas, nextTopics)
+      )
+    );
+    setDeletedQuestions([]);
+    if (topicFilter === slotId) setTopicFilter(0);
+  };
+
+  const changeTopicPriority = (slotId: number, priority: TopicPriority) => {
+    setTopics((current) =>
+      current.map((topic) =>
+        topic.slotId === slotId ? { ...topic, priority } : topic
+      )
+    );
   };
 
   async function inspectSite() {
@@ -651,13 +885,13 @@ export function ProjectSetupWizardV2() {
     ) {
       return "対応地域、所在地、または分析対象の店舗・施設を入力してください。";
     }
-    if (step === 2 && !personas.some((persona) => persona.adopted)) {
-      return "少なくとも1件のペルソナを採用してください。";
+    if (step === 2 && personas.length !== 5) {
+      return "ペルソナを5件選択してください。";
     }
-    if (step === 3 && !topics.some((topic) => topic.adopted)) {
-      return "少なくとも1件のトピックを採用してください。";
+    if (step === 3 && topics.length !== 6) {
+      return "トピックを6件選択してください。";
     }
-    if (step === 4 && !activeQuestions.length) {
+    if (step === 4 && !questions.length) {
       return "測定に使う質問を1件以上残してください。";
     }
     if (step === 5 && suggestionsStale) {
@@ -694,8 +928,8 @@ export function ProjectSetupWizardV2() {
   const addQuestion = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = newQuestion.trim();
-    const firstPersona = personas.find((persona) => persona.adopted);
-    const firstTopic = topics.find((topic) => topic.adopted);
+    const firstPersona = personas[0];
+    const firstTopic = topics[0];
     if (!text || !firstPersona || !firstTopic) return;
 
     setQuestions((current) => [
@@ -703,8 +937,8 @@ export function ProjectSetupWizardV2() {
       {
         id: `customer-${Date.now()}`,
         text,
-        personaId: firstPersona.id,
-        topicId: firstTopic.id,
+        personaSlotId: firstPersona.slotId,
+        topicSlotId: firstTopic.slotId,
         reason: "顧客が追加した確認事項を測定するためです。",
         important: true,
         customerAdded: true
@@ -810,8 +1044,8 @@ export function ProjectSetupWizardV2() {
                     [
                       "公式サイトと主要な分析対象を確認します。",
                       "事業の特徴と顧客の最終行動を確認します。",
-                      "顧客の視点を5件だけ確認します。",
-                      "測定テーマを6件だけ確認します。",
+                      "候補から顧客の視点を5件選びます。",
+                      "候補から測定テーマを6件選びます。",
                       "重要な質問から順に確認します。",
                       "ここまでの内容をまとめて確認します。"
                     ][step]
@@ -849,7 +1083,8 @@ export function ProjectSetupWizardV2() {
                 {step === 2 && (
                   <PersonaStep
                     personas={personas}
-                    setPersonas={setPersonas}
+                    candidatePool={personaPool}
+                    replacePersona={replacePersona}
                     suggestionsStale={suggestionsStale}
                     refreshSuggestions={refreshSuggestions}
                   />
@@ -858,14 +1093,16 @@ export function ProjectSetupWizardV2() {
                   <TopicStep
                     topics={topics}
                     personas={personas}
-                    setTopics={setTopics}
+                    candidatePool={topicPool}
+                    replaceTopic={replaceTopic}
+                    changePriority={changeTopicPriority}
                     suggestionsStale={suggestionsStale}
                     refreshSuggestions={refreshSuggestions}
                   />
                 )}
                 {step === 4 && (
                   <QuestionStep
-                    questions={activeQuestions}
+                    questions={questions}
                     setQuestions={setQuestions}
                     personas={personas}
                     topics={topics}
@@ -889,7 +1126,7 @@ export function ProjectSetupWizardV2() {
                     localityRelevant={localityRelevant}
                     personas={personas}
                     topics={topics}
-                    questions={activeQuestions}
+                    questions={questions}
                     importantQuestions={importantQuestions}
                     suggestionsStale={suggestionsStale}
                     refreshSuggestions={refreshSuggestions}
@@ -1103,7 +1340,7 @@ function ChipInput({
           onChange={(event: ChangeEvent<HTMLInputElement>) =>
             setValue(event.target.value)
           }
-          onKeyDown={(event) => {
+          onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
             if (event.key === "Enter") {
               event.preventDefault();
               onAdd(value);
@@ -1213,9 +1450,7 @@ function SubjectStep({
                 onChange={(event: ChangeEvent<HTMLInputElement>) => {
                   const checked = event.target.checked;
                   updateForm("operatorSameAsSubject", checked);
-                  if (checked) {
-                    updateForm("operatorCompanyName", form.subjectName);
-                  }
+                  if (checked) updateForm("operatorCompanyName", form.subjectName);
                 }}
               />
               運営会社名は分析対象名と同じ
@@ -1282,12 +1517,7 @@ function SubjectStep({
           <div className="rounded-2xl border border-[#e5d3c8] bg-[#fff9f4] p-5">
             <p className="font-semibold">読み取れませんでした</p>
             <p className="mt-1 text-sm">{inspection.message}</p>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={inspectSite}
-              className="mt-3"
-            >
+            <Button type="button" variant="outline" onClick={inspectSite} className="mt-3">
               再試行
             </Button>
           </div>
@@ -1592,7 +1822,7 @@ function SuggestionRefreshBanner({
       <div>
         <p className="font-semibold text-[#705d24]">事業内容が変更されています</p>
         <p className="mt-1 text-sm text-[#796b42]">
-          現在の編集内容は保持しています。「提案を更新」を押すと、編集したペルソナ・トピック・質問を新しい内容で作り直します。
+          「提案を更新」を押すと、現在の事業内容に合うペルソナ5件・トピック6件へ戻します。顧客が追加した質問は保持します。
         </p>
       </div>
       <Button
@@ -1610,112 +1840,110 @@ function SuggestionRefreshBanner({
 
 function PersonaStep({
   personas,
-  setPersonas,
+  candidatePool,
+  replacePersona,
   suggestionsStale,
   refreshSuggestions
 }: {
-  personas: PersonaCard[];
-  setPersonas: (
-    value: PersonaCard[] | ((current: PersonaCard[]) => PersonaCard[])
-  ) => void;
+  personas: PersonaSelection[];
+  candidatePool: PersonaCandidate[];
+  replacePersona: (slotId: number, candidateKey: string) => void;
   suggestionsStale: boolean;
   refreshSuggestions: () => void;
 }) {
-  const patchPersona = <K extends keyof PersonaCard>(
-    id: number,
-    key: K,
-    value: PersonaCard[K]
-  ) => {
-    setPersonas((current) =>
-      current.map((persona) =>
-        persona.id === id ? { ...persona, [key]: value } : persona
-      )
-    );
-  };
+  const [openSlot, setOpenSlot] = useState<number | null>(null);
+  const selectedKeys = new Set(personas.map((persona) => persona.candidateKey));
 
   return (
     <div>
       {suggestionsStale && (
         <SuggestionRefreshBanner refreshSuggestions={refreshSuggestions} />
       )}
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <p className="text-sm text-[#68786f]">
-          測定に使う顧客の視点を5件だけ確認します。
-        </p>
-        <Badge className="bg-[#edf6f0] text-[#245b40]">5件</Badge>
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm text-[#68786f]">
+            選択済みの5件を確認します。内容を直接編集せず、必要な枠だけ別の候補へ変更できます。
+          </p>
+          <p className="mt-1 text-xs text-[#7b8980]">
+            他の候補は「候補を変更」を押したときだけ表示されます。
+          </p>
+        </div>
+        <Badge className="w-fit bg-[#edf6f0] text-[#245b40]">5件</Badge>
       </div>
+
       <div className="grid gap-4 xl:grid-cols-2">
-        {personas.map((persona, index) => (
-          <article
-            key={persona.id}
-            className={cn(
-              "rounded-2xl border p-5",
-              persona.adopted
-                ? "border-[#d4dfd7] bg-white"
-                : "border-[#e0e5e1] bg-[#f7f8f7] opacity-70"
-            )}
-          >
-            <div className="flex justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold tracking-[0.12em] text-[#6c7a72]">
-                  PERSONA {index + 1}
-                </p>
-                <input
-                  value={persona.name}
-                  aria-label={`ペルソナ${index + 1}の名前`}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                    patchPersona(persona.id, "name", event.target.value)
-                  }
-                  className="mt-1 w-full bg-transparent text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#d8eadf]"
-                />
-                <Badge variant="outline" className="mt-2">
-                  {persona.audience}
-                </Badge>
+        {personas.map((persona, index) => {
+          const expanded = openSlot === persona.slotId;
+          return (
+            <article
+              key={persona.slotId}
+              className="rounded-2xl border border-[#d4dfd7] bg-white p-5"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold tracking-[0.12em] text-[#6c7a72]">
+                    PERSONA {index + 1}
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-[#203d2e]">
+                    {persona.name}
+                  </h2>
+                  <Badge variant="outline" className="mt-2">
+                    {persona.audience}
+                  </Badge>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-expanded={expanded}
+                  onClick={() => setOpenSlot(expanded ? null : persona.slotId)}
+                  className="shrink-0"
+                >
+                  候補を変更
+                  <ChevronDown
+                    className={cn(
+                      "ml-2 size-4 transition-transform",
+                      expanded && "rotate-180"
+                    )}
+                  />
+                </Button>
               </div>
-              <button
-                type="button"
-                aria-pressed={persona.adopted}
-                onClick={() =>
-                  patchPersona(persona.id, "adopted", !persona.adopted)
-                }
-                className={cn(
-                  "h-fit shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7652] focus-visible:ring-offset-2",
-                  persona.adopted
-                    ? "bg-[#e7f3eb] text-[#245b40]"
-                    : "bg-[#ecefed] text-[#68756e]"
-                )}
-              >
-                {persona.adopted ? "採用中" : "除外中"}
-              </button>
-            </div>
-            <div className="mt-4 grid gap-3 border-t border-[#e1e7e3] pt-4">
-              <EditableField
-                label="立場・役割"
-                value={persona.role}
-                onChange={(value) => patchPersona(persona.id, "role", value)}
-              />
-              <EditableField
-                label="主な課題"
-                value={persona.issue}
-                onChange={(value) => patchPersona(persona.id, "issue", value)}
-              />
-              <EditableField
-                label="比較時に重視すること"
-                value={persona.emphasis}
-                onChange={(value) =>
-                  patchPersona(persona.id, "emphasis", value)
-                }
-              />
-              <EditableField
-                label="最終行動"
-                value={persona.finalAction}
-                onChange={(value) =>
-                  patchPersona(persona.id, "finalAction", value)
-                }
-              />
-            </div>
-          </article>
-        ))}
+
+              <dl className="mt-4 grid gap-3 border-t border-[#e1e7e3] pt-4">
+                <ReadonlyDetail label="立場・役割" value={persona.role} />
+                <ReadonlyDetail label="主な課題" value={persona.issue} />
+                <ReadonlyDetail
+                  label="比較時に重視すること"
+                  value={persona.emphasis}
+                />
+                <ReadonlyDetail label="最終行動" value={persona.finalAction} />
+              </dl>
+
+              {expanded && (
+                <CandidatePanel title="この枠に入れる別のペルソナ候補">
+                  {candidatePool.map((candidate) => {
+                    const current = candidate.candidateKey === persona.candidateKey;
+                    const usedElsewhere =
+                      selectedKeys.has(candidate.candidateKey) && !current;
+                    return (
+                      <CandidateOption
+                        key={candidate.candidateKey}
+                        selected={current}
+                        disabled={usedElsewhere}
+                        title={candidate.name}
+                        meta={`${candidate.audience}・${candidate.role}`}
+                        description={candidate.issue}
+                        onClick={() => {
+                          replacePersona(persona.slotId, candidate.candidateKey);
+                          setOpenSlot(null);
+                        }}
+                      />
+                    );
+                  })}
+                </CandidatePanel>
+              )}
+            </article>
+          );
+        })}
       </div>
     </div>
   );
@@ -1724,161 +1952,208 @@ function PersonaStep({
 function TopicStep({
   topics,
   personas,
-  setTopics,
+  candidatePool,
+  replaceTopic,
+  changePriority,
   suggestionsStale,
   refreshSuggestions
 }: {
-  topics: TopicCard[];
-  personas: PersonaCard[];
-  setTopics: (
-    value: TopicCard[] | ((current: TopicCard[]) => TopicCard[])
-  ) => void;
+  topics: TopicSelection[];
+  personas: PersonaSelection[];
+  candidatePool: TopicCandidate[];
+  replaceTopic: (slotId: number, candidateKey: string) => void;
+  changePriority: (slotId: number, priority: TopicPriority) => void;
   suggestionsStale: boolean;
   refreshSuggestions: () => void;
 }) {
-  const patchTopic = <K extends keyof TopicCard>(
-    id: number,
-    key: K,
-    value: TopicCard[K]
-  ) => {
-    setTopics((current) =>
-      current.map((topic) =>
-        topic.id === id ? { ...topic, [key]: value } : topic
-      )
-    );
-  };
+  const [openSlot, setOpenSlot] = useState<number | null>(null);
+  const selectedKeys = new Set(topics.map((topic) => topic.candidateKey));
 
   return (
     <div>
       {suggestionsStale && (
         <SuggestionRefreshBanner refreshSuggestions={refreshSuggestions} />
       )}
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <p className="text-sm text-[#68786f]">
-          測定するテーマを6件だけ確認します。
-        </p>
-        <Badge className="bg-[#edf6f0] text-[#245b40]">6件</Badge>
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm text-[#68786f]">
+            選択済みの6件を確認します。テーマ文を直接編集せず、必要な枠だけ別の候補へ変更できます。
+          </p>
+          <p className="mt-1 text-xs text-[#7b8980]">
+            候補を変更すると、そのトピックに紐づく自動生成質問も更新されます。
+          </p>
+        </div>
+        <Badge className="w-fit bg-[#edf6f0] text-[#245b40]">6件</Badge>
       </div>
+
       <div className="space-y-4">
-        {topics.map((topic, index) => (
-          <article
-            key={topic.id}
-            className={cn(
-              "rounded-2xl border p-5",
-              topic.adopted
-                ? "border-[#d4dfd7] bg-white"
-                : "border-[#e0e5e1] bg-[#f7f8f7] opacity-70"
-            )}
-          >
-            <div className="flex flex-col gap-3 lg:flex-row lg:justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold tracking-[0.12em] text-[#6c7a72]">
-                  TOPIC {index + 1}
-                </p>
-                <input
-                  value={topic.name}
-                  aria-label={`トピック${index + 1}の名前`}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                    patchTopic(topic.id, "name", event.target.value)
-                  }
-                  className="mt-1 w-full bg-transparent text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#d8eadf]"
-                />
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {topic.personaIds.map((personaId) => {
-                    const persona = personas.find(
-                      (candidate) => candidate.id === personaId
-                    );
-                    return (
-                      <Badge
-                        key={personaId}
-                        variant="outline"
-                        className={cn(!persona?.adopted && "opacity-50")}
-                      >
-                        {persona?.name || "未設定のペルソナ"}
+        {topics.map((topic, index) => {
+          const expanded = openSlot === topic.slotId;
+          return (
+            <article
+              key={topic.slotId}
+              className="rounded-2xl border border-[#d4dfd7] bg-white p-5"
+            >
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold tracking-[0.12em] text-[#6c7a72]">
+                    TOPIC {index + 1}
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-[#203d2e]">
+                    {topic.name}
+                  </h2>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {topic.personaSlots.map((personaSlot) => (
+                      <Badge key={personaSlot} variant="outline">
+                        {personas.find((persona) => persona.slotId === personaSlot)
+                          ?.name || "ペルソナ未設定"}
                       </Badge>
-                    );
-                  })}
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <label className="sr-only" htmlFor={`topic-priority-${topic.slotId}`}>
+                    {topic.name}の優先度
+                  </label>
+                  <select
+                    id={`topic-priority-${topic.slotId}`}
+                    value={topic.priority}
+                    onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+                      changePriority(
+                        topic.slotId,
+                        event.target.value as TopicPriority
+                      )
+                    }
+                    className="h-10 rounded-xl border border-[#cfd9d2] bg-white px-3 text-xs outline-none focus:ring-2 focus:ring-[#d8eadf]"
+                  >
+                    <option>高</option>
+                    <option>中</option>
+                    <option>低</option>
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    aria-expanded={expanded}
+                    onClick={() => setOpenSlot(expanded ? null : topic.slotId)}
+                  >
+                    候補を変更
+                    <ChevronDown
+                      className={cn(
+                        "ml-2 size-4 transition-transform",
+                        expanded && "rotate-180"
+                      )}
+                    />
+                  </Button>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <label className="sr-only" htmlFor={`topic-priority-${topic.id}`}>
-                  {topic.name}の優先度
-                </label>
-                <select
-                  id={`topic-priority-${topic.id}`}
-                  value={topic.priority}
-                  onChange={(event: ChangeEvent<HTMLSelectElement>) =>
-                    patchTopic(
-                      topic.id,
-                      "priority",
-                      event.target.value as TopicPriority
-                    )
-                  }
-                  className="h-9 rounded-xl border border-[#cfd9d2] bg-white px-3 text-xs outline-none focus:ring-2 focus:ring-[#d8eadf]"
-                >
-                  <option>高</option>
-                  <option>中</option>
-                  <option>低</option>
-                </select>
-                <button
-                  type="button"
-                  aria-pressed={topic.adopted}
-                  onClick={() =>
-                    patchTopic(topic.id, "adopted", !topic.adopted)
-                  }
-                  className={cn(
-                    "h-9 rounded-full px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7652] focus-visible:ring-offset-2",
-                    topic.adopted
-                      ? "bg-[#e7f3eb] text-[#245b40]"
-                      : "bg-[#ecefed] text-[#68756e]"
-                  )}
-                >
-                  {topic.adopted ? "採用中" : "除外中"}
-                </button>
-              </div>
-            </div>
-            <div className="mt-4 grid gap-3 border-t border-[#e1e7e3] pt-4 lg:grid-cols-2">
-              <EditableField
-                label="何を確認するテーマか"
-                value={topic.summary}
-                onChange={(value) => patchTopic(topic.id, "summary", value)}
-              />
-              <EditableField
-                label="質問例"
-                value={topic.questionExample}
-                onChange={(value) =>
-                  patchTopic(topic.id, "questionExample", value)
-                }
-              />
-            </div>
-          </article>
-        ))}
+
+              <dl className="mt-4 grid gap-3 border-t border-[#e1e7e3] pt-4 lg:grid-cols-2">
+                <ReadonlyDetail
+                  label="何を確認するテーマか"
+                  value={topic.summary}
+                />
+                <ReadonlyDetail label="質問例" value={topic.questionExample} />
+              </dl>
+
+              {expanded && (
+                <CandidatePanel title="この枠に入れる別のトピック候補">
+                  {candidatePool.map((candidate) => {
+                    const current = candidate.candidateKey === topic.candidateKey;
+                    const usedElsewhere =
+                      selectedKeys.has(candidate.candidateKey) && !current;
+                    return (
+                      <CandidateOption
+                        key={candidate.candidateKey}
+                        selected={current}
+                        disabled={usedElsewhere}
+                        title={candidate.name}
+                        meta={`優先度 ${candidate.priority}`}
+                        description={candidate.summary}
+                        onClick={() => {
+                          replaceTopic(topic.slotId, candidate.candidateKey);
+                          setOpenSlot(null);
+                        }}
+                      />
+                    );
+                  })}
+                </CandidatePanel>
+              )}
+            </article>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function EditableField({
-  label,
-  value,
-  onChange
+function CandidatePanel({
+  title,
+  children
 }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
+  title: string;
+  children: ReactNode;
 }) {
   return (
-    <label className="text-xs font-semibold text-[#3f594a]">
-      {label}
-      <textarea
-        value={value}
-        onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-          onChange(event.target.value)
-        }
-        rows={2}
-        className="mt-1 w-full resize-none rounded-xl border border-[#d2ddd5] px-3 py-2 text-sm font-normal outline-none focus:border-[#3d805c] focus:ring-2 focus:ring-[#d8eadf]"
-      />
-    </label>
+    <div className="mt-5 rounded-2xl border border-[#cddbd1] bg-[#f7faf8] p-4">
+      <p className="mb-3 text-sm font-semibold text-[#294b39]">{title}</p>
+      <div className="grid max-h-[420px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function CandidateOption({
+  selected,
+  disabled,
+  title,
+  meta,
+  description,
+  onClick
+}: {
+  selected: boolean;
+  disabled: boolean;
+  title: string;
+  meta: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || selected}
+      aria-pressed={selected}
+      onClick={onClick}
+      className={cn(
+        "rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7652] focus-visible:ring-offset-2",
+        selected
+          ? "border-[#3d805c] bg-[#e8f3ec]"
+          : disabled
+            ? "cursor-not-allowed border-[#e0e5e1] bg-[#f1f3f2] opacity-55"
+            : "border-[#d6e0d9] bg-white hover:border-[#7aa18a] hover:bg-[#f1f7f3]"
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-semibold text-[#294636]">{title}</span>
+        {selected && <Check className="size-4 shrink-0 text-[#2f7652]" />}
+      </div>
+      <p className="mt-1 text-xs font-semibold text-[#6a7b70]">{meta}</p>
+      <p className="mt-2 text-xs leading-5 text-[#627269]">{description}</p>
+      {disabled && !selected && (
+        <p className="mt-2 text-xs font-semibold text-[#7b8980]">
+          別の枠で選択中
+        </p>
+      )}
+    </button>
+  );
+}
+
+function ReadonlyDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs font-semibold text-[#52685b]">{label}</dt>
+      <dd className="mt-1 text-sm leading-6 text-[#304a3b]">{value}</dd>
+    </div>
   );
 }
 
@@ -1901,13 +2176,9 @@ function QuestionStep({
   setShowAllQuestions
 }: {
   questions: MeasurementQuestion[];
-  setQuestions: (
-    value:
-      | MeasurementQuestion[]
-      | ((current: MeasurementQuestion[]) => MeasurementQuestion[])
-  ) => void;
-  personas: PersonaCard[];
-  topics: TopicCard[];
+  setQuestions: Dispatch<SetStateAction<MeasurementQuestion[]>>;
+  personas: PersonaSelection[];
+  topics: TopicSelection[];
   importantQuestions: MeasurementQuestion[];
   visibleQuestions: MeasurementQuestion[];
   filteredQuestionCount: number;
@@ -1917,11 +2188,7 @@ function QuestionStep({
   setNewQuestion: (value: string) => void;
   addQuestion: (event: FormEvent<HTMLFormElement>) => void;
   deletedQuestions: MeasurementQuestion[];
-  setDeletedQuestions: (
-    value:
-      | MeasurementQuestion[]
-      | ((current: MeasurementQuestion[]) => MeasurementQuestion[])
-  ) => void;
+  setDeletedQuestions: Dispatch<SetStateAction<MeasurementQuestion[]>>;
   showAllQuestions: boolean;
   setShowAllQuestions: (value: boolean) => void;
 }) {
@@ -1947,8 +2214,6 @@ function QuestionStep({
     setDeletedQuestions(rest);
   };
 
-  const adoptedTopics = topics.filter((topic) => topic.adopted);
-
   return (
     <div className="space-y-8">
       <div className="rounded-2xl border border-[#d7e2da] bg-[#f8faf8] p-4 text-sm text-[#52675a]">
@@ -1958,19 +2223,14 @@ function QuestionStep({
       <Section title="重要な質問">
         <div className="grid gap-3 lg:grid-cols-2">
           {importantQuestions.map((question, index) => (
-            <div
-              key={question.id}
-              className="rounded-2xl bg-[#f2f8f4] p-5"
-            >
+            <div key={question.id} className="rounded-2xl bg-[#f2f8f4] p-5">
               <div className="flex gap-3">
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-[#2f7652] text-sm font-semibold text-white">
                   {index + 1}
                 </span>
                 <div>
                   <p className="font-semibold">{question.text}</p>
-                  <p className="mt-2 text-xs text-[#637369]">
-                    {question.reason}
-                  </p>
+                  <p className="mt-2 text-xs text-[#637369]">{question.reason}</p>
                 </div>
               </div>
             </div>
@@ -2010,12 +2270,12 @@ function QuestionStep({
           >
             すべて
           </FilterButton>
-          {adoptedTopics.map((topic) => (
+          {topics.map((topic) => (
             <FilterButton
-              key={topic.id}
-              active={topicFilter === topic.id}
+              key={topic.slotId}
+              active={topicFilter === topic.slotId}
               onClick={() => {
-                setTopicFilter(topic.id);
+                setTopicFilter(topic.slotId);
                 setShowAllQuestions(false);
               }}
             >
@@ -2045,12 +2305,13 @@ function QuestionStep({
                 )}
                 <Badge variant="outline">
                   {personas.find(
-                    (persona) => persona.id === question.personaId
+                    (persona) => persona.slotId === question.personaSlotId
                   )?.name || "ペルソナ未設定"}
                 </Badge>
                 <Badge variant="outline">
-                  {topics.find((topic) => topic.id === question.topicId)?.name ||
-                    "トピック未設定"}
+                  {topics.find(
+                    (topic) => topic.slotId === question.topicSlotId
+                  )?.name || "トピック未設定"}
                 </Badge>
               </div>
               <div className="flex gap-3">
@@ -2134,17 +2395,14 @@ function ReviewStep({
 }: {
   form: OnboardingForm;
   localityRelevant: boolean;
-  personas: PersonaCard[];
-  topics: TopicCard[];
+  personas: PersonaSelection[];
+  topics: TopicSelection[];
   questions: MeasurementQuestion[];
   importantQuestions: MeasurementQuestion[];
   suggestionsStale: boolean;
   refreshSuggestions: () => void;
   goToEdit: (step: number) => void;
 }) {
-  const adoptedPersonas = personas.filter((persona) => persona.adopted);
-  const adoptedTopics = topics.filter((topic) => topic.adopted);
-
   return (
     <div className="space-y-5">
       {suggestionsStale && (
@@ -2212,28 +2470,20 @@ function ReviewStep({
         )}
       </ReviewCard>
 
-      <ReviewCard
-        title={`ペルソナ 5件（採用 ${adoptedPersonas.length}件）`}
-        step={2}
-        goToEdit={goToEdit}
-      >
+      <ReviewCard title="ペルソナ 5件" step={2} goToEdit={goToEdit}>
         <ReviewGrid
           items={personas.map((persona) => [
             persona.name,
-            persona.adopted ? "採用" : "除外"
+            `${persona.audience}・${persona.role}`
           ])}
         />
       </ReviewCard>
 
-      <ReviewCard
-        title={`トピック 6件（採用 ${adoptedTopics.length}件）`}
-        step={3}
-        goToEdit={goToEdit}
-      >
+      <ReviewCard title="トピック 6件" step={3} goToEdit={goToEdit}>
         <ReviewGrid
           items={topics.map((topic) => [
             topic.name,
-            `優先度 ${topic.priority}・${topic.adopted ? "採用" : "除外"}`
+            `優先度 ${topic.priority}`
           ])}
         />
       </ReviewCard>
