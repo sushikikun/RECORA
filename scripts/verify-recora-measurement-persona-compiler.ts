@@ -140,7 +140,7 @@ function verifyReadyFixture(fixture: RecoraPersonaGoldFixtureV3) {
   );
   assert.deepEqual(
     result.selected.map(toGoldSelection),
-    fixture.expectedSelected,
+    fixture.expectedSelected.map(toGoldSelection),
     fixture.caseKey
   );
   assert.deepEqual(
@@ -302,7 +302,7 @@ function toGoldSelection(item: {
   return {
     primaryBlueprintKey: item.primaryBlueprintKey,
     supportingBlueprintKeys: item.supportingBlueprintKeys,
-    modifierKeys: item.modifierKeys
+    modifierKeys: Array.from(item.modifierKeys).sort()
   };
 }
 
