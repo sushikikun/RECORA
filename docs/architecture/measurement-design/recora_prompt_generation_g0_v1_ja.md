@@ -41,8 +41,10 @@ BtoB、EC、店舗、SaaS、医療等を一つの分類列へ混ぜない。
 地域対応範囲・拠点構造・地域との結び付き
 信頼・規制
 Persona選定に必要な事業構造Signal
+分析対象に対する顧客側・市場側
 確認済みの同一人物・別人物関係
 初回・利用中・更新・解約・乗り換え等の状態
+重点テーマ・確認目的
 ```
 
 ## 正規化結果
@@ -93,7 +95,35 @@ insurance
 multi_location_consumer_brand
 ```
 
-複数の意味が成立し、一意に決められない場合は`needs_review`で止める。
+### 自動導出を限定する
+
+単一の表面的な条件だけで、別の事業構造へ広げない。
+
+```text
+BtoB SaaSの定期契約
+→ start_subscriptionだけでcommerce_subscriptionにしない
+
+顧客先へ訪問するサービス
+→ in_personだけでlocal_facilityにしない
+
+規制された医療
+→ 規制フラグだけでadult_healthcareにしない
+```
+
+成人医療・介護、Marketplaceブランド・運営者向けサービス等の意味が一つに決まらない場合は`needs_review`で止める。
+
+### 分類との整合を検査する
+
+入力済みSignalも無条件には信頼しない。
+
+```text
+education以外のchild_education
+Marketplace以外のmarketplace_brand
+finance以外のinsurance
+単一拠点なのにmulti_location_consumer_brand
+```
+
+のような矛盾は`structure_signal_conflict`で拒否する。
 
 ## Customer Side
 
@@ -110,7 +140,7 @@ supply_side_participant
 partner_or_intermediary
 ```
 
-分析対象を提供する会社の内部社員は、この配列へ入れない。
+分析対象を提供する会社の内部社員は、この配列へ入れない。需要側・供給側はMarketplaceブランドでのみ使用し、非Marketplace入力へ付けた場合は拒否する。
 
 ## Actor Relation
 
@@ -122,7 +152,38 @@ distinct_actors
 unknown
 ```
 
-`unknown`がPersona 5件の構成へ影響する可能性があるため、`needs_review`とする。左右のrole keyは正規化して固定順に並べ、入力順で結果を変えない。
+`unknown`がPersona 5件の構成へ影響する可能性があるため、`needs_review`とする。
+
+role keyは内部識別子として、次のように正規化する。
+
+```text
+Decision Owner
+Decision-Owner
+decision_owner
+→ decision_owner
+```
+
+日本語の説明文や任意記号をrole keyとして受け入れず、左右を固定順へ並べ、入力順や表記差で結果を変えない。
+
+## 地域・提供方法
+
+提供方法と地域構造の矛盾を拒否する。
+
+```text
+onlineなのに物理拠点で提供
+locationStructure = noneなのにphysical_location
+拠点ありなのにgeographicBindingがnone / service_areaのみ
+```
+
+訪問型・対応エリア型サービスは、物理店舗と区別する。
+
+```text
+in_person + service_area + locationStructure none
+→ 訪問型サービスとして成立
+→ local_facilityにはしない
+```
+
+対応地域・拠点が必要なのに空の場合は、値を発明せず`needs_review`とする。
 
 ## Trust derivation
 
@@ -157,6 +218,8 @@ Structure Signal
 Customer Side
 Actor Relation
 Lifecycle Signal
+重点テーマの値
+確認目的の値
 JP / ja-JP
 semantics version
 ```
@@ -167,10 +230,11 @@ semantics version
 入力配列の並び順
 重複入力
 表示上だけの順序
-重点テーマ・確認目的（Persona・Topic側で別管理）
 50 / 100 / 200件Profile
-根拠文や説明文の順序
+根拠文や理由文の順序
 ```
+
+重点テーマ・確認目的はPersona Setを変えるためではなく、後続Topic・Prompt生成を変える意味入力である。そのため値はFingerprintへ含めるが、配列順は含めない。
 
 ## 50 / 100 / 200件Profile
 
@@ -201,6 +265,7 @@ minimumProfileSize = 200 → 200
 ```text
 主な顧客行動
 事業構造Signal
+顧客側・市場側
 家族・代理・支払関係
 初回・更新・解約等の状態
 ```
@@ -210,9 +275,9 @@ minimumProfileSize = 200 → 200
 ## 検証Fixture
 
 ```text
-ready          20
-needs_review   10
-blocked         8
+ready          22
+needs_review   11
+blocked        12
 Profile         4
 Legacy          1
 ```
@@ -231,6 +296,25 @@ Customer Side
 Actor Relation
 Lifecycle Signal
 重点テーマ・確認目的
+```
+
+さらに、次を確認する。
+
+```text
+重点テーマの値を変更
+→ Fingerprintは変わる
+
+確認目的の値を変更
+→ Fingerprintは変わる
+
+BtoB SaaSでstart_subscription
+→ commerce_subscriptionへ誤分類しない
+
+訪問型サービス
+→ local_facilityへ誤分類しない
+
+規制されたhealthcareでmotion不明
+→ adult_healthcareへ自動確定せずneeds_review
 ```
 
 ## 実行
