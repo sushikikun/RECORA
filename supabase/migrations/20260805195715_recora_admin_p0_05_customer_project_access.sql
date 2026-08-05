@@ -218,6 +218,7 @@ declare
   membership_match_count integer;
   issued_receipt_match_count integer;
   revoked_receipt_match_count integer;
+  receipt_id uuid;
 begin
   if tg_op = 'DELETE' then
     raise exception 'M05 customer Project access grant history is retained; delete is not allowed';
@@ -255,6 +256,33 @@ begin
 
     if issued_receipt_match_count <> 1 then
       raise exception 'M05 grant requires one committed issued command receipt with matching Project scope';
+    end if;
+
+    -- Lock receipt rows in UUID order before scanning the complete grant
+    -- history, so concurrent issue/revoke operations cannot split receipt use
+    -- across the issued and revoked columns.
+    for receipt_id in
+      select distinct candidate.receipt_id
+      from unnest(array[new.issued_command_receipt_id]) as candidate(receipt_id)
+      order by candidate.receipt_id
+    loop
+      perform 1
+      from recora_private.admin_command_receipts receipt_row
+      where receipt_row.id = receipt_id
+      for update;
+
+      if not found then
+        raise exception 'M05 issued command receipt disappeared before its global use check';
+      end if;
+    end loop;
+
+    if exists (
+      select 1
+      from recora_private.customer_project_access_grants grant_row
+      where grant_row.issued_command_receipt_id = new.issued_command_receipt_id
+         or grant_row.revoked_command_receipt_id = new.issued_command_receipt_id
+    ) then
+      raise exception 'M05 issued command receipt may be used only once across grant history';
     end if;
 
     return new;
@@ -297,6 +325,36 @@ begin
 
   if revoked_receipt_match_count <> 1 then
     raise exception 'M05 revoke requires one committed revoked command receipt with matching Project scope';
+  end if;
+
+  -- The issuing receipt and the proposed revoke receipt are locked in the
+  -- same deterministic order for every transition, preventing deadlocks
+  -- while preserving a single global receipt-use history.
+  for receipt_id in
+    select distinct candidate.receipt_id
+    from unnest(array[old.issued_command_receipt_id, new.revoked_command_receipt_id]) as candidate(receipt_id)
+    order by candidate.receipt_id
+  loop
+    perform 1
+    from recora_private.admin_command_receipts receipt_row
+    where receipt_row.id = receipt_id
+    for update;
+
+    if not found then
+      raise exception 'M05 revoked command receipt disappeared before its global use check';
+    end if;
+  end loop;
+
+  if exists (
+    select 1
+    from recora_private.customer_project_access_grants grant_row
+    where grant_row.id <> old.id
+      and (
+        grant_row.issued_command_receipt_id = new.revoked_command_receipt_id
+        or grant_row.revoked_command_receipt_id = new.revoked_command_receipt_id
+      )
+  ) then
+    raise exception 'M05 revoked command receipt may be used only once across grant history';
   end if;
 
   new.updated_at := pg_catalog.clock_timestamp();
@@ -394,6 +452,15 @@ from public, anon, authenticated, service_role;
 
 revoke all on function recora_private.has_active_customer_project_access(uuid, uuid)
 from public, anon, authenticated, service_role;
+
+grant select on table
+  public.prompts,
+  public.measurement_runs,
+  public.ai_conversations,
+  public.citations,
+  public.metric_snapshots,
+  public.recommendations
+to authenticated;
 
 
 do $recora_admin_p0_m05_verify$

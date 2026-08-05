@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -17,35 +18,52 @@ const m05SpecPath = "docs/architecture/recora-admin-p0/database/recora_admin_p0_
 const m05VerifierPath = "scripts/verify-recora-admin-p0-05-customer-project-access.ts";
 const m04VerifierPath = "scripts/verify-recora-admin-p0-04-customer-project-inquiry.ts";
 const allowedPaths = [m05VerifierPath, m04VerifierPath, m05SpecPath, "package.json"] as const;
+const projectScopedRelations = [
+  { relation: "projects", projectColumn: "id" },
+  { relation: "prompts", projectColumn: "project_id" },
+  { relation: "measurement_runs", projectColumn: "project_id" },
+  { relation: "ai_conversations", projectColumn: "project_id" },
+  { relation: "citations", projectColumn: "project_id" },
+  { relation: "metric_snapshots", projectColumn: "project_id" },
+  { relation: "recommendations", projectColumn: "project_id" },
+] as const;
 
 const m05Path = findMigration(m05Stem);
 const m04Path = findMigration(m04Stem);
 const m05RepoPath = toRepoPath(path.relative(repoRoot, m05Path));
 
-verifySourceContract();
-verifyPackageContract();
-verifySpecification();
-verifyChangedScope();
-if (!staticOnly) {
-  verifyRepositoryBaseline();
-  verifyLocalDatabase();
+async function main(): Promise<void> {
+  verifySourceContract();
+  verifyPackageContract();
+  verifySpecification();
+  verifyChangedScope();
+  if (!staticOnly) {
+    verifyRepositoryBaseline();
+    await verifyLocalDatabase();
+  }
+
+  console.log(JSON.stringify({
+    status: "ok",
+    initialImplementationBaseline,
+    postSyncComparisonBaseline: expectedBaseline,
+    migration: m05RepoPath,
+    containers: { requested: requestedContainer, actual: expectedContainer },
+    staticOnly,
+    checkedCases: {
+      sourceAndScope: true,
+      m04Compatibility: true,
+      grantLifecycleAndRls: !staticOnly,
+      receiptCrossColumnAndConcurrency: !staticOnly,
+      authenticatedProjectTableMatrix: !staticOnly,
+      migrationListAndAdvisors: !staticOnly,
+    },
+  }, null, 2));
 }
 
-console.log(JSON.stringify({
-  status: "ok",
-  initialImplementationBaseline,
-  postSyncComparisonBaseline: expectedBaseline,
-  migration: m05RepoPath,
-  containers: { requested: requestedContainer, actual: expectedContainer },
-  staticOnly,
-  checkedCases: {
-    sourceAndScope: true,
-    m04Compatibility: true,
-    grantLifecycleAndRls: !staticOnly,
-    accessMatrixAndNegativeCases: !staticOnly,
-    migrationListAndAdvisors: !staticOnly,
-  },
-}, null, 2));
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
 
 function verifySourceContract(): void {
   const sql = fs.readFileSync(m05Path, "utf8");
@@ -71,14 +89,22 @@ function verifySourceContract(): void {
     "revoke all on table recora_private.customer_project_access_grants",
     "revoke all on function recora_private.has_active_customer_project_access",
     "membership_status = 'active'::public.recora_organization_membership_status", "candidate_count = 1",
+    "for update", "order by candidate.receipt_id",
+    "issued command receipt may be used only once across grant history",
+    "revoked command receipt may be used only once across grant history",
   ]) {
     assert.ok(normalized.includes(required), "Missing M05 source contract: " + required);
   }
   for (const forbidden of [
-    /\bdrop\b/i, /\btruncate\b/i, /^\s*grant\s+/im, /\bseed\b/i, /\bbackfill\b/i,
+    /\bdrop\b/i, /\btruncate\b/i, /\bseed\b/i, /\bbackfill\b/i,
     /\bcreate\s+(?:or\s+replace\s+)?function\s+public\./i,
     /\bservice_role\b[\s\S]{0,160}\b(?:actor|admin)\b/i,
   ]) assert.doesNotMatch(source, forbidden);
+  const grantStatements = Array.from(source.matchAll(/^\s*grant\s+[\s\S]*?;/gim))
+    .map((match) => normalizeSql(match[0]));
+  assert.deepEqual(grantStatements, [
+    "grant select on table public.prompts, public.measurement_runs, public.ai_conversations, public.citations, public.metric_snapshots, public.recommendations to authenticated;",
+  ], "M05 may add only the authenticated Project-scoped read grants required for RLS evaluation.");
   assert.doesNotMatch(normalized, /revoke all on function recora_private\.can_read_project/i);
 
   const table = extractCreateTableDefinition(sql, "recora_private.customer_project_access_grants");
@@ -199,7 +225,7 @@ function assertPostgresIdentifierLengths(sql: string): void {
     Array.from(sql.matchAll(pattern)).forEach((match) => assert.ok(Buffer.byteLength(match[1], "utf8") <= 63, "Postgres identifier is too long: " + match[1]));
   }
 }
-function verifyLocalDatabase(): void {
+async function verifyLocalDatabase(): Promise<void> {
   assert.equal(process.env.RECORA_ADMIN_P0_DB_CONTAINER, expectedContainer);
   run("docker", ["inspect", expectedContainer]);
   verifyFormalM05DatabaseContract();
@@ -211,6 +237,7 @@ function verifyLocalDatabase(): void {
 
   verifyAccessMatrixFixtures();
   verifyNegativeGrantFixtures();
+  await verifyReceiptCrossColumnConcurrencyFixture();
 
   const supabaseWorkdir = process.env.RECORA_ADMIN_P0_SUPABASE_WORKDIR;
   assert.ok(supabaseWorkdir, "RECORA_ADMIN_P0_SUPABASE_WORKDIR is required.");
@@ -246,6 +273,9 @@ function verifyFormalM05DatabaseContract(): void {
     "  if not exists (select 1 from pg_trigger trigger_row join pg_proc function_row on function_row.oid = trigger_row.tgfoid where trigger_row.tgrelid = 'recora_private.customer_project_access_grants'::regclass and trigger_row.tgname = 'customer_project_access_grants_transition_guard' and function_row.proname = 'admin_p0_validate_customer_project_access_grant') then",
     "    raise exception 'M05 transition guard is missing';",
     "  end if;",
+    "  if not exists (select 1 from pg_proc function_row join pg_namespace namespace_row on namespace_row.oid = function_row.pronamespace where namespace_row.nspname = 'recora_private' and function_row.proname = 'admin_p0_validate_customer_project_access_grant' and function_row.prosecdef is not true and pg_get_functiondef(function_row.oid) ilike '%for update%' and pg_get_functiondef(function_row.oid) ilike '%order by candidate.receipt_id%' and pg_get_functiondef(function_row.oid) ilike '%issued command receipt may be used only once across grant history%' and pg_get_functiondef(function_row.oid) ilike '%revoked command receipt may be used only once across grant history%') then",
+    "    raise exception 'M05 receipt global-use locking contract is missing';",
+    "  end if;",
     "  if not exists (select 1 from pg_proc function_row join pg_namespace namespace_row on namespace_row.oid = function_row.pronamespace where namespace_row.nspname = 'recora_private' and function_row.proname = 'has_active_customer_project_access' and function_row.prosecdef and pg_get_functiondef(function_row.oid) like '%SET search_path TO ''''%') then",
     "    raise exception 'M05 helper security definer/search_path contract mismatch';",
     "  end if;",
@@ -262,6 +292,9 @@ function verifyFormalM05DatabaseContract(): void {
     "    raise exception 'M05 changed M04 private relation inventory';",
     "  end if;",
     "  foreach relation_name in array array['projects','prompts','measurement_runs','ai_conversations','citations','metric_snapshots','recommendations'] loop",
+    "    if not has_table_privilege('authenticated', format('public.%I', relation_name), 'select') then",
+    "      raise exception 'M05 authenticated SELECT prerequisite is missing for %', relation_name;",
+    "    end if;",
     "    if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = relation_name and qual like '%can_read_project%') then",
     "      raise exception 'M05 expected Project RLS policy is missing for %', relation_name;",
     "    end if;",
@@ -313,7 +346,9 @@ function fixtureReceiptsAndGrants(): string[] {
     "  ('50040000-0000-4000-8000-000000000003', 'system', 'm05.fixture', 'GrantProjectAccess', '50010000-0000-4000-8000-000000000001', '50020000-0000-4000-8000-000000000001', 'customer.project_access', '50030000-0000-4000-8000-000000000001', 'm05.regrant.a.001', 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', '50041000-0000-4000-8000-000000000003', '50042000-0000-4000-8000-000000000003', 'committed', 'm05.fixture.committed'),",
     "  ('50040000-0000-4000-8000-000000000004', 'system', 'm05.fixture', 'GrantProjectAccess', '50010000-0000-4000-8000-000000000002', '50020000-0000-4000-8000-000000000003', 'customer.project_access', '50030000-0000-4000-8000-000000000002', 'm05.grant.c.001', 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd', '50041000-0000-4000-8000-000000000004', '50042000-0000-4000-8000-000000000004', 'committed', 'm05.fixture.committed'),",
     "  ('50040000-0000-4000-8000-000000000005', 'system', 'm05.fixture', 'GrantProjectAccess', '50010000-0000-4000-8000-000000000003', '50020000-0000-4000-8000-000000000004', 'customer.project_access', '50030000-0000-4000-8000-000000000004', 'm05.grant.missing.001', 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', '50041000-0000-4000-8000-000000000005', '50042000-0000-4000-8000-000000000005', 'committed', 'm05.fixture.committed'),",
-    "  ('50040000-0000-4000-8000-000000000006', 'system', 'm05.fixture', 'GrantProjectAccess', '50010000-0000-4000-8000-000000000001', '50020000-0000-4000-8000-000000000002', 'customer.project_access', '50030000-0000-4000-8000-000000000001', 'm05.wrong.scope.001', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', '50041000-0000-4000-8000-000000000006', '50042000-0000-4000-8000-000000000006', 'committed', 'm05.fixture.committed');",
+    "  ('50040000-0000-4000-8000-000000000006', 'system', 'm05.fixture', 'GrantProjectAccess', '50010000-0000-4000-8000-000000000001', '50020000-0000-4000-8000-000000000002', 'customer.project_access', '50030000-0000-4000-8000-000000000001', 'm05.wrong.scope.001', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', '50041000-0000-4000-8000-000000000006', '50042000-0000-4000-8000-000000000006', 'committed', 'm05.fixture.committed'),",
+    "  ('50040000-0000-4000-8000-000000000007', 'system', 'm05.fixture', 'GrantProjectAccess', '50010000-0000-4000-8000-000000000001', '50020000-0000-4000-8000-000000000002', 'customer.project_access', '50030000-0000-4000-8000-000000000001', 'm05.grant.b.001', '1111111111111111111111111111111111111111111111111111111111111111', '50041000-0000-4000-8000-000000000007', '50042000-0000-4000-8000-000000000007', 'committed', 'm05.fixture.committed'),",
+    "  ('50040000-0000-4000-8000-000000000008', 'system', 'm05.fixture', 'RevokeProjectAccess', '50010000-0000-4000-8000-000000000001', '50020000-0000-4000-8000-000000000002', 'customer.project_access', '50030000-0000-4000-8000-000000000001', 'm05.revoke.b.001', '2222222222222222222222222222222222222222222222222222222222222222', '50041000-0000-4000-8000-000000000008', '50042000-0000-4000-8000-000000000008', 'committed', 'm05.fixture.committed');",
     "insert into recora_private.customer_project_access_grants (id, organization_id, project_id, organization_member_id, customer_auth_user_id, issued_command_receipt_id) values",
     "  ('50050000-0000-4000-8000-000000000001', '50010000-0000-4000-8000-000000000001', '50020000-0000-4000-8000-000000000001', '50030000-0000-4000-8000-000000000001', '50000000-0000-4000-8000-000000000001', '50040000-0000-4000-8000-000000000001'),",
     "  ('50050000-0000-4000-8000-000000000002', '50010000-0000-4000-8000-000000000002', '50020000-0000-4000-8000-000000000003', '50030000-0000-4000-8000-000000000002', '50000000-0000-4000-8000-000000000002', '50040000-0000-4000-8000-000000000004'),",
@@ -374,16 +409,25 @@ function fixtureDerivedProjectData(): string[] {
     "  ('50110000-0000-4000-8000-000000000003', '50020000-0000-4000-8000-000000000003', '500b0000-0000-4000-8000-000000000003', 'content', 'M05 Recommendation C', '50080000-0000-4000-8000-000000000003', '50090000-0000-4000-8000-000000000003', '{\"publication_state\":\"customer_visible\"}');",
   ];
 }
-function authenticatedMatrix(userId: string, allowedProjectId: string, deniedProjectIds: string[]): string[] {
-  const helperChecks = [
-    "  if not recora_private.can_read_project('" + allowedProjectId + "') then raise exception 'M05 granted Project helper access is denied'; end if;",
-  ];
-  const browserChecks = [
-    "  if (select count(*) from public.projects where id = '" + allowedProjectId + "') <> 1 then raise exception 'M05 granted Project browser row is not visible'; end if;",
-  ];
+function authenticatedMatrix(
+  userId: string,
+  allowedProjectIds: string[],
+  deniedProjectIds: string[],
+  scenario: string,
+): string[] {
+  const helperChecks: string[] = [];
+  const browserChecks: string[] = [];
+  for (const allowedProjectId of allowedProjectIds) {
+    helperChecks.push("  if not recora_private.can_read_project('" + allowedProjectId + "') then raise exception 'M05 " + scenario + " helper access is denied for an allowed Project'; end if;");
+    for (const { relation, projectColumn } of projectScopedRelations) {
+      browserChecks.push("  if (select count(*) from public." + relation + " where " + projectColumn + " = '" + allowedProjectId + "') <> 1 then raise exception 'M05 " + scenario + " " + relation + " row is not visible for an allowed Project'; end if;");
+    }
+  }
   for (const deniedProjectId of deniedProjectIds) {
-    helperChecks.push("  if recora_private.can_read_project('" + deniedProjectId + "') then raise exception 'M05 ungranted Project helper access is visible'; end if;");
-    browserChecks.push("  if exists (select 1 from public.projects where id = '" + deniedProjectId + "') then raise exception 'M05 ungranted Project browser row is visible'; end if;");
+    helperChecks.push("  if recora_private.can_read_project('" + deniedProjectId + "') then raise exception 'M05 " + scenario + " helper access is visible for a denied Project'; end if;");
+    for (const { relation, projectColumn } of projectScopedRelations) {
+      browserChecks.push("  if exists (select 1 from public." + relation + " where " + projectColumn + " = '" + deniedProjectId + "') then raise exception 'M05 " + scenario + " " + relation + " row is visible for a denied Project'; end if;");
+    }
   }
   return [
     "select set_config('request.jwt.claim.role', 'authenticated', true);",
@@ -402,47 +446,39 @@ function authenticatedMatrix(userId: string, allowedProjectId: string, deniedPro
 function verifyAccessMatrixFixtures(): void {
   const base = [...fixtureBase(), ...fixtureReceiptsAndGrants()];
   const full = [...base, ...fixturePublicProjectData(), ...fixtureDerivedProjectData()];
+  const userA = "50000000-0000-4000-8000-000000000001";
+  const userB = "50000000-0000-4000-8000-000000000002";
+  const userWithoutGrant = "50000000-0000-4000-8000-000000000003";
+  const userMissingLifecycle = "50000000-0000-4000-8000-000000000004";
+  const projectA = "50020000-0000-4000-8000-000000000001";
+  const projectB = "50020000-0000-4000-8000-000000000002";
+  const projectC = "50020000-0000-4000-8000-000000000003";
+  const projectMissingLifecycle = "50020000-0000-4000-8000-000000000004";
 
   queryLocal([
     ...full,
-    ...authenticatedMatrix(
-      "50000000-0000-4000-8000-000000000001",
-      "50020000-0000-4000-8000-000000000001",
-      ["50020000-0000-4000-8000-000000000002", "50020000-0000-4000-8000-000000000003"],
-    ),
-    ...authenticatedMatrix(
-      "50000000-0000-4000-8000-000000000002",
-      "50020000-0000-4000-8000-000000000003",
-      ["50020000-0000-4000-8000-000000000001", "50020000-0000-4000-8000-000000000002"],
-    ),
-    "set local role authenticated;",
-    "select set_config('request.jwt.claim.role', 'authenticated', true);",
-    "select set_config('request.jwt.claim.sub', '50000000-0000-4000-8000-000000000003', true);",
-    "do $m05_no_grant$ begin if exists (select 1 from public.projects where id in ('50020000-0000-4000-8000-000000000001','50020000-0000-4000-8000-000000000002')) then raise exception 'M05 membership-only user can read a Project'; end if; end; $m05_no_grant$;",
-    "reset role;",
-    "set local role authenticated;",
-    "select set_config('request.jwt.claim.role', 'authenticated', true);",
-    "select set_config('request.jwt.claim.sub', '50000000-0000-4000-8000-000000000004', true);",
-    "do $m05_missing_lifecycle$ begin if exists (select 1 from public.projects where id = '50020000-0000-4000-8000-000000000004') then raise exception 'M05 missing lifecycle grant did not fail closed'; end if; end; $m05_missing_lifecycle$;",
-    "reset role;",
+    ...authenticatedMatrix(userA, [projectA], [projectB, projectC], "same-organization Project A only"),
+    ...authenticatedMatrix(userB, [projectC], [projectA, projectB], "different-organization Project C only"),
+    ...authenticatedMatrix(userWithoutGrant, [], [projectA, projectB, projectC], "membership without explicit grant"),
+    ...authenticatedMatrix(userMissingLifecycle, [], [projectMissingLifecycle], "missing lifecycle"),
     "set local role anon;",
     "select set_config('request.jwt.claim.role', 'anon', true);",
     "select set_config('request.jwt.claim.sub', '', true);",
-    "do $m05_anon_demo$ begin if not exists (select 1 from public.projects where id = '50020000-0000-4000-8000-000000000005') or exists (select 1 from public.projects where id = '50020000-0000-4000-8000-000000000001') then raise exception 'M05 changed anonymous demo boundary'; end if; end; $m05_anon_demo$;",
+    "do $m05_anon_demo$ begin if not exists (select 1 from public.projects where id = '50020000-0000-4000-8000-000000000005') or exists (select 1 from public.projects where id = '" + projectA + "') then raise exception 'M05 changed anonymous demo boundary'; end if; end; $m05_anon_demo$;",
     "reset role;",
+    "insert into recora_private.customer_project_access_grants (id, organization_id, project_id, organization_member_id, customer_auth_user_id, issued_command_receipt_id) values ('50050000-0000-4000-8000-000000000006', '50010000-0000-4000-8000-000000000001', '" + projectB + "', '50030000-0000-4000-8000-000000000001', '" + userA + "', '50040000-0000-4000-8000-000000000007');",
+    ...authenticatedMatrix(userA, [projectA, projectB], [projectC], "same account Project A and B"),
+    "update recora_private.customer_project_access_grants set status = 'revoked', revoked_command_receipt_id = '50040000-0000-4000-8000-000000000008', revoked_at = now(), row_version = 2 where id = '50050000-0000-4000-8000-000000000006';",
+    ...authenticatedMatrix(userA, [projectA], [projectB, projectC], "Project B revoked only"),
     "update recora_private.customer_project_access_grants set status = 'revoked', revoked_command_receipt_id = '50040000-0000-4000-8000-000000000002', revoked_at = now(), row_version = 2 where id = '50050000-0000-4000-8000-000000000001';",
     "do $m05_revocation$ begin if (select row_version from recora_private.customer_project_access_grants where id = '50050000-0000-4000-8000-000000000001') <> 2 then raise exception 'M05 revoke did not advance row version'; end if; end; $m05_revocation$;",
-    "set local role authenticated;",
-    "select set_config('request.jwt.claim.role', 'authenticated', true);",
-    "select set_config('request.jwt.claim.sub', '50000000-0000-4000-8000-000000000001', true);",
-    "do $m05_revocation_closed$ begin if exists (select 1 from public.projects where id = '50020000-0000-4000-8000-000000000001') then raise exception 'M05 revoke did not immediately deny access'; end if; end; $m05_revocation_closed$;",
-    "reset role;",
-    "insert into recora_private.customer_project_access_grants (id, organization_id, project_id, organization_member_id, customer_auth_user_id, issued_command_receipt_id) values ('50050000-0000-4000-8000-000000000004', '50010000-0000-4000-8000-000000000001', '50020000-0000-4000-8000-000000000001', '50030000-0000-4000-8000-000000000001', '50000000-0000-4000-8000-000000000001', '50040000-0000-4000-8000-000000000003');",
-    ...authenticatedMatrix(
-      "50000000-0000-4000-8000-000000000001",
-      "50020000-0000-4000-8000-000000000001",
-      ["50020000-0000-4000-8000-000000000002", "50020000-0000-4000-8000-000000000003"],
-    ),
+    ...authenticatedMatrix(userA, [], [projectA, projectB, projectC], "all explicit grants revoked"),
+    "insert into recora_private.customer_project_access_grants (id, organization_id, project_id, organization_member_id, customer_auth_user_id, issued_command_receipt_id) values ('50050000-0000-4000-8000-000000000004', '50010000-0000-4000-8000-000000000001', '" + projectA + "', '50030000-0000-4000-8000-000000000001', '" + userA + "', '50040000-0000-4000-8000-000000000003');",
+    ...authenticatedMatrix(userA, [projectA], [projectB, projectC], "Project A regrant"),
+    "update public.organization_members set membership_status = 'suspended' where id = '50030000-0000-4000-8000-000000000001';",
+    ...authenticatedMatrix(userA, [], [projectA, projectB, projectC], "active grant with suspended membership"),
+    "update public.organization_members set membership_status = 'revoked' where id = '50030000-0000-4000-8000-000000000001';",
+    ...authenticatedMatrix(userA, [], [projectA, projectB, projectC], "active grant with terminal membership"),
     "rollback;",
   ].join("\n"));
 }
@@ -485,6 +521,16 @@ function verifyNegativeGrantFixtures(): void {
   ].join("\n"), /terminal/i);
 
   queryLocal([...base,
+    invalidGrantPrefix + "('50050000-0000-4000-8000-000000000014', '50010000-0000-4000-8000-000000000001', '50020000-0000-4000-8000-000000000001', '50030000-0000-4000-8000-000000000003', '50000000-0000-4000-8000-000000000003', '50040000-0000-4000-8000-000000000003');",
+    "update recora_private.customer_project_access_grants set status = 'revoked', revoked_command_receipt_id = '50040000-0000-4000-8000-000000000001', revoked_at = now(), row_version = 2 where id = '50050000-0000-4000-8000-000000000014';",
+  ].join("\n"), /revoked command receipt may be used only once across grant history/i);
+
+  queryLocal([...base,
+    "update recora_private.customer_project_access_grants set status = 'revoked', revoked_command_receipt_id = '50040000-0000-4000-8000-000000000002', revoked_at = now(), row_version = 2 where id = '50050000-0000-4000-8000-000000000001';",
+    invalidGrantPrefix + "('50050000-0000-4000-8000-000000000015', '50010000-0000-4000-8000-000000000001', '50020000-0000-4000-8000-000000000001', '50030000-0000-4000-8000-000000000003', '50000000-0000-4000-8000-000000000003', '50040000-0000-4000-8000-000000000002');",
+  ].join("\n"), /issued command receipt may be used only once across grant history/i);
+
+  queryLocal([...base,
     "drop index recora_private.data_lifecycle_current_organization_scope_unique;",
     "insert into recora_private.data_lifecycle_current (organization_id, project_id, state) values ('50010000-0000-4000-8000-000000000001', null, 'active');",
     "set local role authenticated;",
@@ -494,6 +540,83 @@ function verifyNegativeGrantFixtures(): void {
     "rollback;",
   ].join("\n"));
 }
+function runConcurrentSql(sql: string): Promise<{ code: number | null; output: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      "docker",
+      [
+        "exec", "--interactive", expectedContainer,
+        "psql", "--username", "postgres", "--dbname", "postgres",
+        "--no-psqlrc", "--set", "ON_ERROR_STOP=1", "--quiet",
+      ],
+      { cwd: repoRoot, env: { ...process.env, NO_COLOR: "1" }, stdio: ["pipe", "pipe", "pipe"] },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, output: sanitize(stdout + "\n" + stderr) }));
+    child.stdin.end(sql);
+  });
+}
+
+async function verifyReceiptCrossColumnConcurrencyFixture(): Promise<void> {
+  const suffix = randomUUID().replace(/-/g, "").slice(0, 12);
+  const organizationId = randomUUID();
+  const projectId = randomUUID();
+  const customerOne = randomUUID();
+  const customerTwo = randomUUID();
+  const memberOne = randomUUID();
+  const memberTwo = randomUUID();
+  const existingGrantId = randomUUID();
+  const issueGrantId = randomUUID();
+  const initialReceiptId = randomUUID();
+  const sharedReceiptId = randomUUID();
+  const initialFingerprint = randomUUID().replace(/-/g, "").repeat(2);
+  const sharedFingerprint = randomUUID().replace(/-/g, "").repeat(2);
+
+  // Cross-session visibility requires committed setup; these unique rows exist
+  // only in the dedicated local M05 stack and are removed by the seeded reset.
+  queryLocal([
+    `insert into auth.users (id, email, created_at, updated_at) values ('${customerOne}', 'm05-concurrency-one-${suffix}@example.invalid', now(), now()), ('${customerTwo}', 'm05-concurrency-two-${suffix}@example.invalid', now(), now());`,
+    `insert into public.organizations (id, slug, name, organization_type, data_environment, is_internal, is_demo) values ('${organizationId}', 'm05-concurrency-${suffix}', 'M05 concurrency ${suffix}', 'client', 'local', false, false);`,
+    `insert into public.organization_members (id, organization_id, user_id, email, role, invited_at, accepted_at, membership_status) values ('${memberOne}', '${organizationId}', '${customerOne}', 'm05-concurrency-one-${suffix}@example.invalid', 'member', now(), now(), 'active'), ('${memberTwo}', '${organizationId}', '${customerTwo}', 'm05-concurrency-two-${suffix}@example.invalid', 'member', now(), now(), 'active');`,
+    `insert into public.projects (id, organization_id, slug, name) values ('${projectId}', '${organizationId}', 'm05-concurrency-${suffix}', 'M05 concurrency ${suffix}');`,
+    `insert into recora_private.admin_command_receipts (id, actor_type, system_component_code, command_name, organization_id, project_id, target_type, target_id, idempotency_key, request_fingerprint, request_id, correlation_id, outcome, stable_reason_code) values ('${initialReceiptId}', 'system', 'm05.fixture', 'GrantProjectAccess', '${organizationId}', '${projectId}', 'customer.project_access', '${memberOne}', 'm05.concurrency.initial.${suffix}', '${initialFingerprint}', '${randomUUID()}', '${randomUUID()}', 'committed', 'm05.fixture.committed'), ('${sharedReceiptId}', 'system', 'm05.fixture', 'CustomerProjectAccessTransition', '${organizationId}', '${projectId}', 'customer.project_access', '${memberTwo}', 'm05.concurrency.shared.${suffix}', '${sharedFingerprint}', '${randomUUID()}', '${randomUUID()}', 'committed', 'm05.fixture.committed');`,
+    `insert into recora_private.customer_project_access_grants (id, organization_id, project_id, organization_member_id, customer_auth_user_id, issued_command_receipt_id) values ('${existingGrantId}', '${organizationId}', '${projectId}', '${memberOne}', '${customerOne}', '${initialReceiptId}');`,
+  ].join("\n"));
+
+  const issue = [
+    "begin;",
+    `insert into recora_private.customer_project_access_grants (id, organization_id, project_id, organization_member_id, customer_auth_user_id, issued_command_receipt_id) values ('${issueGrantId}', '${organizationId}', '${projectId}', '${memberTwo}', '${customerTwo}', '${sharedReceiptId}');`,
+    "select pg_catalog.pg_sleep(0.75);",
+    "commit;",
+  ].join("\n");
+  const revoke = [
+    "begin;",
+    `update recora_private.customer_project_access_grants set status = 'revoked', revoked_command_receipt_id = '${sharedReceiptId}', revoked_at = now(), row_version = 2 where id = '${existingGrantId}';`,
+    "select pg_catalog.pg_sleep(0.75);",
+    "commit;",
+  ].join("\n");
+  const results = await Promise.all([runConcurrentSql(issue), runConcurrentSql(revoke)]);
+  const committed = results.filter((result) => result.code === 0);
+  const rejected = results.filter((result) => result.code !== 0);
+  assert.equal(committed.length, 1, "M05 concurrent cross-column receipt use must commit exactly one transition.");
+  assert.equal(rejected.length, 1, "M05 concurrent cross-column receipt use must reject exactly one transition.");
+  assert.doesNotMatch(rejected[0]!.output, /deadlock detected/i);
+  assert.match(rejected[0]!.output, /may be used only once across grant history/i);
+  queryLocal([
+    "do $m05_cross_column_concurrency$",
+    "begin",
+    `  if (select count(*) from recora_private.customer_project_access_grants where issued_command_receipt_id = '${sharedReceiptId}' or revoked_command_receipt_id = '${sharedReceiptId}') <> 1 then`,
+    "    raise exception 'M05 concurrent receipt use did not converge to one global history reference';",
+    "  end if;",
+    "end;",
+    "$m05_cross_column_concurrency$;",
+  ].join("\n"));
+}
+
 function queryLocal(sql: string, expectedError?: RegExp): string {
   const result = spawnSync(
     "docker",

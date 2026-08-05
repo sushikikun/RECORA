@@ -25,6 +25,9 @@ access-window policy.
 - Owner: sushikikun
 - OWNER worktree clarification: 5196597449
 - OWNER fast-forward sync clarification: 5197494408
+- OWNER correction authority: 5197962759
+- PR #182 Human review: receipt cross-column uniqueness and authenticated
+  Project-scoped RLS measurement
 - Initial implementation baseline: bd78e3effb5c5866af5dd1233f7d6984a4aaae9f
 - Post-sync comparison baseline / PR base: a9a2760565bdddd9105fc039e792148c3b83b704
 - M04 merge ancestor: dc79c17caafc984daf1cc7546821a3401ba94d4c
@@ -123,7 +126,11 @@ status is exactly active or revoked.
   grant time, and creation time are immutable.
 - A grant and revoke receipt must be different committed receipts with the
   same organization and Project scope as the grant.
-- Issued and revoked receipt IDs cannot be reused by another grant.
+- One admin_command_receipts.id is globally one-time across every grant row's
+  issued_command_receipt_id and revoked_command_receipt_id columns.
+- The transition guard locks relevant receipt rows with FOR UPDATE in
+  deterministic UUID order before its global history scan, so concurrent
+  issue/revoke paths cannot double-use a receipt or deadlock.
 - The database allows at most one active row per
   (project_id, customer_auth_user_id) and one active row per
   (project_id, organization_member_id).
@@ -159,7 +166,10 @@ recora_private.can_read_project(uuid) is redefined additively:
 
 Every existing Project-scoped public RLS policy that delegates to
 can_read_project() therefore receives the same explicit Project grant
-boundary.
+boundary. M05 gives authenticated SELECT only on the existing Project-scoped
+public relations required for that policy evaluation: projects, prompts,
+measurement_runs, ai_conversations, citations, metric_snapshots, and
+recommendations. Those grants do not bypass RLS.
 
 ## Security And ACL
 
@@ -172,7 +182,10 @@ The grant table enables RLS and grants direct table access to none of:
 
 M05 introduces no browser Data API exposure, no customer write policy, no
 public view, no generic mutation RPC, and no change to public customer write
-rights. service_role is never treated as a customer or administrator actor.
+rights. The authenticated read grants are limited to the seven existing
+Project-scoped public relations and remain subject to their RLS policies;
+the private grant relation and private helper remain directly inaccessible.
+service_role is never treated as a customer or administrator actor.
 A Project ID is not a credential, token, or password.
 
 ## No Backfill Or Seed
@@ -220,14 +233,22 @@ The M05 verifier covers:
   TRUNCATE;
 - migration-only, seeded, and replay reset;
 - M00-M05 critical regressions;
-- active and revoked grant positive and negative fixtures;
-- Project A/B and organization A/B customer RLS matrix;
+- active and revoked grant positive and negative fixtures, including both
+  issued-to-revoked and revoked-to-issued cross-column receipt reuse denial;
+- a dedicated-local two-session concurrent issue/revoke fixture that proves
+  one global receipt use commits and the competing cross-column use rejects;
+- authenticated-role and JWT-context Project A/B and organization A/B actual
+  SELECT matrix, including Project A only, simultaneous A+B, B-only revoke,
+  suspended membership, terminal membership, and a separate organization;
 - Project-scoped RLS regression for projects, prompts, measurement runs,
-  conversations, citations, metric snapshots, and recommendations;
+  ai_conversations, citations, metric snapshots, and recommendations;
 - protected direct table/helper denial;
 - migration list and local security/performance advisors.
 
-All database fixtures run in transactions that roll back.
+All ordinary database fixtures run in transactions that roll back. The
+cross-session concurrency fixture commits uniquely generated setup rows only
+in the dedicated local M05 stack so both sessions can observe them; the
+required subsequent seeded reset removes those local-only fixtures.
 
 ## Out Of Scope
 
