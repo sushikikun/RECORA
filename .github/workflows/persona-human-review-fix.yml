@@ -1,0 +1,100 @@
+name: Persona Human Review Fix
+
+on:
+  push:
+    branches:
+      - feat/issue-168-measurement-persona-compiler-v3
+
+permissions:
+  contents: write
+
+jobs:
+  apply-verify-and-clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/issue-168-measurement-persona-compiler-v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Reconstruct and apply reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat scripts/.persona-human-review-fix/part*.b64 | base64 --decode > /tmp/apply-persona-human-review-fixes.py
+          python -m py_compile /tmp/apply-persona-human-review-fixes.py
+          python /tmp/apply-persona-human-review-fixes.py
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run dedicated Persona verifier
+        run: npx --no-install tsx scripts/verify-recora-measurement-persona-compiler.ts
+
+      - name: Run Recora preflight
+        run: npm run recora:preflight:full
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Clean temporary transport files and validate final scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf scripts/.persona-human-review-fix
+          rm .github/workflows/persona-human-review-fix.yml
+          git diff --check
+          python - <<'PY'
+          import subprocess
+
+          expected = {
+              "docs/architecture/measurement-design/recora_measurement_persona_compiler_v3_ja.md",
+              "lib/recora/measurement-persona-catalog-common.ts",
+              "lib/recora/measurement-persona-catalog-industry.ts",
+              "lib/recora/measurement-persona-catalog.ts",
+              "lib/recora/measurement-persona-compiler.ts",
+              "lib/recora/measurement-persona-contract.ts",
+              "lib/recora/measurement-persona-selection-rules.ts",
+              "scripts/fixtures/recora-measurement-persona-gold-fixtures.ts",
+              "scripts/verify-recora-measurement-persona-compiler.ts",
+          }
+          actual = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", "origin/master"],
+                  text=True,
+              ).splitlines()
+          )
+          if actual != expected:
+              missing = sorted(expected - actual)
+              extra = sorted(actual - expected)
+              raise SystemExit(f"Final scope mismatch; missing={missing}; extra={extra}")
+          print("Final scope validated:", len(actual), "files")
+          PY
+
+      - name: Commit reviewed implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            lib/recora/measurement-persona-contract.ts \
+            lib/recora/measurement-persona-compiler.ts \
+            scripts/fixtures/recora-measurement-persona-gold-fixtures.ts \
+            scripts/verify-recora-measurement-persona-compiler.ts \
+            scripts/.persona-human-review-fix \
+            .github/workflows/persona-human-review-fix.yml
+          git diff --cached --check
+          git commit -m "fix(recora): align persona compiler with final G1A contract"
+          git push origin HEAD:feat/issue-168-measurement-persona-compiler-v3
