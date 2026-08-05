@@ -25,6 +25,22 @@ export type RecoraG0BlockedFixture = {
   expectedBlockerCodes: readonly RecoraPromptGenerationBlockerCode[];
 };
 
+const TOKYO_AREA = {
+  areaKey: "JP-13",
+  label: "東京都",
+  level: "prefecture",
+  parentAreaKey: "JP",
+  resolutionStatus: "canonical"
+} as const;
+
+const JAPAN_AREA = {
+  areaKey: "JP",
+  label: "日本全国",
+  level: "nationwide",
+  parentAreaKey: null,
+  resolutionStatus: "canonical"
+} as const;
+
 const BASE: RecoraPromptGenerationDraftInputV1 = {
   contractVersion: RECORA_PROMPT_GENERATION_DRAFT_CONTRACT_VERSION,
   market: { country: "JP", locale: "ja-JP" },
@@ -109,6 +125,35 @@ function ready(
   };
 }
 
+function b2cService(
+  caseKey: string,
+  primaryDomain: string,
+  primaryOfferingModel: string,
+  primaryAction: string,
+  structureSignal: string,
+  change: Partial<RecoraPromptGenerationDraftInputV1> = {}
+): RecoraPromptGenerationDraftInputV1 {
+  return patch(
+    patch(BASE, {
+      audience: { scope: "b2c", priority: null },
+      business: {
+        primaryDomain,
+        primaryOfferingModel,
+        summary: `${caseKey}の確定済み事業です。`
+      },
+      actions: { primary: primaryAction, secondary: [] },
+      generationContext: {
+        structureSignals: [structureSignal],
+        customerSides: [
+          "prospective_customer",
+          "end_user_or_beneficiary"
+        ]
+      }
+    }),
+    change
+  );
+}
+
 const PRODUCT = patch(BASE, {
   subject: {
     primary: {
@@ -118,7 +163,7 @@ const PRODUCT = patch(BASE, {
       officialUrl: "https://example.jp/product"
     }
   },
-  audience: { scope: "b2c" },
+  audience: { scope: "b2c", priority: null },
   business: {
     primaryDomain: "retail_product_sales",
     primaryOfferingModel: "product",
@@ -146,7 +191,7 @@ const LOCAL = patch(BASE, {
       officialUrl: "https://example.jp/aoyama"
     }
   },
-  audience: { scope: "b2c" },
+  audience: { scope: "b2c", priority: null },
   business: {
     primaryDomain: "food_beauty_lifestyle",
     primaryOfferingModel: "physical_location_service",
@@ -158,6 +203,7 @@ const LOCAL = patch(BASE, {
     serviceCoverage: "local",
     locationStructure: "single_location",
     geographicBinding: "physical_location",
+    serviceAreas: [],
     locations: [
       {
         type: "location_facility",
@@ -173,28 +219,159 @@ const LOCAL = patch(BASE, {
   }
 });
 
-function motion(
+const ADULT_HEALTHCARE = b2cService(
+  "ready_adult_healthcare",
+  "healthcare",
+  "physical_location_service",
+  "reservation",
+  "adult_healthcare",
+  {
+    subject: {
+      primary: {
+        type: "location_facility",
+        name: "サンプルクリニック",
+        aliases: [],
+        officialUrl: "https://example.jp/clinic"
+      }
+    },
+    actions: { primary: "reservation", secondary: ["consultation", "visit"] },
+    delivery: {
+      mode: "in_person",
+      serviceCoverage: "local",
+      locationStructure: "single_location",
+      geographicBinding: "physical_location",
+      locations: [
+        {
+          type: "location_facility",
+          name: "サンプルクリニック",
+          aliases: [],
+          officialUrl: "https://example.jp/clinic"
+        }
+      ]
+    },
+    trust: {
+      decisionImpactFlags: ["safety_or_health"],
+      regulatoryFlags: ["regulated_service", "advertising_restriction"],
+      sensitiveContexts: ["personal", "health"]
+    },
+    generationContext: {
+      structureSignals: ["adult_healthcare", "local_facility"],
+      customerSides: [
+        "prospective_customer",
+        "end_user_or_beneficiary",
+        "payer_or_sponsor"
+      ]
+    }
+  }
+);
+
+const CARE_WELFARE = b2cService(
+  "ready_care_welfare",
+  "care_welfare",
+  "consumer_service",
+  "consultation",
+  "care_welfare",
+  {
+    delivery: {
+      mode: "hybrid",
+      serviceCoverage: "regional",
+      locationStructure: "none",
+      geographicBinding: "service_area",
+      serviceAreas: [TOKYO_AREA],
+      locations: []
+    },
+    trust: {
+      decisionImpactFlags: ["livelihood"],
+      sensitiveContexts: ["personal", "health"]
+    },
+    generationContext: {
+      structureSignals: ["care_welfare"],
+      customerSides: [
+        "prospective_customer",
+        "end_user_or_beneficiary",
+        "payer_or_sponsor",
+        "influencer_or_referrer"
+      ]
+    }
+  }
+);
+
+const ADULT_EDUCATION = b2cService(
+  "ready_adult_education",
+  "education",
+  "consumer_service",
+  "application",
+  "adult_education",
+  {
+    actions: {
+      primary: "application",
+      secondary: ["demo_or_trial", "start_subscription"]
+    }
+  }
+);
+
+const CHILD_EDUCATION = b2cService(
+  "ready_child_education",
+  "education",
+  "physical_location_service",
+  "application",
+  "child_education",
+  {
+    subject: {
+      primary: {
+        type: "location_facility",
+        name: "サンプル学習塾",
+        aliases: [],
+        officialUrl: "https://example.jp/school"
+      }
+    },
+    actions: {
+      primary: "application",
+      secondary: ["demo_or_trial", "visit"]
+    },
+    delivery: {
+      mode: "in_person",
+      serviceCoverage: "local",
+      locationStructure: "single_location",
+      geographicBinding: "physical_location",
+      locations: [
+        {
+          type: "location_facility",
+          name: "サンプル学習塾",
+          aliases: [],
+          officialUrl: "https://example.jp/school"
+        }
+      ]
+    },
+    generationContext: {
+      structureSignals: ["child_education", "local_facility"],
+      customerSides: [
+        "prospective_customer",
+        "end_user_or_beneficiary",
+        "payer_or_sponsor"
+      ]
+    }
+  }
+);
+
+function professionalMotion(
   caseKey: string,
   domain: string,
-  model: string,
   signal: string,
-  action = "inquiry",
-  extra: Partial<RecoraPromptGenerationDraftInputV1> = {},
-  trustClass: RecoraG0ReadyFixture["expectedTrustClass"] = "standard"
-) {
-  const input = patch(
+  change: Partial<RecoraPromptGenerationDraftInputV1> = {}
+): RecoraPromptGenerationDraftInputV1 {
+  return patch(
     patch(BASE, {
       business: {
         primaryDomain: domain,
-        primaryOfferingModel: model,
+        primaryOfferingModel: "professional_advisory",
         summary: `${caseKey}の確定済み事業です。`
       },
-      actions: { primary: action, secondary: [] },
+      actions: { primary: "consultation", secondary: ["contract"] },
       generationContext: { structureSignals: [signal] }
     }),
-    extra
+    change
   );
-  return ready(caseKey, input, [signal], trustClass);
 }
 
 export const RECORA_G0_READY_FIXTURES: readonly RecoraG0ReadyFixture[] = [
@@ -208,11 +385,7 @@ export const RECORA_G0_READY_FIXTURES: readonly RecoraG0ReadyFixture[] = [
     "standard",
     ["commerce_subscription"]
   ),
-  ready(
-    "ready_d2c_single_purchase",
-    PRODUCT,
-    ["commerce_single_purchase"]
-  ),
+  ready("ready_d2c_single_purchase", PRODUCT, ["commerce_single_purchase"]),
   ready(
     "ready_d2c_subscription",
     patch(PRODUCT, {
@@ -239,15 +412,7 @@ export const RECORA_G0_READY_FIXTURES: readonly RecoraG0ReadyFixture[] = [
         serviceCoverage: "regional",
         locationStructure: "none",
         geographicBinding: "service_area",
-        serviceAreas: [
-          {
-            areaKey: "JP-13",
-            label: "東京都",
-            level: "prefecture",
-            parentAreaKey: "JP",
-            resolutionStatus: "canonical"
-          }
-        ],
+        serviceAreas: [TOKYO_AREA],
         locations: []
       }
     }),
@@ -255,142 +420,206 @@ export const RECORA_G0_READY_FIXTURES: readonly RecoraG0ReadyFixture[] = [
     "standard",
     ["local_facility"]
   ),
-  motion(
+  ready(
     "ready_adult_healthcare",
-    "healthcare",
-    "physical_location_service",
-    "adult_healthcare",
-    "reservation",
-    {
-      trust: {
-        decisionImpactFlags: ["safety_or_health"],
-        regulatoryFlags: ["regulated_service", "advertising_restriction"],
-        sensitiveContexts: ["personal", "health"]
-      }
-    },
+    ADULT_HEALTHCARE,
+    ["adult_healthcare", "local_facility"],
     "regulated"
   ),
-  motion(
+  ready(
     "ready_care_welfare",
-    "care_welfare",
-    "consumer_service",
-    "care_welfare",
-    "consultation",
-    {
-      trust: {
-        decisionImpactFlags: ["livelihood"],
-        sensitiveContexts: ["personal", "health"]
-      }
-    },
-    "high_trust"
+    CARE_WELFARE,
+    ["care_welfare"],
+    "high_trust",
+    ["local_facility"]
   ),
-  motion(
-    "ready_adult_education",
-    "education",
-    "consumer_service",
-    "adult_education",
-    "application"
-  ),
-  motion(
+  ready("ready_adult_education", ADULT_EDUCATION, ["adult_education"]),
+  ready(
     "ready_child_education",
-    "education",
-    "physical_location_service",
-    "child_education",
-    "application"
+    CHILD_EDUCATION,
+    ["child_education", "local_facility"]
   ),
-  motion(
+  ready(
     "ready_professional_service",
-    "professional_consulting",
-    "professional_advisory",
-    "professional_service_b2b",
-    "consultation",
-    {
-      trust: {
-        decisionImpactFlags: ["legal_rights"],
-        sensitiveContexts: ["legal"]
+    professionalMotion(
+      "ready_professional_service",
+      "professional_consulting",
+      "professional_service_b2b",
+      {
+        trust: {
+          decisionImpactFlags: ["legal_rights"],
+          sensitiveContexts: ["legal"]
+        }
       }
-    },
+    ),
+    ["b2b_buying_group", "professional_service_b2b"],
     "high_trust"
   ),
-  motion(
+  ready(
     "ready_recruiting_saas",
-    "recruiting_hr",
-    "saas_software",
-    "recruiting_employer_saas",
-    "demo_or_trial",
-    {
+    patch(BASE, {
+      business: {
+        primaryDomain: "recruiting_hr",
+        primaryOfferingModel: "saas_software",
+        summary: "採用管理SaaSです。"
+      },
+      generationContext: {
+        structureSignals: ["recruiting_employer_saas"]
+      },
       trust: { sensitiveContexts: ["personal", "employment"] }
-    },
+    }),
+    ["b2b_buying_group", "recruiting_employer_saas"],
     "high_trust"
   ),
-  motion(
+  ready(
     "ready_real_estate_rental",
-    "real_estate",
-    "professional_advisory",
-    "real_estate_rental",
-    "inquiry"
-  ),
-  motion(
-    "ready_real_estate_purchase",
-    "real_estate",
-    "professional_advisory",
-    "real_estate_purchase_residential",
-    "consultation",
-    {
-      trust: {
-        decisionImpactFlags: ["high_cost", "long_term_commitment"]
+    b2cService(
+      "ready_real_estate_rental",
+      "real_estate",
+      "professional_advisory",
+      "inquiry",
+      "real_estate_rental",
+      {
+        actions: { primary: "inquiry", secondary: ["application"] },
+        delivery: {
+          mode: "hybrid",
+          serviceCoverage: "regional",
+          locationStructure: "none",
+          geographicBinding: "service_area",
+          serviceAreas: [TOKYO_AREA],
+          locations: []
+        },
+        trust: { decisionImpactFlags: ["long_term_commitment"] }
       }
-    },
+    ),
+    ["real_estate_rental"],
     "high_trust"
   ),
-  motion(
-    "ready_real_estate_sale",
-    "real_estate",
-    "professional_advisory",
-    "real_estate_sale",
-    "consultation"
-  ),
-  motion(
-    "ready_insurance",
-    "finance_insurance",
-    "professional_advisory",
-    "insurance",
-    "consultation",
-    {
-      trust: {
-        decisionImpactFlags: ["long_term_commitment"],
-        regulatoryFlags: ["regulated_service"],
-        sensitiveContexts: ["financial"]
+  ready(
+    "ready_real_estate_purchase",
+    b2cService(
+      "ready_real_estate_purchase",
+      "real_estate",
+      "professional_advisory",
+      "consultation",
+      "real_estate_purchase_residential",
+      {
+        delivery: {
+          mode: "hybrid",
+          serviceCoverage: "regional",
+          locationStructure: "none",
+          geographicBinding: "service_area",
+          serviceAreas: [TOKYO_AREA],
+          locations: []
+        },
+        trust: {
+          decisionImpactFlags: ["high_cost", "long_term_commitment"]
+        }
       }
-    },
+    ),
+    ["real_estate_purchase_residential"],
+    "high_trust"
+  ),
+  ready(
+    "ready_real_estate_sale",
+    b2cService(
+      "ready_real_estate_sale",
+      "real_estate",
+      "professional_advisory",
+      "consultation",
+      "real_estate_sale",
+      {
+        delivery: {
+          mode: "hybrid",
+          serviceCoverage: "regional",
+          locationStructure: "none",
+          geographicBinding: "service_area",
+          serviceAreas: [TOKYO_AREA],
+          locations: []
+        },
+        trust: { decisionImpactFlags: ["high_cost"] }
+      }
+    ),
+    ["real_estate_sale"],
+    "high_trust"
+  ),
+  ready(
+    "ready_insurance",
+    b2cService(
+      "ready_insurance",
+      "finance_insurance",
+      "professional_advisory",
+      "consultation",
+      "insurance",
+      {
+        actions: { primary: "consultation", secondary: ["application"] },
+        trust: {
+          decisionImpactFlags: ["long_term_commitment"],
+          regulatoryFlags: ["regulated_service"],
+          sensitiveContexts: ["financial"]
+        },
+        generationContext: {
+          structureSignals: ["insurance"],
+          customerSides: [
+            "prospective_customer",
+            "end_user_or_beneficiary",
+            "payer_or_sponsor"
+          ]
+        }
+      }
+    ),
+    ["insurance"],
     "regulated"
   ),
-  motion(
+  ready(
     "ready_marketplace_brand",
-    "consumer_services",
-    "marketplace_platform",
-    "marketplace_brand",
-    "purchase",
-    {
+    patch(BASE, {
+      audience: { scope: "both", priority: "balanced" },
+      business: {
+        primaryDomain: "consumer_services",
+        primaryOfferingModel: "marketplace_platform",
+        summary: "需要側と供給側をつなぐMarketplaceです。"
+      },
+      actions: { primary: "purchase", secondary: [] },
       generationContext: {
+        structureSignals: ["marketplace_brand"],
         customerSides: [
           "demand_side_participant",
           "supply_side_participant"
         ]
       }
-    }
+    }),
+    ["b2b_buying_group", "marketplace_brand"]
   ),
-  motion(
+  ready(
     "ready_marketplace_operator_customer",
-    "it_software",
-    "saas_software",
-    "marketplace_operator_customer",
-    "demo_or_trial"
+    patch(BASE, {
+      generationContext: {
+        structureSignals: ["marketplace_operator_customer"]
+      }
+    }),
+    ["b2b_buying_group", "marketplace_operator_customer"]
   ),
   ready(
     "ready_multi_location_consumer",
     patch(LOCAL, {
-      delivery: { locationStructure: "multi_location" },
+      delivery: {
+        locationStructure: "multi_location",
+        locations: [
+          {
+            type: "location_facility",
+            name: "青山店",
+            aliases: [],
+            officialUrl: "https://example.jp/aoyama"
+          },
+          {
+            type: "location_facility",
+            name: "新宿店",
+            aliases: [],
+            officialUrl: "https://example.jp/shinjuku"
+          }
+        ]
+      },
       generationContext: {
         structureSignals: [
           "multi_location_consumer_brand",
@@ -400,44 +629,62 @@ export const RECORA_G0_READY_FIXTURES: readonly RecoraG0ReadyFixture[] = [
     }),
     ["local_facility", "multi_location_consumer_brand"]
   ),
-  motion(
+  ready(
     "ready_multi_location_customer_org",
-    "it_software",
-    "saas_software",
-    "multi_location_customer_organization",
-    "demo_or_trial",
-    {
+    patch(BASE, {
+      generationContext: {
+        structureSignals: ["multi_location_customer_organization"]
+      }
+    }),
+    ["b2b_buying_group", "multi_location_customer_organization"],
+    "standard",
+    ["local_facility"]
+  ),
+  ready(
+    "ready_manufacturing",
+    patch(BASE, {
+      subject: {
+        primary: {
+          type: "product",
+          name: "産業設備",
+          aliases: [],
+          officialUrl: "https://example.jp/equipment"
+        }
+      },
+      business: {
+        primaryDomain: "manufacturing_industrial",
+        primaryOfferingModel: "product",
+        summary: "法人向け産業設備です。"
+      },
+      actions: { primary: "request_quote", secondary: ["contract"] },
+      generationContext: { structureSignals: ["manufacturing_capex"] },
+      trust: { decisionImpactFlags: ["high_cost"] }
+    }),
+    ["b2b_buying_group", "manufacturing_capex"],
+    "high_trust"
+  ),
+  ready(
+    "ready_logistics",
+    patch(BASE, {
+      business: {
+        primaryDomain: "logistics_supply_chain",
+        primaryOfferingModel: "managed_service",
+        summary: "荷主企業向け物流サービスです。"
+      },
+      actions: { primary: "request_quote", secondary: ["contract"] },
       delivery: {
         mode: "hybrid",
         serviceCoverage: "nationwide",
-        locationStructure: "multi_location",
-        geographicBinding: "physical_location",
-        locations: [
-          {
-            type: "location_facility",
-            name: "顧客拠点",
-            aliases: [],
-            officialUrl: null
-          }
-        ]
+        locationStructure: "none",
+        geographicBinding: "service_area",
+        serviceAreas: [JAPAN_AREA],
+        locations: []
+      },
+      generationContext: {
+        structureSignals: ["logistics_shipper_buying"]
       }
-    }
-  ),
-  motion(
-    "ready_manufacturing",
-    "manufacturing_industrial",
-    "product",
-    "manufacturing_capex",
-    "request_quote",
-    { trust: { decisionImpactFlags: ["high_cost"] } },
-    "high_trust"
-  ),
-  motion(
-    "ready_logistics",
-    "logistics_supply_chain",
-    "managed_service",
-    "logistics_shipper_buying",
-    "request_quote"
+    }),
+    ["b2b_buying_group", "logistics_shipper_buying"]
   )
 ];
 
@@ -458,7 +705,11 @@ export const RECORA_G0_NEEDS_REVIEW_FIXTURES: readonly RecoraG0NeedsReviewFixtur
   review(
     "review_healthcare_motion",
     patch(BASE, {
-      business: { primaryDomain: "healthcare" },
+      audience: { scope: "b2c", priority: null },
+      business: {
+        primaryDomain: "healthcare",
+        primaryOfferingModel: "consumer_service"
+      },
       generationContext: { structureSignals: [] }
     }),
     "healthcare_motion_required"
@@ -466,7 +717,11 @@ export const RECORA_G0_NEEDS_REVIEW_FIXTURES: readonly RecoraG0NeedsReviewFixtur
   review(
     "review_regulated_healthcare_motion",
     patch(BASE, {
-      business: { primaryDomain: "healthcare" },
+      audience: { scope: "b2c", priority: null },
+      business: {
+        primaryDomain: "healthcare",
+        primaryOfferingModel: "consumer_service"
+      },
       trust: {
         decisionImpactFlags: ["safety_or_health"],
         regulatoryFlags: ["regulated_service"],
@@ -479,7 +734,11 @@ export const RECORA_G0_NEEDS_REVIEW_FIXTURES: readonly RecoraG0NeedsReviewFixtur
   review(
     "review_education_motion",
     patch(BASE, {
-      business: { primaryDomain: "education" },
+      audience: { scope: "b2c", priority: null },
+      business: {
+        primaryDomain: "education",
+        primaryOfferingModel: "consumer_service"
+      },
       generationContext: { structureSignals: [] }
     }),
     "education_motion_required"
@@ -487,7 +746,11 @@ export const RECORA_G0_NEEDS_REVIEW_FIXTURES: readonly RecoraG0NeedsReviewFixtur
   review(
     "review_real_estate_motion",
     patch(BASE, {
-      business: { primaryDomain: "real_estate" },
+      audience: { scope: "b2c", priority: null },
+      business: {
+        primaryDomain: "real_estate",
+        primaryOfferingModel: "professional_advisory"
+      },
       generationContext: { structureSignals: [] }
     }),
     "real_estate_motion_required"
@@ -495,7 +758,11 @@ export const RECORA_G0_NEEDS_REVIEW_FIXTURES: readonly RecoraG0NeedsReviewFixtur
   review(
     "review_finance_motion",
     patch(BASE, {
-      business: { primaryDomain: "finance_insurance" },
+      audience: { scope: "b2c", priority: null },
+      business: {
+        primaryDomain: "finance_insurance",
+        primaryOfferingModel: "professional_advisory"
+      },
       generationContext: { structureSignals: [] }
     }),
     "finance_motion_required"
@@ -511,7 +778,23 @@ export const RECORA_G0_NEEDS_REVIEW_FIXTURES: readonly RecoraG0NeedsReviewFixtur
   review(
     "review_multi_location_motion",
     patch(LOCAL, {
-      delivery: { locationStructure: "multi_location" },
+      delivery: {
+        locationStructure: "multi_location",
+        locations: [
+          {
+            type: "location_facility",
+            name: "青山店",
+            aliases: [],
+            officialUrl: "https://example.jp/aoyama"
+          },
+          {
+            type: "location_facility",
+            name: "新宿店",
+            aliases: [],
+            officialUrl: "https://example.jp/shinjuku"
+          }
+        ]
+      },
       generationContext: { structureSignals: ["local_facility"] }
     }),
     "multi_location_motion_required"
@@ -519,7 +802,11 @@ export const RECORA_G0_NEEDS_REVIEW_FIXTURES: readonly RecoraG0NeedsReviewFixtur
   review(
     "review_travel_motion",
     patch(BASE, {
-      business: { primaryDomain: "travel_hospitality" },
+      audience: { scope: "b2c", priority: null },
+      business: {
+        primaryDomain: "travel_hospitality",
+        primaryOfferingModel: "consumer_service"
+      },
       generationContext: { structureSignals: [] }
     }),
     "travel_motion_required"
