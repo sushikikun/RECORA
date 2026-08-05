@@ -639,8 +639,7 @@ function validateSignals(
       (input.locationStructure !== "multi_location" ||
         input.scope === "b2b")) ||
     (has("multi_location_customer_organization") &&
-      (input.locationStructure !== "multi_location" ||
-        input.scope === "b2c")) ||
+      input.scope === "b2c") ||
     (has("franchise_recruitment") && input.scope === "b2c") ||
     (has("marketplace_brand") &&
       input.primaryOfferingModel !== "marketplace_platform") ||
@@ -803,7 +802,10 @@ function validateGeography(
 
   if (
     mode === "online" &&
-    (locationStructure !== "none" || binding !== "none")
+    (locationStructure !== "none" ||
+      ["physical_location", "service_area_and_physical_location"].includes(
+        binding
+      ))
   ) {
     acc.blockers.push("delivery_geography_conflict");
   }
