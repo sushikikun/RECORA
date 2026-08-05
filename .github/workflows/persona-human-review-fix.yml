@@ -41,24 +41,36 @@ jobs:
 
           path = Path("/tmp/apply-persona-human-review-fixes.py")
           text = path.read_text(encoding="utf-8")
-          old = """replace_once(
+
+          ambiguous = """replace_once(
               COMPILER,
               '''      triggerSituation: `${input.subject.primary.name}について候補を探し、比較し、判断する場面`,''',
               '''      triggerSituation: `${selectionInput.subject.semanticName}について候補を探し、比較し、判断する場面`,'''
           )
           """
-          new = """content = read(COMPILER)
+          replace_both = """content = read(COMPILER)
           old_trigger_situation = '''      triggerSituation: `${input.subject.primary.name}について候補を探し、比較し、判断する場面`,'''
           new_trigger_situation = '''      triggerSituation: `${selectionInput.subject.semanticName}について候補を探し、比較し、判断する場面`,'''
           if content.count(old_trigger_situation) != 2:
               raise RuntimeError("measurement-persona-compiler.ts: expected two triggerSituation matches")
           write(COMPILER, content.replace(old_trigger_situation, new_trigger_situation))
           """
-          if text.count(old) != 1:
-              raise SystemExit(f"decoded patch repair target mismatch: {text.count(old)}")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+          redundant = """replace_once(
+              COMPILER,
+              '''      triggerSituation: `${input.subject.primary.name}について候補を探し、比較し、判断する場面`,''',
+              '''      triggerSituation: `${input.subject.semanticName}について候補を探し、比較し、判断する場面`,'''
+          )
+          """
+
+          if text.count(ambiguous) != 1:
+              raise SystemExit(f"decoded patch ambiguous target mismatch: {text.count(ambiguous)}")
+          text = text.replace(ambiguous, replace_both, 1)
+          if text.count(redundant) != 1:
+              raise SystemExit(f"decoded patch redundant target mismatch: {text.count(redundant)}")
+          text = text.replace(redundant, "", 1)
+          path.write_text(text, encoding="utf-8", newline="\n")
           PY
-          echo "4e92179907e173100a4663151b94ca5c30887bd3b97fdf8f072f190787855108  /tmp/apply-persona-human-review-fixes.py" | sha256sum --check
+          echo "59ca57feac83d6bc388258a797c885878681d43cb253ccf7aa481b4515b921ca  /tmp/apply-persona-human-review-fixes.py" | sha256sum --check
           python -m py_compile /tmp/apply-persona-human-review-fixes.py
           python /tmp/apply-persona-human-review-fixes.py
           git diff --check
