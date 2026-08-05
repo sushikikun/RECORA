@@ -86,12 +86,12 @@ function makeInput(input: {
       }
     },
     generationContext: {
-      structureSignals: [...new Set(input.signals)].sort(),
-      customerSides: [
-        ...new Set(input.customerSides ?? ALL_GENERAL_SIDES)
-      ].sort(),
+      structureSignals: Array.from(new Set(input.signals)).sort(),
+      customerSides: Array.from(
+        new Set(input.customerSides ?? ALL_GENERAL_SIDES)
+      ).sort(),
       actorRelations: [] as const,
-      lifecycleSignals: [...new Set(input.lifecycle ?? [])].sort(),
+      lifecycleSignals: Array.from(new Set(input.lifecycle ?? [])).sort(),
       focusThemes: ["比較"],
       diagnosisGoals: ["候補発見"]
     }
