@@ -23,7 +23,9 @@ import type {
   PersonaDraft,
   ProjectSetupDraft,
   PromptDraft,
-  TopicDraft
+  TopicDraft,
+  BrandIdentityForDraft,
+  CompetitorDraft
 } from "../lib/recora/project-setup-draft";
 import type { RecoraFixedPromptMetricEligibility } from "../lib/recora/db/types";
 
@@ -49,6 +51,8 @@ type ProjectRow = Row & {
   id: string;
   organization_id: string;
   slug: string;
+  language: string;
+  region: string;
   prompt_configuration_finalized_at: string | null;
   prompt_configuration_hash: string | null;
   prompt_configuration_contract_version: string | null;
@@ -89,6 +93,20 @@ type PersistedPromptRow = Row & {
   candidate_mention_opportunity: string | null;
   ranking_opportunity: string | null;
   metric_eligibility: string | null;
+};
+
+type BrandRow = Row & {
+  id: string;
+  brand_type: string;
+  name: string;
+  domain: string | null;
+  aliases: string | null;
+};
+
+type ProjectBrandAuthority = {
+  brandIdentity: BrandIdentityForDraft;
+  knownCompetitors: string[];
+  knownCompetitorAliases: string[];
 };
 
 type DatabaseTargetSummary = {
@@ -161,7 +179,7 @@ export async function materializeProjectSetupDraftObject(
 
   assertNoLinkedSupabaseMarker(cwd);
   assertDraftCanMaterializeBeforeDbWrite(draft, projectSlug);
-  const target = assertB2LocalDatabaseTarget(databaseUrl, cwd);
+  const target = assertB2LocalDatabaseTarget(databaseUrl, cwd, execute);
 
   const db = new LocalPostgresClient(databaseUrl);
   await db.connect();
@@ -182,9 +200,11 @@ async function renderDryRun(
 ): Promise<ProjectSetupDraftMaterializationSummary> {
   const project = await readProjectBySlug(db, projectSlug, false);
   assertTargetProjectIsWritableAndEmpty(db, project);
+  const brandAuthority = await readProjectBrandAuthority(db, draft, project);
+  assertProjectLocaleMatchesDraft(project, draft);
   const counts = await readTargetCounts(db, project);
   assertExistingProjectPrerequisites(counts);
-  const plan = buildPlanForLockedProject(draft, project);
+  const plan = buildPlanForLockedProject(draft, project, brandAuthority);
 
   return buildSummary("dry-run", target, plan, {
     personasInserted: 0,
@@ -204,10 +224,12 @@ async function executeMaterializationTransaction(
   try {
     const project = await readProjectBySlug(db, projectSlug, true);
     assertTargetProjectIsWritableAndEmpty(db, project);
+    const brandAuthority = await readProjectBrandAuthority(db, draft, project);
+    assertProjectLocaleMatchesDraft(project, draft);
     const counts = await readTargetCounts(db, project);
     assertExistingProjectPrerequisites(counts);
 
-    const plan = buildPlanForLockedProject(draft, project);
+    const plan = buildPlanForLockedProject(draft, project, brandAuthority);
     await insertPersonas(db, draft, plan);
     await insertTopics(db, draft, plan);
     await insertPrompts(db, plan);
@@ -243,11 +265,15 @@ async function executeMaterializationTransaction(
 
 function buildPlanForLockedProject(
   draft: ProjectSetupDraft,
-  project: ProjectRow
+  project: ProjectRow,
+  brandAuthority: ProjectBrandAuthority
 ): FixedPromptMaterializationPlan {
   const result = tryMaterializeFixedPromptConfiguration(draft, {
     projectId: project.id,
-    projectSlug: project.slug
+    projectSlug: project.slug,
+    brandIdentity: brandAuthority.brandIdentity,
+    knownCompetitors: brandAuthority.knownCompetitors,
+    knownCompetitorAliases: brandAuthority.knownCompetitorAliases
   });
 
   if (!result.ok) {
@@ -267,6 +293,8 @@ async function readProjectBySlug(
       id::text as id,
       organization_id::text as organization_id,
       slug,
+      language,
+      region,
       prompt_configuration_finalized_at::text as prompt_configuration_finalized_at,
       prompt_configuration_hash,
       prompt_configuration_contract_version,
@@ -304,7 +332,164 @@ async function readTargetCounts(db: LocalPostgresClient, project: ProjectRow): P
   return single(rows, "target project count check");
 }
 
+async function readProjectBrandAuthority(
+  db: LocalPostgresClient,
+  draft: ProjectSetupDraft,
+  project: ProjectRow
+): Promise<ProjectBrandAuthority> {
+  const brands = await db.query<BrandRow>(`
+    select
+      id::text as id,
+      brand_type::text as brand_type,
+      name,
+      domain,
+      aliases::text as aliases
+    from public.brands
+    where project_id = ${uuid(project.id)}
+      and is_active is true
+    order by brand_type asc, name asc, id asc
+  `);
+  return buildProjectBrandAuthority(draft, brands);
+}
+
+function buildProjectBrandAuthority(
+  draft: ProjectSetupDraft,
+  activeBrands: readonly BrandRow[]
+): ProjectBrandAuthority {
+  const primaryBrands = activeBrands.filter((brand) => brand.brand_type === "primary");
+  if (primaryBrands.length === 0) throw new Error("project_primary_brand_missing");
+  if (primaryBrands.length !== 1) throw new Error("project_primary_brand_not_unique");
+
+  const primaryBrand = primaryBrands[0]!;
+  const primaryIdentity = brandIdentityFromRow(primaryBrand);
+  const draftIdentity = brandIdentityFromDraft(draft);
+  if (!identitySignalsOverlap(draftIdentity, primaryIdentity)) {
+    throw new Error("project_primary_brand_identity_mismatch");
+  }
+
+  const activeCompetitors = activeBrands.filter((brand) => brand.brand_type === "competitor");
+  const competitorSignalSets = activeCompetitors.map((brand) => identitySignals(brandIdentityFromRow(brand)));
+  for (const competitor of draft.competitors.filter((item) => item.reviewStatus === "approved")) {
+    const draftCompetitorSignals = competitorIdentitySignals(competitor);
+    const hasProjectBrand = competitorSignalSets.some((signals) => hasSignalOverlap(draftCompetitorSignals, signals));
+    if (!hasProjectBrand) {
+      throw new Error(`draft_competitor_missing_active_project_brand:${competitor.competitorId || "(missing)"}`);
+    }
+  }
+
+  return {
+    brandIdentity: primaryIdentity,
+    knownCompetitors: uniqueStrings(activeCompetitors.flatMap((brand) => [
+      brand.name,
+      brand.domain
+    ].filter(hasText))),
+    knownCompetitorAliases: uniqueStrings(activeCompetitors.flatMap((brand) => parseJsonStringArray(brand.aliases)))
+  };
+}
+
+function assertProjectLocaleMatchesDraft(project: ProjectRow, draft: ProjectSetupDraft): void {
+  if (normalizeLanguage(project.language) !== normalizeLanguage(draft.seedInput.language)) {
+    throw new Error("project_language_mismatch");
+  }
+
+  const projectRegion = canonicalRegion(project.region);
+  const draftRegions = draft.seedInput.regions.map(canonicalRegion);
+  if (!draftRegions.includes(projectRegion)) {
+    throw new Error("project_region_mismatch");
+  }
+}
+
+function brandIdentityFromDraft(draft: ProjectSetupDraft): BrandIdentityForDraft {
+  return {
+    brandName: draft.seedInput.brandName,
+    serviceName: draft.seedInput.serviceName,
+    aliases: draft.seedInput.brandAliases,
+    officialSiteUrl: draft.seedInput.officialSiteUrl
+  };
+}
+
+function brandIdentityFromRow(row: BrandRow): BrandIdentityForDraft {
+  return {
+    brandName: row.name,
+    domain: row.domain ?? undefined,
+    aliases: parseJsonStringArray(row.aliases)
+  };
+}
+
+function competitorIdentitySignals(competitor: CompetitorDraft): string[] {
+  return uniqueStrings([
+    competitor.rawName,
+    competitor.normalizedName,
+    competitor.companyName,
+    competitor.productName,
+    competitor.domain,
+    ...competitor.brandAliases
+  ].filter(hasText).map(normalizeIdentitySignal).filter((signal) => signal.length >= 2));
+}
+
+function identitySignals(identity: BrandIdentityForDraft): string[] {
+  return uniqueStrings([
+    identity.brandName,
+    identity.serviceName,
+    identity.domain,
+    identity.officialSiteUrl ? extractHostname(identity.officialSiteUrl) : null,
+    ...(identity.aliases ?? [])
+  ].filter(hasText).map(normalizeIdentitySignal).filter((signal) => signal.length >= 2));
+}
+
+function identitySignalsOverlap(left: BrandIdentityForDraft, right: BrandIdentityForDraft): boolean {
+  return hasSignalOverlap(identitySignals(left), identitySignals(right));
+}
+
+function hasSignalOverlap(left: readonly string[], right: readonly string[]): boolean {
+  const rightSet = new Set(right);
+  return left.some((signal) => rightSet.has(signal));
+}
+
+function normalizeLanguage(value: string): string {
+  return value.normalize("NFKC").trim().toLowerCase();
+}
+
+function canonicalRegion(value: string): string {
+  const normalized = value
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+  if (normalized === "jp" || normalized === "jpn" || normalized === "japan") return "JP";
+  if (normalized === "us" || normalized === "usa" || normalized === "unitedstates" || normalized === "unitedstatesofamerica") {
+    return "US";
+  }
+  throw new Error("project_region_mismatch");
+}
+
+function normalizeIdentitySignal(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/https?:\/\//g, "")
+    .replace(/www\./g, "")
+    .replace(/[\s\-_.,/\\|:;'"`~!@#$%^&*()[\]{}<>?+=\u30fb\u3000\u30a0]+/g, "")
+    .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff\uff66-\uff9f]+/g, "")
+    .trim();
+}
+
+function extractHostname(value: string): string {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return value;
+  }
+}
+
+function parseJsonStringArray(value: string | null): string[] {
+  if (!value) return [];
+  const parsed = JSON.parse(value) as unknown;
+  if (!Array.isArray(parsed)) throw new Error("brand_aliases_must_be_json_array");
+  return parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
 function assertTargetProjectIsWritableAndEmpty(db: LocalPostgresClient, project: ProjectRow): void {
+
   const finalizationValues = [
     project.prompt_configuration_finalized_at,
     project.prompt_configuration_hash,
@@ -654,12 +839,12 @@ function assertDraftCanMaterializeBeforeDbWrite(draft: ProjectSetupDraft, projec
   }
 }
 
-function assertB2LocalDatabaseTarget(databaseUrl: string, cwd: string): DatabaseTargetSummary {
+function assertB2LocalDatabaseTarget(databaseUrl: string, cwd: string, isWrite: boolean): DatabaseTargetSummary {
   const target = assertRecoraDbWriteAllowed({
     databaseUrl,
     operation: "materialize-recora-project-setup-draft",
     projectSlug: null,
-    isWrite: false,
+    isWrite,
     allowNonLocalDb: false,
     confirmNonLocalDbWrite: null
   });
@@ -678,11 +863,12 @@ function assertB2LocalDatabaseTarget(databaseUrl: string, cwd: string): Database
     throw new Error("local_supabase_db_container_mismatch");
   }
 
-  assertExpectedDockerContainer(cwd);
+  const effectivePort = target.port || "5432";
+  assertExpectedDockerContainer(cwd, effectivePort);
 
   return {
     host: target.host,
-    port: target.port || null,
+    port: effectivePort,
     isLocal: target.isLocal,
     projectId: RECORA_FIXED_PROMPT_B2_PROJECT_ID,
     dbContainer: RECORA_FIXED_PROMPT_B2_DB_CONTAINER,
@@ -690,8 +876,8 @@ function assertB2LocalDatabaseTarget(databaseUrl: string, cwd: string): Database
   };
 }
 
-function assertExpectedDockerContainer(cwd: string): void {
-  const result = spawnSync("docker", ["inspect", "--format", "{{.Name}}", RECORA_FIXED_PROMPT_B2_DB_CONTAINER], {
+function assertExpectedDockerContainer(cwd: string, expectedHostPort: string): void {
+  const result = spawnSync("docker", ["inspect", RECORA_FIXED_PROMPT_B2_DB_CONTAINER], {
     cwd,
     encoding: "utf8",
     env: { ...process.env, NO_COLOR: "1" },
@@ -700,8 +886,41 @@ function assertExpectedDockerContainer(cwd: string): void {
   if (result.status !== 0) {
     throw new Error(`expected_local_db_container_missing:${RECORA_FIXED_PROMPT_B2_DB_CONTAINER}`);
   }
-  if (result.stdout.trim() !== `/${RECORA_FIXED_PROMPT_B2_DB_CONTAINER}`) {
+  const inspectRows = JSON.parse(result.stdout) as unknown[];
+  assertB2DockerInspectMatchesTargetForTests(inspectRows[0], expectedHostPort);
+}
+
+export function assertB2DockerInspectMatchesTargetForTests(inspectValue: unknown, expectedHostPort: string): void {
+  const inspect = inspectValue as {
+    Name?: unknown;
+    State?: { Running?: unknown };
+    NetworkSettings?: { Ports?: Record<string, Array<{ HostPort?: string }> | null> };
+    Config?: { Labels?: Record<string, string> | null };
+  } | null | undefined;
+  if (!inspect || typeof inspect !== "object") throw new Error("local_db_container_inspect_invalid");
+
+  const name = typeof inspect.Name === "string" ? inspect.Name : "";
+  if (name !== `/${RECORA_FIXED_PROMPT_B2_DB_CONTAINER}` && name !== RECORA_FIXED_PROMPT_B2_DB_CONTAINER) {
     throw new Error("local_db_container_identity_mismatch");
+  }
+  if (inspect.State?.Running !== true) {
+    throw new Error("local_db_container_not_running");
+  }
+
+  const bindings = inspect.NetworkSettings?.Ports?.["5432/tcp"];
+  if (!bindings || bindings.length === 0) throw new Error("local_db_container_port_missing");
+  const hostPorts = uniqueStrings(bindings.map((binding) => binding.HostPort).filter(hasText));
+  if (hostPorts.length !== 1) throw new Error("local_db_container_port_ambiguous");
+  if (hostPorts[0] !== expectedHostPort) {
+    throw new Error("local_db_container_port_mismatch");
+  }
+
+  const labels = inspect.Config?.Labels ?? {};
+  for (const labelName of ["com.supabase.cli.project", "com.docker.compose.project"]) {
+    const value = labels[labelName];
+    if (value && value !== RECORA_FIXED_PROMPT_B2_PROJECT_ID) {
+      throw new Error("local_db_container_project_label_mismatch");
+    }
   }
 }
 
@@ -846,6 +1065,14 @@ function jsonb(value: unknown): string {
 function single<T>(rows: readonly T[], label: string): T {
   if (rows.length !== 1) throw new Error(`${label}_returned_${rows.length}_rows`);
   return rows[0]!;
+}
+
+function hasText(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return Array.from(new Set(values));
 }
 
 export function sanitizeErrorMessage(error: unknown): string {

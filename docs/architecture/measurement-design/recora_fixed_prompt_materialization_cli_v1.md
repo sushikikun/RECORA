@@ -39,11 +39,17 @@ RECORA_LOCAL_SUPABASE_PROJECT_ID=recora-fixed-prompt-unit-b2
 RECORA_LOCAL_SUPABASE_DB_CONTAINER=supabase_db_recora-fixed-prompt-unit-b2
 ```
 
-The command rejects a linked Supabase marker in the repo worktree and verifies that the expected Docker DB container exists. Remote, linked, and production Supabase are out of scope.
+The command rejects a linked Supabase marker in the repo worktree and verifies that the expected Docker DB container exists, is running, and publishes `5432/tcp` on the exact effective port in `RECORA_DATABASE_URL`. If Docker exposes a Supabase project or Compose project label, the label must match `recora-fixed-prompt-unit-b2`. `--execute` also passes `isWrite: true` into the shared Recora DB write guard before any database connection is opened, so another local PostgreSQL port fails closed before connect. Remote, linked, and production Supabase are out of scope.
 
 ## Target Project
 
-The target must already exist and must already have Organization, ownership membership, and an active primary Brand. B2 never creates those rows.
+The target must already exist and must already have Organization, ownership membership, and persisted active Brand rows. B2 never creates those rows.
+
+The active primary Brand must be exactly one row. Its `name`, `domain`, and `aliases` are read after the Project row is locked and must match the Draft brand identity (`brandName`, `serviceName`, `officialSiteUrl`, and aliases) using the same conservative separator-insensitive identity rules as B1. A mismatch fails with `project_primary_brand_identity_mismatch`.
+
+Active competitor Brands are authority too. Their `name`, `domain`, and `aliases` are conservatively merged into the B1 `knownCompetitors` / `knownCompetitorAliases` context before materialization. An approved Draft competitor must correspond to an active Project competitor Brand; otherwise B2 fails closed with `draft_competitor_missing_active_project_brand`.
+
+Project `language` and `region` are bound to the Draft. `language` must match exactly after normalization. `region` uses a closed canonical mapping, including `JP` / `Japan`, and mismatches fail with `project_region_mismatch`.
 
 The Project must be unfinalized and empty:
 
@@ -92,4 +98,4 @@ The DB-dependent B2 verifier is:
 npm run recora:project-setup-materialization:check
 ```
 
-It is not part of `recora:preflight` or `recora:preflight:full`, because ordinary Cloud CI does not have the dedicated Local Supabase DB. The verifier covers dry-run write 0, success, persisted Prompt field/hash/count checks, rerun failure, finalized/non-empty failure, UUID conflict rollback, halfway Prompt rollback, test-only trigger hash mismatch rollback, Project A/B separation, concurrent execute, RLS/grant/helper inventory, and service_role TRUNCATE=false.
+It is not part of `recora:preflight` or `recora:preflight:full`, because ordinary Cloud CI does not have the dedicated Local Supabase DB. The verifier covers dry-run write 0, success, persisted Prompt field/hash/count checks, rerun failure, finalized/non-empty failure, UUID conflict rollback, halfway Prompt rollback, test-only trigger hash mismatch rollback, Project A/B separation, concurrent execute, container stopped and port mismatch negative tests, persisted primary Brand mismatch, DB-only competitor contamination, Draft competitor missing DB registration, valid Brand authority match, Project language mismatch, Project region mismatch, matching locale, RLS/grant/helper inventory, and service_role TRUNCATE=false.

@@ -9,6 +9,7 @@ import {
   LocalPostgresClient,
   RECORA_FIXED_PROMPT_B2_DB_CONTAINER,
   RECORA_FIXED_PROMPT_B2_PROJECT_ID,
+  assertB2DockerInspectMatchesTargetForTests,
   materializeProjectSetupDraft,
   materializeProjectSetupDraftObject,
   sanitizeErrorMessage
@@ -21,6 +22,7 @@ import {
 import {
   PROJECT_SETUP_DRAFT_SCHEMA_VERSION,
   type BuyerStage,
+  type CompetitorDraft,
   type PersonaDraft,
   type ProjectSetupDraft,
   type ProjectSetupSeedInput,
@@ -85,6 +87,9 @@ async function main() {
       failClosedAndRollback: staticOnly ? "skipped" : "PASS",
       projectABSeparation: staticOnly ? "skipped" : "PASS",
       concurrentExecute: staticOnly ? "skipped" : "PASS",
+      containerDbUrlBinding: "PASS",
+      projectBrandAuthority: staticOnly ? "skipped" : "PASS",
+      projectLocaleBinding: staticOnly ? "skipped" : "PASS",
       catalogAndServiceRoleBoundary: staticOnly ? "skipped" : "PASS"
     },
     unitASchemaRuntimeSecurityContract: {
@@ -147,15 +152,29 @@ function assertStaticContract(): void {
   assert.match(materializer, /persisted_prompt_configuration_hash_mismatch/);
   assert.match(materializer, /RECORA_LOCAL_SUPABASE_PROJECT_ID/);
   assert.match(materializer, /RECORA_LOCAL_SUPABASE_DB_CONTAINER/);
+  assert.match(materializer, /isWrite/);
+  assert.match(materializer, /local_db_container_not_running/);
+  assert.match(materializer, /local_db_container_port_mismatch/);
+  assert.match(materializer, /project_primary_brand_identity_mismatch/);
+  assert.match(materializer, /draft_competitor_missing_active_project_brand/);
+  assert.match(materializer, /project_language_mismatch/);
+  assert.match(materializer, /project_region_mismatch/);
   assert.match(cliSpec, /default is dry-run/i);
   assert.match(cliSpec, /No upsert/i);
   assert.match(cliSpec, /finalization update is last/i);
   assert.match(cliSpec, /not part of `recora:preflight`/i);
+  assert.match(cliSpec, /publishes `5432\/tcp`/i);
+  assert.match(cliSpec, /persisted active Brand/i);
+  assert.match(cliSpec, /Project `language` and `region`/i);
+  assertContainerBindingNegativeFixtures();
 }
 
 async function runDbMaterializationTests(): Promise<void> {
+  await assertWrongLocalPortRejectedBeforeConnect();
   await assertDryRunWriteZero();
   await assertInvalidDraftAndMissingTargetFailures();
+  await assertProjectBrandAuthorityValidation();
+  await assertProjectLocaleBinding();
   await assertFullTransactionSuccessAndRerunFailure();
   await assertAlreadyFinalizedFailure();
   await assertDbRejectsPartialFinalizationState();
@@ -171,7 +190,126 @@ async function runDbMaterializationTests(): Promise<void> {
   await assertCliSmoke();
 }
 
+function assertContainerBindingNegativeFixtures(): void {
+  const matchingInspect = {
+    Name: `/${RECORA_FIXED_PROMPT_B2_DB_CONTAINER}`,
+    State: { Running: true },
+    NetworkSettings: { Ports: { "5432/tcp": [{ HostPort: "55422" }] } },
+    Config: {
+      Labels: {
+        "com.supabase.cli.project": RECORA_FIXED_PROMPT_B2_PROJECT_ID,
+        "com.docker.compose.project": RECORA_FIXED_PROMPT_B2_PROJECT_ID
+      }
+    }
+  };
+
+  assert.doesNotThrow(() => assertB2DockerInspectMatchesTargetForTests(matchingInspect, "55422"));
+  assert.throws(
+    () => assertB2DockerInspectMatchesTargetForTests({ ...matchingInspect, State: { Running: false } }, "55422"),
+    /local_db_container_not_running/
+  );
+  assert.throws(
+    () => assertB2DockerInspectMatchesTargetForTests({
+      ...matchingInspect,
+      NetworkSettings: { Ports: { "5432/tcp": [{ HostPort: "55423" }] } }
+    }, "55422"),
+    /local_db_container_port_mismatch/
+  );
+}
+
+async function assertWrongLocalPortRejectedBeforeConnect(): Promise<void> {
+  const wrongPortUrl = databaseUrlWithPort(databaseUrl, "55423");
+  await assert.rejects(
+    () => materializeProjectSetupDraftObject(createDraft("issue-159-wrong-local-port"), {
+      projectSlug: "issue-159-wrong-local-port",
+      execute: true,
+      databaseUrl: wrongPortUrl,
+      cwd: repoRoot
+    }),
+    /local_db_container_port_mismatch/
+  );
+}
+
+async function assertProjectBrandAuthorityValidation(): Promise<void> {
+  const primaryMismatchSlug = "issue-159-primary-mismatch";
+  await createEmptyProject(primaryMismatchSlug, {
+    primaryBrand: { name: "OtherBrand", domain: "other.example", aliases: ["OtherBrand"] }
+  });
+  await expectMaterializationFailure(
+    "primary brand mismatch",
+    createDraft(primaryMismatchSlug),
+    primaryMismatchSlug,
+    /project_primary_brand_identity_mismatch/
+  );
+
+  const dbOnlyCompetitorSlug = "issue-159-db-competitor-contamination";
+  await createEmptyProject(dbOnlyCompetitorSlug, { competitorBrands: [rivalBrandFixture()] });
+  const contaminatedBase = createDraft(dbOnlyCompetitorSlug);
+  const contaminatedDraft = {
+    ...contaminatedBase,
+    prompts: contaminatedBase.prompts.map((prompt) => prompt.promptId === "prompt-market-core"
+      ? { ...prompt, text: "Which AI search visibility diagnosis tools should a BtoB SaaS team compare first, including RivalCo?" }
+      : prompt)
+  };
+  await expectMaterializationFailure(
+    "DB-only competitor contamination",
+    contaminatedDraft,
+    dbOnlyCompetitorSlug,
+    /known_competitor_signal_without_named_competitor_scope|known_competitor_signal_in_market_prompt/
+  );
+
+  const draftCompetitorMissingSlug = "issue-159-draft-competitor-missing-db";
+  await createEmptyProject(draftCompetitorMissingSlug);
+  await expectMaterializationFailure(
+    "draft competitor missing active Project brand",
+    createDraft(draftCompetitorMissingSlug, { competitors: [createCompetitorDraft()] }),
+    draftCompetitorMissingSlug,
+    /draft_competitor_missing_active_project_brand/
+  );
+
+  const normalMatchSlug = "issue-159-brand-authority-match";
+  await createEmptyProject(normalMatchSlug, { competitorBrands: [rivalBrandFixture()] });
+  const summary = await materializeProjectSetupDraftObject(createDraft(normalMatchSlug, {
+    competitors: [createCompetitorDraft()]
+  }), {
+    projectSlug: normalMatchSlug,
+    databaseUrl,
+    cwd: repoRoot
+  });
+  assert.equal(summary.mode, "dry-run");
+  assert.equal(summary.writes.projectFinalized, 0);
+}
+
+async function assertProjectLocaleBinding(): Promise<void> {
+  const languageMismatchSlug = "issue-159-language-mismatch";
+  await createEmptyProject(languageMismatchSlug, { language: "ja", region: "JP" });
+  await expectMaterializationFailure(
+    "language mismatch",
+    createDraft(languageMismatchSlug),
+    languageMismatchSlug,
+    /project_language_mismatch/
+  );
+
+  const regionMismatchSlug = "issue-159-region-mismatch";
+  await createEmptyProject(regionMismatchSlug, { language: seedInput.language, region: "US" });
+  await expectMaterializationFailure(
+    "region mismatch",
+    createDraft(regionMismatchSlug),
+    regionMismatchSlug,
+    /project_region_mismatch/
+  );
+
+  const localeMatchSlug = "issue-159-locale-match";
+  await createEmptyProject(localeMatchSlug, { language: seedInput.language, region: "JP" });
+  const summary = await materializeProjectSetupDraftObject(createDraft(localeMatchSlug), {
+    projectSlug: localeMatchSlug,
+    databaseUrl,
+    cwd: repoRoot
+  });
+  assert.equal(summary.mode, "dry-run");
+}
 async function assertDryRunWriteZero(): Promise<void> {
+
   const slug = "issue-159-dry-run";
   await createEmptyProject(slug);
   const draft = createDraft(slug);
@@ -268,6 +406,7 @@ async function assertAlreadyFinalizedFailure(): Promise<void> {
 async function assertDbRejectsPartialFinalizationState(): Promise<void> {
   const slug = "issue-159-partial-state";
   const ids = fixtureIds(slug);
+
   await expectDbError(`
     insert into public.organizations (id, slug, name, organization_type, data_environment, is_internal, is_demo)
     values (${uuid(ids.organizationId)}, ${lit(`${slug}-org`)}, 'Issue 159 Partial Org', 'client', 'local', false, true);
@@ -782,11 +921,37 @@ values (
 `;
 }
 
+type BrandFixture = {
+  name: string;
+  domain?: string | null;
+  aliases?: readonly string[];
+};
+
+type CreateEmptyProjectOptions = {
+  finalized?: boolean;
+  language?: string;
+  region?: string;
+  primaryBrand?: BrandFixture;
+  competitorBrands?: readonly BrandFixture[];
+};
 async function createEmptyProject(
   slug: string,
-  options: { finalized?: boolean } = {}
+  options: CreateEmptyProjectOptions = {}
 ): Promise<ReturnType<typeof fixtureIds>> {
   const ids = fixtureIds(slug);
+  const primaryBrand = options.primaryBrand ?? { name: "Recora", domain: "recora.example", aliases: ["Recora"] };
+  const competitorInserts = (options.competitorBrands ?? []).map((brand, index) => `
+    insert into public.brands (id, project_id, brand_type, name, domain, aliases, is_active)
+    values (
+      ${uuid(stableUuid(slug, `fixture:competitor-brand:${index}:${brand.name}`))},
+      ${uuid(ids.projectId)},
+      'competitor',
+      ${lit(brand.name)},
+      ${brand.domain ? lit(brand.domain) : "null"},
+      ${jsonb(brand.aliases ?? [brand.name])},
+      true
+    );
+  `).join("\n");
   const finalizationColumns = options.finalized
     ? `,
       prompt_configuration_finalized_at,
@@ -826,13 +991,17 @@ async function createEmptyProject(
       id,
       organization_id,
       slug,
-      name
+      name,
+      language,
+      region
       ${finalizationColumns}
     ) values (
       ${uuid(ids.projectId)},
       ${uuid(ids.organizationId)},
       ${lit(slug)},
-      ${lit(`Issue 159 ${slug} Project`)}
+      ${lit(`Issue 159 ${slug} Project`)},
+      ${lit(options.language ?? seedInput.language)},
+      ${lit(options.region ?? "JP")}
       ${finalizationValues}
     );
 
@@ -841,11 +1010,13 @@ async function createEmptyProject(
       ${uuid(ids.brandId)},
       ${uuid(ids.projectId)},
       'primary',
-      'Recora',
-      'recora.example',
-      ${jsonb(["Recora"])},
+      ${lit(primaryBrand.name)},
+      ${primaryBrand.domain ? lit(primaryBrand.domain) : "null"},
+      ${jsonb(primaryBrand.aliases ?? [primaryBrand.name])},
       true
     );
+
+    ${competitorInserts}
   `);
   return ids;
 }
@@ -998,14 +1169,15 @@ function queryLocal(sql: string, expectedError?: RegExp): string {
 }
 
 function inspectContainer(): void {
-  const result = spawnSync("docker", ["inspect", "--format", "{{.Name}}", RECORA_FIXED_PROMPT_B2_DB_CONTAINER], {
+  const result = spawnSync("docker", ["inspect", RECORA_FIXED_PROMPT_B2_DB_CONTAINER], {
     cwd: repoRoot,
     encoding: "utf8",
     env: verifierEnv,
     timeout: 30_000
   });
   assert.equal(result.status, 0, `Expected local container ${RECORA_FIXED_PROMPT_B2_DB_CONTAINER} to exist.`);
-  assert.equal(result.stdout.trim(), `/${RECORA_FIXED_PROMPT_B2_DB_CONTAINER}`);
+  const inspectRows = JSON.parse(result.stdout) as unknown[];
+  assertB2DockerInspectMatchesTargetForTests(inspectRows[0], databaseUrlPort(databaseUrl));
 }
 
 function createDraft(slug: string, overrides: Partial<ProjectSetupDraft> = {}): ProjectSetupDraft {
@@ -1145,7 +1317,47 @@ function createPrompt(overrides: Partial<PromptDraft> = {}): PromptDraft {
   };
 }
 
+function createCompetitorDraft(overrides: Partial<CompetitorDraft> = {}): CompetitorDraft {
+  return {
+    competitorId: "competitor-rivalco",
+    rawName: "RivalCo",
+    normalizedName: "rivalco",
+    brandAliases: ["Rival Co"],
+    companyName: "RivalCo Inc.",
+    productName: "RivalCo Platform",
+    domain: "rival.example",
+    source: "provided",
+    tier: "Direct",
+    marketRegion: "Japan",
+    entityConfidenceScore: 92,
+    classificationConfidenceScore: 91,
+    lowConfidenceReasons: [],
+    evidence: ["provided competitor fixture"],
+    riskFlags: [],
+    reviewStatus: "approved",
+    ...overrides
+  };
+}
+
+function rivalBrandFixture(): BrandFixture {
+  return {
+    name: "RivalCo",
+    domain: "rival.example",
+    aliases: ["Rival Co", "RivalCo Platform"]
+  };
+}
+
+function databaseUrlPort(value: string): string {
+  return new URL(value).port || "5432";
+}
+
+function databaseUrlWithPort(value: string, port: string): string {
+  const url = new URL(value);
+  url.port = port;
+  return url.toString();
+}
 async function writeTempDraft(draft: ProjectSetupDraft, slug: string): Promise<string> {
+
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "recora-issue-159-"));
   const draftPath = path.join(dir, `${slug}.json`);
   await fsp.writeFile(draftPath, JSON.stringify(draft, null, 2), "utf8");
