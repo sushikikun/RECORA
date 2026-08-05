@@ -9,6 +9,8 @@ import {
   type RecoraPersonaCoverageDimension,
   type RecoraPersonaRoleFamily
 } from "./measurement-persona-contract";
+import { RECORA_PERSONA_COMMON_BLUEPRINT_ROWS_V3 } from "./measurement-persona-catalog-common";
+import { RECORA_PERSONA_INDUSTRY_BLUEPRINT_ROWS_V3 } from "./measurement-persona-catalog-industry";
 
 export type RecoraPersonaBlueprintSourceRowV3 = readonly [
   pack: string,
@@ -20,9 +22,6 @@ export type RecoraPersonaBlueprintSourceRowV3 = readonly [
   kind: RecoraPersonaBlueprintKind,
   requiredSignalsAny: readonly RecoraGenerationStructureSignal[]
 ];
-
-import { RECORA_PERSONA_COMMON_BLUEPRINT_ROWS_V3 } from "./measurement-persona-catalog-common";
-import { RECORA_PERSONA_INDUSTRY_BLUEPRINT_ROWS_V3 } from "./measurement-persona-catalog-industry";
 
 const SOURCE_ROWS = [
   ...RECORA_PERSONA_COMMON_BLUEPRINT_ROWS_V3,
@@ -36,29 +35,36 @@ export const RECORA_PERSONA_BLUEPRINT_CATALOG_V3: readonly RecoraPersonaBlueprin
         pack,
         blueprintKey,
         label,
-        coverageDimensions,
+        sourceCoverageDimensions,
         roleFamily,
         marketSide,
         kind,
         requiredSignalsAny
       ],
       fixedOrder
-    ) => ({
-      catalogVersion: "recora_persona_blueprint_catalog_ja_v3",
-      blueprintKey,
-      pack,
-      label,
-      description: `${label}として、分析対象を探し、比較し、判断する際の質問状況を表します。`,
-      kind,
-      coverageDimensions,
-      roleFamily,
-      marketSide,
-      semanticGroupKey: `${marketSide}:${roleFamily}:${coverageDimensions.join("+")}`,
-      topicInfluenceDimensions:
-        personaTopicInfluencesForCoverage(coverageDimensions),
-      requiredSignalsAny,
-      fixedOrder
-    })
+    ) => {
+      const coverageDimensions = normalizeReviewedCoverage(
+        blueprintKey,
+        sourceCoverageDimensions
+      );
+
+      return {
+        catalogVersion: "recora_persona_blueprint_catalog_ja_v3",
+        blueprintKey,
+        pack,
+        label,
+        description: `${label}として、分析対象を探し、比較し、判断する際の質問状況を表します。`,
+        kind,
+        coverageDimensions,
+        roleFamily,
+        marketSide,
+        semanticGroupKey: `${marketSide}:${roleFamily}:${coverageDimensions.join("+")}`,
+        topicInfluenceDimensions:
+          personaTopicInfluencesForCoverage(coverageDimensions),
+        requiredSignalsAny,
+        fixedOrder
+      };
+    }
   );
 
 export const RECORA_PERSONA_BLUEPRINT_CATALOG_COUNTS = {
@@ -121,7 +127,10 @@ export function validateRecoraPersonaBlueprintCatalogV3(): {
     ) {
       blockers.push(`catalog_topic_effects_insufficient:${item.blueprintKey}`);
     }
-    if (item.kind === "modifier" && !item.blueprintKey.startsWith("lifecycle.")) {
+    if (
+      item.kind === "modifier" &&
+      !item.blueprintKey.startsWith("lifecycle.")
+    ) {
       blockers.push(`catalog_modifier_key_invalid:${item.blueprintKey}`);
     }
     if (item.kind === "conditional" && item.requiredSignalsAny.length === 0) {
@@ -136,4 +145,17 @@ export function validateRecoraPersonaBlueprintCatalogV3(): {
     valid: blockers.length === 0,
     blockers: Array.from(new Set(blockers)).sort()
   };
+}
+
+function normalizeReviewedCoverage(
+  blueprintKey: string,
+  source: readonly RecoraPersonaCoverageDimension[]
+): readonly RecoraPersonaCoverageDimension[] {
+  const additions: Partial<
+    Record<string, readonly RecoraPersonaCoverageDimension[]>
+  > = {
+    "b2c.group_occasion_planner": ["C1"]
+  };
+
+  return Array.from(new Set([...source, ...(additions[blueprintKey] ?? [])])).sort();
 }
