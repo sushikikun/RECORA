@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type {
+  RecoraConfirmedActorRelation,
   RecoraGenerationCustomerSide,
   RecoraGenerationStructureSignal,
   RecoraLifecycleSignal,
@@ -11,6 +12,8 @@ export const RECORA_PERSONA_BLUEPRINT_CATALOG_VERSION =
   "recora_persona_blueprint_catalog_ja_v3" as const;
 export const RECORA_MEASUREMENT_PERSONA_COMPILER_VERSION =
   "recora_measurement_persona_compiler_v1" as const;
+export const RECORA_PERSONA_SELECTION_INPUT_CONTRACT_VERSION =
+  "recora_persona_selection_input_v3" as const;
 export const RECORA_PERSONA_GOLD_FIXTURE_VERSION =
   "recora_persona_gold_fixtures_ja_v3" as const;
 export const RECORA_MEASUREMENT_PERSONA_CONTRACT_VERSION =
@@ -137,6 +140,41 @@ export type RecoraPersonaReviewQuestionCode =
 export type RecoraPersonaBlockerCode =
   typeof RECORA_PERSONA_BLOCKER_CODES[number];
 
+export type RecoraPersonaSelectionInputV3 = {
+  contractVersion: typeof RECORA_PERSONA_SELECTION_INPUT_CONTRACT_VERSION;
+  market: RecoraPromptGenerationInputV1["market"];
+  subject: {
+    type: RecoraPromptGenerationInputV1["subject"]["primary"]["type"];
+    semanticName: string;
+  };
+  audience: RecoraPromptGenerationInputV1["audience"];
+  business: Pick<
+    RecoraPromptGenerationInputV1["business"],
+    | "primaryDomain"
+    | "secondaryDomains"
+    | "primaryOfferingModel"
+    | "secondaryOfferingModels"
+  >;
+  actions: RecoraPromptGenerationInputV1["actions"];
+  delivery: Pick<
+    RecoraPromptGenerationInputV1["delivery"],
+    | "mode"
+    | "serviceCoverage"
+    | "locationStructure"
+    | "geographicBinding"
+  >;
+  trust: {
+    derivedClass: RecoraPromptGenerationInputV1["trust"]["derived"]["derivedClass"];
+    decisionImpactFlags: RecoraPromptGenerationInputV1["trust"]["decisionImpactFlags"];
+    regulatoryFlags: RecoraPromptGenerationInputV1["trust"]["regulatoryFlags"];
+    sensitiveContexts: RecoraPromptGenerationInputV1["trust"]["sensitiveContexts"];
+  };
+  structureSignals: RecoraPromptGenerationInputV1["generationContext"]["structureSignals"];
+  customerSides: RecoraPromptGenerationInputV1["generationContext"]["customerSides"];
+  actorRelations: readonly RecoraConfirmedActorRelation[];
+  lifecycleSignals: RecoraPromptGenerationInputV1["generationContext"]["lifecycleSignals"];
+};
+
 export type RecoraPersonaBlueprintV3 = {
   catalogVersion: typeof RECORA_PERSONA_BLUEPRINT_CATALOG_VERSION;
   blueprintKey: string;
@@ -250,6 +288,8 @@ export type RecoraPersonaGoldFixtureV3 = {
   upstreamBlockerCodes?: readonly string[];
   expectedRecipeKey?: string;
   expectedSelected?: readonly RecoraPersonaGoldSelectionV3[];
+  expectedRequiredCoverage?: readonly RecoraPersonaCoverageDimension[];
+  expectedRequiredMarketSides?: readonly RecoraGenerationCustomerSide[];
   expectedAlternativeKeys?: readonly string[];
   expectedExclusionCodes?: readonly RecoraPersonaExclusionReasonCode[];
 };
@@ -276,8 +316,50 @@ export function personaTopicInfluencesForCoverage(
   );
 }
 
-export function buildRecoraPersonaSelectionFingerprint(
+export function projectRecoraPersonaSelectionInputV3(
   input: RecoraPromptGenerationInputV1
+): RecoraPersonaSelectionInputV3 {
+  return {
+    contractVersion: RECORA_PERSONA_SELECTION_INPUT_CONTRACT_VERSION,
+    market: input.market,
+    subject: {
+      type: input.subject.primary.type,
+      semanticName: input.subject.primary.name.trim()
+    },
+    audience: input.audience,
+    business: {
+      primaryDomain: input.business.primaryDomain,
+      secondaryDomains: unique(input.business.secondaryDomains),
+      primaryOfferingModel: input.business.primaryOfferingModel,
+      secondaryOfferingModels: unique(input.business.secondaryOfferingModels)
+    },
+    actions: {
+      primary: input.actions.primary,
+      secondary: unique(input.actions.secondary)
+    },
+    delivery: {
+      mode: input.delivery.mode,
+      serviceCoverage: input.delivery.serviceCoverage,
+      locationStructure: input.delivery.locationStructure,
+      geographicBinding: input.delivery.geographicBinding
+    },
+    trust: {
+      derivedClass: input.trust.derived.derivedClass,
+      decisionImpactFlags: unique(input.trust.decisionImpactFlags),
+      regulatoryFlags: unique(input.trust.regulatoryFlags),
+      sensitiveContexts: unique(input.trust.sensitiveContexts)
+    },
+    structureSignals: unique(input.generationContext.structureSignals),
+    customerSides: unique(input.generationContext.customerSides),
+    actorRelations: canonicalActorRelations(
+      input.generationContext.actorRelations
+    ),
+    lifecycleSignals: unique(input.generationContext.lifecycleSignals)
+  };
+}
+
+export function buildRecoraPersonaSelectionFingerprint(
+  input: RecoraPersonaSelectionInputV3
 ): string {
   const semantic = {
     version: "recora_persona_selection_semantics_v1",
@@ -287,19 +369,11 @@ export function buildRecoraPersonaSelectionFingerprint(
     business: input.business,
     actions: input.actions,
     delivery: input.delivery,
-    trust: {
-      decisionImpactFlags: input.trust.decisionImpactFlags,
-      regulatoryFlags: input.trust.regulatoryFlags,
-      sensitiveContexts: input.trust.sensitiveContexts,
-      derivedClass: input.trust.derived.derivedClass,
-      decisionImpactLevel: input.trust.derived.decisionImpactLevel
-    },
-    generationContext: {
-      structureSignals: input.generationContext.structureSignals,
-      customerSides: input.generationContext.customerSides,
-      actorRelations: input.generationContext.actorRelations,
-      lifecycleSignals: input.generationContext.lifecycleSignals
-    }
+    trust: input.trust,
+    structureSignals: input.structureSignals,
+    customerSides: input.customerSides,
+    actorRelations: input.actorRelations,
+    lifecycleSignals: input.lifecycleSignals
   };
 
   return createHash("sha256").update(stableJson(semantic)).digest("hex");
@@ -335,6 +409,36 @@ export function buildRecoraPersonaSelectionSemanticKey(input: {
     unique(input.supportingBlueprintKeys).join(","),
     unique(input.modifierKeys).join(",")
   ].join("|");
+}
+
+function canonicalActorRelations(
+  values: readonly RecoraConfirmedActorRelation[]
+): RecoraConfirmedActorRelation[] {
+  const byIdentity = new Map<string, RecoraConfirmedActorRelation>();
+
+  for (const value of values) {
+    const [leftRoleKey, rightRoleKey] = [
+      value.leftRoleKey.trim(),
+      value.rightRoleKey.trim()
+    ].sort();
+    const normalized = {
+      leftRoleKey,
+      rightRoleKey,
+      relation: value.relation
+    };
+    byIdentity.set(
+      `${leftRoleKey}|${rightRoleKey}|${value.relation}`,
+      normalized
+    );
+  }
+
+  return Array.from(byIdentity.values()).sort((left, right) =>
+    [left.leftRoleKey, left.rightRoleKey, left.relation]
+      .join("|")
+      .localeCompare(
+        [right.leftRoleKey, right.rightRoleKey, right.relation].join("|")
+      )
+  );
 }
 
 function stableJson(value: unknown): string {

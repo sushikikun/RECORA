@@ -3,6 +3,7 @@ import {
   RECORA_PROMPT_GENERATION_SEMANTICS_VERSION,
   type RecoraAudiencePriority,
   type RecoraAudienceScope,
+  type RecoraConfirmedActorRelation,
   type RecoraGenerationCustomerSide,
   type RecoraGenerationStructureSignal,
   type RecoraLifecycleSignal,
@@ -15,6 +16,8 @@ import {
   type RecoraPersonaGoldFixtureV3,
   type RecoraPersonaGoldSelectionV3
 } from "../../lib/recora/measurement-persona-contract";
+import { RECORA_PERSONA_BLUEPRINT_BY_KEY } from "../../lib/recora/measurement-persona-catalog";
+import { RECORA_PERSONA_SELECTION_RECIPES_V3 } from "../../lib/recora/measurement-persona-selection-rules";
 
 const ALL_GENERAL_SIDES: readonly RecoraGenerationCustomerSide[] = [
   "prospective_customer",
@@ -25,23 +28,262 @@ const ALL_GENERAL_SIDES: readonly RecoraGenerationCustomerSide[] = [
   "partner_or_intermediary"
 ];
 
+function hasSignal(
+  signals: readonly RecoraGenerationStructureSignal[],
+  ...keys: readonly RecoraGenerationStructureSignal[]
+): boolean {
+  return keys.some((key) => signals.includes(key));
+}
+
+function fixturePrimaryDomain(
+  signals: readonly RecoraGenerationStructureSignal[]
+): RecoraPromptGenerationInputV1["business"]["primaryDomain"] {
+  if (hasSignal(signals, "adult_healthcare")) return "healthcare";
+  if (hasSignal(signals, "care_welfare")) return "care_welfare";
+  if (
+    hasSignal(
+      signals,
+      "adult_education",
+      "child_education",
+      "corporate_training"
+    )
+  ) return "education";
+  if (hasSignal(signals, "recruiting_employer_saas")) return "recruiting_hr";
+  if (
+    hasSignal(
+      signals,
+      "real_estate_rental",
+      "real_estate_purchase_residential",
+      "real_estate_sale"
+    )
+  ) return "real_estate";
+  if (hasSignal(signals, "insurance")) return "finance_insurance";
+  if (hasSignal(signals, "manufacturing_capex")) {
+    return "manufacturing_industrial";
+  }
+  if (hasSignal(signals, "logistics_shipper_buying")) {
+    return "logistics_supply_chain";
+  }
+  if (hasSignal(signals, "individual_travel", "group_or_business_travel")) {
+    return "travel_hospitality";
+  }
+  if (hasSignal(signals, "public_nonprofit_customer")) return "public_nonprofit";
+  if (hasSignal(signals, "media_brand")) return "media_content";
+  if (hasSignal(signals, "professional_service_b2b")) {
+    return "professional_consulting";
+  }
+  if (hasSignal(signals, "urgent_service")) return "construction_home_service";
+  if (
+    hasSignal(
+      signals,
+      "commerce_single_purchase",
+      "commerce_subscription",
+      "commerce_gift"
+    )
+  ) return "retail_product_sales";
+  if (hasSignal(signals, "local_facility")) return "consumer_services";
+  return "it_software";
+}
+
+function fixtureOfferingModel(
+  signals: readonly RecoraGenerationStructureSignal[]
+): RecoraPromptGenerationInputV1["business"]["primaryOfferingModel"] {
+  if (hasSignal(signals, "marketplace_brand")) return "marketplace_platform";
+  if (hasSignal(signals, "professional_service_b2b")) {
+    return "professional_advisory";
+  }
+  if (hasSignal(signals, "media_brand")) return "publisher_content";
+  if (
+    hasSignal(
+      signals,
+      "commerce_single_purchase",
+      "commerce_subscription",
+      "commerce_gift",
+      "manufacturing_capex"
+    )
+  ) return "product";
+  if (
+    hasSignal(
+      signals,
+      "logistics_shipper_buying",
+      "public_nonprofit_customer",
+      "corporate_training"
+    )
+  ) return "managed_service";
+  if (
+    hasSignal(
+      signals,
+      "real_estate_rental",
+      "real_estate_purchase_residential",
+      "real_estate_sale",
+      "insurance"
+    )
+  ) return "professional_advisory";
+  if (
+    hasSignal(
+      signals,
+      "local_facility",
+      "urgent_service",
+      "adult_healthcare",
+      "care_welfare",
+      "adult_education",
+      "child_education",
+      "individual_travel",
+      "group_or_business_travel"
+    )
+  ) return hasSignal(signals, "local_facility")
+      ? "physical_location_service"
+      : "consumer_service";
+  return "saas_software";
+}
+
+function fixturePrimaryAction(
+  signals: readonly RecoraGenerationStructureSignal[]
+): RecoraPromptGenerationInputV1["actions"]["primary"] {
+  if (hasSignal(signals, "commerce_subscription")) return "start_subscription";
+  if (hasSignal(signals, "commerce_single_purchase", "commerce_gift")) {
+    return "purchase";
+  }
+  if (
+    hasSignal(
+      signals,
+      "local_facility",
+      "adult_healthcare",
+      "individual_travel",
+      "group_or_business_travel"
+    )
+  ) return "reservation";
+  if (hasSignal(signals, "adult_education", "child_education")) {
+    return "application";
+  }
+  if (hasSignal(signals, "corporate_training")) return "contract";
+  if (hasSignal(signals, "urgent_service", "manufacturing_capex")) {
+    return "request_quote";
+  }
+  if (hasSignal(signals, "care_welfare", "insurance")) return "consultation";
+  if (
+    hasSignal(
+      signals,
+      "real_estate_rental",
+      "real_estate_purchase_residential",
+      "real_estate_sale"
+    )
+  ) return "inquiry";
+  if (hasSignal(signals, "logistics_shipper_buying", "public_nonprofit_customer")) {
+    return "request_quote";
+  }
+  if (hasSignal(signals, "media_brand")) return "content_subscription";
+  if (hasSignal(signals, "recruiting_employer_saas")) return "demo_or_trial";
+  if (hasSignal(signals, "professional_service_b2b")) return "consultation";
+  return "inquiry";
+}
+
+function fixtureSubjectType(
+  signals: readonly RecoraGenerationStructureSignal[]
+): RecoraPromptGenerationInputV1["subject"]["primary"]["type"] {
+  if (hasSignal(signals, "local_facility")) return "location_facility";
+  if (
+    hasSignal(
+      signals,
+      "commerce_single_purchase",
+      "commerce_subscription",
+      "commerce_gift",
+      "manufacturing_capex"
+    )
+  ) return "product";
+  return "service";
+}
+
+function fixtureDelivery(
+  signals: readonly RecoraGenerationStructureSignal[],
+  subjectName: string
+): RecoraPromptGenerationInputV1["delivery"] {
+  if (!hasSignal(signals, "local_facility")) {
+    return {
+      mode: "online",
+      serviceCoverage: "nationwide",
+      locationStructure: "none",
+      geographicBinding: "none",
+      serviceAreas: [],
+      locations: []
+    };
+  }
+
+  return {
+    mode: "in_person",
+    serviceCoverage: "local",
+    locationStructure: hasSignal(signals, "multi_location_consumer_brand")
+      ? "multi_location"
+      : "single_location",
+    geographicBinding: "physical_location",
+    serviceAreas: [],
+    locations: [
+      {
+        type: "location_facility",
+        name: `${subjectName}拠点`,
+        aliases: [],
+        officialUrl: null
+      }
+    ]
+  };
+}
+
+function canonicalFixtureActorRelations(
+  values: readonly RecoraConfirmedActorRelation[]
+): readonly RecoraConfirmedActorRelation[] {
+  const byIdentity = new Map<string, RecoraConfirmedActorRelation>();
+  for (const value of values) {
+    const [leftRoleKey, rightRoleKey] = [
+      value.leftRoleKey,
+      value.rightRoleKey
+    ].sort();
+    const normalized = { leftRoleKey, rightRoleKey, relation: value.relation };
+    byIdentity.set(
+      `${leftRoleKey}|${rightRoleKey}|${value.relation}`,
+      normalized
+    );
+  }
+  return Array.from(byIdentity.values()).sort((left, right) =>
+    [left.leftRoleKey, left.rightRoleKey, left.relation]
+      .join("|")
+      .localeCompare(
+        [right.leftRoleKey, right.rightRoleKey, right.relation].join("|")
+      )
+  );
+}
+
 function makeInput(input: {
   signals: readonly RecoraGenerationStructureSignal[];
   lifecycle?: readonly RecoraLifecycleSignal[];
   audienceScope?: RecoraAudienceScope;
   audiencePriority?: RecoraAudiencePriority | null;
   customerSides?: readonly RecoraGenerationCustomerSide[];
+  actorRelations?: readonly RecoraConfirmedActorRelation[];
   subjectName?: string;
 }): RecoraPromptGenerationInputV1 {
   const scope = input.audienceScope ?? "b2b";
+  const subjectName = input.subjectName ?? "サンプルサービス";
+  const primaryDomain = fixturePrimaryDomain(input.signals);
+  const primaryOfferingModel = fixtureOfferingModel(input.signals);
+  const primaryAction = fixturePrimaryAction(input.signals);
+  const delivery = fixtureDelivery(input.signals, subjectName);
+  const commerce = hasSignal(
+    input.signals,
+    "commerce_single_purchase",
+    "commerce_subscription",
+    "commerce_gift"
+  );
+  const secondaryActions: RecoraPromptGenerationInputV1["actions"]["secondary"] =
+    primaryAction === "contract" ? [] : ["contract"];
+
   const base = {
     contractVersion: RECORA_PROMPT_GENERATION_INPUT_CONTRACT_VERSION,
     market: { country: "JP" as const, locale: "ja-JP" as const },
     subject: {
       operatorCompanyName: "株式会社サンプル",
       primary: {
-        type: "service" as const,
-        name: input.subjectName ?? "サンプルサービス",
+        type: fixtureSubjectType(input.signals),
+        name: subjectName,
         aliases: [] as readonly string[],
         officialUrl: "https://example.jp/service"
       },
@@ -54,26 +296,21 @@ function makeInput(input: {
         (scope === "both" ? ("balanced" as const) : null)
     },
     business: {
-      primaryDomain: "it_software" as const,
+      primaryDomain,
       secondaryDomains: [] as const,
-      primaryOfferingModel: "saas_software" as const,
+      primaryOfferingModel,
       secondaryOfferingModels: [] as const,
-      commerceChannels: [] as const,
-      commerceRoles: [] as const,
+      commerceChannels: commerce ? (["ecommerce"] as const) : ([] as const),
+      commerceRoles: commerce
+        ? (["brand_owner", "direct_seller"] as const)
+        : ([] as const),
       summary: "Persona CompilerのGold Fixtureです。"
     },
     actions: {
-      primary: "inquiry" as const,
-      secondary: ["contract"] as const
+      primary: primaryAction,
+      secondary: secondaryActions
     },
-    delivery: {
-      mode: "online" as const,
-      serviceCoverage: "nationwide" as const,
-      locationStructure: "none" as const,
-      geographicBinding: "none" as const,
-      serviceAreas: [] as const,
-      locations: [] as const
-    },
+    delivery,
     trust: {
       decisionImpactFlags: [] as const,
       regulatoryFlags: [] as const,
@@ -90,7 +327,9 @@ function makeInput(input: {
       customerSides: Array.from(
         new Set(input.customerSides ?? ALL_GENERAL_SIDES)
       ).sort(),
-      actorRelations: [] as const,
+      actorRelations: canonicalFixtureActorRelations(
+        input.actorRelations ?? []
+      ),
       lifecycleSignals: Array.from(new Set(input.lifecycle ?? [])).sort(),
       focusThemes: ["比較"],
       diagnosisGoals: ["候補発見"]
@@ -121,20 +360,62 @@ function readyFixture(input: {
   customerSides?: readonly RecoraGenerationCustomerSide[];
   alternatives?: readonly string[];
 }): RecoraPersonaGoldFixtureV3 {
+  const recipe = RECORA_PERSONA_SELECTION_RECIPES_V3.find(
+    (item) => item.recipeKey === input.recipeKey
+  );
+  if (!recipe) throw new Error(`Unknown Persona recipe: ${input.recipeKey}`);
+
+  const actorRelations: RecoraConfirmedActorRelation[] = input.selected.flatMap(
+    (selection) =>
+      selection.supportingBlueprintKeys.map((supportingBlueprintKey) => ({
+        leftRoleKey: selection.primaryBlueprintKey,
+        rightRoleKey: supportingBlueprintKey,
+        relation: "same_actor" as const
+      }))
+  );
+  const generationInput = makeInput({
+    signals: input.signals,
+    lifecycle: input.lifecycle,
+    audienceScope: input.audienceScope,
+    customerSides: input.customerSides,
+    actorRelations,
+    subjectName: input.caseKey
+  });
+
+  const selectedKeys = new Set(
+    input.selected.flatMap((selection) => [
+      selection.primaryBlueprintKey,
+      ...selection.supportingBlueprintKeys,
+      ...selection.modifierKeys
+    ])
+  );
+  const derivedAlternatives = recipe.alternativeBlueprintKeys.filter((key) => {
+    if (selectedKeys.has(key)) return false;
+    const blueprint = RECORA_PERSONA_BLUEPRINT_BY_KEY.get(key);
+    if (!blueprint || blueprint.kind === "modifier") return false;
+    if (blueprint.kind !== "conditional") return true;
+    if (key === "agency.external_advisor" && input.recipeKey === "real_estate_sale") {
+      return true;
+    }
+    return blueprint.requiredSignalsAny.some((signal) =>
+      input.signals.includes(signal)
+    );
+  });
+
   return {
     fixtureVersion: RECORA_PERSONA_GOLD_FIXTURE_VERSION,
     caseKey: input.caseKey,
     expectedStatus: "ready",
-    generationInput: makeInput({
-      signals: input.signals,
-      lifecycle: input.lifecycle,
-      audienceScope: input.audienceScope,
-      customerSides: input.customerSides,
-      subjectName: input.caseKey
-    }),
+    generationInput,
     expectedRecipeKey: input.recipeKey,
     expectedSelected: input.selected,
-    expectedAlternativeKeys: input.alternatives ?? []
+    expectedRequiredCoverage: recipe.requiredCoverage,
+    expectedRequiredMarketSides: recipe.requiredMarketSides,
+    expectedAlternativeKeys: input.alternatives ?? derivedAlternatives,
+    expectedExclusionCodes: [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ]
   };
 }
 

@@ -11,12 +11,14 @@ import {
   buildRecoraMeasurementPersonaId,
   buildRecoraPersonaSelectionFingerprint,
   buildRecoraPersonaSelectionSemanticKey,
+  projectRecoraPersonaSelectionInputV3,
   type RecoraPersonaAlternativeV3,
   type RecoraPersonaBlueprintV3,
   type RecoraPersonaCompilationV3,
   type RecoraPersonaCoverageDimension,
   type RecoraPersonaExcludedV3,
   type RecoraPersonaReviewQuestionV3,
+  type RecoraPersonaSelectionInputV3,
   type RecoraPersonaSelectionRecipeV3,
   type RecoraSelectedPersonaV3
 } from "./measurement-persona-contract";
@@ -76,6 +78,12 @@ function compileReadyInput(
     });
   }
 
+  const selectionInput = projectRecoraPersonaSelectionInputV3(input);
+  const selectionInputBlockers = validatePersonaSelectionInput(selectionInput);
+  if (selectionInputBlockers.length > 0) {
+    return emptyResult("blocked", { blockers: selectionInputBlockers });
+  }
+
   const catalog = options.catalog ?? RECORA_PERSONA_BLUEPRINT_CATALOG_V3;
   if (catalog === RECORA_PERSONA_BLUEPRINT_CATALOG_V3) {
     const validation = validateRecoraPersonaBlueprintCatalogV3();
@@ -88,7 +96,7 @@ function compileReadyInput(
 
   const byKey = new Map(catalog.map((item) => [item.blueprintKey, item]));
   const recipes = matchRecoraPersonaSelectionRecipesV3(
-    input.generationContext.structureSignals
+    selectionInput.structureSignals
   );
   if (recipes.length === 0) {
     return emptyResult("catalog_gap", {
@@ -98,16 +106,16 @@ function compileReadyInput(
   }
 
   const recipe = recipes[0];
-  const distinctReview = findDistinctActorReview(input, recipe);
-  if (distinctReview) {
+  const actorReview = findActorRelationReview(selectionInput, recipe);
+  if (actorReview) {
     return emptyResult("needs_review", {
-      reviewQuestions: [distinctReview],
+      reviewQuestions: [actorReview],
       recipeKey: recipe.recipeKey,
       warnings: ["recipe_supporting_role_is_distinct_actor"]
     });
   }
 
-  const fingerprint = buildRecoraPersonaSelectionFingerprint(input);
+  const fingerprint = buildRecoraPersonaSelectionFingerprint(selectionInput);
   const selected: RecoraSelectedPersonaV3[] = [];
   const missingKeys: string[] = [];
   const conditionalFailures: string[] = [];
@@ -128,7 +136,7 @@ function compileReadyInput(
 
     const modifierKeys = (selection.modifierBindings ?? [])
       .filter((binding) =>
-        input.generationContext.lifecycleSignals.includes(binding.signal)
+        selectionInput.lifecycleSignals.includes(binding.signal)
       )
       .map((binding) => binding.modifierBlueprintKey);
     const modifiers = modifierKeys
@@ -144,7 +152,7 @@ function compileReadyInput(
         blueprint.kind === "conditional" &&
         !isConditionalBlueprintApplicable(
           blueprint,
-          input,
+          selectionInput,
           recipe.recipeKey
         )
       ) {
@@ -193,11 +201,11 @@ function compileReadyInput(
       topicInfluenceDimensions,
       displayName,
       description: buildDescription(primary, supporting, modifiers),
-      triggerSituation: `${input.subject.primary.name}について候補を探し、比較し、判断する場面`,
+      triggerSituation: `${selectionInput.subject.semanticName}について候補を探し、比較し、判断する場面`,
       primaryGoal: buildPrimaryGoal(coverageDimensions),
       selectionEvidence: [
         `recipe:${recipe.recipeKey}`,
-        ...input.generationContext.structureSignals.map(
+        ...selectionInput.structureSignals.map(
           (signal) => `structure:${signal}`
         )
       ],
@@ -231,12 +239,17 @@ function compileReadyInput(
       duplicateIndexes,
       recipe,
       byKey,
-      input,
+      selectionInput,
       fingerprint
     );
   }
 
-  const blockers = validateSelected(selected, recipe, input);
+  const blockers = validateSelected(
+    selected,
+    recipe,
+    selectionInput,
+    byKey
+  );
   if (blockers.length > 0) {
     return emptyResult("catalog_gap", {
       blockers,
@@ -246,8 +259,19 @@ function compileReadyInput(
     });
   }
 
-  const alternatives = buildAlternatives(recipe, byKey, input, selected);
-  const excluded = buildExcluded(catalog, selected, alternatives, input);
+  const alternatives = buildAlternatives(
+    recipe,
+    byKey,
+    selectionInput,
+    selected
+  );
+  const excluded = buildExcluded(
+    catalog,
+    selected,
+    alternatives,
+    selectionInput,
+    recipe.recipeKey
+  );
 
   return {
     contractVersion: RECORA_PERSONA_COMPILATION_CONTRACT_VERSION,
@@ -273,42 +297,81 @@ function compileReadyInput(
   };
 }
 
-function findDistinctActorReview(
-  input: RecoraPromptGenerationInputV1,
+function validatePersonaSelectionInput(
+  input: RecoraPersonaSelectionInputV3
+): string[] {
+  const blockers: string[] = [];
+  if (input.market.country !== "JP") blockers.push("unsupported_country");
+  if (input.market.locale !== "ja-JP") blockers.push("unsupported_locale");
+  if (!input.subject.semanticName) blockers.push("primary_subject_name_missing");
+
+  const relationsByPair = new Map<string, Set<string>>();
+  for (const relation of input.actorRelations) {
+    if (
+      !relation.leftRoleKey ||
+      !relation.rightRoleKey ||
+      relation.leftRoleKey === relation.rightRoleKey
+    ) {
+      blockers.push("actor_relation_conflict");
+      continue;
+    }
+    const pair = actorRelationKey(
+      relation.leftRoleKey,
+      relation.rightRoleKey
+    );
+    const relations = relationsByPair.get(pair) ?? new Set<string>();
+    relations.add(relation.relation);
+    relationsByPair.set(pair, relations);
+  }
+  if (Array.from(relationsByPair.values()).some((items) => items.size > 1)) {
+    blockers.push("actor_relation_conflict");
+  }
+
+  return unique(blockers);
+}
+
+function findActorRelationReview(
+  input: RecoraPersonaSelectionInputV3,
   recipe: RecoraPersonaSelectionRecipeV3
 ): RecoraPersonaReviewQuestionV3 | null {
   const relationMap = new Map(
-    input.generationContext.actorRelations.map((item) => [
-      [item.leftRoleKey, item.rightRoleKey].sort().join("|"),
+    input.actorRelations.map((item) => [
+      actorRelationKey(item.leftRoleKey, item.rightRoleKey),
       item.relation
     ])
   );
 
   for (const selection of recipe.selections) {
     for (const supportingKey of selection.supportingBlueprintKeys ?? []) {
-      const pair = [selection.primaryBlueprintKey, supportingKey]
-        .sort()
-        .join("|");
-      if (relationMap.get(pair) === "distinct_actors") {
-        return {
-          code: "actor_relation_changes_persona_count",
-          message:
-            "同一Personaへまとめる予定の役割が別人物として確認されています。優先する5件を確認してください。",
-          allowedAnswers: [
-            "keep_primary",
-            "promote_supporting",
-            "review_persona_set"
-          ]
-        };
-      }
+      const relation = relationMap.get(
+        actorRelationKey(selection.primaryBlueprintKey, supportingKey)
+      );
+      if (relation === "same_actor") continue;
+
+      return {
+        code: "actor_relation_changes_persona_count",
+        message:
+          relation === "distinct_actors"
+            ? "同一Personaへまとめる予定の役割が別人物として確認されています。優先する5件を確認してください。"
+            : "同一Personaへまとめる役割が同一人物か確認できません。優先する5件を確認してください。",
+        allowedAnswers: [
+          "keep_primary",
+          "promote_supporting",
+          "review_persona_set"
+        ]
+      };
     }
   }
   return null;
 }
 
+function actorRelationKey(leftRoleKey: string, rightRoleKey: string): string {
+  return [leftRoleKey, rightRoleKey].sort().join("|");
+}
+
 function isConditionalBlueprintApplicable(
   blueprint: RecoraPersonaBlueprintV3,
-  input: RecoraPromptGenerationInputV1,
+  input: RecoraPersonaSelectionInputV3,
   recipeKey: string
 ): boolean {
   if (blueprint.kind !== "conditional") return true;
@@ -320,14 +383,15 @@ function isConditionalBlueprintApplicable(
   }
   if (blueprint.requiredSignalsAny.length === 0) return false;
   return blueprint.requiredSignalsAny.some((signal) =>
-    input.generationContext.structureSignals.includes(signal)
+    input.structureSignals.includes(signal)
   );
 }
 
 function validateSelected(
   selected: readonly RecoraSelectedPersonaV3[],
   recipe: RecoraPersonaSelectionRecipeV3,
-  input: RecoraPromptGenerationInputV1
+  input: RecoraPersonaSelectionInputV3,
+  byKey: ReadonlyMap<string, RecoraPersonaBlueprintV3>
 ): string[] {
   const blockers: string[] = [];
   if (selected.length !== RECORA_MEASUREMENT_PERSONA_SELECTED_COUNT) {
@@ -346,17 +410,35 @@ function validateSelected(
     blockers.push("selected_topic_effects_insufficient");
   }
 
+  for (const item of selected) {
+    const primary = byKey.get(item.primaryBlueprintKey);
+    const supporting = item.supportingBlueprintKeys.map((key) => byKey.get(key));
+    const modifiers = item.modifierKeys.map((key) => byKey.get(key));
+    if (
+      primary?.kind === "modifier" ||
+      supporting.some((blueprint) => blueprint?.kind === "modifier")
+    ) {
+      blockers.push("selected_modifier_standalone");
+    }
+    if (modifiers.some((blueprint) => blueprint?.kind !== "modifier")) {
+      blockers.push("compiler_internal_invariant");
+    }
+  }
+
   const coverage = new Set(selected.flatMap((item) => item.coverageDimensions));
   for (const required of recipe.requiredCoverage) {
     if (!coverage.has(required)) blockers.push("required_coverage_missing");
   }
 
-  const marketSides = new Set([
-    ...input.generationContext.customerSides,
-    ...selected.flatMap((item) => item.marketSides)
-  ]);
+  const selectedMarketSides = new Set(
+    selected.flatMap((item) => item.marketSides)
+  );
+  const inputMarketSides = new Set(input.customerSides);
   for (const required of recipe.requiredMarketSides) {
-    if (!marketSides.has(required)) {
+    if (
+      !inputMarketSides.has(required) ||
+      !selectedMarketSides.has(required)
+    ) {
       blockers.push("required_market_side_missing");
     }
   }
@@ -382,7 +464,7 @@ function replaceDuplicateSelections(
   duplicateIndexes: readonly number[],
   recipe: RecoraPersonaSelectionRecipeV3,
   byKey: ReadonlyMap<string, RecoraPersonaBlueprintV3>,
-  input: RecoraPromptGenerationInputV1,
+  input: RecoraPersonaSelectionInputV3,
   fingerprint: string
 ) {
   const used = new Set(selected.map((item) => item.selectionSemanticKey));
@@ -431,7 +513,7 @@ function replaceDuplicateSelections(
       topicInfluenceDimensions: replacement.topicInfluenceDimensions,
       displayName: replacement.label,
       description: replacement.description,
-      triggerSituation: `${input.subject.primary.name}について候補を探し、比較し、判断する場面`,
+      triggerSituation: `${input.subject.semanticName}について候補を探し、比較し、判断する場面`,
       primaryGoal: buildPrimaryGoal(replacement.coverageDimensions),
       selectionEvidence: [
         `recipe:${recipe.recipeKey}`,
@@ -445,7 +527,7 @@ function replaceDuplicateSelections(
 function buildAlternatives(
   recipe: RecoraPersonaSelectionRecipeV3,
   byKey: ReadonlyMap<string, RecoraPersonaBlueprintV3>,
-  input: RecoraPromptGenerationInputV1,
+  input: RecoraPersonaSelectionInputV3,
   selected: readonly RecoraSelectedPersonaV3[]
 ): RecoraPersonaAlternativeV3[] {
   const selectedKeys = new Set(
@@ -485,7 +567,8 @@ function buildExcluded(
   catalog: readonly RecoraPersonaBlueprintV3[],
   selected: readonly RecoraSelectedPersonaV3[],
   alternatives: readonly RecoraPersonaAlternativeV3[],
-  input: RecoraPromptGenerationInputV1
+  input: RecoraPersonaSelectionInputV3,
+  recipeKey: string
 ): RecoraPersonaExcludedV3[] {
   const used = new Set([
     ...selected.flatMap((item) => [
@@ -516,7 +599,7 @@ function buildExcluded(
         reasonCodes.push("modifier_not_standalone");
       } else if (
         item.kind === "conditional" &&
-        !isConditionalBlueprintApplicable(item, input, "")
+        !isConditionalBlueprintApplicable(item, input, recipeKey)
       ) {
         reasonCodes.push("conditional_side_not_customer");
       } else if (selectedGroups.has(item.semanticGroupKey)) {
