@@ -9,7 +9,83 @@ body:
 
         Risk / Execution / Spec level / Approval の選択は申告値です。OWNERまたは承認者が分類とblockerを確認し、Issue本文またはコメントへ正式記録するまで、このFormの入力だけで `Ready` にはなりません。
 
+        主領域は `docs/recora-development-domains.md` の9開発領域から1つ選びます。Phase番号、画面内分類、DB Schemaとは別の分類です。
+
         秘密情報、`.env`の値、token、API key、DB URL、credentialは記載・添付しないでください。
+
+  - type: dropdown
+    id: primary_domain
+    attributes:
+      label: "主領域"
+      description: "不具合の中心責務を持つ開発領域を1つ選択してください。"
+      multiple: false
+      options:
+        - "1. 公開サイト"
+        - "2. 顧客オンボーディング"
+        - "3. 顧客画面"
+        - "4. 管理画面"
+        - "5. プロンプト・測定設計"
+        - "6. AI測定・分析"
+        - "7. 品質・公開・レポート"
+        - "8. 顧客・契約・権限"
+        - "9. 共通基盤"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: related_domains
+    attributes:
+      label: "関連領域"
+      description: "主領域以外に直接関係する領域を選択してください。該当しない場合は未選択にします。主領域と同じ領域は選択しません。"
+      multiple: true
+      options:
+        - "1. 公開サイト"
+        - "2. 顧客オンボーディング"
+        - "3. 顧客画面"
+        - "4. 管理画面"
+        - "5. プロンプト・測定設計"
+        - "6. AI測定・分析"
+        - "7. 品質・公開・レポート"
+        - "8. 顧客・契約・権限"
+        - "9. 共通基盤"
+
+  - type: dropdown
+    id: implementation_phase
+    attributes:
+      label: "実装Phase"
+      description: "9領域の番号とは別の実装Phaseを選択してください。"
+      multiple: false
+      options:
+        - "Phase 3"
+        - "Phase 4"
+        - "Phase 5"
+        - "Phase 6"
+        - "Phase 7"
+        - "Phase 8"
+        - "Phase 9"
+        - "Phase 10"
+        - "Phase横断"
+        - "未確定"
+        - "該当なし"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: technical_layer
+    attributes:
+      label: "技術層・Schema"
+      description: "影響する主な技術配置を選択してください。複数選択可能です。「該当なし」と他の項目は同時に選択しません。"
+      multiple: true
+      options:
+        - "api"
+        - "publication"
+        - "measurement"
+        - "control"
+        - "audit"
+        - "その他"
+        - "該当なし"
+    validations:
+      required: true
 
   - type: textarea
     id: problem
