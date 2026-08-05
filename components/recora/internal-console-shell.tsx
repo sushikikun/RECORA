@@ -29,7 +29,7 @@ export function InternalConsoleShell({
       <div className="grid min-h-screen lg:grid-cols-[264px_minmax(0,1fr)]">
         <aside className="border-b border-[#DDE8E5] bg-[#FCFEFD] lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
           <div className="flex h-full flex-col">
-            <div className="px-5 pb-5 pt-6">
+            <div className="px-5 pb-4 pt-6">
               <Link href="/internal" className="flex items-center gap-3 rounded-xl px-1 py-1">
                 <LogoMark />
                 <span className="min-w-0">
@@ -37,14 +37,10 @@ export function InternalConsoleShell({
                   <span className="block text-xs font-bold tracking-wide text-[#667872]">ADMIN CONTROL ROOM</span>
                 </span>
               </Link>
+            </div>
 
-              <div className="mt-5 flex items-center justify-between rounded-xl border border-[#DDE8E5] bg-white px-3 py-2.5">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-[#7A8D87]">Environment</p>
-                  <p className="mt-0.5 text-xs font-bold text-[#243832]">ローカル限定</p>
-                </div>
-                <Badge className="rounded-full bg-[#E6F4F1] text-[#00695C] hover:bg-[#E6F4F1]">P0</Badge>
-              </div>
+            <div className="px-5 pb-2">
+              <p className="px-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#91A09B]">Operations</p>
             </div>
 
             <nav className="flex-1 space-y-1 overflow-y-auto px-4 pb-5" aria-label="管理画面">
@@ -63,31 +59,40 @@ export function InternalConsoleShell({
                   <p className="mt-0.5 text-[11px] font-medium text-[#7A8D87]">全P0領域を確認可能</p>
                 </div>
               </div>
+
+              <div className="mt-3 rounded-xl border border-[#E0E9E6] bg-white px-3 py-3">
+                <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#91A09B]">Development environment</p>
+                <div className="mt-2 space-y-2">
+                  <EnvironmentRow icon={<LockKeyhole className="h-3.5 w-3.5" />} label={access.routeStatusLabel} tone="amber" />
+                  <EnvironmentRow icon={<Database className="h-3.5 w-3.5" />} label={`Read DB: ${access.supabaseReadConfigLabel}`} tone={access.supabaseReadConfigLabel === "設定済み" ? "green" : "slate"} />
+                  <EnvironmentRow label={`認証: ${access.authStatusLabel}`} tone="slate" />
+                </div>
+              </div>
             </div>
           </div>
         </aside>
 
         <div className="min-w-0">
           <header className="sticky top-0 z-20 border-b border-[#DDE8E5] bg-white/95 backdrop-blur">
-            <div className="mx-auto flex min-h-[72px] w-full max-w-[1540px] flex-col gap-3 px-4 py-4 sm:px-6 xl:flex-row xl:items-center xl:justify-between xl:px-8">
+            <div className="mx-auto flex min-h-[76px] w-full max-w-[1540px] flex-col gap-3 px-4 py-4 sm:px-6 xl:flex-row xl:items-center xl:justify-between xl:px-8">
               <div className="min-w-0">
                 <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#00796B]">Recora Admin</p>
-                <h1 className="mt-1 truncate text-lg font-black tracking-[-0.02em] text-[#10231F]">
-                  {currentItem?.label ?? "管理画面"}
-                </h1>
+                <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <h1 className="truncate text-lg font-black tracking-[-0.02em] text-[#10231F]">
+                    {currentItem?.label ?? "管理画面"}
+                  </h1>
+                  {currentItem?.description ? (
+                    <p className="hidden max-w-2xl truncate text-xs font-semibold text-[#7A8D87] 2xl:block">{currentItem.description}</p>
+                  ) : null}
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge
-                  icon={<LockKeyhole className="h-3.5 w-3.5" />}
-                  label={access.routeStatusLabel}
-                  tone="amber"
-                />
-                <StatusBadge
-                  icon={<Database className="h-3.5 w-3.5" />}
-                  label={`Read DB: ${access.supabaseReadConfigLabel}`}
-                  tone={access.supabaseReadConfigLabel === "設定済み" ? "green" : "slate"}
-                />
-                <StatusBadge label={`認証: ${access.authStatusLabel}`} tone="slate" />
+                <Badge variant="outline" className="rounded-full border-[#CFE0DB] bg-[#F5FAF8] px-3 py-1 text-[11px] font-bold text-[#526D65]">
+                  対象: 全体
+                </Badge>
+                <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700">
+                  運用画面
+                </Badge>
               </div>
             </div>
           </header>
@@ -122,7 +127,7 @@ function InternalNavLink({ item, pathname }: { item: RecoraInternalNavItem; path
   );
 }
 
-function StatusBadge({
+function EnvironmentRow({
   icon,
   label,
   tone
@@ -132,18 +137,19 @@ function StatusBadge({
   tone: "green" | "amber" | "slate";
 }) {
   return (
-    <Badge
-      variant="outline"
-      className={cn(
-        "rounded-full px-2.5 py-1 text-[11px] font-bold",
-        tone === "green" && "border-emerald-200 bg-emerald-50 text-emerald-700",
-        tone === "amber" && "border-amber-200 bg-amber-50 text-amber-800",
-        tone === "slate" && "border-slate-200 bg-slate-50 text-slate-600"
-      )}
-    >
-      {icon}
-      {label}
-    </Badge>
+    <div className="flex items-center gap-2 text-[11px] font-bold text-[#60736C]">
+      <span
+        className={cn(
+          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
+          tone === "green" && "bg-emerald-50 text-emerald-700",
+          tone === "amber" && "bg-amber-50 text-amber-700",
+          tone === "slate" && "bg-slate-100 text-slate-500"
+        )}
+      >
+        {icon ?? <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+      </span>
+      <span className="truncate">{label}</span>
+    </div>
   );
 }
 
