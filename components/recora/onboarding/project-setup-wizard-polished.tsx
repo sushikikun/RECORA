@@ -228,9 +228,7 @@ export function ProjectSetupWizardPolished() {
         return;
       }
       if (event.key !== "Tab") return;
-      const items = [closeRef.current, ...focusables(sheet.panel)].filter(
-        (item): item is HTMLElement => Boolean(item)
-      );
+      const items = focusables(sheet.panel);
       if (!items.length) return;
       const first = items[0];
       const last = items[items.length - 1];
