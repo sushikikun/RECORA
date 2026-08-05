@@ -21,9 +21,9 @@
 
 これらは互いを無条件に上書きする文書ではない。現在のIssueで確定した原則と最新OWNER決定が最優先であり、既存のアーキテクチャ文書、PR、未merge branchは、その決定と一致する範囲の参考資料として扱う。
 
-`recora-development-domains.md`の9分類は「何を開発しているか」を示す最上位分類である。Phaseは実装順、顧客画面・管理画面の領域は画面内の下位構成、`api / publication / measurement / control / audit`は技術配置として別軸で維持する。9分類の番号をPhase番号として扱わない。
+`recora-development-domains.md`の9分類は「何を開発しているか」を示す最上位分類である。Phaseは実装順、顧客画面・管理画面の領域は画面内の下位構成、`api / publication / measurement / control / audit`は技術配置として別軸で維持する。9分類の番号をPhase番号として扱わない。完了条件、承認、状態遷移は`recora-agentic-sdlc.md`が定義し、この分類は所有しない。
 
-PR #71は、未mergeのコード実装、デザイン値、モック値を再設計・修正可能な参考資料として扱う。一方、OWNERが採用した10の主要顧客画面と主要詳細画面の情報構成は正式な製品基準であり、Phase 3はこれを削除・変更せず安全なtenant / RLS / grant / classification境界を定義し、実際の画面実装とデータ接続はPhase 8が所有する。
+PR #71でmasterへ統合された顧客画面UIは、採用済みの画面構成と実装baselineとして扱う。データの実測正確性、本番接続、Product Truthは別途検証対象とする。
 
 同じ対象領域について内容が異なる場合は、次の順で扱う。
 
@@ -33,7 +33,7 @@ PR #71は、未mergeのコード実装、デザイン値、モック値を再設
 4. Phase別runbook
 5. 過去のhandoff、検証用メモ
 
-会話で恒久的な判断が確定した場合は、該当するIssueまたは正本文書へ反映してから完了扱いにする。ChatGPT / Codex会話だけを正本にしない。
+会話で恒久的な判断が確定した場合は、該当するIssueまたは正本文書へ反映する。ChatGPT / Codex会話だけを正本にしない。
 
 ## Measurement Designの訂正履歴
 
