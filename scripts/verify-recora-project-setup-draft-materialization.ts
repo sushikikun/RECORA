@@ -156,16 +156,21 @@ function assertStaticContract(): void {
   assert.match(materializer, /local_db_container_not_running/);
   assert.match(materializer, /local_db_container_port_mismatch/);
   assert.match(materializer, /project_primary_brand_identity_mismatch/);
+  assert.match(materializer, /project_primary_brand_domain_mismatch/);
   assert.match(materializer, /draft_competitor_missing_active_project_brand/);
+  assert.match(materializer, /draft_competitor_domain_mismatch/);
   assert.match(materializer, /project_language_mismatch/);
   assert.match(materializer, /project_region_mismatch/);
+  assert.match(materializer, /draft_multiple_regions_not_supported/);
   assert.match(cliSpec, /default is dry-run/i);
   assert.match(cliSpec, /No upsert/i);
   assert.match(cliSpec, /finalization update is last/i);
   assert.match(cliSpec, /not part of `recora:preflight`/i);
   assert.match(cliSpec, /publishes `5432\/tcp`/i);
   assert.match(cliSpec, /persisted active Brand/i);
+  assert.match(cliSpec, /exact normalized-domain agreement/i);
   assert.match(cliSpec, /Project `language` and `region`/i);
+  assert.match(cliSpec, /exactly one distinct canonical Draft region/i);
   assertContainerBindingNegativeFixtures();
 }
 
@@ -233,7 +238,7 @@ async function assertWrongLocalPortRejectedBeforeConnect(): Promise<void> {
 async function assertProjectBrandAuthorityValidation(): Promise<void> {
   const primaryMismatchSlug = "issue-159-primary-mismatch";
   await createEmptyProject(primaryMismatchSlug, {
-    primaryBrand: { name: "OtherBrand", domain: "other.example", aliases: ["OtherBrand"] }
+    primaryBrand: { name: "OtherBrand", domain: null, aliases: ["OtherBrand"] }
   });
   await expectMaterializationFailure(
     "primary brand mismatch",
@@ -241,6 +246,41 @@ async function assertProjectBrandAuthorityValidation(): Promise<void> {
     primaryMismatchSlug,
     /project_primary_brand_identity_mismatch/
   );
+
+  const primaryDomainMismatchSlug = "issue-159-primary-domain-mismatch";
+  await createEmptyProject(primaryDomainMismatchSlug, {
+    primaryBrand: { name: "Recora", domain: "wrong.example", aliases: ["Recora"] }
+  });
+  await expectMaterializationFailure(
+    "primary brand domain mismatch",
+    createDraft(primaryDomainMismatchSlug),
+    primaryDomainMismatchSlug,
+    /project_primary_brand_domain_mismatch/
+  );
+
+  const primaryDomainEquivalentSlug = "issue-159-primary-domain-equivalent";
+  await createEmptyProject(primaryDomainEquivalentSlug, {
+    primaryBrand: { name: "Recora", domain: "recora.example", aliases: ["Recora"] }
+  });
+  const primaryDomainEquivalentSummary = await materializeProjectSetupDraftObject(createDraft(primaryDomainEquivalentSlug, {
+    seedInput: { ...seedInput, officialSiteUrl: "https://www.recora.example/path?ref=fixture#top" }
+  }), {
+    projectSlug: primaryDomainEquivalentSlug,
+    databaseUrl,
+    cwd: repoRoot
+  });
+  assert.equal(primaryDomainEquivalentSummary.mode, "dry-run");
+
+  const primaryOneSidedDomainSlug = "issue-159-primary-one-sided-domain";
+  await createEmptyProject(primaryOneSidedDomainSlug, {
+    primaryBrand: { name: "Recora", domain: null, aliases: ["Recora"] }
+  });
+  const primaryOneSidedDomainSummary = await materializeProjectSetupDraftObject(createDraft(primaryOneSidedDomainSlug), {
+    projectSlug: primaryOneSidedDomainSlug,
+    databaseUrl,
+    cwd: repoRoot
+  });
+  assert.equal(primaryOneSidedDomainSummary.mode, "dry-run");
 
   const dbOnlyCompetitorSlug = "issue-159-db-competitor-contamination";
   await createEmptyProject(dbOnlyCompetitorSlug, { competitorBrands: [rivalBrandFixture()] });
@@ -266,6 +306,39 @@ async function assertProjectBrandAuthorityValidation(): Promise<void> {
     draftCompetitorMissingSlug,
     /draft_competitor_missing_active_project_brand/
   );
+
+  const competitorDomainMismatchSlug = "issue-159-competitor-domain-mismatch";
+  await createEmptyProject(competitorDomainMismatchSlug, {
+    competitorBrands: [{ name: "RivalCo", domain: "wrong.example", aliases: ["Rival Co", "RivalCo Platform"] }]
+  });
+  await expectMaterializationFailure(
+    "draft competitor domain mismatch",
+    createDraft(competitorDomainMismatchSlug, { competitors: [createCompetitorDraft()] }),
+    competitorDomainMismatchSlug,
+    /draft_competitor_domain_mismatch/
+  );
+
+  const competitorDomainEquivalentSlug = "issue-159-competitor-domain-equivalent";
+  await createEmptyProject(competitorDomainEquivalentSlug, { competitorBrands: [rivalBrandFixture()] });
+  const competitorDomainEquivalentSummary = await materializeProjectSetupDraftObject(createDraft(competitorDomainEquivalentSlug, {
+    competitors: [createCompetitorDraft({ domain: "https://www.rival.example/page?source=fixture#details" })]
+  }), {
+    projectSlug: competitorDomainEquivalentSlug,
+    databaseUrl,
+    cwd: repoRoot
+  });
+  assert.equal(competitorDomainEquivalentSummary.mode, "dry-run");
+
+  const competitorOneSidedDomainSlug = "issue-159-competitor-one-sided-domain";
+  await createEmptyProject(competitorOneSidedDomainSlug, { competitorBrands: [rivalBrandFixture()] });
+  const competitorOneSidedDomainSummary = await materializeProjectSetupDraftObject(createDraft(competitorOneSidedDomainSlug, {
+    competitors: [createCompetitorDraft({ domain: null })]
+  }), {
+    projectSlug: competitorOneSidedDomainSlug,
+    databaseUrl,
+    cwd: repoRoot
+  });
+  assert.equal(competitorOneSidedDomainSummary.mode, "dry-run");
 
   const normalMatchSlug = "issue-159-brand-authority-match";
   await createEmptyProject(normalMatchSlug, { competitorBrands: [rivalBrandFixture()] });
@@ -299,15 +372,56 @@ async function assertProjectLocaleBinding(): Promise<void> {
     /project_region_mismatch/
   );
 
-  const localeMatchSlug = "issue-159-locale-match";
-  await createEmptyProject(localeMatchSlug, { language: seedInput.language, region: "JP" });
-  const summary = await materializeProjectSetupDraftObject(createDraft(localeMatchSlug), {
-    projectSlug: localeMatchSlug,
+  const localeJapanMatchSlug = "issue-159-locale-japan-match";
+  await createEmptyProject(localeJapanMatchSlug, { language: seedInput.language, region: "JP" });
+  const japanSummary = await materializeProjectSetupDraftObject(createDraft(localeJapanMatchSlug, {
+    seedInput: { ...seedInput, regions: ["Japan"] }
+  }), {
+    projectSlug: localeJapanMatchSlug,
     databaseUrl,
     cwd: repoRoot
   });
-  assert.equal(summary.mode, "dry-run");
+  assert.equal(japanSummary.mode, "dry-run");
+
+  const localeSynonymMatchSlug = "issue-159-locale-synonym-match";
+  await createEmptyProject(localeSynonymMatchSlug, { language: seedInput.language, region: "JP" });
+  const synonymSummary = await materializeProjectSetupDraftObject(createDraft(localeSynonymMatchSlug, {
+    seedInput: { ...seedInput, regions: ["JP", "Japan", "JPN"] }
+  }), {
+    projectSlug: localeSynonymMatchSlug,
+    databaseUrl,
+    cwd: repoRoot
+  });
+  assert.equal(synonymSummary.mode, "dry-run");
+
+  const multiRegionSlug = "issue-159-locale-multi-region";
+  await createEmptyProject(multiRegionSlug, { language: seedInput.language, region: "JP" });
+  await expectMaterializationFailure(
+    "multiple draft regions",
+    createDraft(multiRegionSlug, { seedInput: { ...seedInput, regions: ["Japan", "United States"] } }),
+    multiRegionSlug,
+    /draft_multiple_regions_not_supported/
+  );
+
+  const emptyRegionSlug = "issue-159-locale-empty-region";
+  await createEmptyProject(emptyRegionSlug, { language: seedInput.language, region: "JP" });
+  await expectMaterializationFailure(
+    "empty draft regions",
+    createDraft(emptyRegionSlug, { seedInput: { ...seedInput, regions: [] } }),
+    emptyRegionSlug,
+    /draft_multiple_regions_not_supported/
+  );
+
+  const singleRegionMismatchSlug = "issue-159-locale-single-region-mismatch";
+  await createEmptyProject(singleRegionMismatchSlug, { language: seedInput.language, region: "JP" });
+  await expectMaterializationFailure(
+    "single draft region mismatch",
+    createDraft(singleRegionMismatchSlug, { seedInput: { ...seedInput, regions: ["United States"] } }),
+    singleRegionMismatchSlug,
+    /project_region_mismatch/
+  );
 }
+
 async function assertDryRunWriteZero(): Promise<void> {
 
   const slug = "issue-159-dry-run";

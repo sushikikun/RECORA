@@ -363,16 +363,14 @@ function buildProjectBrandAuthority(
   const primaryBrand = primaryBrands[0]!;
   const primaryIdentity = brandIdentityFromRow(primaryBrand);
   const draftIdentity = brandIdentityFromDraft(draft);
+  assertPrimaryBrandDomainAgreement(draftIdentity, primaryBrand);
   if (!identitySignalsOverlap(draftIdentity, primaryIdentity)) {
     throw new Error("project_primary_brand_identity_mismatch");
   }
 
   const activeCompetitors = activeBrands.filter((brand) => brand.brand_type === "competitor");
-  const competitorSignalSets = activeCompetitors.map((brand) => identitySignals(brandIdentityFromRow(brand)));
   for (const competitor of draft.competitors.filter((item) => item.reviewStatus === "approved")) {
-    const draftCompetitorSignals = competitorIdentitySignals(competitor);
-    const hasProjectBrand = competitorSignalSets.some((signals) => hasSignalOverlap(draftCompetitorSignals, signals));
-    if (!hasProjectBrand) {
+    if (!findMatchingActiveCompetitorBrand(competitor, activeCompetitors)) {
       throw new Error(`draft_competitor_missing_active_project_brand:${competitor.competitorId || "(missing)"}`);
     }
   }
@@ -393,8 +391,8 @@ function assertProjectLocaleMatchesDraft(project: ProjectRow, draft: ProjectSetu
   }
 
   const projectRegion = canonicalRegion(project.region);
-  const draftRegions = draft.seedInput.regions.map(canonicalRegion);
-  if (!draftRegions.includes(projectRegion)) {
+  const draftRegion = canonicalDraftRegion(draft.seedInput.regions);
+  if (draftRegion !== projectRegion) {
     throw new Error("project_region_mismatch");
   }
 }
@@ -441,6 +439,42 @@ function identitySignalsOverlap(left: BrandIdentityForDraft, right: BrandIdentit
   return hasSignalOverlap(identitySignals(left), identitySignals(right));
 }
 
+function assertPrimaryBrandDomainAgreement(draftIdentity: BrandIdentityForDraft, primaryBrand: BrandRow): void {
+  const draftDomain = normalizeAuthorityDomain(draftIdentity.officialSiteUrl ?? draftIdentity.domain);
+  const projectDomain = normalizeAuthorityDomain(primaryBrand.domain);
+  if (draftDomain && projectDomain && draftDomain !== projectDomain) {
+    throw new Error("project_primary_brand_domain_mismatch");
+  }
+}
+
+function findMatchingActiveCompetitorBrand(
+  competitor: CompetitorDraft,
+  activeCompetitors: readonly BrandRow[]
+): BrandRow | null {
+  const draftSignals = competitorIdentitySignals(competitor);
+  const draftDomain = normalizeAuthorityDomain(competitor.domain);
+  let domainConflictWithSharedSignal = false;
+
+  for (const brand of activeCompetitors) {
+    const projectSignals = identitySignals(brandIdentityFromRow(brand));
+    const signalsOverlap = hasSignalOverlap(draftSignals, projectSignals);
+    const projectDomain = normalizeAuthorityDomain(brand.domain);
+
+    if (draftDomain && projectDomain) {
+      if (draftDomain === projectDomain && signalsOverlap) return brand;
+      if (signalsOverlap) domainConflictWithSharedSignal = true;
+      continue;
+    }
+
+    if (signalsOverlap) return brand;
+  }
+
+  if (domainConflictWithSharedSignal) {
+    throw new Error(`draft_competitor_domain_mismatch:${competitor.competitorId || "(missing)"}`);
+  }
+  return null;
+}
+
 function hasSignalOverlap(left: readonly string[], right: readonly string[]): boolean {
   const rightSet = new Set(right);
   return left.some((signal) => rightSet.has(signal));
@@ -461,6 +495,29 @@ function canonicalRegion(value: string): string {
     return "US";
   }
   throw new Error("project_region_mismatch");
+}
+
+function canonicalDraftRegion(regions: readonly string[]): string {
+  const draftRegions = uniqueStrings(regions.map(canonicalRegion));
+  if (draftRegions.length !== 1) {
+    throw new Error("draft_multiple_regions_not_supported");
+  }
+  return draftRegions[0]!;
+}
+
+function normalizeAuthorityDomain(value: string | null | undefined): string | null {
+  if (!hasText(value)) return null;
+  const normalized = value.normalize("NFKC").trim().toLowerCase();
+  let host = normalized;
+  try {
+    host = new URL(normalized).hostname;
+  } catch {
+    host = normalized.split(/[/?#]/, 1)[0] ?? "";
+  }
+
+  host = host.replace(/:\d+$/, "").replace(/\.+$/, "");
+  if (host.startsWith("www.")) host = host.slice(4);
+  return host.trim() || null;
 }
 
 function normalizeIdentitySignal(value: string): string {
@@ -833,6 +890,7 @@ function buildSummary(
 }
 
 function assertDraftCanMaterializeBeforeDbWrite(draft: ProjectSetupDraft, projectSlug: string): void {
+  canonicalDraftRegion(draft.seedInput.regions);
   const result = tryMaterializeFixedPromptConfiguration(draft, { projectSlug });
   if (!result.ok) {
     throw new Error(`draft_not_materialization_ready:${result.blockers.join(",")}`);
