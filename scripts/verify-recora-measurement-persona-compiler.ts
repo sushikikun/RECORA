@@ -200,7 +200,8 @@ function verifyReadyFixtureInvariance(fixture: RecoraPersonaGoldFixtureV3) {
     }
   ];
 
-  for (const [index, variant] of variants.entries()) {
+  for (let index = 0; index < variants.length; index += 1) {
+    const variant = variants[index];
     const result = compileReadyRecoraMeasurementPersonasV3(variant);
     assert.equal(result.status, "ready", `${fixture.caseKey}:variant${index}`);
     assert.deepEqual(
@@ -235,7 +236,10 @@ function verifyCatalogGapFixtures() {
 
   const insufficient = RECORA_PERSONA_BLUEPRINT_CATALOG_V3.map((item) =>
     item.blueprintKey === "local.nearby_need_owner"
-      ? { ...item, topicInfluenceDimensions: ["need_and_candidate_discovery"] as const }
+      ? {
+          ...item,
+          topicInfluenceDimensions: ["need_and_candidate_discovery"] as const
+        }
       : item
   );
   const result3 = compileReadyRecoraMeasurementPersonasV3(
@@ -302,7 +306,9 @@ function toGoldSelection(item: {
   };
 }
 
-function resultIdentityShape(result: ReturnType<typeof compileReadyRecoraMeasurementPersonasV3>) {
+function resultIdentityShape(
+  result: ReturnType<typeof compileReadyRecoraMeasurementPersonasV3>
+) {
   return {
     status: result.status,
     recipeKey: result.recipeKey,
@@ -318,7 +324,9 @@ function resultIdentityShape(result: ReturnType<typeof compileReadyRecoraMeasure
   };
 }
 
-function catalogWithout(...keys: readonly string[]): readonly RecoraPersonaBlueprintV3[] {
+function catalogWithout(
+  ...keys: readonly string[]
+): readonly RecoraPersonaBlueprintV3[] {
   const removed = new Set(keys);
   return RECORA_PERSONA_BLUEPRINT_CATALOG_V3.filter(
     (item) => !removed.has(item.blueprintKey)
@@ -400,5 +408,5 @@ function reorderAndDuplicate(
 
 function reverseDuplicate<T>(values: readonly T[]): readonly T[] {
   if (values.length === 0) return [];
-  return [...values].reverse().concat(values[0]);
+  return Array.from(values).reverse().concat(values[0]);
 }
