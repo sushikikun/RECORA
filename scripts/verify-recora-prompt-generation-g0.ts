@@ -70,7 +70,10 @@ for (const values of enumCollections) {
   assert.equal(new Set(values).size, values.length);
 }
 
-assert.equal(RECORA_PROMPT_GENERATION_INPUT_CONTRACT_VERSION, "recora_prompt_generation_input_v1");
+assert.equal(
+  RECORA_PROMPT_GENERATION_INPUT_CONTRACT_VERSION,
+  "recora_prompt_generation_input_v1"
+);
 assert.equal(RECORA_PROMPT_GENERATION_LOCALE, "ja-JP");
 assert.deepEqual(RECORA_PROMPT_GENERATION_PROFILE_SIZES, [50, 100, 200]);
 
@@ -82,15 +85,29 @@ for (const fixture of RECORA_G0_READY_FIXTURES) {
   assert.equal(result.reviewQuestions.length, 0, fixture.caseKey);
   assert.equal(result.value.market.country, "JP", fixture.caseKey);
   assert.equal(result.value.market.locale, "ja-JP", fixture.caseKey);
-  assert.equal(result.value.trust.derived.derivedClass, fixture.expectedTrustClass, fixture.caseKey);
-  assert.match(result.value.generationIdentity.fingerprint, /^[0-9a-f]{64}$/, fixture.caseKey);
+  assert.equal(
+    result.value.trust.derived.derivedClass,
+    fixture.expectedTrustClass,
+    fixture.caseKey
+  );
+  assert.match(
+    result.value.generationIdentity.fingerprint,
+    /^[0-9a-f]{64}$/,
+    fixture.caseKey
+  );
 
   for (const signal of fixture.expectedStructureSignals) {
     assert.ok(
-      result.value.generationContext.structureSignals.includes(
-        signal as never
-      ),
+      result.value.generationContext.structureSignals.includes(signal as never),
       `${fixture.caseKey}: expected structure signal ${signal}`
+    );
+  }
+
+  for (const signal of fixture.unexpectedStructureSignals ?? []) {
+    assert.equal(
+      result.value.generationContext.structureSignals.includes(signal as never),
+      false,
+      `${fixture.caseKey}: unexpected structure signal ${signal}`
     );
   }
 
@@ -122,6 +139,10 @@ for (const fixture of RECORA_G0_NEEDS_REVIEW_FIXTURES) {
   const codes = result.reviewQuestions.map((item) => item.code);
   for (const code of fixture.expectedReviewCodes) {
     assert.ok(codes.includes(code), `${fixture.caseKey}: missing ${code}`);
+  }
+  for (const question of result.reviewQuestions) {
+    assert.notEqual(question.message, question.code, fixture.caseKey);
+    assert.ok(question.allowedAnswers.length > 0, fixture.caseKey);
   }
 }
 
@@ -190,9 +211,7 @@ assert.equal(regulatedTrust.decisionImpactLevel, "critical");
 assert.equal(regulatedTrust.derivedClass, "regulated");
 
 for (const fixture of RECORA_G0_LEGACY_SEED_FIXTURES) {
-  const result = adaptProjectSetupSeedInputToPromptGenerationInput(
-    fixture.seed
-  );
+  const result = adaptProjectSetupSeedInputToPromptGenerationInput(fixture.seed);
   assert.equal(result.status, fixture.expectedStatus, fixture.caseKey);
   assert.equal(result.value, null, fixture.caseKey);
   assert.ok(
@@ -206,6 +225,9 @@ for (const fixture of RECORA_G0_LEGACY_SEED_FIXTURES) {
     )
   );
 }
+
+verifyGenerationIdentityMeaning();
+verifyActorRelationKeyNormalization();
 
 console.log(
   JSON.stringify(
@@ -222,10 +244,94 @@ console.log(
   )
 );
 
+function verifyGenerationIdentityMeaning() {
+  const source = RECORA_G0_READY_FIXTURES[0].input;
+  const baseline = normalizeRecoraPromptGenerationInput(source);
+  assert.equal(baseline.status, "ready");
+  assert.ok(baseline.value);
+
+  const focusChanged = normalizeRecoraPromptGenerationInput(
+    setGenerationContext(source, { focusThemes: ["導入負荷"] })
+  );
+  assert.equal(focusChanged.status, "ready");
+  assert.ok(focusChanged.value);
+  assert.notEqual(
+    focusChanged.value.generationIdentity.fingerprint,
+    baseline.value.generationIdentity.fingerprint,
+    "focus theme values must affect generation identity"
+  );
+
+  const goalChanged = normalizeRecoraPromptGenerationInput(
+    setGenerationContext(source, { diagnosisGoals: ["リスク確認"] })
+  );
+  assert.equal(goalChanged.status, "ready");
+  assert.ok(goalChanged.value);
+  assert.notEqual(
+    goalChanged.value.generationIdentity.fingerprint,
+    baseline.value.generationIdentity.fingerprint,
+    "diagnosis goal values must affect generation identity"
+  );
+}
+
+function verifyActorRelationKeyNormalization() {
+  const source = RECORA_G0_READY_FIXTURES[0].input;
+  const humanReadable = normalizeRecoraPromptGenerationInput(
+    setGenerationContext(source, {
+      actorRelations: [
+        {
+          leftRoleKey: "Decision Owner",
+          rightRoleKey: "Payer-Role",
+          relation: "same_actor"
+        }
+      ]
+    })
+  );
+  const canonical = normalizeRecoraPromptGenerationInput(
+    setGenerationContext(source, {
+      actorRelations: [
+        {
+          leftRoleKey: "decision_owner",
+          rightRoleKey: "payer_role",
+          relation: "same_actor"
+        }
+      ]
+    })
+  );
+
+  assert.equal(humanReadable.status, "ready");
+  assert.equal(canonical.status, "ready");
+  assert.ok(humanReadable.value);
+  assert.ok(canonical.value);
+  assert.deepEqual(
+    humanReadable.value.generationContext.actorRelations,
+    canonical.value.generationContext.actorRelations
+  );
+  assert.equal(
+    humanReadable.value.generationIdentity.fingerprint,
+    canonical.value.generationIdentity.fingerprint
+  );
+}
+
+function setGenerationContext(
+  input: RecoraPromptGenerationDraftInputV1,
+  change: NonNullable<RecoraPromptGenerationDraftInputV1["generationContext"]>
+): RecoraPromptGenerationDraftInputV1 {
+  return {
+    ...input,
+    generationContext: {
+      ...input.generationContext,
+      ...change
+    }
+  };
+}
+
 function permuteOrderAndDuplicate(
   input: RecoraPromptGenerationDraftInputV1
 ): RecoraPromptGenerationDraftInputV1 {
-  const clone = JSON.parse(JSON.stringify(input)) as RecoraPromptGenerationDraftInputV1;
+  const clone = JSON.parse(
+    JSON.stringify(input)
+  ) as RecoraPromptGenerationDraftInputV1;
+
   return {
     ...clone,
     subject: clone.subject
@@ -243,11 +349,15 @@ function permuteOrderAndDuplicate(
     business: clone.business
       ? {
           ...clone.business,
-          secondaryDomains: reverseAndDuplicate(clone.business.secondaryDomains),
+          secondaryDomains: reverseAndDuplicate(
+            clone.business.secondaryDomains
+          ),
           secondaryOfferingModels: reverseAndDuplicate(
             clone.business.secondaryOfferingModels
           ),
-          commerceChannels: reverseAndDuplicate(clone.business.commerceChannels),
+          commerceChannels: reverseAndDuplicate(
+            clone.business.commerceChannels
+          ),
           commerceRoles: reverseAndDuplicate(clone.business.commerceRoles)
         }
       : undefined,
@@ -289,7 +399,9 @@ function permuteOrderAndDuplicate(
           lifecycleSignals: reverseAndDuplicate(
             clone.generationContext.lifecycleSignals
           ),
-          focusThemes: reverseAndDuplicate(clone.generationContext.focusThemes),
+          focusThemes: reverseAndDuplicate(
+            clone.generationContext.focusThemes
+          ),
           diagnosisGoals: reverseAndDuplicate(
             clone.generationContext.diagnosisGoals
           )
@@ -298,7 +410,9 @@ function permuteOrderAndDuplicate(
   };
 }
 
-function reverseAndDuplicate<T>(values: readonly T[] | undefined): readonly T[] {
+function reverseAndDuplicate<T>(
+  values: readonly T[] | undefined
+): readonly T[] {
   if (!values || values.length === 0) return [];
   return [...values].reverse().concat(values[0]);
 }
