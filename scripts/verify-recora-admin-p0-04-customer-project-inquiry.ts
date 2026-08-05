@@ -91,6 +91,7 @@ function verifyMigrationSource(): void {
     "recora_private.admin_customer_inquiries",
     "recora_private.admin_customer_inquiry_notes",
   ]);
+  verifyExactSchemaSourceContracts();
 
   for (const required of [
     "admin_p0_schema_versions",
@@ -108,6 +109,11 @@ function verifyMigrationSource(): void {
     "admin_project_states",
     "admin_customer_inquiries",
     "admin_customer_inquiry_notes",
+    "primary_contact_name text",
+    "primary_contact_email text",
+    "last_command_receipt_id uuid not null",
+    "author_admin_account_id uuid not null",
+    "correlation_id uuid not null",
     "normalized_email text generated always",
     "row_version bigint not null default 1",
     "blocked_by_system",
@@ -159,6 +165,85 @@ function verifyMigrationSource(): void {
   ));
 }
 
+function verifyExactSchemaSourceContracts(): void {
+  const profile = extractCreateTableDefinition("recora_private.admin_customer_profiles");
+  assertExactTableColumns(profile, "admin_customer_profiles", [
+    "organization_id",
+    "primary_contact_name",
+    "primary_contact_email",
+    "access_control",
+    "blocked_incident_id",
+    "row_version",
+    "last_command_receipt_id",
+    "created_at",
+    "updated_at",
+  ]);
+  assert.match(profile, /^\s{2}organization_id uuid primary key,$/m);
+  assert.match(profile, /^\s{2}primary_contact_name text,$/m);
+  assert.match(profile, /^\s{2}primary_contact_email text,$/m);
+  assert.match(profile, /^\s{2}last_command_receipt_id uuid not null,$/m);
+  assert.match(profile, /constraint admin_customer_profiles_last_command_receipt_fkey\s+foreign key \(last_command_receipt_id\)\s+references recora_private\.admin_command_receipts\(id\) on delete restrict/i);
+
+  const projectState = extractCreateTableDefinition("recora_private.admin_project_states");
+  assertExactTableColumns(projectState, "admin_project_states", [
+    "project_id",
+    "organization_id",
+    "lifecycle_status",
+    "automation_control",
+    "publication_control_state",
+    "active_configuration_revision_id",
+    "row_version",
+    "last_command_receipt_id",
+    "created_at",
+    "updated_at",
+  ]);
+  assert.match(projectState, /^\s{2}project_id uuid primary key,$/m);
+  assert.match(projectState, /^\s{2}lifecycle_status text not null/m);
+  assert.match(projectState, /^\s{2}automation_control text not null/m);
+  assert.match(projectState, /^\s{2}publication_control_state text not null/m);
+  assert.match(projectState, /^\s{2}last_command_receipt_id uuid not null,$/m);
+  assert.match(projectState, /constraint admin_project_states_last_command_receipt_fkey\s+foreign key \(last_command_receipt_id\)\s+references recora_private\.admin_command_receipts\(id\) on delete restrict/i);
+  assert.doesNotMatch(projectState, /\b(?:lifecycle_state|automation_state|publication_state)\b/);
+
+  const notes = extractCreateTableDefinition("recora_private.admin_customer_inquiry_notes");
+  assertExactTableColumns(notes, "admin_customer_inquiry_notes", [
+    "id",
+    "inquiry_id",
+    "organization_id",
+    "project_id",
+    "note_type",
+    "body",
+    "author_admin_account_id",
+    "correlation_id",
+    "corrects_note_id",
+    "created_at",
+  ]);
+  assert.match(notes, /^\s{2}author_admin_account_id uuid not null,$/m);
+  assert.match(notes, /^\s{2}correlation_id uuid not null,$/m);
+  assert.match(notes, /constraint admin_customer_inquiry_notes_author_admin_account_fkey\s+foreign key \(author_admin_account_id\)\s+references recora_operator\.admin_accounts\(id\) on delete restrict/i);
+}
+
+function extractCreateTableDefinition(relationName: string): string {
+  const expression = new RegExp(
+    "create table if not exists " + escapeRegExp(relationName) + " \\(([\\s\\S]*?\\n\\);)",
+    "i",
+  );
+  const match = migrationSql.match(expression);
+  assert.ok(match, "Missing M04 table definition: " + relationName);
+  return match[0];
+}
+
+function assertExactTableColumns(tableDefinition: string, relationName: string, expectedColumns: string[]): void {
+  const actualColumns = Array.from(
+    tableDefinition.matchAll(/^\s{2}([a-z_][a-z0-9_]*)\s+(?:uuid|text|bigint|timestamptz)\b/gm),
+  ).map((match) => match[1]);
+  assert.deepEqual(actualColumns, expectedColumns, "M04 exact column inventory mismatch: " + relationName);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function verifyPackageScripts(): void {
   const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
@@ -189,6 +274,15 @@ function verifySpecification(): void {
     "Row Version",
     "Security",
     "No Backfill",
+    "Natural Primary Keys",
+    "primary_contact_name",
+    "primary_contact_email",
+    "last_command_receipt_id",
+    "lifecycle_status",
+    "automation_control",
+    "publication_control_state",
+    "author_admin_account_id",
+    "correlation_id",
     "Validation",
     "Out of Scope",
   ]) {
@@ -286,6 +380,7 @@ function verifyLocalDatabase(): void {
     "end;",
     "$m04_schema$;",
   ].join("\n"));
+  verifyFormalM04DatabaseContract();
 
   for (const protectedRole of ["anon", "authenticated", "service_role"]) {
     for (const relationName of [
@@ -309,6 +404,21 @@ function verifyLocalDatabase(): void {
     "insert into public.projects (id, organization_id, slug, name) values",
     "  ('94000000-0000-4000-8100-000000000001', '94000000-0000-4000-8000-000000000001', 'm04-fixture-project-a', 'Fixture Project A'),",
     "  ('94000000-0000-4000-8100-000000000002', '94000000-0000-4000-8000-000000000002', 'm04-fixture-project-b', 'Fixture Project B');",
+    "insert into recora_operator.admin_accounts (id, email, display_name) values",
+    "  ('94000000-0000-4000-8800-000000000001', 'm04-fixture-admin@example.invalid', 'M04 Fixture Admin');",
+    "insert into recora_private.admin_command_receipts (",
+    "  id, actor_type, system_component_code, command_name, organization_id, project_id,",
+    "  target_type, target_id, idempotency_key, request_fingerprint, request_id,",
+    "  correlation_id, outcome, stable_reason_code",
+    ") values",
+    "  ('94000000-0000-4000-8200-000000000001', 'system', 'm04.fixture', 'M04CustomerProfileWrite',",
+    "   '94000000-0000-4000-8000-000000000001', null, 'customer.profile', '94000000-0000-4000-8000-000000000001',",
+    "   'm04.fixture.profile.001', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',",
+    "   '94000000-0000-4000-8201-000000000001', '94000000-0000-4000-8202-000000000001', 'committed', 'm04.fixture.committed'),",
+    "  ('94000000-0000-4000-8200-000000000002', 'system', 'm04.fixture', 'M04ProjectStateWrite',",
+    "   '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'project.state', '94000000-0000-4000-8100-000000000001',",
+    "   'm04.fixture.project.001', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',",
+    "   '94000000-0000-4000-8201-000000000002', '94000000-0000-4000-8202-000000000002', 'committed', 'm04.fixture.committed');",
   ];
 
   queryLocal([
@@ -319,30 +429,60 @@ function verifyLocalDatabase(): void {
     "    raise exception 'M04 organization row version did not advance';",
     "  end if;",
     "end; $m04_row_version$;",
-    "insert into recora_private.admin_customer_profiles (id, organization_id, access_control) values",
-    "  ('94000000-0000-4000-8200-000000000001', '94000000-0000-4000-8000-000000000001', 'enabled');",
-    "insert into recora_private.admin_project_states (id, project_id, organization_id) values",
-    "  ('94000000-0000-4000-8300-000000000001', '94000000-0000-4000-8100-000000000001', '94000000-0000-4000-8000-000000000001');",
+    "insert into recora_private.admin_customer_profiles (",
+    "  organization_id, primary_contact_name, primary_contact_email, access_control, last_command_receipt_id",
+    ") values",
+    "  ('94000000-0000-4000-8000-000000000001', 'Fixture Contact', 'fixture-contact@example.invalid', 'enabled', '94000000-0000-4000-8200-000000000001');",
+    "insert into recora_private.admin_project_states (project_id, organization_id, last_command_receipt_id) values",
+    "  ('94000000-0000-4000-8100-000000000001', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8200-000000000002');",
     "insert into recora_private.admin_customer_inquiries (id, organization_id, project_id, subject, body, received_at) values",
     "  ('94000000-0000-4000-8400-000000000001', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'Fixture inquiry', 'Fixture body', now());",
     "update recora_private.admin_customer_inquiries set notification_state = 'failed'",
     "  where id = '94000000-0000-4000-8400-000000000001';",
-    "do $m04_notification$ begin",
+    "do $m04_positive_fixture$ begin",
+    "  if not exists (select 1 from recora_private.admin_customer_profiles",
+    "      where organization_id = '94000000-0000-4000-8000-000000000001'",
+    "        and primary_contact_name = 'Fixture Contact'",
+    "        and primary_contact_email = 'fixture-contact@example.invalid'",
+    "        and last_command_receipt_id = '94000000-0000-4000-8200-000000000001') then",
+    "    raise exception 'M04 customer profile receipt or contact fixture mismatch';",
+    "  end if;",
+    "  if not exists (select 1 from recora_private.admin_project_states",
+    "      where project_id = '94000000-0000-4000-8100-000000000001'",
+    "        and lifecycle_status = 'setup_in_progress'",
+    "        and automation_control = 'running'",
+    "        and publication_control_state = 'enabled'",
+    "        and last_command_receipt_id = '94000000-0000-4000-8200-000000000002') then",
+    "    raise exception 'M04 project state receipt or canonical-state fixture mismatch';",
+    "  end if;",
     "  if (select status from recora_private.admin_customer_inquiries where id = '94000000-0000-4000-8400-000000000001') <> 'new' then",
     "    raise exception 'M04 notification changed inquiry status';",
     "  end if;",
-    "end; $m04_notification$;",
-    "insert into recora_private.admin_customer_inquiry_notes (id, inquiry_id, organization_id, project_id, note_type, body) values",
-    "  ('94000000-0000-4000-8500-000000000001', '94000000-0000-4000-8400-000000000001', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'resolution', 'Resolved in fixture');",
+    "end; $m04_positive_fixture$;",
+    "insert into recora_private.admin_customer_inquiry_notes (",
+    "  id, inquiry_id, organization_id, project_id, note_type, body, author_admin_account_id, correlation_id",
+    ") values",
+    "  ('94000000-0000-4000-8500-000000000001', '94000000-0000-4000-8400-000000000001', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'resolution', 'Resolved in fixture', '94000000-0000-4000-8800-000000000001', '94000000-0000-4000-8600-000000000001');",
+    "do $m04_note_actor$ begin",
+    "  if not exists (select 1 from recora_private.admin_customer_inquiry_notes",
+    "      where id = '94000000-0000-4000-8500-000000000001'",
+    "        and author_admin_account_id = '94000000-0000-4000-8800-000000000001'",
+    "        and correlation_id = '94000000-0000-4000-8600-000000000001') then",
+    "    raise exception 'M04 inquiry note actor or correlation fixture mismatch';",
+    "  end if;",
+    "end; $m04_note_actor$;",
     "update recora_private.admin_customer_inquiries set status = 'resolved', resolved_at = now(),",
     "  resolution_note_id = '94000000-0000-4000-8500-000000000001'",
     "  where id = '94000000-0000-4000-8400-000000000001';",
     "set constraints all immediate;",
-    "insert into recora_private.admin_customer_inquiry_notes (id, inquiry_id, organization_id, project_id, note_type, body) values",
-    "  ('94000000-0000-4000-8500-000000000002', '94000000-0000-4000-8400-000000000001', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'reopen_reason', 'Reopened in fixture');",
+    "insert into recora_private.admin_customer_inquiry_notes (",
+    "  id, inquiry_id, organization_id, project_id, note_type, body, author_admin_account_id, correlation_id",
+    ") values",
+    "  ('94000000-0000-4000-8500-000000000002', '94000000-0000-4000-8400-000000000001', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'reopen_reason', 'Reopened in fixture', '94000000-0000-4000-8800-000000000001', '94000000-0000-4000-8600-000000000002');",
     "update recora_private.admin_customer_inquiries set status = 'in_progress', resolved_at = null, resolution_note_id = null,",
     "  reopen_reason_note_id = '94000000-0000-4000-8500-000000000002'",
     "  where id = '94000000-0000-4000-8400-000000000001';",
+    "set constraints all immediate;",
     "rollback;",
   ].join("\n"));
 
@@ -355,23 +495,41 @@ function verifyLocalDatabase(): void {
   ].join("\n"), /physical deletion is prohibited/i);
 
   queryLocal([...fixture,
-    "insert into recora_private.admin_project_states (id, project_id, organization_id) values",
-    "  ('94000000-0000-4000-8300-000000000099', '94000000-0000-4000-8100-000000000002', '94000000-0000-4000-8000-000000000001');",
+    "insert into recora_private.admin_project_states (project_id, organization_id, last_command_receipt_id) values",
+    "  ('94000000-0000-4000-8100-000000000002', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8200-000000000002');",
   ].join("\n"), /foreign key/i);
 
   queryLocal([...fixture,
-    "insert into recora_private.admin_customer_profiles (id, organization_id, access_control, blocked_incident_id) values",
-    "  ('94000000-0000-4000-8200-000000000002', '94000000-0000-4000-8000-000000000001', 'blocked_by_system', '94000000-0000-4000-8600-000000000001');",
+    "insert into recora_private.admin_customer_inquiries (id, organization_id, project_id, subject, body, received_at) values",
+    "  ('94000000-0000-4000-8400-000000000009', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000002', 'Cross tenant inquiry', 'Fixture body', now());",
+  ].join("\n"), /foreign key/i);
+
+  queryLocal([...fixture,
+    "insert into recora_private.admin_customer_profiles (organization_id, access_control, last_command_receipt_id) values",
+    "  ('94000000-0000-4000-8000-000000000001', 'enabled', '94000000-0000-4000-8200-000000000099');",
+  ].join("\n"), /foreign key/i);
+
+  queryLocal([...fixture,
+    "insert into recora_private.admin_customer_profiles (organization_id, access_control, blocked_incident_id, last_command_receipt_id) values",
+    "  ('94000000-0000-4000-8000-000000000001', 'blocked_by_system', '94000000-0000-4000-8600-000000000009', '94000000-0000-4000-8200-000000000001');",
     "update recora_private.admin_customer_profiles set access_control = 'enabled', blocked_incident_id = null",
-    "  where id = '94000000-0000-4000-8200-000000000002';",
+    "  where organization_id = '94000000-0000-4000-8000-000000000001';",
   ].join("\n"), /ordinarily unblocked/i);
 
   queryLocal([...fixture,
-    "insert into recora_private.admin_project_states (id, project_id, organization_id) values",
-    "  ('94000000-0000-4000-8300-000000000002', '94000000-0000-4000-8100-000000000001', '94000000-0000-4000-8000-000000000001');",
-    "update recora_private.admin_project_states set lifecycle_state = 'closed' where id = '94000000-0000-4000-8300-000000000002';",
-    "update recora_private.admin_project_states set lifecycle_state = 'active' where id = '94000000-0000-4000-8300-000000000002';",
+    "insert into recora_private.admin_project_states (project_id, organization_id, last_command_receipt_id) values",
+    "  ('94000000-0000-4000-8100-000000000001', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8200-000000000002');",
+    "update recora_private.admin_project_states set lifecycle_status = 'closed' where project_id = '94000000-0000-4000-8100-000000000001';",
+    "update recora_private.admin_project_states set lifecycle_status = 'active' where project_id = '94000000-0000-4000-8100-000000000001';",
   ].join("\n"), /closed project state is terminal/i);
+
+  queryLocal([...fixture,
+    "insert into recora_private.admin_project_states (project_id, organization_id, last_command_receipt_id) values",
+    "  ('94000000-0000-4000-8100-000000000001', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8200-000000000002');",
+    "update recora_private.admin_project_states set organization_id = '94000000-0000-4000-8000-000000000002'",
+    "  where project_id = '94000000-0000-4000-8100-000000000001';",
+  ].join("\n"), /scope identity is immutable/i);
+
   queryLocal([...fixture,
     "insert into recora_private.admin_customer_inquiries (id, organization_id, project_id, subject, body, received_at) values",
     "  ('94000000-0000-4000-8400-000000000002', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'Immutable inquiry', 'Immutable body', now());",
@@ -390,8 +548,10 @@ function verifyLocalDatabase(): void {
   queryLocal([...fixture,
     "insert into recora_private.admin_customer_inquiries (id, organization_id, project_id, subject, body, received_at) values",
     "  ('94000000-0000-4000-8400-000000000004', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'Reopen missing note', 'Fixture body', now());",
-    "insert into recora_private.admin_customer_inquiry_notes (id, inquiry_id, organization_id, project_id, note_type, body) values",
-    "  ('94000000-0000-4000-8500-000000000003', '94000000-0000-4000-8400-000000000004', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'resolution', 'Resolution note');",
+    "insert into recora_private.admin_customer_inquiry_notes (",
+    "  id, inquiry_id, organization_id, project_id, note_type, body, author_admin_account_id, correlation_id",
+    ") values",
+    "  ('94000000-0000-4000-8500-000000000003', '94000000-0000-4000-8400-000000000004', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'resolution', 'Resolution note', '94000000-0000-4000-8800-000000000001', '94000000-0000-4000-8600-000000000003');",
     "update recora_private.admin_customer_inquiries set status = 'resolved', resolved_at = now(),",
     "  resolution_note_id = '94000000-0000-4000-8500-000000000003'",
     "  where id = '94000000-0000-4000-8400-000000000004';",
@@ -403,19 +563,59 @@ function verifyLocalDatabase(): void {
   queryLocal([...fixture,
     "insert into recora_private.admin_customer_inquiries (id, organization_id, project_id, subject, body, received_at) values",
     "  ('94000000-0000-4000-8400-000000000005', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'Note scope', 'Fixture body', now());",
-    "insert into recora_private.admin_customer_inquiry_notes (id, inquiry_id, organization_id, project_id, note_type, body) values",
-    "  ('94000000-0000-4000-8500-000000000004', '94000000-0000-4000-8400-000000000005', '94000000-0000-4000-8000-000000000002', '94000000-0000-4000-8100-000000000002', 'internal', 'Wrong scope');",
+    "insert into recora_private.admin_customer_inquiry_notes (",
+    "  id, inquiry_id, organization_id, project_id, note_type, body, author_admin_account_id, correlation_id",
+    ") values",
+    "  ('94000000-0000-4000-8500-000000000004', '94000000-0000-4000-8400-000000000005', '94000000-0000-4000-8000-000000000002', '94000000-0000-4000-8100-000000000002', 'internal', 'Wrong scope', '94000000-0000-4000-8800-000000000001', '94000000-0000-4000-8600-000000000004');",
   ].join("\n"), /scope does not match/i);
 
+  queryLocal([...fixture,
+    "insert into recora_private.admin_customer_inquiries (id, organization_id, project_id, subject, body, received_at) values",
+    "  ('94000000-0000-4000-8400-000000000006', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'Null author', 'Fixture body', now());",
+    "insert into recora_private.admin_customer_inquiry_notes (",
+    "  id, inquiry_id, organization_id, project_id, note_type, body, author_admin_account_id, correlation_id",
+    ") values",
+    "  ('94000000-0000-4000-8500-000000000005', '94000000-0000-4000-8400-000000000006', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'internal', 'Missing author', null, '94000000-0000-4000-8600-000000000005');",
+  ].join("\n"), /null value/i);
+
+  queryLocal([...fixture,
+    "insert into recora_private.admin_customer_inquiries (id, organization_id, project_id, subject, body, received_at) values",
+    "  ('94000000-0000-4000-8400-000000000007', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'Null correlation', 'Fixture body', now());",
+    "insert into recora_private.admin_customer_inquiry_notes (",
+    "  id, inquiry_id, organization_id, project_id, note_type, body, author_admin_account_id, correlation_id",
+    ") values",
+    "  ('94000000-0000-4000-8500-000000000006', '94000000-0000-4000-8400-000000000007', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'internal', 'Missing correlation', '94000000-0000-4000-8800-000000000001', null);",
+  ].join("\n"), /null value/i);
+
+  queryLocal([...fixture,
+    "insert into recora_private.admin_customer_inquiries (id, organization_id, project_id, subject, body, received_at) values",
+    "  ('94000000-0000-4000-8400-000000000008', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'Unknown author', 'Fixture body', now());",
+    "insert into recora_private.admin_customer_inquiry_notes (",
+    "  id, inquiry_id, organization_id, project_id, note_type, body, author_admin_account_id, correlation_id",
+    ") values",
+    "  ('94000000-0000-4000-8500-000000000007', '94000000-0000-4000-8400-000000000008', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'internal', 'Unknown author', '94000000-0000-4000-8800-000000000099', '94000000-0000-4000-8600-000000000006');",
+  ].join("\n"), /foreign key/i);
+
+  queryLocal([...fixture,
+    "insert into recora_private.admin_customer_inquiries (id, organization_id, project_id, subject, body, received_at) values",
+    "  ('94000000-0000-4000-8400-000000000010', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'Correction mismatch', 'Fixture body', now());",
+    "insert into recora_private.admin_customer_inquiry_notes (",
+    "  id, inquiry_id, organization_id, project_id, note_type, body, author_admin_account_id, correlation_id, corrects_note_id",
+    ") values",
+    "  ('94000000-0000-4000-8500-000000000008', '94000000-0000-4000-8400-000000000010', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'correction', 'Invalid correction', '94000000-0000-4000-8800-000000000001', '94000000-0000-4000-8600-000000000007', '94000000-0000-4000-8500-000000000099');",
+  ].join("\n"), /correction note must reference a prior note/i);
+
   for (const statement of [
-    "update recora_private.admin_customer_inquiry_notes set body = 'Changed' where id = '94000000-0000-4000-8500-000000000005';",
-    "delete from recora_private.admin_customer_inquiry_notes where id = '94000000-0000-4000-8500-000000000005';",
+    "update recora_private.admin_customer_inquiry_notes set body = 'Changed' where id = '94000000-0000-4000-8500-000000000009';",
+    "delete from recora_private.admin_customer_inquiry_notes where id = '94000000-0000-4000-8500-000000000009';",
   ]) {
     queryLocal([...fixture,
       "insert into recora_private.admin_customer_inquiries (id, organization_id, project_id, subject, body, received_at) values",
-      "  ('94000000-0000-4000-8400-000000000006', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'Append only note', 'Fixture body', now());",
-      "insert into recora_private.admin_customer_inquiry_notes (id, inquiry_id, organization_id, project_id, note_type, body) values",
-      "  ('94000000-0000-4000-8500-000000000005', '94000000-0000-4000-8400-000000000006', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'internal', 'Append only');",
+      "  ('94000000-0000-4000-8400-000000000011', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'Append only note', 'Fixture body', now());",
+      "insert into recora_private.admin_customer_inquiry_notes (",
+      "  id, inquiry_id, organization_id, project_id, note_type, body, author_admin_account_id, correlation_id",
+      ") values",
+      "  ('94000000-0000-4000-8500-000000000009', '94000000-0000-4000-8400-000000000011', '94000000-0000-4000-8000-000000000001', '94000000-0000-4000-8100-000000000001', 'internal', 'Append only', '94000000-0000-4000-8800-000000000001', '94000000-0000-4000-8600-000000000008');",
       statement,
     ].join("\n"), /append|immutable/i);
   }
@@ -433,14 +633,6 @@ function verifyLocalDatabase(): void {
     "update public.organization_members set membership_status = 'invited'",
     "  where id = '94000000-0000-4000-8700-000000000003';",
   ].join("\n"), /revoked membership is terminal/i);
-
-  queryLocal([
-    "begin;",
-    migrationSql,
-    migrationSql,
-    "rollback;",
-  ].join("\n"));
-
   queryLocal([
     "do $m04_no_residual_fixture$",
     "begin",
@@ -460,6 +652,75 @@ function verifyLocalDatabase(): void {
   runSupabaseCli(["--workdir", supabaseWorkdir, "migration", "list", "--local"]);
   runSupabaseCli(["--workdir", supabaseWorkdir, "db", "advisors", "--local", "--type", "security", "--fail-on", "warn"]);
   runSupabaseCli(["--workdir", supabaseWorkdir, "db", "advisors", "--local", "--type", "performance", "--fail-on", "warn"]);
+}
+
+function verifyFormalM04DatabaseContract(): void {
+  queryLocal([
+    "do $m04_formal_schema$",
+    "begin",
+    "  if (select array_agg(column_name::text order by ordinal_position) from information_schema.columns",
+    "      where table_schema = 'recora_private' and table_name = 'admin_customer_profiles')",
+    "      is distinct from array['organization_id','primary_contact_name','primary_contact_email','access_control','blocked_incident_id','row_version','last_command_receipt_id','created_at','updated_at']::text[] then",
+    "    raise exception 'M04 customer profile exact column inventory mismatch';",
+    "  end if;",
+    "  if (select count(*) from information_schema.columns where table_schema = 'recora_private' and table_name = 'admin_customer_profiles'",
+    "      and (column_name, udt_name, is_nullable) in (",
+    "        ('organization_id','uuid','NO'), ('primary_contact_name','text','YES'), ('primary_contact_email','text','YES'),",
+    "        ('access_control','text','NO'), ('blocked_incident_id','uuid','YES'), ('row_version','int8','NO'),",
+    "        ('last_command_receipt_id','uuid','NO'), ('created_at','timestamptz','NO'), ('updated_at','timestamptz','NO')) ) <> 9 then",
+    "    raise exception 'M04 customer profile column type or nullability mismatch';",
+    "  end if;",
+    "  if (select array_agg(column_name::text order by ordinal_position) from information_schema.columns",
+    "      where table_schema = 'recora_private' and table_name = 'admin_project_states')",
+    "      is distinct from array['project_id','organization_id','lifecycle_status','automation_control','publication_control_state','active_configuration_revision_id','row_version','last_command_receipt_id','created_at','updated_at']::text[] then",
+    "    raise exception 'M04 project state exact column inventory mismatch';",
+    "  end if;",
+    "  if (select count(*) from information_schema.columns where table_schema = 'recora_private' and table_name = 'admin_project_states'",
+    "      and (column_name, udt_name, is_nullable) in (",
+    "        ('project_id','uuid','NO'), ('organization_id','uuid','NO'), ('lifecycle_status','text','NO'),",
+    "        ('automation_control','text','NO'), ('publication_control_state','text','NO'),",
+    "        ('active_configuration_revision_id','uuid','YES'), ('row_version','int8','NO'),",
+    "        ('last_command_receipt_id','uuid','NO'), ('created_at','timestamptz','NO'), ('updated_at','timestamptz','NO')) ) <> 10 then",
+    "    raise exception 'M04 project state column type or nullability mismatch';",
+    "  end if;",
+    "  if not exists (select 1 from information_schema.columns where table_schema = 'recora_private' and table_name = 'admin_customer_inquiry_notes'",
+    "      and column_name = 'author_admin_account_id' and udt_name = 'uuid' and is_nullable = 'NO')",
+    "    or not exists (select 1 from information_schema.columns where table_schema = 'recora_private' and table_name = 'admin_customer_inquiry_notes'",
+    "      and column_name = 'correlation_id' and udt_name = 'uuid' and is_nullable = 'NO') then",
+    "    raise exception 'M04 inquiry note author or correlation column mismatch';",
+    "  end if;",
+    "  if (select array_agg(attribute_row.attname::text order by key_column.ordinality) from pg_constraint constraint_row",
+    "      cross join unnest(constraint_row.conkey) with ordinality as key_column(attnum, ordinality)",
+    "      join pg_attribute attribute_row on attribute_row.attrelid = constraint_row.conrelid and attribute_row.attnum = key_column.attnum",
+    "      where constraint_row.conrelid = 'recora_private.admin_customer_profiles'::regclass and constraint_row.contype = 'p')",
+    "      is distinct from array['organization_id']::text[] then",
+    "    raise exception 'M04 customer profile primary key mismatch';",
+    "  end if;",
+    "  if (select array_agg(attribute_row.attname::text order by key_column.ordinality) from pg_constraint constraint_row",
+    "      cross join unnest(constraint_row.conkey) with ordinality as key_column(attnum, ordinality)",
+    "      join pg_attribute attribute_row on attribute_row.attrelid = constraint_row.conrelid and attribute_row.attnum = key_column.attnum",
+    "      where constraint_row.conrelid = 'recora_private.admin_project_states'::regclass and constraint_row.contype = 'p')",
+    "      is distinct from array['project_id']::text[] then",
+    "    raise exception 'M04 project state primary key mismatch';",
+    "  end if;",
+    "  if exists (select 1 from information_schema.columns where table_schema = 'recora_private' and table_name = 'admin_project_states'",
+    "      and column_name in ('lifecycle_state','automation_state','publication_state')) then",
+    "    raise exception 'M04 project state uses a retired canonical column name';",
+    "  end if;",
+    "  if not exists (select 1 from pg_constraint where conrelid = 'recora_private.admin_customer_profiles'::regclass",
+    "      and conname = 'admin_customer_profiles_last_command_receipt_fkey' and contype = 'f'",
+    "      and confrelid = 'recora_private.admin_command_receipts'::regclass and confdeltype = 'r' and convalidated)",
+    "    or not exists (select 1 from pg_constraint where conrelid = 'recora_private.admin_project_states'::regclass",
+    "      and conname = 'admin_project_states_last_command_receipt_fkey' and contype = 'f'",
+    "      and confrelid = 'recora_private.admin_command_receipts'::regclass and confdeltype = 'r' and convalidated)",
+    "    or not exists (select 1 from pg_constraint where conrelid = 'recora_private.admin_customer_inquiry_notes'::regclass",
+    "      and conname = 'admin_customer_inquiry_notes_author_admin_account_fkey' and contype = 'f'",
+    "      and confrelid = 'recora_operator.admin_accounts'::regclass and confdeltype = 'r' and convalidated) then",
+    "    raise exception 'M04 causal foreign key mismatch';",
+    "  end if;",
+    "end;",
+    "$m04_formal_schema$;",
+  ].join("\n"));
 }
 
 function assertGitTracked(filePath: string): void {

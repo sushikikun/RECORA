@@ -13,6 +13,7 @@ normalized membership-email extensions needed to protect their tenant scope.
 - Execution: Local Codex
 - Spec level: Full
 - Owner Execute approval: 5189580181
+- Owner correction authority: 5190206310
 - Implementation baseline: 269f8bc3c2c1e56e16ade6ab6cbc5b64c7817e7c
 - M03 merge ancestor: 8d5d2a7cac4bbe13d07fe42bfbd855458bc80495
 
@@ -32,6 +33,32 @@ M04 creates exactly these private relations:
 
 It does not create M05 relations, browser views, APIs, routes, server actions,
 generic mutation RPCs, or a new authority path.
+
+## Natural Primary Keys and Causal Links
+
+`recora_private.admin_customer_profiles` has no surrogate `id`. Its natural
+primary key is `organization_id`, which restricts deletion through
+`public.organizations(id)`. Its exact private profile fields are
+`primary_contact_name`, `primary_contact_email`, `access_control`,
+`blocked_incident_id`, `row_version`, `last_command_receipt_id`, `created_at`,
+and `updated_at`. `last_command_receipt_id` is required and references
+`recora_private.admin_command_receipts(id)` with `ON DELETE RESTRICT`.
+
+`recora_private.admin_project_states` has no surrogate `id`. Its natural
+primary key is `project_id`; `organization_id` is retained in the composite
+ownership FK to `public.projects(id, organization_id)`. The canonical state
+columns are `lifecycle_status`, `automation_control`, and
+`publication_control_state`. `last_command_receipt_id` is required and
+references `recora_private.admin_command_receipts(id)` with `ON DELETE
+RESTRICT`.
+
+`recora_private.admin_customer_inquiry_notes` requires both
+`author_admin_account_id` and `correlation_id`. The author references
+`recora_operator.admin_accounts(id)` with `ON DELETE RESTRICT`; correlation
+is an explicit non-null UUID. The allowed implementation-support pointers are
+`resolution_note_id`, `reopen_reason_note_id`, and `corrects_note_id` only.
+They retain exact inquiry scope and note-type validation and do not replace the
+formal fields.
 
 ## Public Extensions
 
@@ -60,12 +87,15 @@ inquiry exactly.
 Customer access values are enabled, suspended_by_admin, and blocked_by_system.
 A system block requires a nullable-future incident UUID reference value,
 without adding a future incident foreign key, and cannot be ordinarily cleared.
+The nullable primary contact fields are private profile data and are not copied
+to audit or outbox data by M04.
 
-Project lifecycle values are setup_in_progress, active, and closed. Automation
-values are running, paused_by_admin, and blocked_by_system; publication values
-are enabled, paused_by_admin, and blocked_by_system. Closed lifecycle is
-terminal and system blocks cannot be ordinarily cleared.
-active_configuration_revision_id is nullable and has no future M09 foreign key.
+Project `lifecycle_status` values are setup_in_progress, active, and closed.
+`automation_control` values are running, paused_by_admin, and
+blocked_by_system; `publication_control_state` values are enabled,
+paused_by_admin, and blocked_by_system. Closed lifecycle is terminal and
+system blocks cannot be ordinarily cleared. `active_configuration_revision_id`
+is nullable and has no future M09 foreign key.
 
 ## P4-B Reuse
 
@@ -82,10 +112,12 @@ organization/project scope, subject, body, and received time are immutable.
 Assignment and notification updates do not change inquiry status.
 
 Notes are append-only and have types internal, resolution, correction, and
-reopen_reason. Their body is nonblank. Resolving requires a matching
-resolution note at transaction completion. Reopening resolved to in_progress
-requires a matching reopen-reason note at transaction completion. resolved_at
-is present only for resolved inquiries.
+reopen_reason. Their body is nonblank, every note records a non-null
+`author_admin_account_id` and `correlation_id`, and corrections can point only
+to a prior note for the same inquiry. Resolving requires a matching resolution
+note at transaction completion. Reopening resolved to in_progress requires a
+matching reopen-reason note at transaction completion. `resolved_at` is
+present only for resolved inquiries.
 
 ## Row Version
 

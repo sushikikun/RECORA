@@ -196,6 +196,162 @@ begin
     raise exception 'Recora Admin P0 M04 failed: partial private M04 relation inventory (% of 4)', private_relation_count;
   end if;
 
+  if private_relation_count = 4 then
+    if (
+      select array_agg(column_name order by ordinal_position)
+      from information_schema.columns
+      where table_schema = 'recora_private'
+        and table_name = 'admin_customer_profiles'
+    ) is distinct from array[
+      'organization_id',
+      'primary_contact_name',
+      'primary_contact_email',
+      'access_control',
+      'blocked_incident_id',
+      'row_version',
+      'last_command_receipt_id',
+      'created_at',
+      'updated_at'
+    ]::text[] or exists (
+      select 1
+      from (values
+        ('organization_id', 'uuid', 'NO'),
+        ('primary_contact_name', 'text', 'YES'),
+        ('primary_contact_email', 'text', 'YES'),
+        ('access_control', 'text', 'NO'),
+        ('blocked_incident_id', 'uuid', 'YES'),
+        ('row_version', 'int8', 'NO'),
+        ('last_command_receipt_id', 'uuid', 'NO'),
+        ('created_at', 'timestamptz', 'NO'),
+        ('updated_at', 'timestamptz', 'NO')
+      ) expected(column_name, udt_name, is_nullable)
+      left join information_schema.columns actual
+        on actual.table_schema = 'recora_private'
+       and actual.table_name = 'admin_customer_profiles'
+       and actual.column_name = expected.column_name
+      where actual.column_name is null
+        or actual.udt_name <> expected.udt_name
+        or actual.is_nullable <> expected.is_nullable
+    ) then
+      raise exception 'Recora Admin P0 M04 failed: incompatible existing customer profile column inventory';
+    end if;
+
+    if (
+      select array_agg(column_name order by ordinal_position)
+      from information_schema.columns
+      where table_schema = 'recora_private'
+        and table_name = 'admin_project_states'
+    ) is distinct from array[
+      'project_id',
+      'organization_id',
+      'lifecycle_status',
+      'automation_control',
+      'publication_control_state',
+      'active_configuration_revision_id',
+      'row_version',
+      'last_command_receipt_id',
+      'created_at',
+      'updated_at'
+    ]::text[] or exists (
+      select 1
+      from (values
+        ('project_id', 'uuid', 'NO'),
+        ('organization_id', 'uuid', 'NO'),
+        ('lifecycle_status', 'text', 'NO'),
+        ('automation_control', 'text', 'NO'),
+        ('publication_control_state', 'text', 'NO'),
+        ('active_configuration_revision_id', 'uuid', 'YES'),
+        ('row_version', 'int8', 'NO'),
+        ('last_command_receipt_id', 'uuid', 'NO'),
+        ('created_at', 'timestamptz', 'NO'),
+        ('updated_at', 'timestamptz', 'NO')
+      ) expected(column_name, udt_name, is_nullable)
+      left join information_schema.columns actual
+        on actual.table_schema = 'recora_private'
+       and actual.table_name = 'admin_project_states'
+       and actual.column_name = expected.column_name
+      where actual.column_name is null
+        or actual.udt_name <> expected.udt_name
+        or actual.is_nullable <> expected.is_nullable
+    ) then
+      raise exception 'Recora Admin P0 M04 failed: incompatible existing project state column inventory';
+    end if;
+
+    if exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'recora_private'
+        and table_name = 'admin_customer_inquiry_notes'
+        and column_name in ('author_admin_account_id', 'correlation_id')
+        and (udt_name <> 'uuid' or is_nullable <> 'NO')
+    ) or (
+      select count(*)
+      from information_schema.columns
+      where table_schema = 'recora_private'
+        and table_name = 'admin_customer_inquiry_notes'
+        and column_name in ('author_admin_account_id', 'correlation_id')
+    ) <> 2 then
+      raise exception 'Recora Admin P0 M04 failed: incompatible existing inquiry note author or correlation contract';
+    end if;
+
+    if (
+      select array_agg(attribute_row.attname order by key_column.ordinality)
+      from pg_constraint constraint_row
+      cross join unnest(constraint_row.conkey) with ordinality as key_column(attnum, ordinality)
+      join pg_attribute attribute_row
+        on attribute_row.attrelid = constraint_row.conrelid
+       and attribute_row.attnum = key_column.attnum
+      where constraint_row.conrelid = 'recora_private.admin_customer_profiles'::regclass
+        and constraint_row.contype = 'p'
+    ) is distinct from array['organization_id']::text[] then
+      raise exception 'Recora Admin P0 M04 failed: customer profile primary key must be organization_id';
+    end if;
+
+    if (
+      select array_agg(attribute_row.attname order by key_column.ordinality)
+      from pg_constraint constraint_row
+      cross join unnest(constraint_row.conkey) with ordinality as key_column(attnum, ordinality)
+      join pg_attribute attribute_row
+        on attribute_row.attrelid = constraint_row.conrelid
+       and attribute_row.attnum = key_column.attnum
+      where constraint_row.conrelid = 'recora_private.admin_project_states'::regclass
+        and constraint_row.contype = 'p'
+    ) is distinct from array['project_id']::text[] then
+      raise exception 'Recora Admin P0 M04 failed: project state primary key must be project_id';
+    end if;
+
+    if not exists (
+      select 1
+      from pg_constraint
+      where conrelid = 'recora_private.admin_customer_profiles'::regclass
+        and conname = 'admin_customer_profiles_last_command_receipt_fkey'
+        and contype = 'f'
+        and confrelid = 'recora_private.admin_command_receipts'::regclass
+        and confdeltype = 'r'
+        and convalidated
+    ) or not exists (
+      select 1
+      from pg_constraint
+      where conrelid = 'recora_private.admin_project_states'::regclass
+        and conname = 'admin_project_states_last_command_receipt_fkey'
+        and contype = 'f'
+        and confrelid = 'recora_private.admin_command_receipts'::regclass
+        and confdeltype = 'r'
+        and convalidated
+    ) or not exists (
+      select 1
+      from pg_constraint
+      where conrelid = 'recora_private.admin_customer_inquiry_notes'::regclass
+        and conname = 'admin_customer_inquiry_notes_author_admin_account_fkey'
+        and contype = 'f'
+        and confrelid = 'recora_operator.admin_accounts'::regclass
+        and confdeltype = 'r'
+        and convalidated
+    ) then
+      raise exception 'Recora Admin P0 M04 failed: incompatible existing M04 causal foreign key inventory';
+    end if;
+  end if;
+
   select count(*)
   into public_extension_count
   from (
@@ -436,13 +592,21 @@ begin
 end;
 $admin_p0_m04_public_triggers$;
 create table if not exists recora_private.admin_customer_profiles (
-  id uuid primary key default gen_random_uuid(),
-  organization_id uuid not null unique references public.organizations(id) on delete restrict,
+  organization_id uuid primary key,
+  primary_contact_name text,
+  primary_contact_email text,
   access_control text not null default 'enabled',
   blocked_incident_id uuid,
   row_version bigint not null default 1,
+  last_command_receipt_id uuid not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint admin_customer_profiles_organization_fkey
+    foreign key (organization_id)
+    references public.organizations(id) on delete restrict,
+  constraint admin_customer_profiles_last_command_receipt_fkey
+    foreign key (last_command_receipt_id)
+    references recora_private.admin_command_receipts(id) on delete restrict,
   constraint admin_customer_profiles_access_control_check
     check (access_control in ('enabled', 'suspended_by_admin', 'blocked_by_system')),
   constraint admin_customer_profiles_block_shape
@@ -454,26 +618,28 @@ create table if not exists recora_private.admin_customer_profiles (
 );
 
 create table if not exists recora_private.admin_project_states (
-  id uuid primary key default gen_random_uuid(),
-  project_id uuid not null,
+  project_id uuid primary key,
   organization_id uuid not null,
-  lifecycle_state text not null default 'setup_in_progress',
-  automation_state text not null default 'running',
-  publication_state text not null default 'enabled',
+  lifecycle_status text not null default 'setup_in_progress',
+  automation_control text not null default 'running',
+  publication_control_state text not null default 'enabled',
   active_configuration_revision_id uuid,
   row_version bigint not null default 1,
+  last_command_receipt_id uuid not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint admin_project_states_project_org_key unique (project_id, organization_id),
   constraint admin_project_states_project_org_fkey
     foreign key (project_id, organization_id)
     references public.projects(id, organization_id) on delete restrict,
+  constraint admin_project_states_last_command_receipt_fkey
+    foreign key (last_command_receipt_id)
+    references recora_private.admin_command_receipts(id) on delete restrict,
   constraint admin_project_states_lifecycle_check
-    check (lifecycle_state in ('setup_in_progress', 'active', 'closed')),
+    check (lifecycle_status in ('setup_in_progress', 'active', 'closed')),
   constraint admin_project_states_automation_check
-    check (automation_state in ('running', 'paused_by_admin', 'blocked_by_system')),
+    check (automation_control in ('running', 'paused_by_admin', 'blocked_by_system')),
   constraint admin_project_states_publication_check
-    check (publication_state in ('enabled', 'paused_by_admin', 'blocked_by_system')),
+    check (publication_control_state in ('enabled', 'paused_by_admin', 'blocked_by_system')),
   constraint admin_project_states_row_version_check check (row_version > 0)
 );
 
@@ -519,9 +685,13 @@ create table if not exists recora_private.admin_customer_inquiry_notes (
   project_id uuid,
   note_type text not null,
   body text not null,
-  author_admin_account_id uuid references recora_operator.admin_accounts(id) on delete restrict,
+  author_admin_account_id uuid not null,
+  correlation_id uuid not null,
   corrects_note_id uuid references recora_private.admin_customer_inquiry_notes(id) on delete restrict,
   created_at timestamptz not null default now(),
+  constraint admin_customer_inquiry_notes_author_admin_account_fkey
+    foreign key (author_admin_account_id)
+    references recora_operator.admin_accounts(id) on delete restrict,
   constraint admin_customer_inquiry_notes_type_check
     check (note_type in ('internal', 'resolution', 'correction', 'reopen_reason')),
   constraint admin_customer_inquiry_notes_body_check check (pg_catalog.btrim(body) <> ''),
@@ -566,7 +736,7 @@ create index if not exists admin_customer_profiles_access_idx
 on recora_private.admin_customer_profiles (access_control, organization_id);
 
 create index if not exists admin_project_states_org_lifecycle_idx
-on recora_private.admin_project_states (organization_id, lifecycle_state);
+on recora_private.admin_project_states (organization_id, lifecycle_status);
 
 create index if not exists admin_customer_inquiries_queue_idx
 on recora_private.admin_customer_inquiries (organization_id, status, received_at);
@@ -581,8 +751,7 @@ security invoker
 set search_path = ''
 as $$
 begin
-  if old.id is distinct from new.id
-    or old.organization_id is distinct from new.organization_id then
+  if old.organization_id is distinct from new.organization_id then
     raise exception 'M04 customer profile identity is immutable';
   end if;
 
@@ -608,24 +777,23 @@ security invoker
 set search_path = ''
 as $$
 begin
-  if old.id is distinct from new.id
-    or old.project_id is distinct from new.project_id
+  if old.project_id is distinct from new.project_id
     or old.organization_id is distinct from new.organization_id then
     raise exception 'M04 project state scope identity is immutable';
   end if;
 
-  if old.lifecycle_state = 'closed'
-    and new.lifecycle_state <> 'closed' then
+  if old.lifecycle_status = 'closed'
+    and new.lifecycle_status <> 'closed' then
     raise exception 'M04 closed project state is terminal';
   end if;
 
-  if old.automation_state = 'blocked_by_system'
-    and new.automation_state <> 'blocked_by_system' then
+  if old.automation_control = 'blocked_by_system'
+    and new.automation_control <> 'blocked_by_system' then
     raise exception 'M04 system-blocked automation cannot be ordinarily cleared';
   end if;
 
-  if old.publication_state = 'blocked_by_system'
-    and new.publication_state <> 'blocked_by_system' then
+  if old.publication_control_state = 'blocked_by_system'
+    and new.publication_control_state <> 'blocked_by_system' then
     raise exception 'M04 system-blocked publication cannot be ordinarily cleared';
   end if;
 
