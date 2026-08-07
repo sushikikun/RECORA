@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { AdminCustomerManagementPage } from "@/components/recora/admin-customer-management";
+import { AdminIncidentAuditPage } from "@/components/recora/admin-incident-audit";
 import { AdminMeasurementManagementPage } from "@/components/recora/admin-measurement-management";
 import { AdminPublicationManagementPage } from "@/components/recora/admin-publication-management";
 import { AdminQualityExceptionReviewPage } from "@/components/recora/admin-quality-exception-review";
@@ -9,6 +10,7 @@ import {
   isAdminDomainSlug
 } from "@/components/recora/admin-control-room-pages";
 import { buildAdminCustomerManagementSnapshot } from "@/lib/recora/admin-customer-management";
+import { buildAdminIncidentAuditSnapshot } from "@/lib/recora/admin-incident-audit";
 import { buildAdminMeasurementManagementSnapshot } from "@/lib/recora/admin-measurement-management";
 import { buildAdminPublicationManagementSnapshot } from "@/lib/recora/admin-publication-management";
 import { buildAdminQualityExceptionSnapshot } from "@/lib/recora/admin-quality-exception-review";
@@ -78,6 +80,10 @@ export default async function InternalAdminDomainPage({
         loadError={loadError}
       />
     );
+  }
+
+  if (params.domain === "incidents") {
+    return <AdminIncidentAuditPage snapshot={buildAdminIncidentAuditSnapshot()} />;
   }
 
   return <AdminDomainPage domain={params.domain} data={data} loadError={loadError} />;
