@@ -1,7 +1,7 @@
 import { AdminCustomerDetailPage } from "@/components/recora/admin-customer-detail";
 import { buildAdminCustomerDetailSnapshot } from "@/lib/recora/admin-customer-detail";
 import {
-  getRecoraAdminOperationsData,
+  getRecoraAdminOperationsDataForOrganization,
   type RecoraAdminOperationsData
 } from "@/lib/recora/db/admin-operations";
 
@@ -16,7 +16,7 @@ export default async function InternalCustomerDetailPage({
   let loadError: string | null = null;
 
   try {
-    data = await getRecoraAdminOperationsData();
+    data = await getRecoraAdminOperationsDataForOrganization(params.organizationId);
   } catch (error) {
     console.warn("Failed to load Recora customer detail compatibility read.", {
       type: error instanceof Error ? error.name : typeof error
