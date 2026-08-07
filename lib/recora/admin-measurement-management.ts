@@ -200,7 +200,7 @@ function buildSources(available: boolean): AdminMeasurementSourceStatus[] {
       label: "Project read",
       state: available ? "compatibility" : "not_connected",
       note: available
-        ? "既存Project readから参照"
+        ? "既存Project readの最新50件まで参照"
         : "Project compatibility readを取得できません"
     },
     {
@@ -208,7 +208,7 @@ function buildSources(available: boolean): AdminMeasurementSourceStatus[] {
       label: "Measurement run history",
       state: available ? "compatibility" : "not_connected",
       note: available
-        ? "完了runと最新measurement状態を参照"
+        ? "各Projectの最新50runから、AI回答を持つ完了measurementと最新状態を参照"
         : "既存run historyを取得できません"
     },
     {
@@ -268,8 +268,8 @@ function resolveAttention(
   ) {
     return {
       kind: "waiting",
-      label: "初回完了待ち",
-      reason: "完了済みmeasurement runをまだ確認できません。日次対象外・設定不備・障害のいずれかは推測しません。"
+      label: "観測付き初回完了待ち",
+      reason: "参照中history内で、AI回答を持つ完了measurement runを確認できません。日次対象外・設定不備・障害のいずれかは推測しません。"
     };
   }
 
