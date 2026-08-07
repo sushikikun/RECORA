@@ -2,12 +2,14 @@ import { notFound } from "next/navigation";
 
 import { AdminCustomerManagementPage } from "@/components/recora/admin-customer-management";
 import { AdminMeasurementManagementPage } from "@/components/recora/admin-measurement-management";
+import { AdminQualityExceptionReviewPage } from "@/components/recora/admin-quality-exception-review";
 import {
   AdminDomainPage,
   isAdminDomainSlug
 } from "@/components/recora/admin-control-room-pages";
 import { buildAdminCustomerManagementSnapshot } from "@/lib/recora/admin-customer-management";
 import { buildAdminMeasurementManagementSnapshot } from "@/lib/recora/admin-measurement-management";
+import { buildAdminQualityExceptionSnapshot } from "@/lib/recora/admin-quality-exception-review";
 import {
   getRecoraAdminOperationsData,
   type RecoraAdminOperationsData
@@ -53,6 +55,15 @@ export default async function InternalAdminDomainPage({
     return (
       <AdminMeasurementManagementPage
         snapshot={buildAdminMeasurementManagementSnapshot(data)}
+        loadError={loadError}
+      />
+    );
+  }
+
+  if (params.domain === "quality") {
+    return (
+      <AdminQualityExceptionReviewPage
+        snapshot={buildAdminQualityExceptionSnapshot(data)}
         loadError={loadError}
       />
     );
