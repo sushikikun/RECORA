@@ -67,7 +67,7 @@ export function AdminMeasurementManagementPage({
           <div className="min-w-0">
             <p className="text-sm font-black text-[#163C34]">例外中心の測定運用画面です</p>
             <p className="mt-1 text-sm leading-6 text-[#4C6B63]">
-              失敗、進行中、初回完了待ちを別状態として扱います。日次対象判定、run item進捗、AIモデルhealth、再試行commandは正式接続まで推測しません。
+              失敗、進行中、初回完了待ちを別状態として扱います。既存run historyは各Project最大50件です。日次対象判定、run item進捗、AIモデルhealth、再試行commandは正式接続まで推測しません。
             </p>
           </div>
         </div>
@@ -88,12 +88,12 @@ export function AdminMeasurementManagementPage({
           state={projectSource.state}
         />
         <SummaryMetric
-          label="完了済みmeasurement run"
+          label="参照中の完了measurement run"
           value={formatCount(snapshot.completedRunCount)}
           note={
             snapshot.projectsWithCompletedRuns === null
               ? "run historyを読み取れません"
-              : `${snapshot.projectsWithCompletedRuns} Projectに完了runあり`
+              : `${snapshot.projectsWithCompletedRuns} Project / 各Project最大50件`
           }
           icon={CheckCircle2}
           state={runSource.state}
@@ -167,7 +167,7 @@ export function AdminMeasurementManagementPage({
 
       <DataCard
         title="Project別測定状況"
-        description="measurementとaggregateを別状態として表示し、最新完了runの中身をProject単位で確認します。"
+        description="measurementとaggregateを別状態として表示し、既存history内の最新完了runをProject単位で確認します。"
         action={<SourcePill source={runSource} />}
       >
         {snapshot.projectCount === null ? (
@@ -190,7 +190,7 @@ export function AdminMeasurementManagementPage({
 
       <DataCard
         title="直近の完了measurement run"
-        description="全Projectの完了済みrunを完了日時順で最大8件表示します。"
+        description="各Project最大50件の既存historyから、完了日時順で最大8件表示します。"
         action={<Pill label={formatCount(snapshot.completedRunCount)} tone="slate" />}
       >
         {snapshot.completedRunCount === null ? (
@@ -202,7 +202,7 @@ export function AdminMeasurementManagementPage({
         ) : snapshot.recentRuns.length === 0 ? (
           <BoundaryState
             icon={Clock3}
-            title="完了済みmeasurement runは0件です"
+            title="参照中の完了measurement runは0件です"
             text="初回測定待ち、日次対象外、設定不備、障害のどれかは推測しません。"
           />
         ) : (
@@ -290,7 +290,7 @@ function ProjectMeasurementTable({
         <span>Project</span>
         <span>測定</span>
         <span>最新完了</span>
-        <span>Run</span>
+        <span>参照Run</span>
         <span>最新run内容</span>
         <span>集計</span>
         <span>操作</span>
@@ -317,7 +317,7 @@ function ProjectMeasurementTable({
                 {formatDateTime(project.latestCompletedAt)}
               </span>
             </ResponsiveValue>
-            <ResponsiveValue label="完了run">
+            <ResponsiveValue label="参照run">
               <span className="text-sm font-black text-[#243832]">{project.completedRunCount}件</span>
             </ResponsiveValue>
             <ResponsiveValue label="最新run内容">
