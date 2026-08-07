@@ -24,6 +24,7 @@ const PROJECT_COLUMNS =
 type RecoraSupabaseClient = SupabaseClient;
 
 export type RecoraAdminOperationProjectSummary = RecoraPhase1AdminProjectContext & {
+  organizationId: string;
   brandName: string;
   targetUrl: string;
   latestMeasurementAt: string | null;
@@ -101,6 +102,7 @@ async function getProjectSummary(project: RecoraProjectRow): Promise<RecoraAdmin
   });
 
   return {
+    organizationId: effectiveProject.organization_id,
     projectSlug: effectiveProject.slug,
     projectName: effectiveProject.name,
     brandName: primaryBrand?.name ?? effectiveProject.name,
