@@ -160,7 +160,7 @@ function buildReasonSummary(
     }
   }
 
-  return [...summaries.entries()]
+  return Array.from(summaries.entries())
     .map(([code, summary]) => ({
       code,
       message: summary.message,
