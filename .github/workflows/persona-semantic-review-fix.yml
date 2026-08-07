@@ -28,8 +28,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile scripts/.persona-semantic-review-fix.py
+          python -m py_compile \
+            scripts/.persona-semantic-review-fix.py \
+            scripts/.persona-semantic-review-followup.py
           python scripts/.persona-semantic-review-fix.py
+          python scripts/.persona-semantic-review-followup.py
           git diff --check
 
       - name: Install dependencies
@@ -63,6 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           rm scripts/.persona-semantic-review-fix.py
+          rm scripts/.persona-semantic-review-followup.py
           rm scripts/.emit-contract-safe-persona-alternatives.ts
           rm scripts/.update-persona-gold-alternatives.py
           rm .github/workflows/persona-semantic-review-fix.yml
@@ -110,6 +114,7 @@ jobs:
             scripts/verify-recora-measurement-persona-compiler.ts \
             docs/architecture/measurement-design/recora_measurement_persona_compiler_v3_ja.md \
             scripts/.persona-semantic-review-fix.py \
+            scripts/.persona-semantic-review-followup.py \
             scripts/.emit-contract-safe-persona-alternatives.ts \
             scripts/.update-persona-gold-alternatives.py \
             .github/workflows/persona-semantic-review-fix.yml
