@@ -454,3 +454,33 @@ package.json / package-lock.json
 ```
 
 Child AはDraft PRでHuman Reviewへ停止する。Ready化・merge・Issue #169 close・Child B開始は別承認まで行わない。
+
+## 20. Human Reviewで固定したCatalog authority
+
+Child AのHuman Reviewでは、Catalog自身の行からPolicyを逆算して誤りを正当化しないよう、次を固定した。
+
+```text
+44 Pack Policy
+→ Source Rowとは独立した固定データ
+
+Row applicability override
+→ Pack条件を狭めることだけ許可
+→ null化・許可外値追加はCatalog build時に失敗
+
+Secondary Coverage
+→ Blueprint primaryCoverage
+  ＋ review済み固定Registry
+  ＋ 行別明示
+→ tierだけを理由にT3/T5をT6へ昇格しない
+
+Semantic identity
+→ canonical semantic group
+  ＋ semantic variant
+→ 共通候補と業種固有候補のspecializationを比較可能にする
+
+Exact duplicate
+→ 日本語表示名ではなく、Lane・Entity・Question Act・Applicability・
+   Persona authority・semantic identityで判定
+```
+
+特に、Marketplaceの需要側・供給側・運営側、ECの販売経路、店舗の地理条件、高信頼領域のtrust条件をPack authorityとして保持する。

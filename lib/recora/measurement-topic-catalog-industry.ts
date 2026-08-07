@@ -36,7 +36,7 @@ export const RECORA_TOPIC_INDUSTRY_SOURCE_ROWS_V3 = [
     ["location.access_transport_parking","住所・交通・駐車・徒歩・バリアフリー","implementation_and_operation","T6","criteria_explanation",["location_facility","comparison_criterion","operational_requirement"]],
     ["location.hours_availability","営業時間・休業日・受付時間・空き状況","action_readiness","T4","action_readiness",["location_facility","action_requirement"]],
     ["location.booking_walkin_conditions","予約方法・当日受付・キャンセル・待ち時間","action_readiness","T4","action_readiness",["location_facility","action_requirement"]],
-    ["location.facility_equipment_environment","設備・個室・衛生・環境・利用条件","implementation_and_operation","T6","criteria_explanation",["product","comparison_criterion","operational_requirement"]],
+    ["location.facility_equipment_environment","設備・個室・衛生・環境・利用条件","implementation_and_operation","T6","criteria_explanation",["location_facility","comparison_criterion","operational_requirement"]],
     ["location.staff_service_experience","スタッフ対応・サービス品質・利用者体験","trust_and_reputation","T5","trust_risk_diagnostic",["location_facility","evidence_source"]],
     ["location.first_visit_preparation","初回来店時の持ち物・手続き・流れ・不安点","action_readiness","T4","action_readiness",["location_facility","action_requirement"]],
     ["location.alternate_location_transfer","別拠点・振替・転院・転校・店舗変更条件","comparison","T3","market_comparison",["location_facility","comparison_criterion"]],
@@ -141,7 +141,7 @@ export const RECORA_TOPIC_INDUSTRY_SOURCE_ROWS_V3 = [
     ["realestate.sale_marketing_transaction_process","売出準備・販売計画・内覧・交渉・引渡しの固有プロセス","implementation_and_operation","T6","criteria_explanation",["location_facility","comparison_criterion","operational_requirement"],{"applicability":{"structureSignalsAll":["real_estate_sale"]}}],
   ]),
   ...createRecoraTopicSourceRowsV3("finance_insurance", [
-    ["finance.need_product_discovery","目的に対応する金融商品・保障・相談先の種類","candidate_discovery","T1","market_discovery",["product","solution_category","price_fee"]],
+    ["finance.need_product_discovery","目的に対応する金融商品・保障・相談先の種類","candidate_discovery","T1","market_discovery",["product","service","professional_person","solution_category"]],
     ["finance.fee_risk_comparison","手数料・コスト・リスク・条件の比較","comparison","T2","market_comparison",["service","comparison_criterion","price_fee","risk_caution"]],
     ["finance.advisor_license_conflict","資格・登録・所属・報酬・利益相反","regulated_risk","T5","trust_risk_diagnostic",["service","evidence_source","price_fee","qualification_registration"]],
     ["finance.suitability_risk_tolerance","目的・期間・損失許容・返済能力への適合","regulated_risk","T3","trust_risk_diagnostic",["service","evidence_source","price_fee","risk_caution"]],
@@ -172,7 +172,7 @@ export const RECORA_TOPIC_INDUSTRY_SOURCE_ROWS_V3 = [
     ["beauty.treatment_service_experience","施術・サービス内容・所要時間・担当・設備・利用体験","implementation_and_operation","T6","criteria_explanation",["service","comparison_criterion","operational_requirement"]],
   ]),
   ...createRecoraTopicSourceRowsV3("construction_home_service", [
-    ["home_service.contractor_discovery","修理・施工・改修内容に対応できる事業者候補","candidate_discovery","T1","market_discovery",["service","solution_category","contract_condition"]],
+    ["home_service.contractor_discovery","修理・施工・改修内容に対応できる事業者候補","candidate_discovery","T1","market_discovery",["company","service","solution_category"]],
     ["home_service.site_scope_quote","現場条件・作業範囲・見積内訳・追加工事","action_readiness","T4","action_readiness"],
     ["home_service.schedule_access_preparation","日程・立会い・搬入・近隣対応・事前準備","action_readiness","T4","action_readiness"],
     ["home_service.license_insurance_safety","許可・資格・保険・安全・下請・本人確認","regulated_risk","T5","trust_risk_diagnostic",["service","evidence_source","qualification_registration","risk_caution"]],

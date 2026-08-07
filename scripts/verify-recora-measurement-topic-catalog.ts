@@ -14,7 +14,9 @@ import {
 } from "../lib/recora/measurement-topic-contract";
 import {
   RECORA_TOPIC_BLUEPRINT_CATALOG_V3,
+  RECORA_TOPIC_CANONICAL_SEMANTIC_GROUP_KEYS_V3,
   RECORA_TOPIC_EXPECTED_PACK_COUNTS_V3,
+  RECORA_TOPIC_PACK_POLICIES_V3,
   getRecoraMeasurementTopicBlueprintV3,
   validateRecoraMeasurementTopicCatalogV3
 } from "../lib/recora/measurement-topic-catalog";
@@ -186,6 +188,95 @@ for (const requiredKey of [
 ]) {
   assert(getRecoraMeasurementTopicBlueprintV3(requiredKey), requiredKey);
 }
+
+
+const policyByPack = new Map(
+  RECORA_TOPIC_PACK_POLICIES_V3.map((policy) => [policy.pack, policy])
+);
+sameJson(
+  policyByPack.get("common_discovery")?.allowedLaneKeys,
+  ["market_discovery", "criteria_explanation"],
+  "Common discovery lanes must be fixed policy data"
+);
+assert(
+  !policyByPack
+    .get("common_discovery")
+    ?.allowedLaneKeys.includes("self_branded_perception"),
+  "Common discovery must not inherit lanes from rows"
+);
+sameJson(
+  policyByPack.get("marketplace_demand")?.defaultMarketSidesAny,
+  ["demand_side_participant"],
+  "Marketplace demand side authority"
+);
+sameJson(
+  policyByPack.get("marketplace_supply")?.defaultMarketSidesAny,
+  ["supply_side_participant"],
+  "Marketplace supply side authority"
+);
+assert(
+  policyByPack
+    .get("location_facility")
+    ?.defaultApplicability.geographicBindingsAny?.includes(
+      "physical_location"
+    ),
+  "Location pack must require physical geography"
+);
+assert(
+  policyByPack
+    .get("finance_insurance")
+    ?.defaultApplicability.trustClassesAny?.includes("regulated"),
+  "Finance pack must retain trust authority"
+);
+
+sameJson(
+  getRecoraMeasurementTopicBlueprintV3("service.scope_fit")
+    ?.coverageDimensions,
+  ["T3"],
+  "T3 must not be promoted to T6 by tier"
+);
+sameJson(
+  getRecoraMeasurementTopicBlueprintV3("company.corporate_trust_reputation")
+    ?.coverageDimensions,
+  ["T5"],
+  "T5 must not be promoted to T6 by tier"
+);
+
+const fitSemanticKeys = [
+  "common.use_case_fit",
+  "commerce.product_need_fit",
+  "healthcare.care_need_scope",
+  "recruiting.hiring_workflow_fit"
+].map(
+  (key) => getRecoraMeasurementTopicBlueprintV3(key)?.semanticGroupKey
+);
+equal(new Set(fitSemanticKeys).size, 1, "Canonical fit semantic group");
+assert(
+  RECORA_TOPIC_CANONICAL_SEMANTIC_GROUP_KEYS_V3.includes(
+    fitSemanticKeys[0] as never
+  ),
+  "Canonical semantic group registry"
+);
+
+sameJson(
+  getRecoraMeasurementTopicBlueprintV3(
+    "location.facility_equipment_environment"
+  )?.expectedEntityTypes,
+  ["location_facility", "comparison_criterion", "operational_requirement"],
+  "Facility environment entity"
+);
+assert(
+  !getRecoraMeasurementTopicBlueprintV3(
+    "finance.need_product_discovery"
+  )?.expectedEntityTypes.includes("price_fee"),
+  "Finance discovery must not treat price as candidate entity"
+);
+assert(
+  !getRecoraMeasurementTopicBlueprintV3(
+    "home_service.contractor_discovery"
+  )?.expectedEntityTypes.includes("contract_condition"),
+  "Contractor discovery must not treat contract as candidate entity"
+);
 
 console.log(
   JSON.stringify(

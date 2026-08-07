@@ -378,6 +378,7 @@ export type RecoraTopicBlueprintV3 = {
   internalSummary: string;
   promptSubjectLabelRule: RecoraPromptSubjectLabelRuleV3;
   semanticGroupKey: string;
+  semanticVariantKey: string;
   applicability: RecoraTopicBlueprintApplicabilityV3;
   personaInfluencesAny:
     | readonly RecoraPersonaTopicInfluenceDimension[]
