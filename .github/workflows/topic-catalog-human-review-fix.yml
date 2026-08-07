@@ -28,7 +28,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile scripts/.apply-topic-catalog-human-review-fix.py
+          python -m py_compile \
+            scripts/.fix-topic-patch-targets.py \
+            scripts/.apply-topic-catalog-human-review-fix.py
+          python scripts/.fix-topic-patch-targets.py
           python scripts/.apply-topic-catalog-human-review-fix.py
           git diff --check
 
@@ -49,12 +52,11 @@ jobs:
 
       - name: Remove transport files and validate final scope
         shell: bash
-        env:
-          BASE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
           rm -f \
             scripts/.apply-topic-catalog-human-review-fix.py \
+            scripts/.fix-topic-patch-targets.py \
             scripts/.probe-delete-me \
             scripts/.topic-catalog-fix-marker \
             scripts/.topic-catalog-fix-transport-readme \
