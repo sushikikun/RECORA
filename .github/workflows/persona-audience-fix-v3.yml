@@ -24,12 +24,15 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Validate and apply reviewed patch
+      - name: Validate and apply reviewed patches
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile scripts/.persona-audience-fix.py
+          python -m py_compile \
+            scripts/.persona-audience-fix.py \
+            scripts/.persona-audience-supersedes-fix.py
           python scripts/.persona-audience-fix.py
+          python scripts/.persona-audience-supersedes-fix.py
           git diff --check
 
       - name: Install dependencies
@@ -52,6 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           rm scripts/.persona-audience-fix.py
+          rm scripts/.persona-audience-supersedes-fix.py
           rm .github/workflows/persona-audience-fix-v3.yml
           git diff --check
           python - <<'PY'
@@ -95,6 +99,7 @@ jobs:
             scripts/verify-recora-measurement-persona-compiler.ts \
             docs/architecture/measurement-design/recora_measurement_persona_compiler_v3_ja.md \
             scripts/.persona-audience-fix.py \
+            scripts/.persona-audience-supersedes-fix.py \
             .github/workflows/persona-audience-fix-v3.yml
           git diff --cached --check
           git commit -m "fix(recora): honor audience in persona selection"
