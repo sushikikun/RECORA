@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { AdminCustomerManagementPage } from "@/components/recora/admin-customer-management";
+import { AdminIncidentAuditManagementPage } from "@/components/recora/admin-incident-audit-management";
 import { AdminMeasurementManagementPage } from "@/components/recora/admin-measurement-management";
 import { AdminPublicationManagementPage } from "@/components/recora/admin-publication-management";
 import { AdminQualityExceptionReviewPage } from "@/components/recora/admin-quality-exception-review";
@@ -9,6 +10,7 @@ import {
   isAdminDomainSlug
 } from "@/components/recora/admin-control-room-pages";
 import { buildAdminCustomerManagementSnapshot } from "@/lib/recora/admin-customer-management";
+import { buildAdminIncidentAuditSnapshot } from "@/lib/recora/admin-incident-audit-management";
 import { buildAdminMeasurementManagementSnapshot } from "@/lib/recora/admin-measurement-management";
 import { buildAdminPublicationManagementSnapshot } from "@/lib/recora/admin-publication-management";
 import { buildAdminQualityExceptionSnapshot } from "@/lib/recora/admin-quality-exception-review";
@@ -30,7 +32,13 @@ export default async function InternalAdminDomainPage({
 
   let data: RecoraAdminOperationsData | null = null;
   let loadError: string | null = null;
-  const needsProjectData = ["customers", "measurements", "quality", "publication"].includes(params.domain);
+  const needsProjectData = [
+    "customers",
+    "measurements",
+    "quality",
+    "publication",
+    "incidents"
+  ].includes(params.domain);
 
   if (needsProjectData) {
     try {
@@ -75,6 +83,15 @@ export default async function InternalAdminDomainPage({
     return (
       <AdminPublicationManagementPage
         snapshot={buildAdminPublicationManagementSnapshot(data)}
+        loadError={loadError}
+      />
+    );
+  }
+
+  if (params.domain === "incidents") {
+    return (
+      <AdminIncidentAuditManagementPage
+        snapshot={buildAdminIncidentAuditSnapshot(data)}
         loadError={loadError}
       />
     );
