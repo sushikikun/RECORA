@@ -24,7 +24,7 @@ const PROJECT_COLUMNS =
 type RecoraSupabaseClient = SupabaseClient;
 
 export type RecoraAdminOperationProjectSummary = RecoraPhase1AdminProjectContext & {
-  organizationId: string;
+  organizationId?: string;
   brandName: string;
   targetUrl: string;
   latestMeasurementAt: string | null;
