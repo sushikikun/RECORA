@@ -67,7 +67,7 @@ export function AdminMeasurementManagementPage({
           <div className="min-w-0">
             <p className="text-sm font-black text-[#163C34]">例外中心の測定運用画面です</p>
             <p className="mt-1 text-sm leading-6 text-[#4C6B63]">
-              失敗、進行中、初回完了待ちを別状態として扱います。既存run historyは各Project最大50件です。日次対象判定、run item進捗、AIモデルhealth、再試行commandは正式接続まで推測しません。
+              失敗、進行中、観測付き初回完了待ちを別状態として扱います。既存readは最新50 Projectまで、run historyは各Project最新50件までです。日次対象判定、run item進捗、AIモデルhealth、再試行commandは正式接続まで推測しません。
             </p>
           </div>
         </div>
@@ -81,19 +81,19 @@ export function AdminMeasurementManagementPage({
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryMetric
-          label="管理対象Project"
+          label="参照中のProject"
           value={formatCount(snapshot.projectCount)}
           note={metricSourceNote(projectSource)}
           icon={Gauge}
           state={projectSource.state}
         />
         <SummaryMetric
-          label="参照中の完了measurement run"
+          label="参照中の観測付き完了run"
           value={formatCount(snapshot.completedRunCount)}
           note={
             snapshot.projectsWithCompletedRuns === null
               ? "run historyを読み取れません"
-              : `${snapshot.projectsWithCompletedRuns} Project / 各Project最大50件`
+              : `${snapshot.projectsWithCompletedRuns} Project / 各Project最新50run内`
           }
           icon={CheckCircle2}
           state={runSource.state}
@@ -106,7 +106,7 @@ export function AdminMeasurementManagementPage({
         <SummaryMetric
           label="計測中Project"
           value={formatCount(snapshot.runningProjectCount)}
-          note="進行中であり、失敗とは扱いません"
+          note="参照中Project内。進行中を失敗とは扱いません"
           icon={PlayCircle}
           state={runSource.state}
           tone={
@@ -118,7 +118,7 @@ export function AdminMeasurementManagementPage({
         <SummaryMetric
           label="失敗Project"
           value={formatCount(snapshot.failedProjectCount)}
-          note="最新measurement状態が失敗"
+          note="参照中Project内の最新measurement状態"
           icon={CircleAlert}
           state={runSource.state}
           tone={
@@ -131,7 +131,7 @@ export function AdminMeasurementManagementPage({
 
       <DataCard
         title="今、確認する測定"
-        description="失敗を最優先にし、進行中と初回完了待ちは障害と混同せず表示します。"
+        description="参照中Projectの失敗を最優先にし、進行中と観測付き初回完了待ちは障害と混同せず表示します。"
         action={
           snapshot.projectCount === null ? (
             <Pill label="read unavailable" tone="slate" />
@@ -149,15 +149,15 @@ export function AdminMeasurementManagementPage({
         ) : snapshot.projectCount === 0 ? (
           <BoundaryState
             icon={Activity}
-            title="参照できるProjectは0件です"
-            text="現在のProject readで取得できる対象がありません。"
+            title="参照中のProjectは0件です"
+            text="既存Project readの最新50件枠で取得できる対象がありません。"
             positive
           />
         ) : snapshot.attentionQueue.length === 0 ? (
           <BoundaryState
             icon={CheckCircle2}
-            title="既存run read上の確認対象はありません"
-            text="日次対象判定、provider health、安全停止は未接続のため、この結果だけで測定基盤全体が正常とは断定しません。"
+            title="参照中run read上の確認対象はありません"
+            text="未参照Project、日次対象判定、provider health、安全停止は確認できないため、この結果だけで測定基盤全体が正常とは断定しません。"
             positive
           />
         ) : (
@@ -167,7 +167,7 @@ export function AdminMeasurementManagementPage({
 
       <DataCard
         title="Project別測定状況"
-        description="measurementとaggregateを別状態として表示し、既存history内の最新完了runをProject単位で確認します。"
+        description="参照中の最新50 Projectについて、measurementとaggregateを別状態として表示し、各Projectの最新50run内にある観測付き完了runを確認します。"
         action={<SourcePill source={runSource} />}
       >
         {snapshot.projectCount === null ? (
@@ -189,8 +189,8 @@ export function AdminMeasurementManagementPage({
       </DataCard>
 
       <DataCard
-        title="直近の完了measurement run"
-        description="各Project最大50件の既存historyから、完了日時順で最大8件表示します。"
+        title="直近の観測付き完了measurement run"
+        description="参照中Projectの各最新50runから、AI回答を持つ完了measurementを完了日時順で最大8件表示します。"
         action={<Pill label={formatCount(snapshot.completedRunCount)} tone="slate" />}
       >
         {snapshot.completedRunCount === null ? (
@@ -202,7 +202,7 @@ export function AdminMeasurementManagementPage({
         ) : snapshot.recentRuns.length === 0 ? (
           <BoundaryState
             icon={Clock3}
-            title="参照中の完了measurement runは0件です"
+            title="参照中の観測付き完了runは0件です"
             text="初回測定待ち、日次対象外、設定不備、障害のどれかは推測しません。"
           />
         ) : (
@@ -290,7 +290,7 @@ function ProjectMeasurementTable({
         <span>Project</span>
         <span>測定</span>
         <span>最新完了</span>
-        <span>参照Run</span>
+        <span>観測Run</span>
         <span>最新run内容</span>
         <span>集計</span>
         <span>操作</span>
@@ -317,7 +317,7 @@ function ProjectMeasurementTable({
                 {formatDateTime(project.latestCompletedAt)}
               </span>
             </ResponsiveValue>
-            <ResponsiveValue label="参照run">
+            <ResponsiveValue label="観測付きrun">
               <span className="text-sm font-black text-[#243832]">{project.completedRunCount}件</span>
             </ResponsiveValue>
             <ResponsiveValue label="最新run内容">
@@ -327,7 +327,7 @@ function ProjectMeasurementTable({
                   <p className="truncate text-[#899792]">{project.latestCompletedRun.searchMode ?? "search mode未設定"}</p>
                 </div>
               ) : (
-                <span className="text-xs font-bold text-[#899792]">完了runなし</span>
+                <span className="text-xs font-bold text-[#899792]">観測付き完了runなし</span>
               )}
             </ResponsiveValue>
             <ResponsiveValue label="集計">
