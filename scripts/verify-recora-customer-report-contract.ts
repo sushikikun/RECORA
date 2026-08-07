@@ -16,12 +16,14 @@ import {
   calculateRecoraCustomerReportSentiment,
   validateRecoraCustomerReportCrossContract,
   validateRecoraCustomerReportEvidenceBundle,
+  validateRecoraCustomerReportObservationInput,
   validateRecoraCustomerReportQuery,
   type RecoraCustomerReportEvidenceBundle
 } from "../lib/recora/customer-report-contract";
 import {
   RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING,
-  RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE,
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT_SOURCE_SUMMARY
 } from "./fixtures/recora-customer-report-contract-fixtures";
 
 validateRecoraCustomerReportCrossContract();
@@ -110,11 +112,46 @@ const secondSentimentRun = calculateRecoraCustomerReportSentiment(
 assert.deepEqual(firstSentimentRun, secondSentimentRun);
 assert.equal(firstSentimentRun.status, "available");
 assert.deepEqual(firstSentimentRun.counts, RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.expectedSentiment);
+assert.deepEqual(
+  firstSentimentRun.counts,
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT_SOURCE_SUMMARY.counts
+);
 const sentimentTotal = Object.values(firstSentimentRun.counts)
   .reduce((total, count) => total + count, 0);
-assert.equal(sentimentTotal, 25);
-assert.equal(firstSentimentRun.denominator, 25);
+assert.equal(
+  sentimentTotal,
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT_SOURCE_SUMMARY.eligibleAnswerCount
+);
+assert.equal(
+  firstSentimentRun.denominator,
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT_SOURCE_SUMMARY.eligibleAnswerCount
+);
 assert.equal(firstSentimentRun.counts.unclassified, 1);
+const sentimentSourceObservations = RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.observations.filter(
+  (observation) =>
+    observation.brandScope === RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT_SOURCE_SUMMARY.brandScope &&
+    observation.answerStatus === RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT_SOURCE_SUMMARY.answerStatus &&
+    observation.promptConfigurationStatus === "finalized" &&
+    observation.measurementDesignStatus === "ready" &&
+    observation.panelRole === "core" &&
+    observation.metricEligibility.sentiment.state === "eligible"
+);
+assert.equal(
+  sentimentSourceObservations.length,
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT_SOURCE_SUMMARY.eligibleAnswerCount
+);
+assert.deepEqual(
+  RECORA_CUSTOMER_REPORT_SENTIMENTS.reduce(
+    (counts, sentiment) => ({
+      ...counts,
+      [sentiment]: sentimentSourceObservations.filter(
+        (observation) => observation.sentiment === sentiment
+      ).length
+    }),
+    {} as Record<(typeof RECORA_CUSTOMER_REPORT_SENTIMENTS)[number], number>
+  ),
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT_SOURCE_SUMMARY.counts
+);
 const emptySentiment = calculateRecoraCustomerReportSentiment(
   [],
   RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
@@ -142,6 +179,7 @@ validateRecoraCustomerReportQuery(
   "metric=ai_visibility_rate&range=30d&compare=previous_period&model=gpt-5.6&date=2026-08-05&domain=example.com&prompt=prompt-alpha"
 );
 validateRecoraCustomerReportQuery("date=2024-02-29");
+validateRecoraCustomerReportQuery("date=2000-02-29");
 validateRecoraCustomerReportQuery("?guide_q=AI%E8%A1%A8%E7%A4%BA%E7%8E%87");
 for (const query of [
   "return=%2Fdashboard",
@@ -167,6 +205,8 @@ assert.throws(() => validateRecoraCustomerReportQuery("metric=legacy_metric"), /
 assert.throws(() => validateRecoraCustomerReportQuery("date=2026%2"), /invalid percent encoding/);
 assert.throws(() => validateRecoraCustomerReportQuery("date=2026-02-31"), /invalid date value/);
 assert.throws(() => validateRecoraCustomerReportQuery("date=2025-02-29"), /invalid date value/);
+assert.throws(() => validateRecoraCustomerReportQuery("date=1900-02-29"), /invalid date value/);
+assert.throws(() => validateRecoraCustomerReportQuery("date=0000-01-01"), /invalid date value/);
 assert.throws(
   () => validateRecoraCustomerReportQuery("evidenceRef=550e8400-e29b-41d4-a716-446655440000"),
   /internal id/
@@ -186,6 +226,35 @@ const sentimentObservation = RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.observatio
   (observation) => observation.brandScope === "branded" && observation.sentiment !== null
 );
 assert.ok(sentimentObservation, "sentiment fixture observation missing");
+const excludedProviderErrorObservation = RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.observations.find(
+  (observation) => observation.observationId === "provider-error-answer"
+);
+assert.ok(excludedProviderErrorObservation, "provider error fixture observation missing");
+const validAbsentBrandObservation = RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.observations.find(
+  (observation) =>
+    observation.answerStatus === "valid_answer" &&
+    observation.brandScope === "non_branded" &&
+    observation.targetBrandMentioned === false &&
+    observation.approvedTargetBrandMentionCount === 0
+);
+assert.ok(validAbsentBrandObservation, "valid absent-brand fixture observation missing");
+validateRecoraCustomerReportObservationInput(
+  baselineObservation,
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+);
+validateRecoraCustomerReportObservationInput(
+  sentimentObservation,
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+);
+validateRecoraCustomerReportObservationInput(
+  excludedProviderErrorObservation,
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+);
+validateRecoraCustomerReportObservationInput(
+  validAbsentBrandObservation,
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+);
+assert.equal(excludedProviderErrorObservation.answerExclusionReason, "provider_error");
 assert.throws(
   () =>
     calculateRecoraCustomerReportMetrics(
@@ -201,56 +270,88 @@ assert.throws(
   /branded observation/
 );
 assert.throws(
-  () => calculateRecoraCustomerReportMetrics([
+  () => validateRecoraCustomerReportObservationInput(
     {
       ...baselineObservation,
       observationId: "unknown-brand-scope-answer",
       brandScope: "unknown_scope" as typeof baselineObservation.brandScope
-    }
-  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+    },
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
   /unknown brand scope/
 );
 assert.throws(
-  () => calculateRecoraCustomerReportMetrics([
+  () => calculateRecoraCustomerReportMetrics(
+    [
+      {
+        ...baselineObservation,
+        observationId: "unknown-brand-scope-aggregate-answer",
+        brandScope: "unknown_scope" as typeof baselineObservation.brandScope
+      }
+    ],
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
+  /unknown brand scope/
+);
+assert.throws(
+  () => validateRecoraCustomerReportObservationInput(
     {
       ...baselineObservation,
       observationId: "absent-brand-with-mentions-answer",
       targetBrandMentioned: false,
-      targetBrandFirstPosition: null
-    }
-  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+      targetBrandFirstPosition: null,
+      approvedTargetBrandMentionCount: 1
+    },
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
   /absent brand cannot have approved mentions/
 );
 assert.throws(
-  () => calculateRecoraCustomerReportMetrics([
+  () => calculateRecoraCustomerReportMetrics(
+    [
+      {
+        ...validAbsentBrandObservation,
+        observationId: "absent-brand-with-aggregate-mentions-answer",
+        approvedTargetBrandMentionCount: 1
+      }
+    ],
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
+  /absent brand cannot have approved mentions/
+);
+assert.throws(
+  () => validateRecoraCustomerReportObservationInput(
     {
       ...baselineObservation,
       observationId: "missing-exclusion-reason-answer",
       answerStatus: "provider_error",
       answerExclusionReason: null
-    }
-  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+    },
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
   /answer exclusion reason mismatch/
 );
 assert.throws(
-  () => calculateRecoraCustomerReportMetrics([
+  () => validateRecoraCustomerReportObservationInput(
     {
       ...baselineObservation,
       observationId: "mismatched-exclusion-reason-answer",
       answerStatus: "provider_error",
       answerExclusionReason: "timeout"
-    }
-  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+    },
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
   /answer exclusion reason mismatch/
 );
 assert.throws(
-  () => calculateRecoraCustomerReportMetrics([
+  () => validateRecoraCustomerReportObservationInput(
     {
       ...baselineObservation,
       observationId: "valid-answer-with-exclusion-reason",
       answerExclusionReason: "provider_error"
-    }
-  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+    },
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
   /valid answer cannot have an exclusion reason/
 );
 assert.throws(

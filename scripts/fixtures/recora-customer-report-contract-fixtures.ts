@@ -44,6 +44,23 @@ export const RECORA_CUSTOMER_REPORT_SYNTHETIC_EXPECTED_SENTIMENT = {
   unclassified: 1
 } as const satisfies Record<RecoraCustomerReportSentiment, number>;
 
+export const RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT_SOURCE_SUMMARY = {
+  brandScope: "branded",
+  answerStatus: "valid_answer",
+  eligibleAnswerCount: 25,
+  counts: {
+    positive: 18,
+    neutral: 4,
+    negative: 2,
+    unclassified: 1
+  }
+} as const satisfies {
+  brandScope: RecoraCustomerReportObservation["brandScope"];
+  answerStatus: RecoraCustomerReportObservation["answerStatus"];
+  eligibleAnswerCount: number;
+  counts: Record<RecoraCustomerReportSentiment, number>;
+};
+
 export const RECORA_CUSTOMER_REPORT_SYNTHETIC_EVIDENCE: RecoraCustomerReportEvidenceBundle = {
   binding: RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING,
   items: [

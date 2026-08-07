@@ -293,7 +293,9 @@ export function calculateRecoraCustomerReportMetrics(
   binding: RecoraCustomerReportBinding
 ): readonly RecoraCustomerReportMetricResult[] {
   validateBinding(binding, "report");
-  observations.forEach((observation) => validateObservation(observation, binding));
+  observations.forEach((observation) =>
+    validateRecoraCustomerReportObservationInput(observation, binding)
+  );
 
   return RECORA_CUSTOMER_REPORT_METRIC_DEFINITIONS.map((definition) => {
     const eligible = observations.filter((observation) =>
@@ -339,7 +341,9 @@ export function calculateRecoraCustomerReportSentiment(
   binding: RecoraCustomerReportBinding
 ): RecoraCustomerReportSentimentResult {
   validateBinding(binding, "report");
-  observations.forEach((observation) => validateObservation(observation, binding));
+  observations.forEach((observation) =>
+    validateRecoraCustomerReportObservationInput(observation, binding)
+  );
   const eligible = observations.filter(isSentimentEligible);
   assertUniqueCoreWeight(eligible, "sentiment");
 
@@ -393,6 +397,16 @@ export function validateRecoraCustomerReportCrossContract(): void {
   assertUnique(RECORA_CUSTOMER_REPORT_METRIC_DEFINITIONS.map((item) => item.label), "customer metric labels");
   assertUnique(RECORA_CUSTOMER_REPORT_QUERY_KEYS, "query keys");
   assertUnique(RECORA_CUSTOMER_REPORT_ROUTES.map((route) => route.path), "route paths");
+  assertSameStringSet(
+    RECORA_CUSTOMER_REPORT_BRAND_SCOPES,
+    ["non_branded", "branded", "named_comparison"],
+    "customer report brand scopes"
+  );
+  assertSameStringSet(
+    RECORA_CUSTOMER_REPORT_SENTIMENTS,
+    ["positive", "neutral", "negative", "unclassified"],
+    "customer report sentiments"
+  );
   assertSameStringSet(
     RECORA_CUSTOMER_REPORT_ANSWER_EXCLUSION_REASONS,
     RECORA_VALID_RESPONSE_STATUSES.filter((status) => status !== "valid_answer"),
@@ -464,9 +478,9 @@ export function buildRecoraCustomerReportPath(
   return route.path.replace("{id}", reportReference);
 }
 
-function validateObservation(
+export function validateRecoraCustomerReportObservationInput(
   observation: RecoraCustomerReportObservation,
-  binding: RecoraCustomerReportBinding
+  binding: RecoraCustomerReportBinding = observation.binding
 ): void {
   validateCustomerSafeReference(observation.observationId, "observation id");
   validateCustomerSafeReference(observation.intentKey, "intent key");
@@ -728,6 +742,7 @@ function round(value: number, decimals: number): number {
 function isIsoCalendarDate(value: string): boolean {
   if (!ISO_DATE_PATTERN.test(value)) return false;
   const [year, month, day] = value.split("-").map(Number);
+  if (year < 1) return false;
   const daysInMonth = [
     31,
     isLeapYear(year) ? 29 : 28,
