@@ -130,7 +130,7 @@ export function AdminCustomerManagementPage({
 
       <DataCard
         title="Project運用一覧"
-        description="Projectの測定・公開準備と、顧客アクセス・契約を別列で扱います。"
+        description="Projectの測定・公開準備と、顧客アクセス・契約を別列で扱います。顧客台帳とProject詳細へそれぞれ移動できます。"
         action={<SourcePill source={projectSource} />}
       >
         {snapshot.projectCount === null ? (
@@ -241,17 +241,18 @@ export function AdminCustomerManagementPage({
 function CustomerTable({ customers }: { customers: AdminCustomerSummary[] }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-[#E0E9E6] bg-white">
-      <div className="hidden grid-cols-[minmax(0,1.5fr)_120px_140px_140px] gap-4 border-b border-[#E6EEEC] bg-[#F8FBFA] px-4 py-3 text-[11px] font-black uppercase tracking-[0.08em] text-[#7A8D87] md:grid">
+      <div className="hidden grid-cols-[minmax(0,1.5fr)_110px_130px_140px_92px] gap-4 border-b border-[#E6EEEC] bg-[#F8FBFA] px-4 py-3 text-[11px] font-black uppercase tracking-[0.08em] text-[#7A8D87] md:grid">
         <span>顧客</span>
         <span>Project</span>
         <span>顧客ユーザー</span>
         <span>未対応問い合わせ</span>
+        <span>操作</span>
       </div>
       <div className="divide-y divide-[#E6EEEC]">
         {customers.map((customer) => (
           <div
             key={customer.organizationId}
-            className="grid gap-3 px-4 py-4 md:grid-cols-[minmax(0,1.5fr)_120px_140px_140px] md:items-center"
+            className="grid gap-3 px-4 py-4 md:grid-cols-[minmax(0,1.5fr)_110px_130px_140px_92px] md:items-center"
           >
             <div className="min-w-0">
               <p className="truncate text-sm font-black text-[#10231F]">{customer.organizationName}</p>
@@ -266,6 +267,12 @@ function CustomerTable({ customers }: { customers: AdminCustomerSummary[] }) {
             <LabeledMobileValue label="未対応問い合わせ" breakpoint="md">
               <PlainValue value={formatCount(customer.openInquiryCount)} />
             </LabeledMobileValue>
+            <Button asChild size="sm" variant="outline" className="w-full md:w-auto">
+              <Link href={`/internal/customers/${encodeURIComponent(customer.organizationId)}`}>
+                詳細
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
           </div>
         ))}
       </div>
@@ -284,59 +291,69 @@ function ProjectOperationsTable({
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-[#E0E9E6] bg-white">
-      <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(0,1.05fr)_110px_120px_110px_110px_28px] gap-3 border-b border-[#E6EEEC] bg-[#F8FBFA] px-4 py-3 text-[11px] font-black uppercase tracking-[0.08em] text-[#7A8D87] lg:grid">
+      <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,.95fr)_100px_115px_105px_100px_174px] gap-3 border-b border-[#E6EEEC] bg-[#F8FBFA] px-4 py-3 text-[11px] font-black uppercase tracking-[0.08em] text-[#7A8D87] lg:grid">
         <span>Project</span>
         <span>ブランド / URL</span>
         <span>測定</span>
         <span>公開準備</span>
         <span>顧客アクセス</span>
         <span>契約</span>
-        <span />
+        <span>操作</span>
       </div>
       <div className="divide-y divide-[#E6EEEC]">
         {projects.map((project) => (
-          <Link
+          <div
             key={project.projectSlug}
-            href={`/internal/projects/${encodeURIComponent(project.projectSlug)}`}
-            className="group block px-4 py-4 transition-colors hover:bg-[#F7FBFA]"
+            className="grid gap-3 px-4 py-4 transition-colors hover:bg-[#F7FBFA] lg:grid-cols-[minmax(0,1.2fr)_minmax(0,.95fr)_100px_115px_105px_100px_174px] lg:items-center"
           >
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1.05fr)_110px_120px_110px_110px_28px] lg:items-center">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-black text-[#10231F]">{project.projectName}</p>
-                <p className="mt-1 truncate text-xs font-semibold text-[#7A8D87]">{project.projectSlug}</p>
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-bold text-[#334A44]">{project.brandName}</p>
-                <p className="mt-1 truncate text-xs font-semibold text-[#82928D]">{project.targetUrl}</p>
-              </div>
-              <LabeledMobileValue label="測定">
-                <Pill label={project.measurementStatus} tone="slate" />
-              </LabeledMobileValue>
-              <LabeledMobileValue label="公開準備">
-                <Pill
-                  label={project.reportReadyStatusLabel}
-                  tone={project.reportReadyStatus === "customer_ready" ? "green" : "slate"}
-                />
-              </LabeledMobileValue>
-              <LabeledMobileValue label="顧客アクセス">
-                <Pill
-                  label={boundaryValue(project.customerAccessLabel, projectAccessState)}
-                  tone={boundaryTone(project.customerAccessLabel, projectAccessState)}
-                />
-              </LabeledMobileValue>
-              <LabeledMobileValue label="契約">
-                <Pill
-                  label={boundaryValue(project.contractAccessLabel, contractState)}
-                  tone={boundaryTone(project.contractAccessLabel, contractState)}
-                />
-              </LabeledMobileValue>
-              <ArrowRight className="hidden h-4 w-4 text-[#00796B] transition-transform group-hover:translate-x-0.5 lg:block" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-black text-[#10231F]">{project.projectName}</p>
+              <p className="mt-1 truncate text-xs font-semibold text-[#7A8D87]">{project.projectSlug}</p>
             </div>
-            <div className="mt-3 flex items-center justify-between lg:hidden">
-              <span className="text-xs font-bold text-[#00796B]">Project詳細を開く</span>
-              <ArrowRight className="h-4 w-4 text-[#00796B]" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-[#334A44]">{project.brandName}</p>
+              <p className="mt-1 truncate text-xs font-semibold text-[#82928D]">{project.targetUrl}</p>
             </div>
-          </Link>
+            <LabeledMobileValue label="測定">
+              <Pill label={project.measurementStatus} tone="slate" />
+            </LabeledMobileValue>
+            <LabeledMobileValue label="公開準備">
+              <Pill
+                label={project.reportReadyStatusLabel}
+                tone={project.reportReadyStatus === "customer_ready" ? "green" : "slate"}
+              />
+            </LabeledMobileValue>
+            <LabeledMobileValue label="顧客アクセス">
+              <Pill
+                label={boundaryValue(project.customerAccessLabel, projectAccessState)}
+                tone={boundaryTone(project.customerAccessLabel, projectAccessState)}
+              />
+            </LabeledMobileValue>
+            <LabeledMobileValue label="契約">
+              <Pill
+                label={boundaryValue(project.contractAccessLabel, contractState)}
+                tone={boundaryTone(project.contractAccessLabel, contractState)}
+              />
+            </LabeledMobileValue>
+            <div className="grid grid-cols-2 gap-2 lg:flex">
+              {project.organizationId ? (
+                <Button asChild size="sm" variant="outline" className="w-full lg:w-auto">
+                  <Link href={`/internal/customers/${encodeURIComponent(project.organizationId)}`}>
+                    顧客
+                  </Link>
+                </Button>
+              ) : (
+                <Button disabled size="sm" variant="outline" className="w-full lg:w-auto">
+                  顧客
+                </Button>
+              )}
+              <Button asChild size="sm" variant="outline" className="w-full lg:w-auto">
+                <Link href={`/internal/projects/${encodeURIComponent(project.projectSlug)}`}>
+                  Project
+                </Link>
+              </Button>
+            </div>
+          </div>
         ))}
       </div>
     </div>
