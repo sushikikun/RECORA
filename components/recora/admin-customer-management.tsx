@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
@@ -18,8 +19,10 @@ import { Button } from "@/components/ui/button";
 import type {
   AdminCustomerManagementSnapshot,
   AdminCustomerProjectCompatibilityItem,
+  AdminCustomerSourceKey,
   AdminCustomerSourceState,
-  AdminCustomerSourceStatus
+  AdminCustomerSourceStatus,
+  AdminCustomerSummary
 } from "@/lib/recora/admin-customer-management";
 import { cn } from "@/lib/utils";
 
@@ -30,8 +33,12 @@ export function AdminCustomerManagementPage({
   snapshot: AdminCustomerManagementSnapshot;
   loadError?: string | null;
 }) {
-  const projectSource = snapshot.sources.find((source) => source.key === "projects");
-  const projectReadAvailable = projectSource?.state === "compatibility";
+  const projectSource = getSource(snapshot, "projects");
+  const customerSource = getSource(snapshot, "customerProfiles");
+  const membershipSource = getSource(snapshot, "memberships");
+  const projectAccessSource = getSource(snapshot, "projectAccess");
+  const inquirySource = getSource(snapshot, "inquiries");
+  const contractSource = getSource(snapshot, "contracts");
 
   return (
     <div className="min-w-0 space-y-6">
@@ -71,37 +78,60 @@ export function AdminCustomerManagementPage({
         <SummaryMetric
           label="Project"
           value={formatCount(snapshot.projectCount)}
-          note={projectReadAvailable ? "既存compatibility read" : "Project read未接続"}
+          note={metricSourceNote(projectSource)}
           icon={Building2}
-          state={projectReadAvailable ? "compatibility" : "not_connected"}
+          state={projectSource.state}
         />
         <SummaryMetric
           label="顧客"
-          value="—"
-          note="M04 / M22 read model未接続"
+          value={formatCount(snapshot.customerCount)}
+          note={metricSourceNote(customerSource)}
           icon={UsersRound}
-          state="not_connected"
+          state={customerSource.state}
         />
         <SummaryMetric
           label="顧客ユーザー"
-          value="—"
-          note="P4-B / M22 read model未接続"
+          value={formatCount(snapshot.customerUserCount)}
+          note={metricSourceNote(membershipSource)}
           icon={UserRound}
-          state="not_connected"
+          state={membershipSource.state}
         />
         <SummaryMetric
           label="未対応問い合わせ"
-          value="—"
-          note="M04 / M22 read model未接続"
+          value={formatCount(snapshot.openInquiryCount)}
+          note={metricSourceNote(inquirySource)}
           icon={MessageSquareText}
-          state="not_connected"
+          state={inquirySource.state}
         />
       </div>
 
       <DataCard
-        title="顧客・Project運用一覧"
-        description="現時点ではProjectの実データだけを表示します。アクセス・契約状態は別authorityとして扱います。"
-        action={<Pill label={projectReadAvailable ? "Project read: 互換接続" : "Project read: 未接続"} tone={projectReadAvailable ? "green" : "slate"} />}
+        title="顧客一覧"
+        description="顧客entityはProjectとは分けて表示します。未接続時にProject名やブランド名を顧客名として代用しません。"
+        action={<SourcePill source={customerSource} />}
+      >
+        {customerSource.state === "not_connected" ? (
+          <UnavailableState
+            icon={UsersRound}
+            title="顧客read modelは未接続です"
+            text="M04/M22の正式readが接続されるまで、顧客entityや顧客数を生成しません。"
+          />
+        ) : snapshot.customers.length === 0 ? (
+          <UnavailableState
+            icon={UsersRound}
+            title="表示対象の顧客は0件です"
+            text="正式read modelが返した現在の顧客件数です。"
+            positive
+          />
+        ) : (
+          <CustomerTable customers={snapshot.customers} />
+        )}
+      </DataCard>
+
+      <DataCard
+        title="Project運用一覧"
+        description="Projectの測定・公開準備と、顧客アクセス・契約を別列で扱います。"
+        action={<SourcePill source={projectSource} />}
       >
         {snapshot.projectCount === null ? (
           <UnavailableState
@@ -111,11 +141,15 @@ export function AdminCustomerManagementPage({
         ) : snapshot.projects.length === 0 ? (
           <UnavailableState
             title="参照できるProjectがありません"
-            text="現在のcompatibility readで取得できるProjectは0件です。"
+            text="現在のProject readで取得できるProjectは0件です。"
             positive
           />
         ) : (
-          <ProjectOperationsTable projects={snapshot.projects} />
+          <ProjectOperationsTable
+            projects={snapshot.projects}
+            projectAccessState={projectAccessSource.state}
+            contractState={contractSource.state}
+          />
         )}
       </DataCard>
 
@@ -123,12 +157,14 @@ export function AdminCustomerManagementPage({
         <DataCard
           title="顧客ユーザー・Projectアクセス"
           description="organization membershipとProject accessを別authorityとして扱います。"
-          action={<Pill label="M05 / M22" tone="slate" />}
+          action={<Pill label="P4-B / M05 / M22" tone="slate" />}
         >
-          <UnavailableState
+          <BoundaryReadState
+            state={combineSourceStates(membershipSource.state, projectAccessSource.state)}
             icon={KeyRound}
-            title="正式read modelは未接続です"
-            text="membershipだけでProject accessを推測しません。M05の明示grantがread modelへ接続された後に表示します。"
+            unavailableTitle="正式read modelは未接続です"
+            unavailableText="membershipだけでProject accessを推測しません。P4-B/M05の正式readが接続された後に表示します。"
+            connectedText={`${formatCount(snapshot.customerUserCount)}の顧客ユーザーをread境界から参照できます。Project accessの詳細は権限境界と一緒に段階接続します。`}
           />
           <div className="mt-4 flex flex-wrap gap-2">
             <Button disabled size="sm">Projectアクセス管理</Button>
@@ -142,12 +178,14 @@ export function AdminCustomerManagementPage({
         <DataCard
           title="契約・Project利用権限"
           description="契約とProjectごとのservice/access windowを分離して表示する領域です。"
-          action={<Pill label="M06 / M22" tone="slate" />}
+          action={<SourcePill source={contractSource} />}
         >
-          <UnavailableState
+          <BoundaryReadState
+            state={contractSource.state}
             icon={FileCheck2}
-            title="契約read modelは未接続です"
-            text="契約状態、Project entitlement、service start/end、契約終了後6か月のpublished-report-only accessはM06接続後に表示します。"
+            unavailableTitle="契約read modelは未接続です"
+            unavailableText="契約状態、Project entitlement、service start/end、契約終了後6か月のpublished-report-only accessはM06接続後に表示します。"
+            connectedText="契約・Project entitlementの正式readが接続されています。Projectごとの利用権限は上のProject一覧にも独立表示します。"
           />
           <div className="mt-4">
             <Button disabled size="sm" variant="outline">契約・利用権限を管理</Button>
@@ -158,12 +196,14 @@ export function AdminCustomerManagementPage({
       <DataCard
         title="問い合わせ"
         description="顧客からの問い合わせと内部対応履歴を、Project運用状態とは分けて扱います。"
-        action={<Pill label="M04 / M22" tone="slate" />}
+        action={<SourcePill source={inquirySource} />}
       >
-        <UnavailableState
+        <BoundaryReadState
+          state={inquirySource.state}
           icon={MessageSquareText}
-          title="問い合わせread modelは未接続です"
-          text="未接続を『問い合わせ0件』とは表示しません。正式read model接続後に未対応・対応中・解決済みを表示します。"
+          unavailableTitle="問い合わせread modelは未接続です"
+          unavailableText="未接続を『問い合わせ0件』とは表示しません。正式read model接続後に未対応・対応中・解決済みを表示します。"
+          connectedText={`未対応問い合わせは${formatCount(snapshot.openInquiryCount)}です。詳細一覧は問い合わせread modelの権限境界に従って表示します。`}
         />
       </DataCard>
 
@@ -198,7 +238,50 @@ export function AdminCustomerManagementPage({
   );
 }
 
-function ProjectOperationsTable({ projects }: { projects: AdminCustomerProjectCompatibilityItem[] }) {
+function CustomerTable({ customers }: { customers: AdminCustomerSummary[] }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[#E0E9E6] bg-white">
+      <div className="hidden grid-cols-[minmax(0,1.5fr)_120px_140px_140px] gap-4 border-b border-[#E6EEEC] bg-[#F8FBFA] px-4 py-3 text-[11px] font-black uppercase tracking-[0.08em] text-[#7A8D87] md:grid">
+        <span>顧客</span>
+        <span>Project</span>
+        <span>顧客ユーザー</span>
+        <span>未対応問い合わせ</span>
+      </div>
+      <div className="divide-y divide-[#E6EEEC]">
+        {customers.map((customer) => (
+          <div
+            key={customer.organizationId}
+            className="grid gap-3 px-4 py-4 md:grid-cols-[minmax(0,1.5fr)_120px_140px_140px] md:items-center"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-black text-[#10231F]">{customer.organizationName}</p>
+              <p className="mt-1 truncate text-xs font-semibold text-[#7A8D87]">{customer.organizationId}</p>
+            </div>
+            <LabeledMobileValue label="Project">
+              <PlainValue value={formatCount(customer.projectCount)} />
+            </LabeledMobileValue>
+            <LabeledMobileValue label="顧客ユーザー">
+              <PlainValue value={formatCount(customer.customerUserCount)} />
+            </LabeledMobileValue>
+            <LabeledMobileValue label="未対応問い合わせ">
+              <PlainValue value={formatCount(customer.openInquiryCount)} />
+            </LabeledMobileValue>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProjectOperationsTable({
+  projects,
+  projectAccessState,
+  contractState
+}: {
+  projects: AdminCustomerProjectCompatibilityItem[];
+  projectAccessState: AdminCustomerSourceState;
+  contractState: AdminCustomerSourceState;
+}) {
   return (
     <div className="overflow-hidden rounded-2xl border border-[#E0E9E6] bg-white">
       <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(0,1.05fr)_110px_120px_110px_110px_28px] gap-3 border-b border-[#E6EEEC] bg-[#F8FBFA] px-4 py-3 text-[11px] font-black uppercase tracking-[0.08em] text-[#7A8D87] lg:grid">
@@ -236,10 +319,16 @@ function ProjectOperationsTable({ projects }: { projects: AdminCustomerProjectCo
                 />
               </LabeledMobileValue>
               <LabeledMobileValue label="顧客アクセス">
-                <Pill label="未接続" tone="muted" />
+                <Pill
+                  label={project.customerAccessLabel ?? "未接続"}
+                  tone={project.customerAccessLabel ? "slate" : sourceTone(projectAccessState)}
+                />
               </LabeledMobileValue>
               <LabeledMobileValue label="契約">
-                <Pill label="未接続" tone="muted" />
+                <Pill
+                  label={project.contractAccessLabel ?? "未接続"}
+                  tone={project.contractAccessLabel ? "slate" : sourceTone(contractState)}
+                />
               </LabeledMobileValue>
               <ArrowRight className="hidden h-4 w-4 text-[#00796B] transition-transform group-hover:translate-x-0.5 lg:block" />
             </div>
@@ -254,13 +343,17 @@ function ProjectOperationsTable({ projects }: { projects: AdminCustomerProjectCo
   );
 }
 
-function LabeledMobileValue({ label, children }: { label: string; children: React.ReactNode }) {
+function LabeledMobileValue({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3 lg:block">
-      <span className="text-xs font-bold text-[#7A8D87] lg:hidden">{label}</span>
+    <div className="flex items-center justify-between gap-3 md:block">
+      <span className="text-xs font-bold text-[#7A8D87] md:hidden">{label}</span>
       <div>{children}</div>
     </div>
   );
+}
+
+function PlainValue({ value }: { value: string }) {
+  return <span className="text-sm font-black text-[#334A44]">{value}</span>;
 }
 
 function SourceStatus({ source }: { source: AdminCustomerSourceStatus }) {
@@ -271,13 +364,41 @@ function SourceStatus({ source }: { source: AdminCustomerSourceStatus }) {
           <p className="truncate text-sm font-black text-[#223A34]">{source.label}</p>
           <p className="mt-1 text-xs font-semibold text-[#83928D]">{source.authority}</p>
         </div>
-        <Pill
-          label={source.state === "compatibility" ? "互換read" : "未接続"}
-          tone={source.state === "compatibility" ? "green" : "muted"}
-        />
+        <SourcePill source={source} />
       </div>
       <p className="mt-3 text-xs font-semibold leading-5 text-[#71837D]">{source.note}</p>
     </div>
+  );
+}
+
+function SourcePill({ source }: { source: AdminCustomerSourceStatus }) {
+  return <Pill label={sourceStateLabel(source.state)} tone={sourceTone(source.state)} />;
+}
+
+function BoundaryReadState({
+  state,
+  icon,
+  unavailableTitle,
+  unavailableText,
+  connectedText
+}: {
+  state: AdminCustomerSourceState;
+  icon: LucideIcon;
+  unavailableTitle: string;
+  unavailableText: string;
+  connectedText: string;
+}) {
+  if (state === "not_connected") {
+    return <UnavailableState icon={icon} title={unavailableTitle} text={unavailableText} />;
+  }
+
+  return (
+    <UnavailableState
+      icon={icon}
+      title={state === "connected" ? "正式read model接続済み" : "互換readで接続中"}
+      text={connectedText}
+      positive
+    />
   );
 }
 
@@ -300,7 +421,11 @@ function SummaryMetric({
         <p className="text-sm font-bold text-[#697B75]">{label}</p>
         <span className={cn(
           "flex h-9 w-9 items-center justify-center rounded-xl",
-          state === "compatibility" ? "bg-emerald-50 text-emerald-700" : "bg-[#F1F4F3] text-[#788983]"
+          state === "connected"
+            ? "bg-emerald-50 text-emerald-700"
+            : state === "compatibility"
+              ? "bg-[#EDF4F2] text-[#527068]"
+              : "bg-[#F1F4F3] text-[#788983]"
         )}>
           <Icon className="h-[18px] w-[18px]" />
         </span>
@@ -361,6 +486,44 @@ function Pill({ label, tone }: { label: string; tone: PillTone }) {
       {label}
     </Badge>
   );
+}
+
+function getSource(snapshot: AdminCustomerManagementSnapshot, key: AdminCustomerSourceKey) {
+  const source = snapshot.sources.find((item) => item.key === key);
+  if (!source) {
+    return {
+      key,
+      label: key,
+      authority: "未定義",
+      state: "not_connected" as const,
+      note: "read境界が定義されていません。"
+    };
+  }
+  return source;
+}
+
+function combineSourceStates(...states: AdminCustomerSourceState[]): AdminCustomerSourceState {
+  if (states.every((state) => state === "connected")) return "connected";
+  if (states.some((state) => state !== "not_connected")) return "compatibility";
+  return "not_connected";
+}
+
+function metricSourceNote(source: AdminCustomerSourceStatus) {
+  if (source.state === "connected") return `${source.authority} 接続済み`;
+  if (source.state === "compatibility") return "既存compatibility read";
+  return `${source.authority} read model未接続`;
+}
+
+function sourceStateLabel(state: AdminCustomerSourceState) {
+  if (state === "connected") return "接続済み";
+  if (state === "compatibility") return "互換read";
+  return "未接続";
+}
+
+function sourceTone(state: AdminCustomerSourceState): PillTone {
+  if (state === "connected") return "green";
+  if (state === "compatibility") return "slate";
+  return "muted";
 }
 
 function formatCount(value: number | null) {
