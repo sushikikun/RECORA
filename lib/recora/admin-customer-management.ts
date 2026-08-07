@@ -1,6 +1,6 @@
 import type { RecoraAdminOperationsData } from "@/lib/recora/db/admin-operations";
 
-export type AdminCustomerSourceState = "compatibility" | "not_connected";
+export type AdminCustomerSourceState = "connected" | "compatibility" | "not_connected";
 
 export type AdminCustomerSourceKey =
   | "projects"
@@ -19,6 +19,15 @@ export type AdminCustomerSourceStatus = {
   note: string;
 };
 
+export type AdminCustomerSummary = {
+  organizationId: string;
+  organizationName: string;
+  primaryContactLabel: string | null;
+  projectCount: number | null;
+  customerUserCount: number | null;
+  openInquiryCount: number | null;
+};
+
 export type AdminCustomerProjectCompatibilityItem = {
   projectSlug: string;
   projectName: string;
@@ -28,6 +37,8 @@ export type AdminCustomerProjectCompatibilityItem = {
   aggregateStatus: string;
   reportReadyStatus: string;
   reportReadyStatusLabel: string;
+  customerAccessLabel: string | null;
+  contractAccessLabel: string | null;
 };
 
 export type AdminCustomerManagementSnapshot = {
@@ -36,6 +47,7 @@ export type AdminCustomerManagementSnapshot = {
   customerUserCount: number | null;
   openInquiryCount: number | null;
   sources: AdminCustomerSourceStatus[];
+  customers: AdminCustomerSummary[];
   projects: AdminCustomerProjectCompatibilityItem[];
 };
 
@@ -103,6 +115,7 @@ export function buildAdminCustomerManagementSnapshot(
         state: "not_connected" as const
       }))
     ],
+    customers: [],
     projects: projectReadAvailable
       ? data.projects.map((project) => ({
           projectSlug: project.projectSlug,
@@ -112,7 +125,9 @@ export function buildAdminCustomerManagementSnapshot(
           measurementStatus: project.measurementStatus,
           aggregateStatus: project.aggregateStatus,
           reportReadyStatus: project.reportReadyStatus,
-          reportReadyStatusLabel: project.reportReadyStatusLabel
+          reportReadyStatusLabel: project.reportReadyStatusLabel,
+          customerAccessLabel: null,
+          contractAccessLabel: null
         }))
       : []
   };
