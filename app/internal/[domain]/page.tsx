@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { AdminCustomerManagementPage } from "@/components/recora/admin-customer-management";
 import { AdminMeasurementManagementPage } from "@/components/recora/admin-measurement-management";
+import { AdminPublicationManagementPage } from "@/components/recora/admin-publication-management";
 import { AdminQualityExceptionReviewPage } from "@/components/recora/admin-quality-exception-review";
 import {
   AdminDomainPage,
@@ -9,6 +10,7 @@ import {
 } from "@/components/recora/admin-control-room-pages";
 import { buildAdminCustomerManagementSnapshot } from "@/lib/recora/admin-customer-management";
 import { buildAdminMeasurementManagementSnapshot } from "@/lib/recora/admin-measurement-management";
+import { buildAdminPublicationManagementSnapshot } from "@/lib/recora/admin-publication-management";
 import { buildAdminQualityExceptionSnapshot } from "@/lib/recora/admin-quality-exception-review";
 import {
   getRecoraAdminOperationsData,
@@ -64,6 +66,15 @@ export default async function InternalAdminDomainPage({
     return (
       <AdminQualityExceptionReviewPage
         snapshot={buildAdminQualityExceptionSnapshot(data)}
+        loadError={loadError}
+      />
+    );
+  }
+
+  if (params.domain === "publication") {
+    return (
+      <AdminPublicationManagementPage
+        snapshot={buildAdminPublicationManagementSnapshot(data)}
         loadError={loadError}
       />
     );
