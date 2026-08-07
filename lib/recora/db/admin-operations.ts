@@ -55,6 +55,25 @@ export async function getRecoraAdminOperationsData(): Promise<RecoraAdminOperati
   };
 }
 
+export async function getRecoraAdminOperationsDataForOrganization(
+  organizationId: string
+): Promise<RecoraAdminOperationsData> {
+  noStore();
+
+  const normalizedOrganizationId = organizationId.trim();
+  if (!normalizedOrganizationId) {
+    return { projects: [] };
+  }
+
+  const supabase = createRecoraSupabaseClient();
+  const projects = await getReadableProjectsByOrganization(normalizedOrganizationId, supabase);
+  const summaries = await Promise.all(projects.map((project) => getProjectSummary(project)));
+
+  return {
+    projects: summaries.filter((summary): summary is RecoraAdminOperationProjectSummary => Boolean(summary))
+  };
+}
+
 export async function getRecoraAdminOperationDetail(projectSlug: string): Promise<RecoraAdminOperationDetail | null> {
   noStore();
 
@@ -136,6 +155,20 @@ async function getReadableProjects(supabase: RecoraSupabaseClient) {
     .limit(PROJECT_LIMIT);
 
   throwIfSupabaseError("projects", error);
+  return (data ?? []) as RecoraProjectRow[];
+}
+
+async function getReadableProjectsByOrganization(
+  organizationId: string,
+  supabase: RecoraSupabaseClient
+) {
+  const { data, error } = await supabase
+    .from("projects")
+    .select(PROJECT_COLUMNS)
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false });
+
+  throwIfSupabaseError("organization projects", error);
   return (data ?? []) as RecoraProjectRow[];
 }
 
