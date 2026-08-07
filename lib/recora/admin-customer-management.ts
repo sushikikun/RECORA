@@ -118,7 +118,7 @@ export function buildAdminCustomerManagementSnapshot(
     customers: [],
     projects: projectReadAvailable
       ? data.projects.map((project) => ({
-          organizationId: project.organizationId,
+          organizationId: project.organizationId ?? "",
           projectSlug: project.projectSlug,
           projectName: project.projectName,
           brandName: project.brandName,
