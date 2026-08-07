@@ -13,11 +13,11 @@ import {
 import { buildRecoraPromptGenerationIdentity } from "../../lib/recora/prompt-generation-input-normalizer";
 import {
   RECORA_PERSONA_GOLD_FIXTURE_VERSION,
+  type RecoraPersonaCoverageDimension,
+  type RecoraPersonaExclusionReasonCode,
   type RecoraPersonaGoldFixtureV3,
   type RecoraPersonaGoldSelectionV3
 } from "../../lib/recora/measurement-persona-contract";
-import { RECORA_PERSONA_BLUEPRINT_BY_KEY } from "../../lib/recora/measurement-persona-catalog";
-import { RECORA_PERSONA_SELECTION_RECIPES_V3 } from "../../lib/recora/measurement-persona-selection-rules";
 
 const ALL_GENERAL_SIDES: readonly RecoraGenerationCustomerSide[] = [
   "prospective_customer",
@@ -350,6 +350,671 @@ function s(
   return { primaryBlueprintKey, supportingBlueprintKeys, modifierKeys };
 }
 
+type RecoraPersonaReadyGoldExpectationV3 = {
+  expectedRequiredCoverage: readonly RecoraPersonaCoverageDimension[];
+  expectedRequiredMarketSides: readonly RecoraGenerationCustomerSide[];
+  expectedAlternativeKeys: readonly string[];
+  expectedExclusionCodes: readonly RecoraPersonaExclusionReasonCode[];
+};
+
+export const RECORA_PERSONA_READY_GOLD_EXPECTATIONS_V3: Readonly<
+  Record<string, RecoraPersonaReadyGoldExpectationV3>
+> = {
+  "R01_standard_b2b_saas": {
+    "expectedAlternativeKeys": [
+      "b2b.procurement_ratifier",
+      "b2b.legal_compliance_blocker",
+      "b2b.implementation_change_owner"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C6"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R02_enterprise_it_security": {
+    "expectedAlternativeKeys": [
+      "b2b.procurement_ratifier",
+      "b2b.legal_compliance_blocker",
+      "b2b.technical_reviewer"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C6"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R03_b2b_managed_professional_service": {
+    "expectedAlternativeKeys": [
+      "b2b.legal_compliance_blocker"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R04_agency_delivery_tool": {
+    "expectedAlternativeKeys": [
+      "agency.client_decision_owner",
+      "agency.external_advisor",
+      "agency.implementation_partner"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5"
+    ],
+    "expectedRequiredMarketSides": [
+      "partner_or_intermediary",
+      "prospective_customer"
+    ]
+  },
+  "R05_b2b2c_corporate_training": {
+    "expectedAlternativeKeys": [
+      "education.course_evaluator",
+      "education.teacher_school_recommender"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C6"
+    ],
+    "expectedRequiredMarketSides": [
+      "payer_or_sponsor",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R06_d2c_single_purchase": {
+    "expectedAlternativeKeys": [
+      "b2c.recommender_influencer",
+      "b2c.alternate_payer"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R07_d2c_subscription": {
+    "expectedAlternativeKeys": [
+      "commerce.repeat_purchase_user",
+      "subscription.active_member_user"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "current_customer"
+    ]
+  },
+  "R08_gift_ecommerce": {
+    "expectedAlternativeKeys": [
+      "commerce.product_need_user",
+      "b2c.alternate_payer"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C7"
+    ],
+    "expectedRequiredMarketSides": [
+      "payer_or_sponsor",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R09_local_facility": {
+    "expectedAlternativeKeys": [
+      "b2c.recommender_influencer"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R10_urgent_home_service": {
+    "expectedAlternativeKeys": [
+      "urgent.family_proxy_decider",
+      "home_service.property_owner_need_owner",
+      "home_service.emergency_decider"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C7"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "payer_or_sponsor"
+    ]
+  },
+  "R11_adult_healthcare": {
+    "expectedAlternativeKeys": [
+      "healthcare.referring_professional",
+      "family.need_interpreter"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R12_care_welfare": {
+    "expectedAlternativeKeys": [
+      "family.formal_proxy_decision_maker",
+      "family.need_interpreter"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C7",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "end_user_or_beneficiary",
+      "payer_or_sponsor"
+    ]
+  },
+  "R13_adult_education": {
+    "expectedAlternativeKeys": [
+      "education.teacher_school_recommender"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R14_child_education": {
+    "expectedAlternativeKeys": [
+      "education.teacher_school_recommender",
+      "family.caregiver_supporter"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C7",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "end_user_or_beneficiary",
+      "payer_or_sponsor"
+    ]
+  },
+  "R15_multi_location_consumer_brand": {
+    "expectedAlternativeKeys": [
+      "b2c.group_occasion_planner",
+      "b2c.recommender_influencer"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R16_multi_location_customer_organization": {
+    "expectedAlternativeKeys": [
+      "multilocation.hq_procurement_owner",
+      "branch.local_manager",
+      "multilocation.hq_brand_reputation_owner"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C6"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R17A_franchise_consumer_brand": {
+    "expectedAlternativeKeys": [
+      "b2c.recommender_influencer"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R17B_franchise_recruitment": {
+    "expectedAlternativeKeys": [
+      "franchise.brand_compliance_reviewer",
+      "b2b.procurement_ratifier"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C6"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R18_marketplace_brand": {
+    "expectedAlternativeKeys": [
+      "marketplace.supply_onboarding_decider",
+      "b2c.payer"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "expectedRequiredMarketSides": [
+      "demand_side_participant",
+      "supply_side_participant"
+    ]
+  },
+  "R19_marketplace_operator_customer": {
+    "expectedAlternativeKeys": [
+      "marketplace.demand_growth_owner",
+      "marketplace.supply_growth_owner",
+      "b2b.procurement_ratifier"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C6"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer"
+    ]
+  },
+  "R20_b2b_professional_service": {
+    "expectedAlternativeKeys": [
+      "b2b.legal_compliance_blocker"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R21_recruiting_employer_saas": {
+    "expectedAlternativeKeys": [
+      "recruiting.hiring_manager_stakeholder"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C6"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R22_real_estate_rental": {
+    "expectedAlternativeKeys": [
+      "family.formal_proxy_decision_maker"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C7"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R23_real_estate_purchase": {
+    "expectedAlternativeKeys": [
+      "b2c.alternate_payer"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C7"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R24_real_estate_sale": {
+    "expectedAlternativeKeys": [
+      "homesale.co_owner_decision_member"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C5",
+      "C7"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "influencer_or_referrer"
+    ]
+  },
+  "R25_insurance": {
+    "expectedAlternativeKeys": [
+      "insurance.beneficiary",
+      "insurance.claimant",
+      "finance.guarantor_collateral_provider"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "payer_or_sponsor"
+    ]
+  },
+  "R26_manufacturing_capex": {
+    "expectedAlternativeKeys": [
+      "b2b.security_privacy_reviewer",
+      "b2b.legal_compliance_blocker"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C6"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R27_logistics_shipper_buying": {
+    "expectedAlternativeKeys": [
+      "b2b.procurement_ratifier"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C6"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R28_group_business_travel": {
+    "expectedAlternativeKeys": [
+      "b2c.alternate_payer"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C7"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "end_user_or_beneficiary"
+    ]
+  },
+  "R29_public_nonprofit_customer": {
+    "expectedAlternativeKeys": [
+      "public.citizen_service_beneficiary",
+      "nonprofit.institutional_funder"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C6"
+    ],
+    "expectedRequiredMarketSides": [
+      "prospective_customer",
+      "payer_or_sponsor"
+    ]
+  },
+  "R30_media_brand": {
+    "expectedAlternativeKeys": [
+      "b2c.option_evaluator",
+      "subscription.renewal_value_decider"
+    ],
+    "expectedExclusionCodes": [
+      "modifier_not_standalone",
+      "not_required_by_selected_recipe"
+    ],
+    "expectedRequiredCoverage": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C8"
+    ],
+    "expectedRequiredMarketSides": [
+      "end_user_or_beneficiary",
+      "payer_or_sponsor",
+      "partner_or_intermediary"
+    ]
+  }
+};
+
 function readyFixture(input: {
   caseKey: string;
   recipeKey: string;
@@ -358,12 +1023,12 @@ function readyFixture(input: {
   lifecycle?: readonly RecoraLifecycleSignal[];
   audienceScope?: RecoraAudienceScope;
   customerSides?: readonly RecoraGenerationCustomerSide[];
-  alternatives?: readonly string[];
 }): RecoraPersonaGoldFixtureV3 {
-  const recipe = RECORA_PERSONA_SELECTION_RECIPES_V3.find(
-    (item) => item.recipeKey === input.recipeKey
-  );
-  if (!recipe) throw new Error(`Unknown Persona recipe: ${input.recipeKey}`);
+  const expectation =
+    RECORA_PERSONA_READY_GOLD_EXPECTATIONS_V3[input.caseKey];
+  if (!expectation) {
+    throw new Error(`Unknown Persona Gold expectation: ${input.caseKey}`);
+  }
 
   const actorRelations: RecoraConfirmedActorRelation[] = input.selected.flatMap(
     (selection) =>
@@ -377,29 +1042,10 @@ function readyFixture(input: {
     signals: input.signals,
     lifecycle: input.lifecycle,
     audienceScope: input.audienceScope,
-    customerSides: input.customerSides,
+    customerSides:
+      input.customerSides ?? expectation.expectedRequiredMarketSides,
     actorRelations,
     subjectName: input.caseKey
-  });
-
-  const selectedKeys = new Set(
-    input.selected.flatMap((selection) => [
-      selection.primaryBlueprintKey,
-      ...selection.supportingBlueprintKeys,
-      ...selection.modifierKeys
-    ])
-  );
-  const derivedAlternatives = recipe.alternativeBlueprintKeys.filter((key) => {
-    if (selectedKeys.has(key)) return false;
-    const blueprint = RECORA_PERSONA_BLUEPRINT_BY_KEY.get(key);
-    if (!blueprint || blueprint.kind === "modifier") return false;
-    if (blueprint.kind !== "conditional") return true;
-    if (key === "agency.external_advisor" && input.recipeKey === "real_estate_sale") {
-      return true;
-    }
-    return blueprint.requiredSignalsAny.some((signal) =>
-      input.signals.includes(signal)
-    );
   });
 
   return {
@@ -409,13 +1055,10 @@ function readyFixture(input: {
     generationInput,
     expectedRecipeKey: input.recipeKey,
     expectedSelected: input.selected,
-    expectedRequiredCoverage: recipe.requiredCoverage,
-    expectedRequiredMarketSides: recipe.requiredMarketSides,
-    expectedAlternativeKeys: input.alternatives ?? derivedAlternatives,
-    expectedExclusionCodes: [
-      "modifier_not_standalone",
-      "not_required_by_selected_recipe"
-    ]
+    expectedRequiredCoverage: expectation.expectedRequiredCoverage,
+    expectedRequiredMarketSides: expectation.expectedRequiredMarketSides,
+    expectedAlternativeKeys: expectation.expectedAlternativeKeys,
+    expectedExclusionCodes: expectation.expectedExclusionCodes
   };
 }
 

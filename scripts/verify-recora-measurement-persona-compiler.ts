@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   RECORA_PROMPT_GENERATION_DRAFT_CONTRACT_VERSION,
@@ -33,6 +34,7 @@ import {
   RECORA_PERSONA_CATALOG_GAP_GOLD_FIXTURES_V3,
   RECORA_PERSONA_GOLD_FIXTURE_COUNTS_V3,
   RECORA_PERSONA_NEEDS_REVIEW_GOLD_FIXTURES_V3,
+  RECORA_PERSONA_READY_GOLD_EXPECTATIONS_V3,
   RECORA_PERSONA_READY_GOLD_FIXTURES_V3,
   upstreamResultForFixture
 } from "./fixtures/recora-measurement-persona-gold-fixtures";
@@ -75,6 +77,22 @@ assert.deepEqual(RECORA_PERSONA_GOLD_FIXTURE_COUNTS_V3, {
   catalogGap: 3,
   blocked: 8
 });
+assert.deepEqual(
+  Object.keys(RECORA_PERSONA_READY_GOLD_EXPECTATIONS_V3).sort(),
+  RECORA_PERSONA_READY_GOLD_FIXTURES_V3.map((item) => item.caseKey).sort()
+);
+const goldFixtureSource = readFileSync(
+  "scripts/fixtures/recora-measurement-persona-gold-fixtures.ts",
+  "utf8"
+);
+assert.equal(
+  goldFixtureSource.includes("RECORA_PERSONA_SELECTION_RECIPES_V3"),
+  false
+);
+assert.equal(
+  goldFixtureSource.includes("RECORA_PERSONA_BLUEPRINT_BY_KEY"),
+  false
+);
 verifyFixtureCatalogReferences();
 
 for (const fixture of RECORA_PERSONA_READY_GOLD_FIXTURES_V3) {
