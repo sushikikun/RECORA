@@ -28,6 +28,7 @@ export type AdminCustomerSummary = {
 };
 
 export type AdminCustomerProjectCompatibilityItem = {
+  organizationId: string;
   projectSlug: string;
   projectName: string;
   brandName: string;
@@ -117,6 +118,7 @@ export function buildAdminCustomerManagementSnapshot(
     customers: [],
     projects: projectReadAvailable
       ? data.projects.map((project) => ({
+          organizationId: project.organizationId,
           projectSlug: project.projectSlug,
           projectName: project.projectName,
           brandName: project.brandName,
