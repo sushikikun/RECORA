@@ -1,7 +1,7 @@
 # Recora顧客画面 実装開始仕様 v1
 
 - Decision source: GitHub Issue #183 / Plan v2
-- Contract version: `recora_customer_report_contract_v2`
+- Contract version: `recora_customer_report_contract_v3`
 - Scope: 顧客画面C0（指標・route・query・Evidence・共通fixture）
 - Status: 実装済み。runtime接続前のpure TypeScript契約
 
@@ -46,10 +46,13 @@ Promptの測定適格性は、最新の9種類の`metric_eligibility`を正本�
 7. 同一回答に自社URLが複数あっても、自社サイト参照率の分子は1回答とする。
 8. 分母0は`not_available`とし、0%へ変換しない。
 9. rateとaverageは小数第1位へ丸める。
+10. `brandScope`は`non_branded / branded / named_comparison`だけを受理し、未知値を実行時にも拒否する。
+11. `targetBrandMentioned=false`なのに自社ブランド言及数が1以上ある矛盾入力は拒否する。
+12. `valid_answer`以外の回答は、statusと一致する`answerExclusionReason`を必須にする。`valid_answer`へ除外理由を付けることも拒否する。
 
 ## 4. 感情とEvidence単位
 
-感情構成はbranded valid answerだけを分母とし、`positive / neutral / negative / unclassified`を分離する。`unclassified`をneutralへ合算しない。
+感情構成は、Prompt configurationがfinalized、Measurement Designがready、Core、branded、`sentiment=eligible`、`valid_answer`の観測だけから計算する。固定済みの構成比を入力として受け取らず、該当観測を`positive / neutral / negative / unclassified`へ1回答ずつ集計する。`unclassified`をneutralへ合算しない。適格観測が0件の場合は`not_available`とし、0件を0%表示へ変換しない。
 
 次のEvidence単位は別の数として保持し、横断合計しない。
 
@@ -83,7 +86,7 @@ Evidenceはorganization、project、measurement design version、prompt configur
 
 `metric / range / compare / questionGap / persona / topic / prompt / model / date / answer / expression / sentiment / owner / domain / sourceUrlId / recommendation / evidenceRef / guide_q`
 
-各keyは値のenum・形式・最大長を検証する。未知key、重複key、空値、過長値、不正percent encoding、UUID、内部run/generation/measurement値、email、URLを拒否する。`return`やlegacy ID queryは追加しない。same-report遷移の保証は後続navigation/read-modelが所有する。
+各keyは値のenum・形式・最大長を検証する。未知key、重複key、空値、過長値、不正percent encoding、UUID、内部run/generation/measurement値、email、URLを拒否する。`date`は`YYYY-MM-DD`形式だけでなく、閏年を含む実在日付であることを検証する。`return`やlegacy ID queryは追加しない。same-report遷移の保証は後続navigation/read-modelが所有する。
 
 正式画面仕様で使用候補だがallowlist外の`view / q / sort / page / priority / area / section`は、C0で推測追加せずC1の判断事項とする。
 
@@ -102,12 +105,12 @@ fixtureはtest/design preview専用であり、production measurementやpublishe
 - 平均掲載位置: `168 / 57 = 2.9位`
 - 自社サイト参照率: `18 / 100 = 18.0%`
 - 引用付き回答率: `76 / 100 = 76.0%`
-- sentiment: `18 + 4 + 2 + 1 = 25`
+- sentiment: branded valid answer 25件から`18 + 4 + 2 + 1 = 25`を実計算
 - reference owner occurrences: `24 + 41 + 78 + 5 = 148`
 - current URL pages: `16 + 48 = 64`
 - recommendation evidence display: `質問7 · 回答12 · URL4`（合計しない）
 
-fixtureにはRobustness、Diagnostic、強制引用、provider error、refusal、未finalized Prompt、not-ready designを含め、headline値が変わらないことを検証する。
+fixtureにはRobustness、Diagnostic、強制引用、provider error、refusal、未finalized Prompt、not-ready designを含め、headline値が変わらないことを検証する。無効回答はstatusと一致する除外理由を保持し、感情用provider errorは25件の感情分母へ入らない。
 
 ## 7. 後続工程との境界
 
@@ -124,6 +127,6 @@ C0では次を実装しない。
 
 ## 8. 機械検証
 
-`npm run recora:customer-report-contract:check`は、最新Prompt契約との9 key整合、Core重複、自然/強制引用分離、branded混入、invalid answer、分母0、Evidence束縛、route/query、synthetic利用禁止、共通fixture算術を検証する。
+`npm run recora:customer-report-contract:check`は、最新Prompt契約との9 key整合、Core重複、自然/強制引用分離、branded混入、感情実計算、invalid answerの除外理由、未知brand scope、言及矛盾、分母0、Evidence束縛、実在日付を含むroute/query、synthetic利用禁止、共通fixture算術を検証する。
 
 Persona Compiler V3の既存verifierは`npm run recora:measurement-persona-compiler:check`として登録し、標準preflightへ接続する。

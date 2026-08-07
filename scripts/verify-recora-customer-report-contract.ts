@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  RECORA_CUSTOMER_REPORT_ANSWER_EXCLUSION_REASONS,
+  RECORA_CUSTOMER_REPORT_BRAND_SCOPES,
   RECORA_CUSTOMER_REPORT_EVIDENCE_UNITS,
   RECORA_CUSTOMER_REPORT_METRIC_DEFINITIONS,
   RECORA_CUSTOMER_REPORT_METRIC_KEYS,
@@ -11,6 +13,7 @@ import {
   assertRecoraCustomerReportFixtureUse,
   buildRecoraCustomerReportPath,
   calculateRecoraCustomerReportMetrics,
+  calculateRecoraCustomerReportSentiment,
   validateRecoraCustomerReportCrossContract,
   validateRecoraCustomerReportEvidenceBundle,
   validateRecoraCustomerReportQuery,
@@ -27,6 +30,8 @@ assert.equal(RECORA_CUSTOMER_REPORT_METRIC_KEYS.length, 5);
 assert.equal(new Set(RECORA_CUSTOMER_REPORT_METRIC_KEYS).size, 5);
 assert.equal(RECORA_CUSTOMER_REPORT_METRIC_DEFINITIONS.length, 5);
 assert.equal(RECORA_CUSTOMER_REPORT_SENTIMENTS.length, 4);
+assert.equal(RECORA_CUSTOMER_REPORT_BRAND_SCOPES.length, 3);
+assert.equal(RECORA_CUSTOMER_REPORT_ANSWER_EXCLUSION_REASONS.length, 6);
 assert.equal(RECORA_CUSTOMER_REPORT_EVIDENCE_UNITS.length, 6);
 assert.equal(RECORA_CUSTOMER_REPORT_QUERY_KEYS.length, 18);
 
@@ -94,10 +99,29 @@ const emptyResults = calculateRecoraCustomerReportMetrics(
 assert.equal(emptyResults.every((result) => result.status === "not_available"), true);
 assert.equal(emptyResults.every((result) => result.value === null), true);
 
-const sentimentTotal = Object.values(RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.sentiment)
+const firstSentimentRun = calculateRecoraCustomerReportSentiment(
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.observations,
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+);
+const secondSentimentRun = calculateRecoraCustomerReportSentiment(
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.observations,
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+);
+assert.deepEqual(firstSentimentRun, secondSentimentRun);
+assert.equal(firstSentimentRun.status, "available");
+assert.deepEqual(firstSentimentRun.counts, RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.expectedSentiment);
+const sentimentTotal = Object.values(firstSentimentRun.counts)
   .reduce((total, count) => total + count, 0);
 assert.equal(sentimentTotal, 25);
-assert.equal(RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.sentiment.unclassified, 1);
+assert.equal(firstSentimentRun.denominator, 25);
+assert.equal(firstSentimentRun.counts.unclassified, 1);
+const emptySentiment = calculateRecoraCustomerReportSentiment(
+  [],
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+);
+assert.equal(emptySentiment.status, "not_available");
+assert.equal(emptySentiment.denominator, 0);
+assert.equal(Object.values(emptySentiment.counts).every((count) => count === 0), true);
 
 validateRecoraCustomerReportEvidenceBundle(RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.evidence);
 assert.equal(sumEvidence("citation_occurrence"), 148);
@@ -117,6 +141,7 @@ assert.deepEqual(
 validateRecoraCustomerReportQuery(
   "metric=ai_visibility_rate&range=30d&compare=previous_period&model=gpt-5.6&date=2026-08-05&domain=example.com&prompt=prompt-alpha"
 );
+validateRecoraCustomerReportQuery("date=2024-02-29");
 validateRecoraCustomerReportQuery("?guide_q=AI%E8%A1%A8%E7%A4%BA%E7%8E%87");
 for (const query of [
   "return=%2Fdashboard",
@@ -140,6 +165,8 @@ assert.throws(
 assert.throws(() => validateRecoraCustomerReportQuery("metric="), /empty query value/);
 assert.throws(() => validateRecoraCustomerReportQuery("metric=legacy_metric"), /invalid enum value/);
 assert.throws(() => validateRecoraCustomerReportQuery("date=2026%2"), /invalid percent encoding/);
+assert.throws(() => validateRecoraCustomerReportQuery("date=2026-02-31"), /invalid date value/);
+assert.throws(() => validateRecoraCustomerReportQuery("date=2025-02-29"), /invalid date value/);
 assert.throws(
   () => validateRecoraCustomerReportQuery("evidenceRef=550e8400-e29b-41d4-a716-446655440000"),
   /internal id/
@@ -155,6 +182,10 @@ assert.throws(
 );
 
 const baselineObservation = RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.observations[0];
+const sentimentObservation = RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.observations.find(
+  (observation) => observation.brandScope === "branded" && observation.sentiment !== null
+);
+assert.ok(sentimentObservation, "sentiment fixture observation missing");
 assert.throws(
   () =>
     calculateRecoraCustomerReportMetrics(
@@ -168,6 +199,100 @@ assert.throws(
     { ...baselineObservation, observationId: "branded-market-answer", brandScope: "branded" }
   ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
   /branded observation/
+);
+assert.throws(
+  () => calculateRecoraCustomerReportMetrics([
+    {
+      ...baselineObservation,
+      observationId: "unknown-brand-scope-answer",
+      brandScope: "unknown_scope" as typeof baselineObservation.brandScope
+    }
+  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+  /unknown brand scope/
+);
+assert.throws(
+  () => calculateRecoraCustomerReportMetrics([
+    {
+      ...baselineObservation,
+      observationId: "absent-brand-with-mentions-answer",
+      targetBrandMentioned: false,
+      targetBrandFirstPosition: null
+    }
+  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+  /absent brand cannot have approved mentions/
+);
+assert.throws(
+  () => calculateRecoraCustomerReportMetrics([
+    {
+      ...baselineObservation,
+      observationId: "missing-exclusion-reason-answer",
+      answerStatus: "provider_error",
+      answerExclusionReason: null
+    }
+  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+  /answer exclusion reason mismatch/
+);
+assert.throws(
+  () => calculateRecoraCustomerReportMetrics([
+    {
+      ...baselineObservation,
+      observationId: "mismatched-exclusion-reason-answer",
+      answerStatus: "provider_error",
+      answerExclusionReason: "timeout"
+    }
+  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+  /answer exclusion reason mismatch/
+);
+assert.throws(
+  () => calculateRecoraCustomerReportMetrics([
+    {
+      ...baselineObservation,
+      observationId: "valid-answer-with-exclusion-reason",
+      answerExclusionReason: "provider_error"
+    }
+  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+  /valid answer cannot have an exclusion reason/
+);
+assert.throws(
+  () => calculateRecoraCustomerReportMetrics([
+    {
+      ...baselineObservation,
+      observationId: "unknown-answer-status",
+      answerStatus: "unknown_status" as typeof baselineObservation.answerStatus
+    }
+  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+  /unknown answer status/
+);
+assert.throws(
+  () => calculateRecoraCustomerReportMetrics([
+    {
+      ...baselineObservation,
+      observationId: "unknown-exclusion-reason",
+      answerStatus: "provider_error",
+      answerExclusionReason: "unknown_reason" as typeof baselineObservation.answerExclusionReason
+    }
+  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+  /unknown answer exclusion reason/
+);
+assert.throws(
+  () => calculateRecoraCustomerReportSentiment([
+    {
+      ...sentimentObservation,
+      observationId: "non-branded-sentiment-answer",
+      brandScope: "non_branded"
+    }
+  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+  /sentiment eligibility requires branded scope/
+);
+assert.throws(
+  () => calculateRecoraCustomerReportSentiment([
+    {
+      ...sentimentObservation,
+      observationId: "missing-sentiment-answer",
+      sentiment: null
+    }
+  ], RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING),
+  /eligible sentiment is missing/
 );
 assert.throws(
   () => calculateRecoraCustomerReportMetrics([

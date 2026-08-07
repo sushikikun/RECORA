@@ -14,7 +14,7 @@ import type {
 } from "./db/types";
 
 export const RECORA_CUSTOMER_REPORT_CONTRACT_VERSION =
-  "recora_customer_report_contract_v2" as const;
+  "recora_customer_report_contract_v3" as const;
 
 export const RECORA_CUSTOMER_REPORT_METRIC_KEYS = [
   "ai_visibility_rate",
@@ -29,6 +29,21 @@ export const RECORA_CUSTOMER_REPORT_SENTIMENTS = [
   "neutral",
   "negative",
   "unclassified"
+] as const;
+
+export const RECORA_CUSTOMER_REPORT_BRAND_SCOPES = [
+  "non_branded",
+  "branded",
+  "named_comparison"
+] as const;
+
+export const RECORA_CUSTOMER_REPORT_ANSWER_EXCLUSION_REASONS = [
+  "empty_answer",
+  "refusal",
+  "provider_error",
+  "timeout",
+  "invalid_payload",
+  "cancelled"
 ] as const;
 
 export const RECORA_CUSTOMER_REPORT_EVIDENCE_UNITS = [
@@ -78,6 +93,10 @@ export type RecoraCustomerReportMetricKey =
   typeof RECORA_CUSTOMER_REPORT_METRIC_KEYS[number];
 export type RecoraCustomerReportSentiment =
   typeof RECORA_CUSTOMER_REPORT_SENTIMENTS[number];
+export type RecoraCustomerReportBrandScope =
+  typeof RECORA_CUSTOMER_REPORT_BRAND_SCOPES[number];
+export type RecoraCustomerReportAnswerExclusionReason =
+  typeof RECORA_CUSTOMER_REPORT_ANSWER_EXCLUSION_REASONS[number];
 export type RecoraCustomerReportEvidenceUnit =
   typeof RECORA_CUSTOMER_REPORT_EVIDENCE_UNITS[number];
 export type RecoraCustomerReportRouteKey =
@@ -180,9 +199,11 @@ export type RecoraCustomerReportObservation = {
   intentKey: string;
   modelKey: string;
   panelRole: RecoraFixedPromptPanelRole;
-  brandScope: "non_branded" | "branded" | "named_comparison";
+  brandScope: RecoraCustomerReportBrandScope;
   metricEligibility: RecoraFixedPromptMetricEligibility;
   answerStatus: typeof RECORA_VALID_RESPONSE_STATUSES[number];
+  answerExclusionReason: RecoraCustomerReportAnswerExclusionReason | null;
+  sentiment: RecoraCustomerReportSentiment | null;
   targetBrandMentioned: boolean;
   targetBrandFirstPosition: number | null;
   approvedTargetBrandMentionCount: number;
@@ -200,6 +221,12 @@ export type RecoraCustomerReportMetricResult = {
   denominator: number;
   value: number | null;
   unit: "percent" | "position";
+};
+
+export type RecoraCustomerReportSentimentResult = {
+  status: "available" | "not_available";
+  denominator: number;
+  counts: Record<RecoraCustomerReportSentiment, number>;
 };
 
 export type RecoraCustomerReportEvidenceCount = {
@@ -307,6 +334,33 @@ export function calculateRecoraCustomerReportMetrics(
   });
 }
 
+export function calculateRecoraCustomerReportSentiment(
+  observations: readonly RecoraCustomerReportObservation[],
+  binding: RecoraCustomerReportBinding
+): RecoraCustomerReportSentimentResult {
+  validateBinding(binding, "report");
+  observations.forEach((observation) => validateObservation(observation, binding));
+  const eligible = observations.filter(isSentimentEligible);
+  assertUniqueCoreWeight(eligible, "sentiment");
+
+  const counts = RECORA_CUSTOMER_REPORT_SENTIMENTS.reduce(
+    (result, sentiment) => ({ ...result, [sentiment]: 0 }),
+    {} as Record<RecoraCustomerReportSentiment, number>
+  );
+  for (const observation of eligible) {
+    if (observation.sentiment === null) {
+      throw new Error(`eligible sentiment is missing: ${observation.observationId}`);
+    }
+    counts[observation.sentiment] += 1;
+  }
+
+  return {
+    status: eligible.length === 0 ? "not_available" : "available",
+    denominator: eligible.length,
+    counts
+  };
+}
+
 export function validateRecoraCustomerReportCrossContract(): void {
   const expectedMetricKeys = [
     "visibility",
@@ -339,6 +393,11 @@ export function validateRecoraCustomerReportCrossContract(): void {
   assertUnique(RECORA_CUSTOMER_REPORT_METRIC_DEFINITIONS.map((item) => item.label), "customer metric labels");
   assertUnique(RECORA_CUSTOMER_REPORT_QUERY_KEYS, "query keys");
   assertUnique(RECORA_CUSTOMER_REPORT_ROUTES.map((route) => route.path), "route paths");
+  assertSameStringSet(
+    RECORA_CUSTOMER_REPORT_ANSWER_EXCLUSION_REASONS,
+    RECORA_VALID_RESPONSE_STATUSES.filter((status) => status !== "valid_answer"),
+    "answer exclusion reasons"
+  );
 
   for (const definition of RECORA_CUSTOMER_REPORT_METRIC_DEFINITIONS) {
     if (!RECORA_FIXED_PROMPT_METRIC_KEYS.includes(definition.sourceMetricEligibility)) {
@@ -413,6 +472,25 @@ function validateObservation(
   validateCustomerSafeReference(observation.intentKey, "intent key");
   if (!SAFE_MODEL_PATTERN.test(observation.modelKey)) throw new Error("model key is invalid");
   assertBindingMatches(observation.binding, binding, `observation ${observation.observationId}`);
+  if (!RECORA_VALID_RESPONSE_STATUSES.includes(observation.answerStatus)) {
+    throw new Error(`unknown answer status: ${String(observation.answerStatus)}`);
+  }
+  if (!RECORA_CUSTOMER_REPORT_BRAND_SCOPES.includes(observation.brandScope)) {
+    throw new Error(`unknown brand scope: ${String(observation.brandScope)}`);
+  }
+  if (
+    observation.answerExclusionReason !== null &&
+    !RECORA_CUSTOMER_REPORT_ANSWER_EXCLUSION_REASONS.includes(observation.answerExclusionReason)
+  ) {
+    throw new Error(`unknown answer exclusion reason: ${String(observation.answerExclusionReason)}`);
+  }
+  if (observation.answerStatus === "valid_answer") {
+    if (observation.answerExclusionReason !== null) {
+      throw new Error("valid answer cannot have an exclusion reason");
+    }
+  } else if (observation.answerExclusionReason !== observation.answerStatus) {
+    throw new Error(`answer exclusion reason mismatch: ${observation.observationId}`);
+  }
 
   const eligibilityKeys = Object.keys(observation.metricEligibility);
   assertSameStringSet(eligibilityKeys, RECORA_FIXED_PROMPT_METRIC_KEYS, "observation eligibility keys");
@@ -439,6 +517,23 @@ function validateObservation(
   ) {
     throw new Error("branded observation cannot enter market metrics");
   }
+  if (
+    observation.metricEligibility.sentiment.state === "eligible" &&
+    observation.brandScope !== "branded"
+  ) {
+    throw new Error("sentiment eligibility requires branded scope");
+  }
+  if (observation.sentiment !== null) {
+    if (!RECORA_CUSTOMER_REPORT_SENTIMENTS.includes(observation.sentiment)) {
+      throw new Error(`unknown sentiment: ${String(observation.sentiment)}`);
+    }
+    if (observation.metricEligibility.sentiment.state !== "eligible") {
+      throw new Error("sentiment value requires sentiment eligibility");
+    }
+  }
+  if (isSentimentEligible(observation) && observation.sentiment === null) {
+    throw new Error(`eligible sentiment is missing: ${observation.observationId}`);
+  }
 
   assertNonNegativeInteger(observation.approvedTargetBrandMentionCount, "target brand mention count");
   assertNonNegativeInteger(observation.approvedTargetBrandTotalMentionCount, "total target brand mention count");
@@ -455,6 +550,9 @@ function validateObservation(
   } else if (observation.targetBrandFirstPosition !== null) {
     throw new Error("absent brand cannot have a first position");
   }
+  if (!observation.targetBrandMentioned && observation.approvedTargetBrandMentionCount !== 0) {
+    throw new Error("absent brand cannot have approved mentions");
+  }
 }
 
 function isHeadlineEligible(
@@ -470,9 +568,20 @@ function isHeadlineEligible(
   );
 }
 
+function isSentimentEligible(observation: RecoraCustomerReportObservation): boolean {
+  return (
+    observation.promptConfigurationStatus === "finalized" &&
+    observation.measurementDesignStatus === "ready" &&
+    observation.answerStatus === "valid_answer" &&
+    observation.panelRole === "core" &&
+    observation.brandScope === "branded" &&
+    observation.metricEligibility.sentiment.state === "eligible"
+  );
+}
+
 function assertUniqueCoreWeight(
   observations: readonly RecoraCustomerReportObservation[],
-  eligibility: RecoraCustomerReportMetricDefinition["sourceMetricEligibility"]
+  eligibility: RecoraCustomerReportMetricDefinition["sourceMetricEligibility"] | "sentiment"
 ): void {
   const seen = new Set<string>();
   for (const observation of observations) {
@@ -526,7 +635,7 @@ function validateQueryEntry(key: string, value: string): void {
 
   const allowed = QUERY_ENUMS[typedKey];
   if (allowed && !allowed.includes(value)) throw new Error(`invalid enum value: ${key}`);
-  if (typedKey === "date" && !ISO_DATE_PATTERN.test(value)) throw new Error("invalid date value");
+  if (typedKey === "date" && !isIsoCalendarDate(value)) throw new Error("invalid date value");
   if (typedKey === "domain" && !DOMAIN_PATTERN.test(value)) throw new Error("invalid domain value");
   if (typedKey === "model" && !SAFE_MODEL_PATTERN.test(value)) throw new Error("invalid model value");
   if (["persona", "topic", "prompt", "answer", "sourceUrlId", "recommendation", "evidenceRef"].includes(typedKey)) {
@@ -614,6 +723,30 @@ function camelToSnakeCase(value: string): string {
 function round(value: number, decimals: number): number {
   const multiplier = 10 ** decimals;
   return Math.round((value + Number.EPSILON) * multiplier) / multiplier;
+}
+
+function isIsoCalendarDate(value: string): boolean {
+  if (!ISO_DATE_PATTERN.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const daysInMonth = [
+    31,
+    isLeapYear(year) ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31
+  ];
+  return day <= daysInMonth[month - 1];
+}
+
+function isLeapYear(year: number): boolean {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 }
 
 function hasText(value: string): boolean {

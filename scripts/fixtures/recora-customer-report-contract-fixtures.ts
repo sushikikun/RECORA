@@ -8,7 +8,7 @@ import type {
 import type { RecoraFixedPromptMetricEligibility } from "../../lib/recora/db/types";
 
 export const RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE_VERSION =
-  "recora_customer_report_synthetic_fixture_v2" as const;
+  "recora_customer_report_synthetic_fixture_v3" as const;
 
 export const RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING: RecoraCustomerReportBinding = {
   organizationId: "org-kintai-cloud",
@@ -20,6 +20,8 @@ export const RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING: RecoraCustomerReportBindi
 
 export const RECORA_CUSTOMER_REPORT_SYNTHETIC_OBSERVATIONS = [
   ...createCoreObservations(),
+  ...createSentimentObservations(),
+  createExcludedSentimentObservation(),
   createExcludedObservation("robustness-answer", "robustness", "valid_answer"),
   createExcludedObservation("diagnostic-answer", "diagnostic", "valid_answer"),
   createExcludedObservation("provider-error-answer", "core", "provider_error"),
@@ -35,7 +37,7 @@ export const RECORA_CUSTOMER_REPORT_SYNTHETIC_OBSERVATIONS = [
   createForcedCitationObservation()
 ] as const satisfies readonly RecoraCustomerReportObservation[];
 
-export const RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT = {
+export const RECORA_CUSTOMER_REPORT_SYNTHETIC_EXPECTED_SENTIMENT = {
   positive: 18,
   neutral: 4,
   negative: 2,
@@ -70,7 +72,7 @@ export const RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE = {
   targetBrandCount: 20,
   binding: RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING,
   observations: RECORA_CUSTOMER_REPORT_SYNTHETIC_OBSERVATIONS,
-  sentiment: RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT,
+  expectedSentiment: RECORA_CUSTOMER_REPORT_SYNTHETIC_EXPECTED_SENTIMENT,
   evidence: RECORA_CUSTOMER_REPORT_SYNTHETIC_EVIDENCE,
   expectedMetrics: {
     ai_visibility_rate: { numerator: 57, denominator: 100, value: 57 },
@@ -104,6 +106,8 @@ function createCoreObservations(): RecoraCustomerReportObservation[] {
         natural_citation_observation: "eligible"
       }),
       answerStatus: "valid_answer",
+      answerExclusionReason: null,
+      sentiment: null,
       targetBrandMentioned: mentioned,
       targetBrandFirstPosition: mentioned ? (index < 54 ? 3 : 2) : null,
       approvedTargetBrandMentionCount: mentioned ? 1 : 0,
@@ -114,6 +118,54 @@ function createCoreObservations(): RecoraCustomerReportObservation[] {
       compatibilityMeasurementPurpose: "visibility"
     };
   });
+}
+
+function createSentimentObservations(): RecoraCustomerReportObservation[] {
+  return Array.from({ length: 25 }, (_, index) => {
+    const ordinal = index + 1;
+    const sentiment: RecoraCustomerReportSentiment =
+      index < 18 ? "positive" : index < 22 ? "neutral" : index < 24 ? "negative" : "unclassified";
+    return {
+      observationId: `sentiment-answer-${String(ordinal).padStart(2, "0")}`,
+      binding: RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING,
+      promptConfigurationStatus: "finalized",
+      measurementDesignStatus: "ready",
+      intentKey: `sentiment-intent-${String(ordinal).padStart(2, "0")}`,
+      modelKey: `model-${(index % 4) + 1}`,
+      panelRole: "core",
+      brandScope: "branded",
+      metricEligibility: eligibility({
+        sentiment: "eligible",
+        brand_perception: "eligible"
+      }),
+      answerStatus: "valid_answer",
+      answerExclusionReason: null,
+      sentiment,
+      targetBrandMentioned: true,
+      targetBrandFirstPosition: 1,
+      approvedTargetBrandMentionCount: 1,
+      approvedTargetBrandTotalMentionCount: 1,
+      approvedOwnedUrlCount: 0,
+      referenceUrlCount: 0,
+      compatibilityPromptType: "branded",
+      compatibilityMeasurementPurpose: "sentiment"
+    };
+  });
+}
+
+function createExcludedSentimentObservation(): RecoraCustomerReportObservation {
+  return {
+    ...createSentimentObservations()[0],
+    observationId: "sentiment-provider-error-answer",
+    intentKey: "sentiment-provider-error-intent",
+    answerStatus: "provider_error",
+    answerExclusionReason: "provider_error",
+    sentiment: null,
+    targetBrandMentioned: false,
+    targetBrandFirstPosition: null,
+    approvedTargetBrandMentionCount: 0,
+    approvedTargetBrandTotalMentionCount: 0
+  };
 }
 
 function createExcludedObservation(
@@ -137,6 +189,8 @@ function createExcludedObservation(
       natural_citation_observation: "eligible"
     }),
     answerStatus,
+    answerExclusionReason: answerStatus === "valid_answer" ? null : answerStatus,
+    sentiment: null,
     targetBrandMentioned: true,
     targetBrandFirstPosition: 1,
     approvedTargetBrandMentionCount: 20,
@@ -160,6 +214,8 @@ function createForcedCitationObservation(): RecoraCustomerReportObservation {
     brandScope: "named_comparison",
     metricEligibility: eligibility({ forced_citation_validation: "eligible" }),
     answerStatus: "valid_answer",
+    answerExclusionReason: null,
+    sentiment: null,
     targetBrandMentioned: false,
     targetBrandFirstPosition: null,
     approvedTargetBrandMentionCount: 0,

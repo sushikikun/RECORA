@@ -10,7 +10,7 @@
 | Risk | `R2` |
 | Spec level | `Full` |
 | Execution | `Local Codex` |
-| Approval | Plan v2 / Execute v2 / 指定7ファイルcommit承認済み。push・PR・merge・deploy・production・DBは未承認 |
+| Approval | Plan v2 / Execute v2 / 指定7ファイルcommit・push・Draft PR作成済み。PR #200 Human review修正の実装・commit・既存Draft更新承認済み。Ready化・merge・deploy・production・DBは未承認 |
 | Owner | `sushikikun` |
 | Status | `Active` |
 | Baseline | `origin/master@a374d92` |
@@ -38,6 +38,7 @@
 - commit前の`git fetch origin`でmasterが`e4961ff`から`a374d92`へ進んだことを確認した。
 - その差分は管理画面5ファイルだけで、C0の7ファイル・Prompt契約・preflight構成と重複しない。
 - 最新`origin/master@a374d92`からv3 branch/worktreeを作成し、Plan v2から再構築した。
+- Human review修正開始時に`origin/master@ad4c279`まで進んでいたが、上流変更は管理画面5ファイルだけで、C0の指定7ファイルとの重複・merge-tree競合はなかった。
 
 ## Scope / non-goals
 
@@ -64,8 +65,8 @@
 ## Risk and safety boundaries
 
 - Highest Risk: `R2`
-- Allowed changes: 上記7ファイルの編集・検証・commitのみ
-- Prohibited changes: push、PR、merge、deploy、production、DB、UI、依存追加、secretアクセス
+- Allowed changes: 上記7ファイルの編集・検証・commit、既存Draft PR #200のbranch更新
+- Prohibited changes: Ready化、新規PR、merge、deploy、production、DB、UI、依存追加、secretアクセス
 - Stop conditions: 8ファイル目、Prompt契約変更、DB/API/UI変更、lockfile変更、検証失敗の範囲外修正が必要
 - Secret and data handling: `.env*`、token、DB URL、credentialを表示・保存・commitしない
 
@@ -79,6 +80,7 @@
 | M3: synthetic fixture | `Completed` | 勤怠クラウド100回答と除外ケースを追加 | `57/100`、`57/190`、`168/57`、`18/100`、`76/100` |
 | M4: cross-contract verifier | `Completed` | Prompt/fixed contract import、退行fixture、Persona check接続 | 9 key・panel role・query値・Evidenceを検出 |
 | M5: full validation / commit | `Completed` | 指定検証、差分監査、explicit stage、commit | 全PASS、指定7ファイルだけをcommit、pushなし |
+| M6: Human review fixes | `Completed` | 感情実計算、brand scope、言及矛盾、実在日付、無効回答理由を補強 | 全検証PASS、更新commit、PR #200更新、Draft維持 |
 
 ## Validation plan
 
@@ -94,6 +96,8 @@
 | `git diff --check` | PASS | PASS。新規ファイルの末尾空白検査もPASS |
 | exact scope / lockfile / DB / UI / secret audit | 7ファイル限定、禁止差分0 | PASS。新規5・既存2、禁止領域差分0 |
 | `npm run recora:commit-check` | FAIL 0 | PASS=8 / WARN=0 / FAIL=0 |
+
+Human review修正後も同じ検証一式を再実行した。C0 v3専用checkは連続2回同一出力、感情はbranded valid answer 25件から`18 / 4 / 2 / 1`を実計算し、provider error 1件を除外した。`2026-02-31`、未知brand scope、ブランド不在と言及数の矛盾、欠落・不一致・未知の回答除外理由をnegative fixtureで拒否した。個別dashboard checkは最初の実行だけ`USERPROFILE`未設定により作業場所判定がFAILし、正式な一時環境を指定した再実行とfull preflight内では`PASS=8 / WARN=1 / FAIL=0`だった。
 
 ## Rollback / recovery
 
@@ -111,6 +115,7 @@
 | 2026-08-08 | M0 | latest `origin/master@a374d92`。上流5ファイルは管理画面のみでC0非重複 | v3 worktreeから再構築 |
 | 2026-08-08 | M1-M4 | 指定7ファイルの初回再構築完了 | 全検証と差分監査 |
 | 2026-08-08 | M5 | full preflight、type、lint、build、dashboard、commit-check、scope監査PASS | 7ファイルを明示stageしてcommit。pushしない |
+| 2026-08-08 | M6 | 5件をpure contract・fixture・verifier・仕様へ反映。C0 v3 check、回帰、full preflight、type、lint、build、dashboard、commit-check、scope監査PASS | 更新commitを既存Draft PR #200へ反映しHuman reviewへ戻す |
 
 ## Decision log
 
@@ -119,6 +124,8 @@
 | 2026-08-08 | v1差分を再利用しない | Plan v2の正式指示 | 最新9 eligibilityへ直接接続 |
 | 2026-08-08 | `e4961ff`ではなく`a374d92`をbaseにする | commit前fetchでmaster更新を検出。対象責任との競合0 | 新しいv3 branchで履歴を保持 |
 | 2026-08-08 | C0をpure contractに限定 | #73/#76とUIは未承認 | DB/runtime/UI差分0を維持 |
+| 2026-08-08 | sentimentを観測から実計算する | 固定数値の合計確認ではbranded valid answer由来を保証できない | 25件の合成branded観測と1件の除外観測を追加 |
+| 2026-08-08 | 無効回答理由と入力矛盾をfail closedにする | 型だけでは未知scope、status不整合、言及矛盾、存在しない日付を防げない | runtime validatorとnegative fixtureを追加 |
 
 ## Results and remaining risks
 
@@ -127,6 +134,8 @@
 - 5顧客指標を最新9種類のPrompt eligibilityへ接続した。
 - Coreを`intent_key × model`で一意化し、Robustness / Diagnosticをheadlineから分離した。
 - invalid answer、自然/強制引用、branded市場指標、Evidence/publication、query値をfail closed検証する。
+- sentimentをbranded valid answerから実計算し、invalid answerを明示理由付きで除外する。
+- 未知brand scope、ブランド不在と言及数の矛盾、存在しない暦日をfail closedで拒否する。
 - synthetic fixtureの5指標・sentiment・Evidence単位を決定論的に検証する。
 - Persona Compiler V3を標準preflightへ接続した。
 
@@ -136,7 +145,8 @@
 - Prompt measurement / fixed materialization / Persona Compiler: PASS
 - full preflight / typecheck / lint / build / dashboard check: PASS
 - commit-check: `PASS=8 / WARN=0 / FAIL=0`
-- exact 7-file scope、lockfile、DB、migration、seed、Auth、LP、UI、secret監査: PASS
+- Human review negative fixture 5領域: PASS
+- exact 7-file PR scope、今回5-file修正、lockfile、DB、migration、seed、Auth、LP、UI、secret監査: PASS
 - 未実施: 実DB、runtime、UI、external API、deploy（すべて対象外）
 
 ### Deviations from plan
@@ -148,7 +158,7 @@
 
 - C0は実DB/current publication/customer-safe API/顧客UIへ未接続。
 - `view / q / sort / page / priority / area / section`はC1判断待ち。
-- push・PR・merge・deploy・production・DBは未承認。
+- PR #200はDraftのまま。Ready化・merge・deploy・production・DBは未承認。
 
 ### Completion record
 
