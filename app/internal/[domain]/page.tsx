@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 
+import { AdminCustomerManagementPage } from "@/components/recora/admin-customer-management";
 import {
   AdminDomainPage,
   isAdminDomainSlug
 } from "@/components/recora/admin-control-room-pages";
+import { buildAdminCustomerManagementSnapshot } from "@/lib/recora/admin-customer-management";
 import {
   getRecoraAdminOperationsData,
   type RecoraAdminOperationsData
@@ -34,6 +36,15 @@ export default async function InternalAdminDomainPage({
       });
       loadError = "接続済みread modelを読み取れませんでした。未接続領域に架空データは表示していません。";
     }
+  }
+
+  if (params.domain === "customers") {
+    return (
+      <AdminCustomerManagementPage
+        snapshot={buildAdminCustomerManagementSnapshot(data)}
+        loadError={loadError}
+      />
+    );
   }
 
   return <AdminDomainPage domain={params.domain} data={data} loadError={loadError} />;
