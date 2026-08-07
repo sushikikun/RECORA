@@ -60,7 +60,7 @@ export function buildAdminCustomerDetailSnapshot(
     ? data.projects
         .filter((project) => project.organizationId === normalizedOrganizationId)
         .map((project) => ({
-          organizationId: project.organizationId,
+          organizationId: project.organizationId ?? normalizedOrganizationId,
           projectSlug: project.projectSlug,
           projectName: project.projectName,
           brandName: project.brandName,
