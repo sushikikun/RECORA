@@ -35,6 +35,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Update frozen alternatives to contract-safe reviewed output
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --no-install tsx scripts/.emit-contract-safe-persona-alternatives.ts \
+            > /tmp/persona-contract-safe-alternatives.json
+          python -m py_compile scripts/.update-persona-gold-alternatives.py
+          python scripts/.update-persona-gold-alternatives.py \
+            /tmp/persona-contract-safe-alternatives.json
+          git diff --check
+
       - name: Run dedicated Persona verifier
         run: npx --no-install tsx scripts/verify-recora-measurement-persona-compiler.ts
 
@@ -52,6 +63,8 @@ jobs:
         run: |
           set -euo pipefail
           rm scripts/.persona-semantic-review-fix.py
+          rm scripts/.emit-contract-safe-persona-alternatives.ts
+          rm scripts/.update-persona-gold-alternatives.py
           rm .github/workflows/persona-semantic-review-fix.yml
           git diff --check
           python - <<'PY'
@@ -93,9 +106,12 @@ jobs:
             lib/recora/measurement-persona-catalog-common.ts \
             lib/recora/measurement-persona-selection-rules.ts \
             lib/recora/measurement-persona-compiler.ts \
+            scripts/fixtures/recora-measurement-persona-gold-fixtures.ts \
             scripts/verify-recora-measurement-persona-compiler.ts \
             docs/architecture/measurement-design/recora_measurement_persona_compiler_v3_ja.md \
             scripts/.persona-semantic-review-fix.py \
+            scripts/.emit-contract-safe-persona-alternatives.ts \
+            scripts/.update-persona-gold-alternatives.py \
             .github/workflows/persona-semantic-review-fix.yml
           git diff --cached --check
           git commit -m "fix(recora): validate persona alternatives and exclusions"
