@@ -12,6 +12,7 @@
 | [`recora-development-domains.md`](./recora-development-domains.md) | **Recora全体の開発領域・進捗分類の正本**。9つの最上位開発領域、Phase・画面内分類・内部層との関係、Issueの主領域・関連領域の記録方法を定義する |
 | [`exec-plans/README.md`](./exec-plans/README.md) | **Exec Plan運用の正本**。適用基準、Issueとの役割分担、命名、active / completedの移動、更新責任を定義する |
 | [`recora-prompt-measurement-contract-v1.md`](./recora-prompt-measurement-contract-v1.md) | **プロンプト設計・固定運用・指標適格性・測定・集計の正式契約**。既存Persona / Topic / Prompt基盤、Intent grouping、Core / Robustness / Diagnostic、metric eligibility、実行・分母境界を定義する |
+| [`recora-customer-ui-implementation-start-spec-v1.md`](./recora-customer-ui-implementation-start-spec-v1.md) | **顧客画面実装開始時のC0契約**。5指標の分子・分母・適格性・集計単位、10 route、query値検証、Evidence/publication束縛、synthetic共通fixture、後続C1〜C6との境界を定義する |
 | [`recora-measurement-design-existing-foundation-v1.md`](./recora-measurement-design-existing-foundation-v1.md) | **Measurement Designの物理方針**。既存`public.personas`、`public.topics`、`public.prompts`、run/item/conversation証跡を正式な土台とし、固定Prompt運用に不足する項目だけを最小追加する。新しいidentity/revision・Prompt Set DBは初期要件ではない |
 | [`recora-post-launch-operations-architecture.md`](./recora-post-launch-operations-architecture.md) | **顧客公開、測定、運用制御、DB境界の参照資料**。対象Issueと最新OWNER決定で未承認の商品・運用判断は自動継承しない |
 | [`recora-data-tenant-security-privacy.md`](./recora-data-tenant-security-privacy.md) | **Issue #102工程3のデータ・tenant security・privacy実装契約**。tenant ownership、entitlement基盤、顧客/管理者境界、外部AI payload検査基盤、retention/deletion状態、security testを定義する |
