@@ -196,6 +196,9 @@ export const RECORA_PERSONA_SELECTION_RECIPES_V3: readonly RecoraPersonaSelectio
   }),
   recipe({
     recipeKey: "care_welfare",
+    exclusionReasonOverrides: {
+      "care.frontline_care_worker": "subject_internal"
+    },
     matchSignalsAll: ["care_welfare"],
     selections: [
       entry("care.care_recipient"),
@@ -254,6 +257,16 @@ export const RECORA_PERSONA_SELECTION_RECIPES_V3: readonly RecoraPersonaSelectio
   }),
   recipe({
     recipeKey: "multi_location_consumer_brand",
+    exclusionReasonOverrides: {
+      "multilocation.hq_strategy_owner": "subject_internal",
+      "multilocation.hq_operations_owner": "subject_internal",
+      "multilocation.hq_procurement_owner": "subject_internal",
+      "multilocation.hq_brand_reputation_owner": "subject_internal",
+      "branch.local_manager": "subject_internal",
+      "branch.local_operator": "subject_internal",
+      "branch.local_marketing_reputation_owner": "subject_internal",
+      "branch.local_customer_service_owner": "subject_internal"
+    },
     matchSignalsAll: ["multi_location_consumer_brand"],
     selections: [
       entry("local.nearby_need_owner", [], [FIRST_TIME]),
@@ -291,6 +304,12 @@ export const RECORA_PERSONA_SELECTION_RECIPES_V3: readonly RecoraPersonaSelectio
   }),
   recipe({
     recipeKey: "franchise_consumer_brand",
+    exclusionReasonOverrides: {
+      "franchise.hq_decision_owner": "subject_internal",
+      "franchise.franchisee_owner": "subject_internal",
+      "franchise.location_operator": "subject_internal",
+      "franchise.brand_compliance_reviewer": "subject_internal"
+    },
     matchSignalsAll: ["franchise_consumer_brand"],
     selections: [
       entry("local.nearby_need_owner", [], [FIRST_TIME]),
@@ -324,6 +343,13 @@ export const RECORA_PERSONA_SELECTION_RECIPES_V3: readonly RecoraPersonaSelectio
   }),
   recipe({
     recipeKey: "marketplace_brand",
+    exclusionReasonOverrides: {
+      "marketplace.operator_business_owner": "subject_internal",
+      "marketplace.demand_growth_owner": "subject_internal",
+      "marketplace.supply_growth_owner": "subject_internal",
+      "marketplace.trust_safety_owner": "subject_internal",
+      "marketplace.support_dispute_owner": "subject_internal"
+    },
     matchSignalsAll: ["marketplace_brand"],
     selections: [
       entry("marketplace.demand_need_owner"),
@@ -528,6 +554,10 @@ export const RECORA_PERSONA_SELECTION_RECIPES_V3: readonly RecoraPersonaSelectio
   }),
   recipe({
     recipeKey: "media_brand",
+    exclusionReasonOverrides: {
+      "media.internal_content_operator": "subject_internal",
+      "media.publisher_editorial_owner": "subject_internal"
+    },
     matchSignalsAll: ["media_brand"],
     selections: [
       entry("media.reader_viewer"),

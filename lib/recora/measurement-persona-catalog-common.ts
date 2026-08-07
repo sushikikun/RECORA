@@ -38,7 +38,7 @@ export const RECORA_PERSONA_COMMON_BLUEPRINT_ROWS_V3: readonly RecoraPersonaBlue
   ["agency_consultant_partner", "agency.operator", "顧客向け提供・運用を実際に行う担当者", ["C4"], "operator", "partner_or_intermediary", "conditional", ["agency_delivery"]],
   ["agency_consultant_partner", "agency.client_decision_owner", "最終顧客企業側で契約・採用を決める責任者", ["C3"], "decision_owner", "prospective_customer", "conditional", ["agency_delivery"]],
   ["agency_consultant_partner", "agency.client_evaluator", "最終顧客企業側で候補や提案を評価する担当者", ["C2"], "evaluator", "prospective_customer", "conditional", ["agency_delivery"]],
-  ["agency_consultant_partner", "agency.external_advisor", "顧客へ第三者として候補を推薦する専門家", ["C5"], "advisor", "influencer_or_referrer", "conditional", ["agency_delivery"]],
+  ["agency_consultant_partner", "agency.external_advisor", "顧客へ第三者として候補を推薦する専門家", ["C5"], "advisor", "influencer_or_referrer", "conditional", ["agency_delivery", "real_estate_sale"]],
   ["agency_consultant_partner", "agency.implementation_partner", "導入・設定・定着を支援する外部パートナー", ["C4", "C5"], "provider", "partner_or_intermediary", "conditional", ["agency_delivery"]],
   ["b2b2c", "b2b2c.sponsor_decision_owner", "組織側で導入・費用・契約を決める責任者", ["C3"], "decision_owner", "payer_or_sponsor", "selectable", ["b2b2c"]],
   ["b2b2c", "b2b2c.client_operator", "組織側でサービス運用や利用者対応を担う人", ["C4"], "operator", "prospective_customer", "selectable", ["b2b2c"]],

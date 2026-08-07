@@ -212,6 +212,9 @@ export type RecoraPersonaSelectionRecipeV3 = {
   audiencePriorities?: readonly (RecoraAudiencePriority | null)[];
   fallback?: boolean;
   supersedesRecipeKeys?: readonly string[];
+  exclusionReasonOverrides?: Readonly<
+    Record<string, RecoraPersonaExclusionReasonCode>
+  >;
   matchSignalsAll?: readonly RecoraGenerationStructureSignal[];
   matchSignalsAny?: readonly RecoraGenerationStructureSignal[];
   forbiddenSignals?: readonly RecoraGenerationStructureSignal[];

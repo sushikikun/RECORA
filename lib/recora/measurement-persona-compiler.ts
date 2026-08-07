@@ -316,7 +316,7 @@ function compileReadyInput(
     selected,
     alternatives,
     selectionInput,
-    recipe.recipeKey
+    recipe
   );
 
   return {
@@ -422,12 +422,6 @@ function isConditionalBlueprintApplicable(
   recipeKey: string
 ): boolean {
   if (blueprint.kind !== "conditional") return true;
-  if (
-    blueprint.blueprintKey === "agency.external_advisor" &&
-    recipeKey === "real_estate_sale"
-  ) {
-    return true;
-  }
   if (blueprint.requiredSignalsAny.length === 0) return false;
   return blueprint.requiredSignalsAny.some((signal) =>
     input.structureSignals.includes(signal)
@@ -593,21 +587,67 @@ function buildAlternatives(
     .filter((item) =>
       isConditionalBlueprintApplicable(item, input, recipe.recipeKey)
     )
-    .map((item, index) => ({
-      blueprintKey: item.blueprintKey,
-      label: item.label,
-      replaceableSelectionIndexes: selected
-        .map((selection, selectionIndex) =>
-          selection.coverageDimensions.some((dimension) =>
-            item.coverageDimensions.includes(dimension)
-          )
+    .map((item) => {
+      const replaceableSelectionIndexes = selected
+        .map((selection, selectionIndex) => {
+          const replacement = buildAlternativeReplacement(
+            selection,
+            item,
+            selectionIndex
+          );
+          const hypothetical = selected.map((current, currentIndex) =>
+            currentIndex === selectionIndex ? replacement : current
+          );
+          return validateSelected(
+            hypothetical,
+            recipe,
+            input,
+            byKey
+          ).length === 0
             ? selectionIndex
-            : -1
-        )
-        .filter((selectionIndex) => selectionIndex >= 0),
-      rank: index + 1,
-      reasons: ["recipe_alternative"]
+            : -1;
+        })
+        .filter((selectionIndex) => selectionIndex >= 0);
+
+      return {
+        blueprintKey: item.blueprintKey,
+        label: item.label,
+        replaceableSelectionIndexes,
+        reasons: ["recipe_alternative_contract_preserved"]
+      };
+    })
+    .filter((item) => item.replaceableSelectionIndexes.length > 0)
+    .map((item, index) => ({
+      ...item,
+      rank: index + 1
     }));
+}
+
+function buildAlternativeReplacement(
+  source: RecoraSelectedPersonaV3,
+  blueprint: RecoraPersonaBlueprintV3,
+  selectionIndex: number
+): RecoraSelectedPersonaV3 {
+  return {
+    ...source,
+    personaId: `alternative:${blueprint.blueprintKey}:${selectionIndex}`,
+    selectionSemanticKey: buildRecoraPersonaSelectionSemanticKey({
+      primaryBlueprintKey: blueprint.blueprintKey,
+      supportingBlueprintKeys: [],
+      modifierKeys: []
+    }),
+    primaryBlueprintKey: blueprint.blueprintKey,
+    supportingBlueprintKeys: [],
+    modifierKeys: [],
+    coverageDimensions: blueprint.coverageDimensions,
+    marketSides: [blueprint.marketSide],
+    roleFamilies: [blueprint.roleFamily],
+    topicInfluenceDimensions: blueprint.topicInfluenceDimensions,
+    displayName: blueprint.label,
+    description: blueprint.description,
+    primaryGoal: buildPrimaryGoal(blueprint.coverageDimensions),
+    selectionEvidence: ["recipe_alternative_contract_check"]
+  };
 }
 
 function buildExcluded(
@@ -615,7 +655,7 @@ function buildExcluded(
   selected: readonly RecoraSelectedPersonaV3[],
   alternatives: readonly RecoraPersonaAlternativeV3[],
   input: RecoraPersonaSelectionInputV3,
-  recipeKey: string
+  recipe: RecoraPersonaSelectionRecipeV3
 ): RecoraPersonaExcludedV3[] {
   const used = new Set([
     ...selected.flatMap((item) => [
@@ -644,17 +684,50 @@ function buildExcluded(
       const reasonCodes: RecoraPersonaExcludedV3["reasonCodes"][number][] = [];
       if (item.kind === "modifier") {
         reasonCodes.push("modifier_not_standalone");
-      } else if (
+        return { blueprintKey: item.blueprintKey, reasonCodes };
+      }
+
+      const override = recipe.exclusionReasonOverrides?.[item.blueprintKey];
+      if (override) reasonCodes.push(override);
+
+      if (
+        input.audience.scope === "b2b" &&
+        item.blueprintKey.startsWith("b2c.")
+      ) {
+        reasonCodes.push("wrong_customer_scope");
+      }
+      if (
+        input.audience.scope === "b2c" &&
+        item.blueprintKey.startsWith("b2b.")
+      ) {
+        reasonCodes.push("wrong_customer_scope");
+      }
+      if (!input.customerSides.includes(item.marketSide)) {
+        reasonCodes.push("wrong_market_side");
+      }
+      if (
+        item.requiredSignalsAny.length > 0 &&
+        !item.requiredSignalsAny.some((signal) =>
+          input.structureSignals.includes(signal)
+        )
+      ) {
+        reasonCodes.push("wrong_business_motion");
+      }
+      if (
         item.kind === "conditional" &&
-        !isConditionalBlueprintApplicable(item, input, recipeKey)
+        !isConditionalBlueprintApplicable(item, input, recipe.recipeKey)
       ) {
         reasonCodes.push("conditional_side_not_customer");
-      } else if (selectedGroups.has(item.semanticGroupKey)) {
-        reasonCodes.push("semantic_duplicate");
-      } else {
-        reasonCodes.push("not_required_by_selected_recipe");
       }
-      return { blueprintKey: item.blueprintKey, reasonCodes };
+      if (selectedGroups.has(item.semanticGroupKey)) {
+        reasonCodes.push("semantic_duplicate");
+      }
+      reasonCodes.push("not_required_by_selected_recipe");
+
+      return {
+        blueprintKey: item.blueprintKey,
+        reasonCodes: unique(reasonCodes)
+      };
     });
 }
 

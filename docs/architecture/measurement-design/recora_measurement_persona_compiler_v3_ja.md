@@ -210,6 +210,24 @@ personaId = persona_v3_ +
   )の先頭32hex
 ```
 
+## 除外理由と代替候補の安全性
+
+除外候補は、単に「選ばれなかった」とするだけでなく、現在の分析対象に対する意味上の理由を保持する。
+
+```text
+subject_internal
+wrong_customer_scope
+wrong_market_side
+wrong_business_motion
+conditional_side_not_customer
+semantic_duplicate
+not_required_by_selected_recipe
+```
+
+Marketplaceブランドの運営担当者、媒体ブランドの内部編集担当者、消費者向け多拠点ブランドの本部・支店担当者などは、Recipe側の明示規則により`subject_internal`とする。個別Blueprint keyの例外をCompilerへ直接埋め込まず、CatalogとRecipeのデータで適用条件を表現する。
+
+代替候補はCoverageが一つ重なるだけでは提示しない。各選択枠を実際に置換した仮想Persona Setを作り、件数、重複、Topic影響数、必須Coverage、必須市場側を再検証し、全契約を維持できる置換先が一つ以上ある候補だけを返す。安全に置換できる候補がないRecipeでは、代替候補を空配列として返す。
+
 ## 出力status
 
 ### ready

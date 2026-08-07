@@ -363,8 +363,7 @@ export const RECORA_PERSONA_READY_GOLD_EXPECTATIONS_V3: Readonly<
   "R01_standard_b2b_saas": {
     "expectedAlternativeKeys": [
       "b2b.procurement_ratifier",
-      "b2b.legal_compliance_blocker",
-      "b2b.implementation_change_owner"
+      "b2b.legal_compliance_blocker"
     ],
     "expectedExclusionCodes": [
       "modifier_not_standalone",
@@ -684,8 +683,7 @@ export const RECORA_PERSONA_READY_GOLD_EXPECTATIONS_V3: Readonly<
   "R16_multi_location_customer_organization": {
     "expectedAlternativeKeys": [
       "multilocation.hq_procurement_owner",
-      "branch.local_manager",
-      "multilocation.hq_brand_reputation_owner"
+      "branch.local_manager"
     ],
     "expectedExclusionCodes": [
       "modifier_not_standalone",
@@ -806,9 +804,7 @@ export const RECORA_PERSONA_READY_GOLD_EXPECTATIONS_V3: Readonly<
     ]
   },
   "R21_recruiting_employer_saas": {
-    "expectedAlternativeKeys": [
-      "recruiting.hiring_manager_stakeholder"
-    ],
+    "expectedAlternativeKeys": [],
     "expectedExclusionCodes": [
       "modifier_not_standalone",
       "not_required_by_selected_recipe"
@@ -949,9 +945,7 @@ export const RECORA_PERSONA_READY_GOLD_EXPECTATIONS_V3: Readonly<
     ]
   },
   "R28_group_business_travel": {
-    "expectedAlternativeKeys": [
-      "b2c.alternate_payer"
-    ],
+    "expectedAlternativeKeys": [],
     "expectedExclusionCodes": [
       "modifier_not_standalone",
       "not_required_by_selected_recipe"

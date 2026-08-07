@@ -132,6 +132,9 @@ verifyAudiencePriorityFallbacks();
 verifyMultipleSpecificRecipeReview();
 verifyIndividualTravelRecipe();
 verifyRecipeCoverage();
+verifyDataDrivenConditionalApplicability();
+verifySemanticExclusionReasons();
+verifyAlternativesPreserveContract();
 verifyUpstreamInvariantFailure();
 
 console.log(
@@ -507,7 +510,6 @@ function verifyFixtureCatalogReferences() {
   for (const fixture of RECORA_PERSONA_READY_GOLD_FIXTURES_V3) {
     assert.ok(fixture.expectedSelected, fixture.caseKey);
     assert.ok(fixture.expectedAlternativeKeys, fixture.caseKey);
-    assert.ok(fixture.expectedAlternativeKeys.length > 0, fixture.caseKey);
     for (const selection of fixture.expectedSelected) {
       assert.ok(keys.has(selection.primaryBlueprintKey), fixture.caseKey);
       for (const key of selection.supportingBlueprintKeys) {
@@ -729,6 +731,122 @@ function sameActor(
   rightRoleKey: string
 ): RecoraConfirmedActorRelation {
   return { leftRoleKey, rightRoleKey, relation: "same_actor" };
+}
+
+
+function verifyDataDrivenConditionalApplicability() {
+  const advisor = RECORA_PERSONA_BLUEPRINT_CATALOG_V3.find(
+    (item) => item.blueprintKey === "agency.external_advisor"
+  );
+  assert.ok(advisor);
+  assert.deepEqual(advisor.requiredSignalsAny, [
+    "agency_delivery",
+    "real_estate_sale"
+  ]);
+
+  const compilerSource = readFileSync(
+    "lib/recora/measurement-persona-compiler.ts",
+    "utf8"
+  );
+  assert.equal(
+    compilerSource.includes(
+      'blueprint.blueprintKey === "agency.external_advisor"'
+    ),
+    false
+  );
+}
+
+function verifySemanticExclusionReasons() {
+  const cases = [
+    {
+      recipeKey: "care_welfare",
+      blueprintKeys: ["care.frontline_care_worker"]
+    },
+    {
+      recipeKey: "marketplace_brand",
+      blueprintKeys: [
+        "marketplace.operator_business_owner",
+        "marketplace.trust_safety_owner"
+      ]
+    },
+    {
+      recipeKey: "media_brand",
+      blueprintKeys: [
+        "media.internal_content_operator",
+        "media.publisher_editorial_owner"
+      ]
+    }
+  ];
+
+  for (const item of cases) {
+    const fixture = RECORA_PERSONA_READY_GOLD_FIXTURES_V3.find(
+      (candidate) => candidate.expectedRecipeKey === item.recipeKey
+    );
+    assert.ok(fixture, item.recipeKey);
+    const result = compileReadyRecoraMeasurementPersonasV3(
+      requireGenerationInput(fixture)
+    );
+    assert.equal(result.status, "ready", item.recipeKey);
+    for (const blueprintKey of item.blueprintKeys) {
+      const excluded = result.excluded.find(
+        (candidate) => candidate.blueprintKey === blueprintKey
+      );
+      assert.ok(excluded, `${item.recipeKey}:${blueprintKey}`);
+      assert.ok(
+        excluded.reasonCodes.includes("subject_internal"),
+        `${item.recipeKey}:${blueprintKey}:subject_internal`
+      );
+    }
+  }
+}
+
+function verifyAlternativesPreserveContract() {
+  for (const fixture of RECORA_PERSONA_READY_GOLD_FIXTURES_V3) {
+    const result = compileReadyRecoraMeasurementPersonasV3(
+      requireGenerationInput(fixture)
+    );
+    assert.equal(result.status, "ready", fixture.caseKey);
+    for (const alternative of result.alternatives) {
+      assert.ok(
+        alternative.replaceableSelectionIndexes.length > 0,
+        `${fixture.caseKey}:${alternative.blueprintKey}:replaceable`
+      );
+      const blueprint = RECORA_PERSONA_BLUEPRINT_CATALOG_V3.find(
+        (item) => item.blueprintKey === alternative.blueprintKey
+      );
+      assert.ok(blueprint, alternative.blueprintKey);
+
+      for (const selectionIndex of alternative.replaceableSelectionIndexes) {
+        const coverage = new Set(
+          result.selected.flatMap((selection, index) =>
+            index === selectionIndex
+              ? blueprint.coverageDimensions
+              : selection.coverageDimensions
+          )
+        );
+        for (const required of fixture.expectedRequiredCoverage ?? []) {
+          assert.ok(
+            coverage.has(required),
+            `${fixture.caseKey}:${alternative.blueprintKey}:coverage:${required}`
+          );
+        }
+
+        const marketSides = new Set(
+          result.selected.flatMap((selection, index) =>
+            index === selectionIndex
+              ? [blueprint.marketSide]
+              : selection.marketSides
+          )
+        );
+        for (const required of fixture.expectedRequiredMarketSides ?? []) {
+          assert.ok(
+            marketSides.has(required),
+            `${fixture.caseKey}:${alternative.blueprintKey}:side:${required}`
+          );
+        }
+      }
+    }
+  }
 }
 
 function verifyUpstreamInvariantFailure() {
