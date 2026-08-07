@@ -1,0 +1,640 @@
+name: Persona Human Review Audience Fix
+
+on:
+  push:
+    branches:
+      - feat/issue-168-measurement-persona-compiler-v3
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/issue-168-measurement-persona-compiler-v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Apply reviewed audience-aware fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          CONTRACT = Path("lib/recora/measurement-persona-contract.ts")
+          RULES = Path("lib/recora/measurement-persona-selection-rules.ts")
+          COMPILER = Path("lib/recora/measurement-persona-compiler.ts")
+          VERIFY = Path("scripts/verify-recora-measurement-persona-compiler.ts")
+          DOC = Path("docs/architecture/measurement-design/recora_measurement_persona_compiler_v3_ja.md")
+
+          def read(path: Path) -> str:
+              return path.read_text(encoding="utf-8")
+
+          def write(path: Path, text: str) -> None:
+              path.write_text(text, encoding="utf-8", newline="\n")
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = read(path)
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one match, got {count}\nTARGET:\n{old[:300]}")
+              write(path, text.replace(old, new, 1))
+
+          replace_once(
+              CONTRACT,
+              '''import type {
+            RecoraConfirmedActorRelation,
+            RecoraGenerationCustomerSide,''',
+              '''import type {
+            RecoraAudiencePriority,
+            RecoraAudienceScope,
+            RecoraConfirmedActorRelation,
+            RecoraGenerationCustomerSide,'''
+          )
+
+          replace_once(
+              CONTRACT,
+              '''  "generation_input_blocked",
+            "unsupported_generation_input_version",
+            "unsupported_persona_catalog_version",''',
+              '''  "generation_input_blocked",
+            "unsupported_generation_input_version",
+            "unsupported_country",
+            "unsupported_locale",
+            "primary_subject_name_missing",
+            "actor_relation_conflict",
+            "unsupported_persona_catalog_version",'''
+          )
+
+          replace_once(
+              CONTRACT,
+              '''export type RecoraPersonaSelectionRecipeV3 = {
+            recipeKey: string;
+            matchSignalsAll?: readonly RecoraGenerationStructureSignal[];''',
+              '''export type RecoraPersonaSelectionRecipeV3 = {
+            recipeKey: string;
+            audienceScopes?: readonly RecoraAudienceScope[];
+            audiencePriorities?: readonly (RecoraAudiencePriority | null)[];
+            fallback?: boolean;
+            matchSignalsAll?: readonly RecoraGenerationStructureSignal[];'''
+          )
+
+          replace_once(
+              RULES,
+              '''import type { RecoraGenerationStructureSignal } from "./prompt-generation-input";''',
+              '''import type {
+            RecoraAudiencePriority,
+            RecoraAudienceScope,
+            RecoraGenerationStructureSignal
+          } from "./prompt-generation-input";'''
+          )
+
+          fallback_recipes = '''  recipe({
+            recipeKey: "standard_b2c",
+            audienceScopes: ["b2c"],
+            fallback: true,
+            selections: [
+              entry("b2c.need_owner"),
+              entry("b2c.option_evaluator"),
+              entry("b2c.purchase_decider", ["b2c.payer"]),
+              entry("b2c.actual_user"),
+              entry("b2c.recommender_influencer")
+            ],
+            alternativeBlueprintKeys: [
+              "b2c.service_recipient",
+              "b2c.alternate_payer",
+              "b2c.group_occasion_planner"
+            ],
+            requiredCoverage: ["C1", "C2", "C3", "C4", "C5"],
+            requiredMarketSides: [
+              "prospective_customer",
+              "payer_or_sponsor",
+              "end_user_or_beneficiary",
+              "influencer_or_referrer"
+            ],
+            priority: 950
+          }),
+          recipe({
+            recipeKey: "standard_both_b2b_first",
+            audienceScopes: ["both"],
+            audiencePriorities: ["b2b_first"],
+            fallback: true,
+            selections: [
+              entry("b2b.problem_owner", ["b2b.internal_champion"]),
+              entry("b2b.solution_evaluator", ["b2b.end_user", "b2b.operations_owner"]),
+              entry("b2b.strategic_decision_owner", ["b2b.economic_buyer", "b2b.technical_reviewer"]),
+              entry("b2c.need_owner", ["b2c.option_evaluator"]),
+              entry("b2c.purchase_decider", ["b2c.payer", "b2c.actual_user"])
+            ],
+            alternativeBlueprintKeys: [
+              "b2b.security_privacy_reviewer",
+              "b2c.recommender_influencer"
+            ],
+            requiredCoverage: ["C1", "C2", "C3", "C4", "C5", "C6"],
+            requiredMarketSides: [
+              "prospective_customer",
+              "payer_or_sponsor",
+              "end_user_or_beneficiary"
+            ],
+            priority: 951
+          }),
+          recipe({
+            recipeKey: "standard_both_b2c_first",
+            audienceScopes: ["both"],
+            audiencePriorities: ["b2c_first"],
+            fallback: true,
+            selections: [
+              entry("b2c.need_owner"),
+              entry("b2c.option_evaluator"),
+              entry("b2c.purchase_decider", ["b2c.payer", "b2c.actual_user"]),
+              entry("b2b.problem_owner", ["b2b.solution_evaluator", "b2b.end_user"]),
+              entry("b2b.strategic_decision_owner", ["b2b.economic_buyer"])
+            ],
+            alternativeBlueprintKeys: [
+              "b2c.recommender_influencer",
+              "b2b.technical_reviewer"
+            ],
+            requiredCoverage: ["C1", "C2", "C3", "C4"],
+            requiredMarketSides: [
+              "prospective_customer",
+              "payer_or_sponsor",
+              "end_user_or_beneficiary"
+            ],
+            priority: 952
+          }),
+          recipe({
+            recipeKey: "standard_both_balanced",
+            audienceScopes: ["both"],
+            audiencePriorities: ["balanced"],
+            fallback: true,
+            selections: [
+              entry("b2b.problem_owner", ["b2b.solution_evaluator"]),
+              entry("b2b.strategic_decision_owner", ["b2b.economic_buyer", "b2b.end_user"]),
+              entry("b2c.need_owner", ["b2c.option_evaluator"]),
+              entry("b2c.purchase_decider", ["b2c.payer", "b2c.actual_user"]),
+              entry("b2b.technical_reviewer", ["b2b.security_privacy_reviewer"])
+            ],
+            alternativeBlueprintKeys: [
+              "b2b.internal_champion",
+              "b2c.recommender_influencer"
+            ],
+            requiredCoverage: ["C1", "C2", "C3", "C4", "C6"],
+            requiredMarketSides: [
+              "prospective_customer",
+              "payer_or_sponsor",
+              "end_user_or_beneficiary"
+            ],
+            priority: 953
+          }),
+          recipe({
+            recipeKey: "standard_b2b",
+            audienceScopes: ["b2b"],
+            fallback: true,'''
+
+          replace_once(
+              RULES,
+              '''  recipe({
+            recipeKey: "standard_b2b",''',
+              fallback_recipes
+          )
+
+          replace_once(
+              RULES,
+              '''export function matchRecoraPersonaSelectionRecipesV3(
+            signals: readonly RecoraGenerationStructureSignal[]
+          ): readonly RecoraPersonaSelectionRecipeV3[] {
+            const signalSet = new Set(signals);
+            return RECORA_PERSONA_SELECTION_RECIPES_V3.filter((item) => {
+              const all = (item.matchSignalsAll ?? []).every((signal) =>
+                signalSet.has(signal)
+              );
+              const any =
+                !item.matchSignalsAny?.length ||
+                item.matchSignalsAny.some((signal) => signalSet.has(signal));
+              const forbidden = (item.forbiddenSignals ?? []).some((signal) =>
+                signalSet.has(signal)
+              );
+              return all && any && !forbidden;
+            }).sort((left, right) => left.priority - right.priority);
+          }''',
+              '''export function matchRecoraPersonaSelectionRecipesV3(
+            signals: readonly RecoraGenerationStructureSignal[],
+            audienceScope: RecoraAudienceScope,
+            audiencePriority: RecoraAudiencePriority | null
+          ): readonly RecoraPersonaSelectionRecipeV3[] {
+            const signalSet = new Set(signals);
+            return RECORA_PERSONA_SELECTION_RECIPES_V3.filter((item) => {
+              const all = (item.matchSignalsAll ?? []).every((signal) =>
+                signalSet.has(signal)
+              );
+              const any =
+                !item.matchSignalsAny?.length ||
+                item.matchSignalsAny.some((signal) => signalSet.has(signal));
+              const forbidden = (item.forbiddenSignals ?? []).some((signal) =>
+                signalSet.has(signal)
+              );
+              const scopeMatches =
+                !item.audienceScopes?.length ||
+                item.audienceScopes.includes(audienceScope);
+              const priorityMatches =
+                !item.audiencePriorities?.length ||
+                item.audiencePriorities.some((value) => value === audiencePriority);
+              return all && any && !forbidden && scopeMatches && priorityMatches;
+            }).sort((left, right) => left.priority - right.priority);
+          }'''
+          )
+
+          replace_once(
+              COMPILER,
+              '''  const byKey = new Map(catalog.map((item) => [item.blueprintKey, item]));
+            const recipes = matchRecoraPersonaSelectionRecipesV3(
+              selectionInput.structureSignals
+            );
+            if (recipes.length === 0) {
+              return emptyResult("catalog_gap", {
+                blockers: ["required_coverage_missing"],
+                warnings: ["no_persona_selection_recipe"]
+              });
+            }
+
+            const recipe = recipes[0];''',
+              '''  const byKey = new Map(catalog.map((item) => [item.blueprintKey, item]));
+            const matchedRecipes = matchRecoraPersonaSelectionRecipesV3(
+              selectionInput.structureSignals,
+              selectionInput.audience.scope,
+              selectionInput.audience.priority
+            );
+            const specificRecipes = matchedRecipes.filter((item) => !item.fallback);
+            const fallbackRecipes = matchedRecipes.filter((item) => item.fallback);
+
+            if (specificRecipes.length > 1) {
+              return emptyResult("needs_review", {
+                reviewQuestions: [
+                  {
+                    code: "multiple_selection_recipes_match",
+                    message:
+                      "複数の事業構造に対応するPersona Recipeが同時に一致しました。優先する測定構造を確認してください。",
+                    allowedAnswers: specificRecipes.map((item) => item.recipeKey)
+                  }
+                ],
+                warnings: [
+                  `matching_persona_recipes:${specificRecipes
+                    .map((item) => item.recipeKey)
+                    .join(",")}`
+                ]
+              });
+            }
+            if (specificRecipes.length === 0 && fallbackRecipes.length > 1) {
+              return emptyResult("blocked", {
+                blockers: ["compiler_internal_invariant"],
+                warnings: [
+                  `multiple_fallback_persona_recipes:${fallbackRecipes
+                    .map((item) => item.recipeKey)
+                    .join(",")}`
+                ]
+              });
+            }
+
+            const recipe = specificRecipes[0] ?? fallbackRecipes[0];
+            if (!recipe) {
+              return emptyResult("catalog_gap", {
+                blockers: ["required_coverage_missing"],
+                warnings: ["no_persona_selection_recipe"]
+              });
+            }'''
+          )
+
+          replace_once(
+              COMPILER,
+              '''    warnings:
+              recipes.length > 1
+                ? [
+                    `lower_priority_recipes_ignored:${recipes
+                      .slice(1)
+                      .map((item) => item.recipeKey)
+                      .join(",")}`
+                  ]
+                : [],''',
+              '''    warnings: recipe.fallback ? ["audience_fallback_recipe_used"] : [],'''
+          )
+
+          replace_once(
+              VERIFY,
+              '''import { normalizeRecoraPromptGenerationInput } from "../lib/recora/prompt-generation-input-normalizer";
+          import {''',
+              '''import { normalizeRecoraPromptGenerationInput } from "../lib/recora/prompt-generation-input-normalizer";
+          import { RECORA_PERSONA_SELECTION_RECIPES_V3 } from "../lib/recora/measurement-persona-selection-rules";
+          import {'''
+          )
+
+          replace_once(
+              VERIFY,
+              '''verifyDisplayNameIdStability();
+          verifyUpstreamInvariantFailure();''',
+              '''verifyDisplayNameIdStability();
+          verifyGenericB2CFallback();
+          verifyAudiencePriorityFallbacks();
+          verifyMultipleSpecificRecipeReview();
+          verifyIndividualTravelRecipe();
+          verifyRecipeCoverage();
+          verifyUpstreamInvariantFailure();'''
+          )
+
+          verifier_functions = r'''
+          function verifyGenericB2CFallback() {
+            const input = genericAudienceInput(
+              "b2c",
+              null,
+              [],
+              [
+                "prospective_customer",
+                "payer_or_sponsor",
+                "end_user_or_beneficiary",
+                "influencer_or_referrer"
+              ],
+              [sameActor("b2c.purchase_decider", "b2c.payer")]
+            );
+            const result = compileReadyRecoraMeasurementPersonasV3(input);
+            assert.equal(result.status, "ready");
+            assert.equal(result.recipeKey, "standard_b2c");
+            assert.deepEqual(
+              result.selected.map((item) => item.primaryBlueprintKey),
+              [
+                "b2c.need_owner",
+                "b2c.option_evaluator",
+                "b2c.purchase_decider",
+                "b2c.actual_user",
+                "b2c.recommender_influencer"
+              ]
+            );
+          }
+
+          function verifyAudiencePriorityFallbacks() {
+            const sides = [
+              "prospective_customer",
+              "payer_or_sponsor",
+              "end_user_or_beneficiary"
+            ] as const;
+            const cases = [
+              {
+                priority: "b2b_first" as const,
+                recipeKey: "standard_both_b2b_first",
+                relations: [
+                  sameActor("b2b.problem_owner", "b2b.internal_champion"),
+                  sameActor("b2b.solution_evaluator", "b2b.end_user"),
+                  sameActor("b2b.solution_evaluator", "b2b.operations_owner"),
+                  sameActor("b2b.strategic_decision_owner", "b2b.economic_buyer"),
+                  sameActor("b2b.strategic_decision_owner", "b2b.technical_reviewer"),
+                  sameActor("b2c.need_owner", "b2c.option_evaluator"),
+                  sameActor("b2c.purchase_decider", "b2c.payer"),
+                  sameActor("b2c.purchase_decider", "b2c.actual_user")
+                ]
+              },
+              {
+                priority: "b2c_first" as const,
+                recipeKey: "standard_both_b2c_first",
+                relations: [
+                  sameActor("b2c.purchase_decider", "b2c.payer"),
+                  sameActor("b2c.purchase_decider", "b2c.actual_user"),
+                  sameActor("b2b.problem_owner", "b2b.solution_evaluator"),
+                  sameActor("b2b.problem_owner", "b2b.end_user"),
+                  sameActor("b2b.strategic_decision_owner", "b2b.economic_buyer")
+                ]
+              },
+              {
+                priority: "balanced" as const,
+                recipeKey: "standard_both_balanced",
+                relations: [
+                  sameActor("b2b.problem_owner", "b2b.solution_evaluator"),
+                  sameActor("b2b.strategic_decision_owner", "b2b.economic_buyer"),
+                  sameActor("b2b.strategic_decision_owner", "b2b.end_user"),
+                  sameActor("b2c.need_owner", "b2c.option_evaluator"),
+                  sameActor("b2c.purchase_decider", "b2c.payer"),
+                  sameActor("b2c.purchase_decider", "b2c.actual_user"),
+                  sameActor("b2b.technical_reviewer", "b2b.security_privacy_reviewer")
+                ]
+              }
+            ];
+
+            for (const item of cases) {
+              const result = compileReadyRecoraMeasurementPersonasV3(
+                genericAudienceInput(
+                  "both",
+                  item.priority,
+                  ["b2b_buying_group"],
+                  sides,
+                  item.relations
+                )
+              );
+              assert.equal(result.status, "ready", item.recipeKey);
+              assert.equal(result.recipeKey, item.recipeKey);
+              const keys = new Set(
+                result.selected.flatMap((persona) => [
+                  persona.primaryBlueprintKey,
+                  ...persona.supportingBlueprintKeys
+                ])
+              );
+              assert.ok(
+                Array.from(keys).some((key) => key.startsWith("b2b.")),
+                `${item.recipeKey}:b2b`
+              );
+              assert.ok(
+                Array.from(keys).some((key) => key.startsWith("b2c.")),
+                `${item.recipeKey}:b2c`
+              );
+            }
+          }
+
+          function verifyMultipleSpecificRecipeReview() {
+            const source = requireGenerationInput(
+              RECORA_PERSONA_READY_GOLD_FIXTURES_V3[1]
+            );
+            const result = compileReadyRecoraMeasurementPersonasV3({
+              ...source,
+              generationContext: {
+                ...source.generationContext,
+                structureSignals: [
+                  ...source.generationContext.structureSignals,
+                  "agency_delivery"
+                ]
+              }
+            });
+            assert.equal(result.status, "needs_review");
+            assert.ok(
+              result.reviewQuestions.some(
+                (item) => item.code === "multiple_selection_recipes_match"
+              )
+            );
+          }
+
+          function verifyIndividualTravelRecipe() {
+            const source = requireGenerationInput(
+              RECORA_PERSONA_READY_GOLD_FIXTURES_V3.find(
+                (item) => item.expectedRecipeKey === "group_or_business_travel"
+              ) ?? RECORA_PERSONA_READY_GOLD_FIXTURES_V3[0]
+            );
+            const result = compileReadyRecoraMeasurementPersonasV3({
+              ...source,
+              audience: { scope: "b2c", priority: null },
+              generationContext: {
+                ...source.generationContext,
+                structureSignals: ["individual_travel"],
+                customerSides: [
+                  "prospective_customer",
+                  "payer_or_sponsor",
+                  "end_user_or_beneficiary"
+                ],
+                actorRelations: [
+                  sameActor("travel.booking_decider", "b2c.payer")
+                ],
+                lifecycleSignals: [
+                  "first_time_explorer",
+                  "switching_evaluator"
+                ]
+              }
+            });
+            assert.equal(result.status, "ready");
+            assert.equal(result.recipeKey, "individual_travel");
+          }
+
+          function verifyRecipeCoverage() {
+            const covered = new Set(
+              RECORA_PERSONA_READY_GOLD_FIXTURES_V3.map(
+                (item) => item.expectedRecipeKey
+              ).filter((key): key is string => Boolean(key))
+            );
+            for (const key of [
+              "individual_travel",
+              "standard_b2c",
+              "standard_both_b2b_first",
+              "standard_both_b2c_first",
+              "standard_both_balanced"
+            ]) {
+              covered.add(key);
+            }
+            const uncovered = RECORA_PERSONA_SELECTION_RECIPES_V3
+              .map((item) => item.recipeKey)
+              .filter((key) => !covered.has(key));
+            assert.deepEqual(uncovered, []);
+          }
+
+          function genericAudienceInput(
+            scope: "b2c" | "both",
+            priority: "b2b_first" | "b2c_first" | "balanced" | null,
+            structureSignals: RecoraPromptGenerationInputV1["generationContext"]["structureSignals"],
+            customerSides: RecoraPromptGenerationInputV1["generationContext"]["customerSides"],
+            actorRelations: readonly RecoraConfirmedActorRelation[]
+          ): RecoraPromptGenerationInputV1 {
+            const source = requireGenerationInput(
+              RECORA_PERSONA_READY_GOLD_FIXTURES_V3[0]
+            );
+            return {
+              ...source,
+              audience: { scope, priority },
+              generationContext: {
+                ...source.generationContext,
+                structureSignals,
+                customerSides,
+                actorRelations,
+                lifecycleSignals: []
+              }
+            };
+          }
+
+          function sameActor(
+            leftRoleKey: string,
+            rightRoleKey: string
+          ): RecoraConfirmedActorRelation {
+            return { leftRoleKey, rightRoleKey, relation: "same_actor" };
+          }
+
+          '''
+
+          replace_once(
+              VERIFY,
+              '''function verifyUpstreamInvariantFailure() {''',
+              verifier_functions + '''function verifyUpstreamInvariantFailure() {'''
+          )
+
+          audience_doc = '''## Audience別Fallbackと複合Recipe
+
+          専用の事業Structure Signalがない場合でも、顧客層から一般Recipeを選べる。
+
+          ```text
+          b2b
+          → standard_b2b
+
+          b2c
+          → standard_b2c
+
+          both + b2b_first
+          → standard_both_b2b_first
+
+          both + b2c_first
+          → standard_both_b2c_first
+
+          both + balanced
+          → standard_both_balanced
+          ```
+
+          `both`では優先側だけへ丸めず、非優先側の課題・比較・決定・利用の最低coverageを残す。優先度によって5枠内の統合方法を変え、後続Topic CompilerがPrompt配分を調整する。
+
+          専用Recipeが1件だけ一致した場合は専用Recipeを優先し、一般Fallbackは無視する。専用Recipeが2件以上同時に一致した場合は、priority順で勝手に決めず`multiple_selection_recipes_match`として`needs_review`で停止する。
+
+          '''
+
+          replace_once(
+              DOC,
+              '''## Supporting role
+          ''',
+              audience_doc + '''## Supporting role
+          '''
+          )
+
+          # Temporary workflow must not remain in the final PR diff.
+          Path(".github/workflows/persona-human-review-audience-fix.yml").unlink()
+          PY
+
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run dedicated Persona verifier
+        run: npx --no-install tsx scripts/verify-recora-measurement-persona-compiler.ts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit reviewed fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            lib/recora/measurement-persona-contract.ts \
+            lib/recora/measurement-persona-selection-rules.ts \
+            lib/recora/measurement-persona-compiler.ts \
+            scripts/verify-recora-measurement-persona-compiler.ts \
+            docs/architecture/measurement-design/recora_measurement_persona_compiler_v3_ja.md \
+            .github/workflows/persona-human-review-audience-fix.yml
+          git diff --cached --check
+          git commit -m "fix(recora): honor audience in persona selection"
+          git push origin HEAD:feat/issue-168-measurement-persona-compiler-v3
