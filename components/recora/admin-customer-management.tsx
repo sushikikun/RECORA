@@ -257,13 +257,13 @@ function CustomerTable({ customers }: { customers: AdminCustomerSummary[] }) {
               <p className="truncate text-sm font-black text-[#10231F]">{customer.organizationName}</p>
               <p className="mt-1 truncate text-xs font-semibold text-[#7A8D87]">{customer.organizationId}</p>
             </div>
-            <LabeledMobileValue label="Project">
+            <LabeledMobileValue label="Project" breakpoint="md">
               <PlainValue value={formatCount(customer.projectCount)} />
             </LabeledMobileValue>
-            <LabeledMobileValue label="顧客ユーザー">
+            <LabeledMobileValue label="顧客ユーザー" breakpoint="md">
               <PlainValue value={formatCount(customer.customerUserCount)} />
             </LabeledMobileValue>
-            <LabeledMobileValue label="未対応問い合わせ">
+            <LabeledMobileValue label="未対応問い合わせ" breakpoint="md">
               <PlainValue value={formatCount(customer.openInquiryCount)} />
             </LabeledMobileValue>
           </div>
@@ -320,14 +320,14 @@ function ProjectOperationsTable({
               </LabeledMobileValue>
               <LabeledMobileValue label="顧客アクセス">
                 <Pill
-                  label={project.customerAccessLabel ?? "未接続"}
-                  tone={project.customerAccessLabel ? "slate" : sourceTone(projectAccessState)}
+                  label={boundaryValue(project.customerAccessLabel, projectAccessState)}
+                  tone={boundaryTone(project.customerAccessLabel, projectAccessState)}
                 />
               </LabeledMobileValue>
               <LabeledMobileValue label="契約">
                 <Pill
-                  label={project.contractAccessLabel ?? "未接続"}
-                  tone={project.contractAccessLabel ? "slate" : sourceTone(contractState)}
+                  label={boundaryValue(project.contractAccessLabel, contractState)}
+                  tone={boundaryTone(project.contractAccessLabel, contractState)}
                 />
               </LabeledMobileValue>
               <ArrowRight className="hidden h-4 w-4 text-[#00796B] transition-transform group-hover:translate-x-0.5 lg:block" />
@@ -343,10 +343,21 @@ function ProjectOperationsTable({
   );
 }
 
-function LabeledMobileValue({ label, children }: { label: string; children: ReactNode }) {
+function LabeledMobileValue({
+  label,
+  children,
+  breakpoint = "lg"
+}: {
+  label: string;
+  children: ReactNode;
+  breakpoint?: "md" | "lg";
+}) {
+  const medium = breakpoint === "md";
   return (
-    <div className="flex items-center justify-between gap-3 md:block">
-      <span className="text-xs font-bold text-[#7A8D87] md:hidden">{label}</span>
+    <div className={cn("flex items-center justify-between gap-3", medium ? "md:block" : "lg:block")}>
+      <span className={cn("text-xs font-bold text-[#7A8D87]", medium ? "md:hidden" : "lg:hidden")}>
+        {label}
+      </span>
       <div>{children}</div>
     </div>
   );
@@ -524,6 +535,16 @@ function sourceTone(state: AdminCustomerSourceState): PillTone {
   if (state === "connected") return "green";
   if (state === "compatibility") return "slate";
   return "muted";
+}
+
+function boundaryValue(value: string | null, state: AdminCustomerSourceState) {
+  if (state === "not_connected") return "未接続";
+  return value ?? "—";
+}
+
+function boundaryTone(value: string | null, state: AdminCustomerSourceState): PillTone {
+  if (state === "not_connected") return "muted";
+  return value ? "slate" : "slate";
 }
 
 function formatCount(value: number | null) {
