@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 
 import { AdminCustomerManagementPage } from "@/components/recora/admin-customer-management";
+import { AdminMeasurementManagementPage } from "@/components/recora/admin-measurement-management";
 import {
   AdminDomainPage,
   isAdminDomainSlug
 } from "@/components/recora/admin-control-room-pages";
 import { buildAdminCustomerManagementSnapshot } from "@/lib/recora/admin-customer-management";
+import { buildAdminMeasurementManagementSnapshot } from "@/lib/recora/admin-measurement-management";
 import {
   getRecoraAdminOperationsData,
   type RecoraAdminOperationsData
@@ -42,6 +44,15 @@ export default async function InternalAdminDomainPage({
     return (
       <AdminCustomerManagementPage
         snapshot={buildAdminCustomerManagementSnapshot(data)}
+        loadError={loadError}
+      />
+    );
+  }
+
+  if (params.domain === "measurements") {
+    return (
+      <AdminMeasurementManagementPage
+        snapshot={buildAdminMeasurementManagementSnapshot(data)}
         loadError={loadError}
       />
     );
