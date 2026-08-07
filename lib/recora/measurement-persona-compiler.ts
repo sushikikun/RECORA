@@ -95,17 +95,63 @@ function compileReadyInput(
   }
 
   const byKey = new Map(catalog.map((item) => [item.blueprintKey, item]));
-  const recipes = matchRecoraPersonaSelectionRecipesV3(
-    selectionInput.structureSignals
+  const matchedRecipes = matchRecoraPersonaSelectionRecipesV3(
+    selectionInput.structureSignals,
+    selectionInput.audience.scope,
+    selectionInput.audience.priority
   );
-  if (recipes.length === 0) {
+  const specificRecipes = matchedRecipes.filter((item) => !item.fallback);
+  const fallbackRecipes = matchedRecipes.filter((item) => item.fallback);
+  const dominantSpecificRecipes = specificRecipes.filter((candidate) =>
+    specificRecipes.every(
+      (other) =>
+        candidate.recipeKey === other.recipeKey ||
+        candidate.supersedesRecipeKeys?.includes(other.recipeKey)
+    )
+  );
+
+  if (
+    specificRecipes.length > 1 &&
+    dominantSpecificRecipes.length !== 1
+  ) {
+    return emptyResult("needs_review", {
+      reviewQuestions: [
+        {
+          code: "multiple_selection_recipes_match",
+          message:
+            "複数の事業構造に対応するPersona Recipeが同時に一致しました。優先する測定構造を確認してください。",
+          allowedAnswers: specificRecipes.map((item) => item.recipeKey)
+        }
+      ],
+      warnings: [
+        `matching_persona_recipes:${specificRecipes
+          .map((item) => item.recipeKey)
+          .join(",")}`
+      ]
+    });
+  }
+  if (specificRecipes.length === 0 && fallbackRecipes.length > 1) {
+    return emptyResult("blocked", {
+      blockers: ["compiler_internal_invariant"],
+      warnings: [
+        `multiple_fallback_persona_recipes:${fallbackRecipes
+          .map((item) => item.recipeKey)
+          .join(",")}`
+      ]
+    });
+  }
+
+  const specificRecipe =
+    specificRecipes.length === 1
+      ? specificRecipes[0]
+      : dominantSpecificRecipes[0];
+  const recipe = specificRecipe ?? fallbackRecipes[0];
+  if (!recipe) {
     return emptyResult("catalog_gap", {
       blockers: ["required_coverage_missing"],
       warnings: ["no_persona_selection_recipe"]
     });
   }
-
-  const recipe = recipes[0];
   const actorReview = findActorRelationReview(selectionInput, recipe);
   if (actorReview) {
     return emptyResult("needs_review", {
@@ -283,11 +329,12 @@ function compileReadyInput(
     excluded,
     reviewQuestions: [],
     blockers: [],
-    warnings:
-      recipes.length > 1
+    warnings: recipe.fallback
+      ? ["audience_fallback_recipe_used"]
+      : specificRecipes.length > 1
         ? [
-            `lower_priority_recipes_ignored:${recipes
-              .slice(1)
+            `superseded_persona_recipes:${specificRecipes
+              .filter((item) => item.recipeKey !== recipe.recipeKey)
               .map((item) => item.recipeKey)
               .join(",")}`
           ]

@@ -130,6 +130,31 @@ C8 継続・更新・解約・乗り換え判断者
 
 同じ入力から同じRecipe、同じ5件、同じ順序、同じIDを返す。
 
+## Audience別Fallbackと複合Recipe
+
+専用の事業Structure Signalがない場合でも、顧客層から一般Recipeを選べる。
+
+```text
+b2b
+→ standard_b2b
+
+b2c
+→ standard_b2c
+
+both + b2b_first
+→ standard_both_b2b_first
+
+both + b2c_first
+→ standard_both_b2c_first
+
+both + balanced
+→ standard_both_balanced
+```
+
+`both`では優先側だけへ丸めず、非優先側の課題・比較・決定・利用の最低coverageを残す。優先度によって5枠内の統合方法を変え、後続Topic CompilerがPrompt配分を調整する。
+
+専用Recipeが1件だけ一致した場合は専用Recipeを優先し、一般Fallbackは無視する。専用Recipeが2件以上同時に一致した場合は、priority順で勝手に決めず`multiple_selection_recipes_match`として`needs_review`で停止する。
+
 ## Supporting role
 
 同じ人物が複数役割を兼ねる場合は、1Personaへまとめる。

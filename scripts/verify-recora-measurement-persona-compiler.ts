@@ -27,6 +27,7 @@ import {
   compileRecoraMeasurementPersonasV3
 } from "../lib/recora/measurement-persona-compiler";
 import { normalizeRecoraPromptGenerationInput } from "../lib/recora/prompt-generation-input-normalizer";
+import { RECORA_PERSONA_SELECTION_RECIPES_V3 } from "../lib/recora/measurement-persona-selection-rules";
 import {
   RECORA_PERSONA_BLOCKED_GOLD_FIXTURES_V3,
   RECORA_PERSONA_CATALOG_GAP_GOLD_FIXTURES_V3,
@@ -108,6 +109,11 @@ verifyModifierStandaloneFailure();
 verifyIgnoredGeneratorFields();
 verifyProfileProjection();
 verifyDisplayNameIdStability();
+verifyGenericB2CFallback();
+verifyAudiencePriorityFallbacks();
+verifyMultipleSpecificRecipeReview();
+verifyIndividualTravelRecipe();
+verifyRecipeCoverage();
 verifyUpstreamInvariantFailure();
 
 console.log(
@@ -497,6 +503,214 @@ function verifyFixtureCatalogReferences() {
       assert.ok(keys.has(key), `${fixture.caseKey}:${key}`);
     }
   }
+}
+
+
+function verifyGenericB2CFallback() {
+  const input = genericAudienceInput(
+    "b2c",
+    null,
+    [],
+    [
+      "prospective_customer",
+      "payer_or_sponsor",
+      "end_user_or_beneficiary",
+      "influencer_or_referrer"
+    ],
+    [sameActor("b2c.purchase_decider", "b2c.payer")]
+  );
+  const result = compileReadyRecoraMeasurementPersonasV3(input);
+  assert.equal(result.status, "ready");
+  assert.equal(result.recipeKey, "standard_b2c");
+  assert.deepEqual(
+    result.selected.map((item) => item.primaryBlueprintKey),
+    [
+      "b2c.need_owner",
+      "b2c.option_evaluator",
+      "b2c.purchase_decider",
+      "b2c.actual_user",
+      "b2c.recommender_influencer"
+    ]
+  );
+}
+
+function verifyAudiencePriorityFallbacks() {
+  const sides = [
+    "prospective_customer",
+    "payer_or_sponsor",
+    "end_user_or_beneficiary"
+  ] as const;
+  const cases = [
+    {
+      priority: "b2b_first" as const,
+      recipeKey: "standard_both_b2b_first",
+      relations: [
+        sameActor("b2b.problem_owner", "b2b.internal_champion"),
+        sameActor("b2b.solution_evaluator", "b2b.end_user"),
+        sameActor("b2b.solution_evaluator", "b2b.operations_owner"),
+        sameActor("b2b.strategic_decision_owner", "b2b.economic_buyer"),
+        sameActor("b2b.strategic_decision_owner", "b2b.technical_reviewer"),
+        sameActor("b2c.need_owner", "b2c.option_evaluator"),
+        sameActor("b2c.purchase_decider", "b2c.payer"),
+        sameActor("b2c.purchase_decider", "b2c.actual_user")
+      ]
+    },
+    {
+      priority: "b2c_first" as const,
+      recipeKey: "standard_both_b2c_first",
+      relations: [
+        sameActor("b2c.purchase_decider", "b2c.payer"),
+        sameActor("b2c.purchase_decider", "b2c.actual_user"),
+        sameActor("b2b.problem_owner", "b2b.solution_evaluator"),
+        sameActor("b2b.problem_owner", "b2b.end_user"),
+        sameActor("b2b.strategic_decision_owner", "b2b.economic_buyer")
+      ]
+    },
+    {
+      priority: "balanced" as const,
+      recipeKey: "standard_both_balanced",
+      relations: [
+        sameActor("b2b.problem_owner", "b2b.solution_evaluator"),
+        sameActor("b2b.strategic_decision_owner", "b2b.economic_buyer"),
+        sameActor("b2b.strategic_decision_owner", "b2b.end_user"),
+        sameActor("b2c.need_owner", "b2c.option_evaluator"),
+        sameActor("b2c.purchase_decider", "b2c.payer"),
+        sameActor("b2c.purchase_decider", "b2c.actual_user"),
+        sameActor("b2b.technical_reviewer", "b2b.security_privacy_reviewer")
+      ]
+    }
+  ];
+
+  for (const item of cases) {
+    const result = compileReadyRecoraMeasurementPersonasV3(
+      genericAudienceInput(
+        "both",
+        item.priority,
+        ["b2b_buying_group"],
+        sides,
+        item.relations
+      )
+    );
+    assert.equal(result.status, "ready", item.recipeKey);
+    assert.equal(result.recipeKey, item.recipeKey);
+    const keys = new Set(
+      result.selected.flatMap((persona) => [
+        persona.primaryBlueprintKey,
+        ...persona.supportingBlueprintKeys
+      ])
+    );
+    assert.ok(
+      Array.from(keys).some((key) => key.startsWith("b2b.")),
+      `${item.recipeKey}:b2b`
+    );
+    assert.ok(
+      Array.from(keys).some((key) => key.startsWith("b2c.")),
+      `${item.recipeKey}:b2c`
+    );
+  }
+}
+
+function verifyMultipleSpecificRecipeReview() {
+  const source = requireGenerationInput(
+    RECORA_PERSONA_READY_GOLD_FIXTURES_V3[1]
+  );
+  const result = compileReadyRecoraMeasurementPersonasV3({
+    ...source,
+    generationContext: {
+      ...source.generationContext,
+      structureSignals: [
+        ...source.generationContext.structureSignals,
+        "agency_delivery"
+      ]
+    }
+  });
+  assert.equal(result.status, "needs_review");
+  assert.ok(
+    result.reviewQuestions.some(
+      (item) => item.code === "multiple_selection_recipes_match"
+    )
+  );
+}
+
+function verifyIndividualTravelRecipe() {
+  const source = requireGenerationInput(
+    RECORA_PERSONA_READY_GOLD_FIXTURES_V3.find(
+      (item) => item.expectedRecipeKey === "group_or_business_travel"
+    ) ?? RECORA_PERSONA_READY_GOLD_FIXTURES_V3[0]
+  );
+  const result = compileReadyRecoraMeasurementPersonasV3({
+    ...source,
+    audience: { scope: "b2c", priority: null },
+    generationContext: {
+      ...source.generationContext,
+      structureSignals: ["individual_travel"],
+      customerSides: [
+        "prospective_customer",
+        "payer_or_sponsor",
+        "end_user_or_beneficiary"
+      ],
+      actorRelations: [
+        sameActor("travel.booking_decider", "b2c.payer")
+      ],
+      lifecycleSignals: [
+        "first_time_explorer",
+        "switching_evaluator"
+      ]
+    }
+  });
+  assert.equal(result.status, "ready");
+  assert.equal(result.recipeKey, "individual_travel");
+}
+
+function verifyRecipeCoverage() {
+  const covered = new Set(
+    RECORA_PERSONA_READY_GOLD_FIXTURES_V3.map(
+      (item) => item.expectedRecipeKey
+    ).filter((key): key is string => Boolean(key))
+  );
+  for (const key of [
+    "individual_travel",
+    "standard_b2c",
+    "standard_both_b2b_first",
+    "standard_both_b2c_first",
+    "standard_both_balanced"
+  ]) {
+    covered.add(key);
+  }
+  const uncovered = RECORA_PERSONA_SELECTION_RECIPES_V3
+    .map((item) => item.recipeKey)
+    .filter((key) => !covered.has(key));
+  assert.deepEqual(uncovered, []);
+}
+
+function genericAudienceInput(
+  scope: "b2c" | "both",
+  priority: "b2b_first" | "b2c_first" | "balanced" | null,
+  structureSignals: RecoraPromptGenerationInputV1["generationContext"]["structureSignals"],
+  customerSides: RecoraPromptGenerationInputV1["generationContext"]["customerSides"],
+  actorRelations: readonly RecoraConfirmedActorRelation[]
+): RecoraPromptGenerationInputV1 {
+  const source = requireGenerationInput(
+    RECORA_PERSONA_READY_GOLD_FIXTURES_V3[0]
+  );
+  return {
+    ...source,
+    audience: { scope, priority },
+    generationContext: {
+      ...source.generationContext,
+      structureSignals,
+      customerSides,
+      actorRelations,
+      lifecycleSignals: []
+    }
+  };
+}
+
+function sameActor(
+  leftRoleKey: string,
+  rightRoleKey: string
+): RecoraConfirmedActorRelation {
+  return { leftRoleKey, rightRoleKey, relation: "same_actor" };
 }
 
 function verifyUpstreamInvariantFailure() {

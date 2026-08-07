@@ -1,4 +1,8 @@
-import type { RecoraGenerationStructureSignal } from "./prompt-generation-input";
+import type {
+  RecoraAudiencePriority,
+  RecoraAudienceScope,
+  RecoraGenerationStructureSignal
+} from "./prompt-generation-input";
 import type {
   RecoraPersonaSelectionRecipeEntryV3,
   RecoraPersonaSelectionRecipeV3
@@ -96,6 +100,7 @@ export const RECORA_PERSONA_SELECTION_RECIPES_V3: readonly RecoraPersonaSelectio
   }),
   recipe({
     recipeKey: "commerce_gift",
+    supersedesRecipeKeys: ["commerce_single_purchase"],
     matchSignalsAll: ["commerce_gift"],
     selections: [
       entry("b2c.group_occasion_planner"),
@@ -583,7 +588,115 @@ export const RECORA_PERSONA_SELECTION_RECIPES_V3: readonly RecoraPersonaSelectio
     priority: 300
   }),
   recipe({
+    recipeKey: "standard_b2c",
+    audienceScopes: ["b2c"],
+    fallback: true,
+    selections: [
+      entry("b2c.need_owner"),
+      entry("b2c.option_evaluator"),
+      entry("b2c.purchase_decider", ["b2c.payer"]),
+      entry("b2c.actual_user"),
+      entry("b2c.recommender_influencer")
+    ],
+    alternativeBlueprintKeys: [
+      "b2c.service_recipient",
+      "b2c.alternate_payer",
+      "b2c.group_occasion_planner"
+    ],
+    requiredCoverage: ["C1", "C2", "C3", "C4", "C5"],
+    requiredMarketSides: [
+      "prospective_customer",
+      "payer_or_sponsor",
+      "end_user_or_beneficiary",
+      "influencer_or_referrer"
+    ],
+    priority: 950
+  }),
+  recipe({
+    recipeKey: "standard_both_b2b_first",
+    audienceScopes: ["both"],
+    audiencePriorities: ["b2b_first"],
+    fallback: true,
+    selections: [
+      entry("b2b.problem_owner", ["b2b.internal_champion"]),
+      entry("b2b.solution_evaluator", [
+        "b2b.end_user",
+        "b2b.operations_owner"
+      ]),
+      entry("b2b.strategic_decision_owner", [
+        "b2b.economic_buyer",
+        "b2b.technical_reviewer"
+      ]),
+      entry("b2c.need_owner", ["b2c.option_evaluator"]),
+      entry("b2c.purchase_decider", ["b2c.payer", "b2c.actual_user"])
+    ],
+    alternativeBlueprintKeys: [
+      "b2b.security_privacy_reviewer",
+      "b2c.recommender_influencer"
+    ],
+    requiredCoverage: ["C1", "C2", "C3", "C4", "C5", "C6"],
+    requiredMarketSides: [
+      "prospective_customer",
+      "payer_or_sponsor",
+      "end_user_or_beneficiary"
+    ],
+    priority: 951
+  }),
+  recipe({
+    recipeKey: "standard_both_b2c_first",
+    audienceScopes: ["both"],
+    audiencePriorities: ["b2c_first"],
+    fallback: true,
+    selections: [
+      entry("b2c.need_owner"),
+      entry("b2c.option_evaluator"),
+      entry("b2c.purchase_decider", ["b2c.payer", "b2c.actual_user"]),
+      entry("b2b.problem_owner", ["b2b.solution_evaluator", "b2b.end_user"]),
+      entry("b2b.strategic_decision_owner", ["b2b.economic_buyer"])
+    ],
+    alternativeBlueprintKeys: [
+      "b2c.recommender_influencer",
+      "b2b.technical_reviewer"
+    ],
+    requiredCoverage: ["C1", "C2", "C3", "C4"],
+    requiredMarketSides: [
+      "prospective_customer",
+      "payer_or_sponsor",
+      "end_user_or_beneficiary"
+    ],
+    priority: 952
+  }),
+  recipe({
+    recipeKey: "standard_both_balanced",
+    audienceScopes: ["both"],
+    audiencePriorities: ["balanced"],
+    fallback: true,
+    selections: [
+      entry("b2b.problem_owner", ["b2b.solution_evaluator"]),
+      entry("b2b.strategic_decision_owner", [
+        "b2b.economic_buyer",
+        "b2b.end_user"
+      ]),
+      entry("b2c.need_owner", ["b2c.option_evaluator"]),
+      entry("b2c.purchase_decider", ["b2c.payer", "b2c.actual_user"]),
+      entry("b2b.technical_reviewer", ["b2b.security_privacy_reviewer"])
+    ],
+    alternativeBlueprintKeys: [
+      "b2b.internal_champion",
+      "b2c.recommender_influencer"
+    ],
+    requiredCoverage: ["C1", "C2", "C3", "C4", "C6"],
+    requiredMarketSides: [
+      "prospective_customer",
+      "payer_or_sponsor",
+      "end_user_or_beneficiary"
+    ],
+    priority: 953
+  }),
+  recipe({
     recipeKey: "standard_b2b",
+    audienceScopes: ["b2b"],
+    fallback: true,
     matchSignalsAll: ["b2b_buying_group"],
     forbiddenSignals: [
       "enterprise_it_security",
@@ -617,7 +730,9 @@ export const RECORA_PERSONA_SELECTION_RECIPES_V3: readonly RecoraPersonaSelectio
 ] as const;
 
 export function matchRecoraPersonaSelectionRecipesV3(
-  signals: readonly RecoraGenerationStructureSignal[]
+  signals: readonly RecoraGenerationStructureSignal[],
+  audienceScope: RecoraAudienceScope,
+  audiencePriority: RecoraAudiencePriority | null
 ): readonly RecoraPersonaSelectionRecipeV3[] {
   const signalSet = new Set(signals);
   return RECORA_PERSONA_SELECTION_RECIPES_V3.filter((item) => {
@@ -630,6 +745,12 @@ export function matchRecoraPersonaSelectionRecipesV3(
     const forbidden = (item.forbiddenSignals ?? []).some((signal) =>
       signalSet.has(signal)
     );
-    return all && any && !forbidden;
+    const scopeMatches =
+      !item.audienceScopes?.length ||
+      item.audienceScopes.includes(audienceScope);
+    const priorityMatches =
+      !item.audiencePriorities?.length ||
+      item.audiencePriorities.some((value) => value === audiencePriority);
+    return all && any && !forbidden && scopeMatches && priorityMatches;
   }).sort((left, right) => left.priority - right.priority);
 }

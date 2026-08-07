@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 
 import type {
+  RecoraAudiencePriority,
+  RecoraAudienceScope,
   RecoraConfirmedActorRelation,
   RecoraGenerationCustomerSide,
   RecoraGenerationStructureSignal,
@@ -109,6 +111,10 @@ export const RECORA_PERSONA_REVIEW_QUESTION_CODES = [
 export const RECORA_PERSONA_BLOCKER_CODES = [
   "generation_input_blocked",
   "unsupported_generation_input_version",
+  "unsupported_country",
+  "unsupported_locale",
+  "primary_subject_name_missing",
+  "actor_relation_conflict",
   "unsupported_persona_catalog_version",
   "unsupported_persona_compiler_version",
   "selected_count_mismatch",
@@ -202,6 +208,10 @@ export type RecoraPersonaSelectionRecipeEntryV3 = {
 
 export type RecoraPersonaSelectionRecipeV3 = {
   recipeKey: string;
+  audienceScopes?: readonly RecoraAudienceScope[];
+  audiencePriorities?: readonly (RecoraAudiencePriority | null)[];
+  fallback?: boolean;
+  supersedesRecipeKeys?: readonly string[];
   matchSignalsAll?: readonly RecoraGenerationStructureSignal[];
   matchSignalsAny?: readonly RecoraGenerationStructureSignal[];
   forbiddenSignals?: readonly RecoraGenerationStructureSignal[];
