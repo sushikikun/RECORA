@@ -1,0 +1,109 @@
+name: Persona Gold Expectation Freeze
+
+on:
+  push:
+    branches:
+      - feat/issue-168-measurement-persona-compiler-v3
+
+permissions:
+  contents: write
+
+jobs:
+  freeze-verify-clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/issue-168-measurement-persona-compiler-v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Export current reviewed expectations
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --no-install tsx scripts/.emit-persona-gold-expectations.ts \
+            > /tmp/persona-gold-expectations.json
+          test "$(node -e "const x=require('/tmp/persona-gold-expectations.json'); process.stdout.write(String(Object.keys(x).length))")" = "31"
+
+      - name: Freeze expectations as independent fixture data
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/.freeze-persona-gold-expectations.py
+          python scripts/.freeze-persona-gold-expectations.py \
+            /tmp/persona-gold-expectations.json
+          git diff --check
+
+      - name: Run dedicated Persona verifier
+        run: npx --no-install tsx scripts/verify-recora-measurement-persona-compiler.ts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Remove transport files and validate final scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm scripts/.emit-persona-gold-expectations.ts
+          rm scripts/.freeze-persona-gold-expectations.py
+          rm .github/workflows/persona-gold-freeze.yml
+          git diff --check
+          python - <<'PY'
+          import subprocess
+
+          expected = {
+              "docs/architecture/measurement-design/recora_measurement_persona_compiler_v3_ja.md",
+              "lib/recora/measurement-persona-catalog-common.ts",
+              "lib/recora/measurement-persona-catalog-industry.ts",
+              "lib/recora/measurement-persona-catalog.ts",
+              "lib/recora/measurement-persona-compiler.ts",
+              "lib/recora/measurement-persona-contract.ts",
+              "lib/recora/measurement-persona-selection-rules.ts",
+              "scripts/fixtures/recora-measurement-persona-gold-fixtures.ts",
+              "scripts/verify-recora-measurement-persona-compiler.ts",
+          }
+          actual = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", "origin/master"],
+                  text=True,
+              ).splitlines()
+          )
+          if actual != expected:
+              raise SystemExit(
+                  f"final scope mismatch: missing={sorted(expected - actual)} "
+                  f"extra={sorted(actual - expected)}"
+              )
+          print("Final scope validated:", len(actual), "files")
+          PY
+
+      - name: Commit frozen Gold expectations
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            scripts/fixtures/recora-measurement-persona-gold-fixtures.ts \
+            scripts/verify-recora-measurement-persona-compiler.ts \
+            scripts/.emit-persona-gold-expectations.ts \
+            scripts/.freeze-persona-gold-expectations.py \
+            .github/workflows/persona-gold-freeze.yml
+          git diff --cached --check
+          git commit -m "test(recora): freeze independent persona gold expectations"
+          git push origin HEAD:feat/issue-168-measurement-persona-compiler-v3
