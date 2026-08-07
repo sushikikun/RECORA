@@ -22,7 +22,6 @@ export type AdminCustomerSourceStatus = {
 export type AdminCustomerSummary = {
   organizationId: string;
   organizationName: string;
-  primaryContactLabel: string | null;
   projectCount: number | null;
   customerUserCount: number | null;
   openInquiryCount: number | null;
