@@ -1,0 +1,113 @@
+name: Topic Compiler Child B Fix 2
+
+on:
+  push:
+    branches:
+      - feat/issue-169-topic-compiler-v3
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/issue-169-topic-compiler-v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Apply contract and type-boundary patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B scripts/.apply-topic-child-b-contract.py
+          python -B scripts/.fix-topic-child-b-types.py
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify frozen Topic Catalog
+        run: npx --no-install tsx scripts/verify-recora-measurement-topic-catalog.ts
+
+      - name: Verify Persona Compiler dependency
+        run: npx --no-install tsx scripts/verify-recora-measurement-persona-compiler.ts
+
+      - name: Verify Topic Compiler
+        run: npx --no-install tsx scripts/verify-recora-measurement-topic-compiler.ts
+
+      - name: Verify G0 and Prompt measurement boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run recora:prompt-generation-g0:check
+          npm run recora:prompt-measurement-contract:check
+
+      - name: Run Recora preflight
+        run: npm run recora:preflight:full
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Clean transport files and validate final scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            scripts/.apply-topic-child-b-contract.py \
+            scripts/.fix-topic-child-b-types.py \
+            scripts/.inspect-topic-catalog-child-b.ts \
+            .github/workflows/topic-child-b-inspect.yml \
+            .github/workflows/topic-child-b-validate.yml \
+            .github/workflows/topic-child-b-fix2.yml
+          rm -rf scripts/__pycache__
+          git diff --check
+          python -B - <<'PY'
+          import subprocess
+
+          baseline = "98833cb33021e69bb8ac88e35e63c3af63776257"
+          expected = {
+              "docs/architecture/measurement-design/recora_measurement_topic_compiler_v3_ja.md",
+              "lib/recora/measurement-topic-compiler.ts",
+              "lib/recora/measurement-topic-contract.ts",
+              "lib/recora/measurement-topic-selection-rules.ts",
+              "scripts/fixtures/recora-measurement-topic-gold-fixtures.ts",
+              "scripts/verify-recora-measurement-topic-compiler.ts",
+          }
+          actual = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", baseline], text=True
+              ).splitlines()
+          )
+          if actual != expected:
+              raise SystemExit(
+                  f"final scope mismatch: missing={sorted(expected - actual)} "
+                  f"extra={sorted(actual - expected)}"
+              )
+          print("Final Child B scope validated:", len(actual), "files")
+          PY
+
+      - name: Commit validated Child B implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat(recora): compile six measurement topics"
+          git push origin HEAD:feat/issue-169-topic-compiler-v3
