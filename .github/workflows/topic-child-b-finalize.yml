@@ -1,0 +1,168 @@
+name: Topic Compiler Child B Finalize
+
+on:
+  push:
+    branches:
+      - feat/issue-169-topic-compiler-v3
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  validate-clean-and-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/issue-169-topic-compiler-v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Apply pending transport patches when present
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f scripts/.apply-topic-child-b-contract.py ]; then
+            python -B scripts/.apply-topic-child-b-contract.py
+          fi
+          if [ -f scripts/.fix-topic-child-b-types.py ]; then
+            python -B scripts/.fix-topic-child-b-types.py
+          fi
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run complete Child B verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --no-install tsx scripts/verify-recora-measurement-topic-catalog.ts
+          npx --no-install tsx scripts/verify-recora-measurement-persona-compiler.ts
+          npx --no-install tsx scripts/verify-recora-measurement-topic-compiler.ts
+          npm run recora:prompt-generation-g0:check
+          npm run recora:prompt-measurement-contract:check
+          npm run recora:preflight:full
+          npm run typecheck
+          npm run lint
+          npm run build
+          git diff --check
+
+      - name: Remove all transport files and validate exact six-file scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            scripts/.apply-topic-child-b-contract.py \
+            scripts/.fix-topic-child-b-types.py \
+            scripts/.inspect-topic-catalog-child-b.ts \
+            .github/workflows/topic-child-b-inspect.yml \
+            .github/workflows/topic-child-b-validate.yml \
+            .github/workflows/topic-child-b-fix2.yml \
+            .github/workflows/topic-child-b-finalize.yml
+          rm -rf scripts/__pycache__
+          git diff --check
+          python -B - <<'PY'
+          import subprocess
+
+          baseline = "98833cb33021e69bb8ac88e35e63c3af63776257"
+          expected = {
+              "docs/architecture/measurement-design/recora_measurement_topic_compiler_v3_ja.md",
+              "lib/recora/measurement-topic-compiler.ts",
+              "lib/recora/measurement-topic-contract.ts",
+              "lib/recora/measurement-topic-selection-rules.ts",
+              "scripts/fixtures/recora-measurement-topic-gold-fixtures.ts",
+              "scripts/verify-recora-measurement-topic-compiler.ts",
+          }
+          actual = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", baseline], text=True
+              ).splitlines()
+          )
+          if actual != expected:
+              raise SystemExit(
+                  f"final scope mismatch: missing={sorted(expected - actual)} "
+                  f"extra={sorted(actual - expected)}"
+              )
+          print("Final Child B scope validated:", len(actual), "files")
+          PY
+
+      - name: Commit and push validated implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m "feat(recora): compile six measurement topics"
+            git push origin HEAD:feat/issue-169-topic-compiler-v3
+          fi
+
+      - name: Create or update Draft PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          body=/tmp/topic-child-b-pr.md
+          cat > "$body" <<'EOF'
+          ## Summary
+
+          Tracks #169 Child B.
+
+          Adds the deterministic Japanese measurement Topic Compiler that consumes the merged G0 input, the ready five-Persona compilation, and the frozen 332-Blueprint Topic Catalog to select exactly six Topics for every 50/100/200 Prompt profile.
+
+          ## Scope
+
+          - Topic Compiler contracts and status/reason-code boundary
+          - exact 35 Persona Recipe to 35 Topic Recipe mapping
+          - bounded DFS/backtracking constraint solver for T1–T6
+          - typed applicability and same-Persona authority checks
+          - Blueprint/Lane-specific Prompt Subject Labels
+          - PersonaTopicEdge output
+          - lane-specific Natural Citation Observation Overlay
+          - canonical SHA-256 selection identity and stable Topic IDs
+          - safe replacement-simulated alternatives
+          - independent 35 ready / 10 needs-review / 7 catalog-gap / 10 blocked Gold fixtures
+          - 902+ executions plus boundary and constrained pairwise checks
+          - Japanese architecture documentation
+
+          ## Changed files
+
+          1. `lib/recora/measurement-topic-contract.ts`
+          2. `lib/recora/measurement-topic-selection-rules.ts`
+          3. `lib/recora/measurement-topic-compiler.ts`
+          4. `scripts/fixtures/recora-measurement-topic-gold-fixtures.ts`
+          5. `scripts/verify-recora-measurement-topic-compiler.ts`
+          6. `docs/architecture/measurement-design/recora_measurement_topic_compiler_v3_ja.md`
+
+          ## Scope boundaries
+
+          No `package.json`, `package-lock.json`, frozen Topic Catalog meaning, Persona Compiler, UI, DB, migration, Supabase, API, provider, Inngest, measurement runtime, Intent Cell Compiler, Prompt text generation, Panel Compiler, or fixed Prompt materialization changes.
+
+          ## Stop position
+
+          Draft PR only. Ready, merge, Issue close, and Intent Cell Compiler start are not authorized.
+          EOF
+
+          existing="$(gh pr list --state open --head feat/issue-169-topic-compiler-v3 --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "feat(recora): compile six measurement topics" --body-file "$body"
+          else
+            gh pr create \
+              --draft \
+              --base master \
+              --head feat/issue-169-topic-compiler-v3 \
+              --title "feat(recora): compile six measurement topics" \
+              --body-file "$body"
+          fi
