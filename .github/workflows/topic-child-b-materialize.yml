@@ -1,0 +1,128 @@
+name: Topic Child B Materialize
+
+on:
+  push:
+    branches:
+      - feat/issue-169-topic-compiler-v3
+
+permissions:
+  contents: write
+
+jobs:
+  materialize-verify-clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/issue-169-topic-compiler-v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Materialize authorized Child B files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/.materialize-topic-child-b.py
+          python scripts/.materialize-topic-child-b.py
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify frozen Topic Catalog
+        run: npx --no-install tsx scripts/verify-recora-measurement-topic-catalog.ts
+
+      - name: Verify Topic Compiler
+        run: npx --no-install tsx scripts/verify-recora-measurement-topic-compiler.ts
+
+      - name: Verify Persona Compiler compatibility
+        run: npx --no-install tsx scripts/verify-recora-measurement-persona-compiler.ts
+
+      - name: Verify G0 and measurement contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run recora:prompt-generation-g0:check
+          npm run recora:prompt-measurement-contract:check
+
+      - name: Run Recora preflight
+        run: npm run recora:preflight:full
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Remove transport files and validate final scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/topic-child-b-inspect.yml \
+            .github/workflows/topic-child-b-materialize.yml \
+            scripts/.inspect-topic-catalog-child-b.ts \
+            scripts/.materialize-topic-child-b.py \
+            scripts/.topic-child-b-selection-rules.gz.b64 \
+            scripts/.topic-child-b-compiler.gz.b64 \
+            scripts/.topic-child-b-fixture.gz.b64 \
+            scripts/.topic-child-b-verifier.gz.b64 \
+            scripts/.topic-child-b-docs.gz.b64 \
+            scripts/.topic-child-b-contract-append.gz.b64
+          find scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+          git diff --check
+          python - <<'PY'
+          import subprocess
+
+          expected = {
+              "docs/architecture/measurement-design/recora_measurement_topic_compiler_v3_ja.md",
+              "lib/recora/measurement-topic-compiler.ts",
+              "lib/recora/measurement-topic-contract.ts",
+              "lib/recora/measurement-topic-selection-rules.ts",
+              "scripts/fixtures/recora-measurement-topic-gold-fixtures.ts",
+              "scripts/verify-recora-measurement-topic-compiler.ts",
+          }
+          base = "98833cb33021e69bb8ac88e35e63c3af63776257"
+          actual = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", base], text=True
+              ).splitlines()
+          )
+          if actual != expected:
+              raise SystemExit(
+                  f"final scope mismatch: missing={sorted(expected - actual)} "
+                  f"extra={sorted(actual - expected)}"
+              )
+          package_changes = {
+              name for name in actual if name in {"package.json", "package-lock.json"}
+          }
+          if package_changes:
+              raise SystemExit(f"package files changed: {sorted(package_changes)}")
+          print("Final Child B scope validated:", len(actual), "files")
+          PY
+
+      - name: Stage and run commit safety gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git diff --cached --check
+          npm run recora:commit-check
+
+      - name: Commit verified Child B implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(recora): add measurement topic compiler v3"
+          git push origin HEAD:feat/issue-169-topic-compiler-v3
