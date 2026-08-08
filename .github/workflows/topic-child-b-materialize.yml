@@ -75,6 +75,10 @@ jobs:
             scripts/.topic-child-b-selection-rules.gz.b64 \
             scripts/.topic-child-b-compiler.gz.b64 \
             scripts/.topic-child-b-fixture.gz.b64 \
+            scripts/.topic-child-b-fixture.part1.b64 \
+            scripts/.topic-child-b-fixture.part2.b64 \
+            scripts/.topic-child-b-fixture.part3.b64 \
+            scripts/.topic-child-b-fixture.part4.b64 \
             scripts/.topic-child-b-verifier.gz.b64 \
             scripts/.topic-child-b-docs.gz.b64 \
             scripts/.topic-child-b-contract-append.gz.b64
