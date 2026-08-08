@@ -191,6 +191,14 @@ export const RECORA_CUSTOMER_REPORT_METRIC_DEFINITIONS = [
   }
 ] as const satisfies readonly RecoraCustomerReportMetricDefinition[];
 
+const EXPECTED_CUSTOMER_REPORT_METRIC_DEFINITION_SIGNATURES = [
+  "ai_visibility_rate|AI表示率|自社掲載有効回答数|対象有効回答数|visibility|answer|rate|1|not_available|core",
+  "ai_share_of_voice|AI内シェア|自社ブランド言及数|承認済み対象ブランド総言及数|sov|mention|rate|1|not_available|core",
+  "average_first_position|平均掲載位置|自社掲載回答の初出位置合計|自社掲載回答数|ranking|answer|average|1|not_available|core",
+  "owned_site_reference_rate|自社サイト参照率|自社承認domain URLを含む有効回答数|対象有効回答数|natural_citation_observation|answer|rate|1|not_available|core",
+  "cited_answer_rate|引用付き回答率|参照URLを含む有効回答数|対象有効回答数|natural_citation_observation|answer|rate|1|not_available|core"
+] as const;
+
 export type RecoraCustomerReportObservation = {
   observationId: string;
   binding: RecoraCustomerReportBinding;
@@ -395,6 +403,11 @@ export function validateRecoraCustomerReportCrossContract(): void {
   }
   assertUnique(RECORA_CUSTOMER_REPORT_METRIC_KEYS, "customer metric keys");
   assertUnique(RECORA_CUSTOMER_REPORT_METRIC_DEFINITIONS.map((item) => item.label), "customer metric labels");
+  assertSameStringSequence(
+    RECORA_CUSTOMER_REPORT_METRIC_DEFINITIONS.map(metricDefinitionSignature),
+    EXPECTED_CUSTOMER_REPORT_METRIC_DEFINITION_SIGNATURES,
+    "customer metric definitions"
+  );
   assertUnique(RECORA_CUSTOMER_REPORT_QUERY_KEYS, "query keys");
   assertUnique(RECORA_CUSTOMER_REPORT_ROUTES.map((route) => route.path), "route paths");
   assertSameStringSet(
@@ -537,6 +550,12 @@ export function validateRecoraCustomerReportObservationInput(
   ) {
     throw new Error("sentiment eligibility requires branded scope");
   }
+  if (
+    observation.metricEligibility.brand_perception.state === "eligible" &&
+    observation.brandScope !== "branded"
+  ) {
+    throw new Error("brand perception eligibility requires branded scope");
+  }
   if (observation.sentiment !== null) {
     if (!RECORA_CUSTOMER_REPORT_SENTIMENTS.includes(observation.sentiment)) {
       throw new Error(`unknown sentiment: ${String(observation.sentiment)}`);
@@ -558,6 +577,9 @@ export function validateRecoraCustomerReportObservationInput(
   }
   if (observation.approvedOwnedUrlCount > observation.referenceUrlCount) {
     throw new Error("owned URL count exceeds reference URL count");
+  }
+  if (observation.targetBrandMentioned && observation.approvedTargetBrandMentionCount === 0) {
+    throw new Error("mentioned brand must have at least one approved mention");
   }
   if (observation.targetBrandMentioned) {
     requireFirstPosition(observation);
@@ -724,6 +746,31 @@ function assertSameStringSet(
   if (left.length !== right.length || left.some((value, index) => value !== right[index])) {
     throw new Error(`${label} mismatch`);
   }
+}
+
+function assertSameStringSequence(
+  actual: readonly string[],
+  expected: readonly string[],
+  label: string
+): void {
+  if (actual.length !== expected.length || actual.some((value, index) => value !== expected[index])) {
+    throw new Error(`${label} mismatch`);
+  }
+}
+
+function metricDefinitionSignature(definition: RecoraCustomerReportMetricDefinition): string {
+  return [
+    definition.key,
+    definition.label,
+    definition.numerator,
+    definition.denominator,
+    definition.sourceMetricEligibility,
+    definition.aggregationUnit,
+    definition.valueKind,
+    definition.roundingDecimals,
+    definition.zeroDenominator,
+    definition.headlinePanelRole
+  ].join("|");
 }
 
 function assertUnique(values: readonly string[], label: string): void {

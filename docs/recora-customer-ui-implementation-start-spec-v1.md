@@ -23,7 +23,7 @@ Promptの測定適格性は、最新の9種類の`metric_eligibility`を正本�
 - `risk_check`
 - `recommendation_input`
 
-`prompt_type`と`measurement_purpose`は互換表示・移行確認用であり、顧客指標の集計可否を決めない。C0は既存runtime/read modelへimportされず、旧metricの意味を上書きしない。
+`prompt_type`と`measurement_purpose`はcompatibility表示・移行確認用であり、顧客指標の集計可否を決めない。専用verifierは、これらcompatibility項目だけを矛盾値へ変更しても5指標と感情構成が不変であることを検証する。C0は既存runtime/read modelへimportされず、旧metricの意味を上書きしない。
 
 ## 3. 顧客向け5指標
 
@@ -49,10 +49,14 @@ Promptの測定適格性は、最新の9種類の`metric_eligibility`を正本�
 10. `brandScope`は`non_branded / branded / named_comparison`だけを受理し、未知値を実行時にも拒否する。
 11. `targetBrandMentioned=false`なのに自社ブランド言及数が1以上ある矛盾入力は拒否する。
 12. `valid_answer`以外の回答は、statusと一致する`answerExclusionReason`を必須にする。`valid_answer`へ除外理由を付けることも拒否する。
+13. `targetBrandMentioned=true`なのに`approvedTargetBrandMentionCount=0`の逆方向の矛盾入力も拒否し、掲載有無・初出位置・言及数を同じ意味へ揃える。
+14. `sentiment=eligible`と`brand_perception=eligible`はbranded scopeだけを受理し、non-brandedやnamed comparisonへ付与された場合は拒否する。
+15. 5指標のkey、表示名、分子、分母、正式適格性、集計単位、値種別、丸め、分母0、headline roleを完全一致で機械固定する。
+16. compatibility用`prompt_type / measurement_purpose`は集計条件へ使用せず、値だけを変更しても5指標と感情構成を変えない。
 
 ## 4. 感情とEvidence単位
 
-感情構成は、Prompt configurationがfinalized、Measurement Designがready、Core、branded、`sentiment=eligible`、`valid_answer`の観測だけから計算する。固定済みの構成比を入力として受け取らず、該当観測を`positive / neutral / negative / unclassified`へ1回答ずつ集計する。`unclassified`をneutralへ合算しない。適格観測が0件の場合は`not_available`とし、0件を0%表示へ変換しない。
+感情構成は、Prompt configurationがfinalized、Measurement Designがready、Core、branded、`sentiment=eligible`、`valid_answer`の観測だけから計算する。固定済みの構成比を入力として受け取らず、該当観測を`positive / neutral / negative / unclassified`へ1回答ずつ集計する。`unclassified`をneutralへ合算しない。適格観測が0件の場合は`not_available`とし、0件を0%表示へ変換しない。ブランド認識の`brand_perception=eligible`もbranded valid answerだけを入力境界として受理する。
 
 次のEvidence単位は別の数として保持し、横断合計しない。
 
@@ -110,7 +114,7 @@ fixtureはtest/design preview専用であり、production measurementやpublishe
 - current URL pages: `16 + 48 = 64`
 - recommendation evidence display: `質問7 · 回答12 · URL4`（合計しない）
 
-fixtureにはRobustness、Diagnostic、強制引用、provider error、refusal、未finalized Prompt、not-ready designを含め、headline値が変わらないことを検証する。無効回答はstatusと一致する除外理由を保持し、感情用provider errorは25件の感情分母へ入らない。
+fixtureにはRobustness、Diagnostic、強制引用、provider error、refusal、未finalized Prompt、not-ready designを含め、headline値が変わらないことを検証する。無効回答はstatusと一致する除外理由を保持し、感情用provider errorは25件の感情分母へ入らない。さらに、metric-specific eligibilityを1種類ずつ有効化した分離観測で、各指標が正式なeligibilityだけへ接続されていることを検証する。
 
 ## 7. 後続工程との境界
 
@@ -127,6 +131,6 @@ C0では次を実装しない。
 
 ## 8. 機械検証
 
-`npm run recora:customer-report-contract:check`は、最新Prompt契約との9 key整合、Core重複、自然/強制引用分離、branded混入、感情実計算、invalid answerの除外理由、未知brand scope、言及矛盾、分母0、Evidence束縛、実在日付を含むroute/query、synthetic利用禁止、共通fixture算術を検証する。
+`npm run recora:customer-report-contract:check`は、最新Prompt契約との9 key整合、5指標定義の完全一致、eligibility分離観測、Core重複、自然/強制引用分離、branded混入、感情実計算、compatibility不変性、invalid answerの除外理由、未知brand scope、ブランド言及の双方向整合、`brand_perception`のbranded制約、分母0、Evidence束縛、実在日付を含むroute/query、synthetic利用禁止、共通fixture算術を検証する。
 
 Persona Compiler V3の既存verifierは`npm run recora:measurement-persona-compiler:check`として登録し、標準preflightへ接続する。

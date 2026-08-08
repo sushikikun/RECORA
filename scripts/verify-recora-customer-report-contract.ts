@@ -18,8 +18,10 @@ import {
   validateRecoraCustomerReportEvidenceBundle,
   validateRecoraCustomerReportObservationInput,
   validateRecoraCustomerReportQuery,
-  type RecoraCustomerReportEvidenceBundle
+  type RecoraCustomerReportEvidenceBundle,
+  type RecoraCustomerReportMetricDefinition
 } from "../lib/recora/customer-report-contract";
+import type { RecoraFixedPromptMetricEligibility } from "../lib/recora/db/types";
 import {
   RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING,
   RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE,
@@ -36,6 +38,86 @@ assert.equal(RECORA_CUSTOMER_REPORT_BRAND_SCOPES.length, 3);
 assert.equal(RECORA_CUSTOMER_REPORT_ANSWER_EXCLUSION_REASONS.length, 6);
 assert.equal(RECORA_CUSTOMER_REPORT_EVIDENCE_UNITS.length, 6);
 assert.equal(RECORA_CUSTOMER_REPORT_QUERY_KEYS.length, 18);
+assert.deepEqual(RECORA_CUSTOMER_REPORT_METRIC_DEFINITIONS, [
+  {
+    key: "ai_visibility_rate",
+    label: "AI表示率",
+    numerator: "自社掲載有効回答数",
+    denominator: "対象有効回答数",
+    sourceMetricEligibility: "visibility",
+    aggregationUnit: "answer",
+    valueKind: "rate",
+    roundingDecimals: 1,
+    zeroDenominator: "not_available",
+    headlinePanelRole: "core"
+  },
+  {
+    key: "ai_share_of_voice",
+    label: "AI内シェア",
+    numerator: "自社ブランド言及数",
+    denominator: "承認済み対象ブランド総言及数",
+    sourceMetricEligibility: "sov",
+    aggregationUnit: "mention",
+    valueKind: "rate",
+    roundingDecimals: 1,
+    zeroDenominator: "not_available",
+    headlinePanelRole: "core"
+  },
+  {
+    key: "average_first_position",
+    label: "平均掲載位置",
+    numerator: "自社掲載回答の初出位置合計",
+    denominator: "自社掲載回答数",
+    sourceMetricEligibility: "ranking",
+    aggregationUnit: "answer",
+    valueKind: "average",
+    roundingDecimals: 1,
+    zeroDenominator: "not_available",
+    headlinePanelRole: "core"
+  },
+  {
+    key: "owned_site_reference_rate",
+    label: "自社サイト参照率",
+    numerator: "自社承認domain URLを含む有効回答数",
+    denominator: "対象有効回答数",
+    sourceMetricEligibility: "natural_citation_observation",
+    aggregationUnit: "answer",
+    valueKind: "rate",
+    roundingDecimals: 1,
+    zeroDenominator: "not_available",
+    headlinePanelRole: "core"
+  },
+  {
+    key: "cited_answer_rate",
+    label: "引用付き回答率",
+    numerator: "参照URLを含む有効回答数",
+    denominator: "対象有効回答数",
+    sourceMetricEligibility: "natural_citation_observation",
+    aggregationUnit: "answer",
+    valueKind: "rate",
+    roundingDecimals: 1,
+    zeroDenominator: "not_available",
+    headlinePanelRole: "core"
+  }
+]);
+
+const mutableMetricDefinitions =
+  RECORA_CUSTOMER_REPORT_METRIC_DEFINITIONS as unknown as RecoraCustomerReportMetricDefinition[];
+const mutableVisibilityDefinition = mutableMetricDefinitions.find(
+  (definition) => definition.key === "ai_visibility_rate"
+);
+assert.ok(mutableVisibilityDefinition, "visibility metric definition missing");
+const originalVisibilityEligibility = mutableVisibilityDefinition.sourceMetricEligibility;
+try {
+  mutableVisibilityDefinition.sourceMetricEligibility = "ranking";
+  assert.throws(
+    () => validateRecoraCustomerReportCrossContract(),
+    /customer metric definitions mismatch/
+  );
+} finally {
+  mutableVisibilityDefinition.sourceMetricEligibility = originalVisibilityEligibility;
+}
+validateRecoraCustomerReportCrossContract();
 
 assert.deepEqual(
   RECORA_CUSTOMER_REPORT_ROUTES.map((route) => route.number),
@@ -115,6 +197,27 @@ assert.deepEqual(firstSentimentRun.counts, RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXT
 assert.deepEqual(
   firstSentimentRun.counts,
   RECORA_CUSTOMER_REPORT_SYNTHETIC_SENTIMENT_SOURCE_SUMMARY.counts
+);
+const compatibilityOnlyMutatedObservations =
+  RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.observations.map((observation) => ({
+    ...observation,
+    compatibilityPromptType: observation.brandScope === "branded" ? "non_branded" : "branded",
+    compatibilityMeasurementPurpose:
+      observation.metricEligibility.sentiment.state === "eligible" ? "visibility" : "sentiment"
+  }));
+assert.deepEqual(
+  calculateRecoraCustomerReportMetrics(
+    compatibilityOnlyMutatedObservations,
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
+  firstRun
+);
+assert.deepEqual(
+  calculateRecoraCustomerReportSentiment(
+    compatibilityOnlyMutatedObservations,
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
+  firstSentimentRun
 );
 const sentimentTotal = Object.values(firstSentimentRun.counts)
   .reduce((total, count) => total + count, 0);
@@ -238,6 +341,38 @@ const validAbsentBrandObservation = RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.obs
     observation.approvedTargetBrandMentionCount === 0
 );
 assert.ok(validAbsentBrandObservation, "valid absent-brand fixture observation missing");
+
+const metricIsolationCases = [
+  { eligibility: "visibility", availableMetricKeys: ["ai_visibility_rate"] },
+  { eligibility: "sov", availableMetricKeys: ["ai_share_of_voice"] },
+  { eligibility: "ranking", availableMetricKeys: ["average_first_position"] },
+  {
+    eligibility: "natural_citation_observation",
+    availableMetricKeys: ["owned_site_reference_rate", "cited_answer_rate"]
+  }
+] as const;
+for (const testCase of metricIsolationCases) {
+  const safeEligibility = testCase.eligibility.replace(/_/g, "-");
+  const isolatedResults = calculateRecoraCustomerReportMetrics(
+    [
+      {
+        ...baselineObservation,
+        observationId: `isolated-${safeEligibility}-answer`,
+        intentKey: `isolated-${safeEligibility}-intent`,
+        metricEligibility: metricEligibilityOnly(testCase.eligibility)
+      }
+    ],
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  );
+  assert.deepEqual(
+    isolatedResults
+      .filter((result) => result.status === "available")
+      .map((result) => result.key),
+    [...testCase.availableMetricKeys],
+    `isolated eligibility mapping: ${testCase.eligibility}`
+  );
+}
+
 validateRecoraCustomerReportObservationInput(
   baselineObservation,
   RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
@@ -318,6 +453,36 @@ assert.throws(
     RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
   ),
   /absent brand cannot have approved mentions/
+);
+const mentionedWithoutApprovedMentions = {
+  ...baselineObservation,
+  observationId: "mentioned-brand-without-approved-mentions-answer",
+  approvedTargetBrandMentionCount: 0
+};
+assert.throws(
+  () => validateRecoraCustomerReportObservationInput(
+    mentionedWithoutApprovedMentions,
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
+  /mentioned brand must have at least one approved mention/
+);
+assert.throws(
+  () => calculateRecoraCustomerReportMetrics(
+    [mentionedWithoutApprovedMentions],
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
+  /mentioned brand must have at least one approved mention/
+);
+assert.throws(
+  () => validateRecoraCustomerReportObservationInput(
+    {
+      ...baselineObservation,
+      observationId: "non-branded-brand-perception-answer",
+      metricEligibility: metricEligibilityOnly("brand_perception")
+    },
+    RECORA_CUSTOMER_REPORT_SYNTHETIC_BINDING
+  ),
+  /brand perception eligibility requires branded scope/
 );
 assert.throws(
   () => validateRecoraCustomerReportObservationInput(
@@ -489,6 +654,8 @@ const startSpec = readFileSync("docs/recora-customer-ui-implementation-start-spe
 assert.match(startSpec, /Issue #183/);
 assert.match(startSpec, /synthetic/);
 assert.match(startSpec, /current publication/);
+assert.match(startSpec, /compatibility.*集計可否を決めない/);
+assert.match(startSpec, /brand_perception=eligible/);
 
 const output = {
   contract: "PASS",
@@ -506,6 +673,28 @@ const output = {
 };
 
 console.log(JSON.stringify(output));
+
+function metricEligibilityOnly(
+  eligibleKey: keyof RecoraFixedPromptMetricEligibility
+): RecoraFixedPromptMetricEligibility {
+  const entry = (key: keyof RecoraFixedPromptMetricEligibility) => ({
+    state: key === eligibleKey ? "eligible" as const : "excluded" as const,
+    reason_codes: [
+      `isolated_${String(key)}_${key === eligibleKey ? "eligible" : "excluded"}`
+    ]
+  });
+  return {
+    visibility: entry("visibility"),
+    ranking: entry("ranking"),
+    sov: entry("sov"),
+    sentiment: entry("sentiment"),
+    brand_perception: entry("brand_perception"),
+    natural_citation_observation: entry("natural_citation_observation"),
+    forced_citation_validation: entry("forced_citation_validation"),
+    risk_check: entry("risk_check"),
+    recommendation_input: entry("recommendation_input")
+  };
+}
 
 function sumEvidence(unit: string, groups?: readonly string[]): number {
   return RECORA_CUSTOMER_REPORT_SYNTHETIC_FIXTURE.evidence.items
