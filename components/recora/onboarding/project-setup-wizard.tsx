@@ -189,6 +189,8 @@ type AutoSuggestionSources = {
   audienceTargets: string | null;
 };
 
+type MissingInfoRecoveryScope = "service" | "focus" | "prompt" | "confirmation";
+
 type UpdateForm = <K extends keyof WizardState>(field: K, value: WizardState[K]) => void;
 
 const initialAutoSuggestionSources: AutoSuggestionSources = {
@@ -231,6 +233,19 @@ const languageOptions = [
 ] as const;
 
 const regionSuggestions = ["日本", "首都圏", "関西", "全国", "英語圏", "北米", "アジア"];
+
+const recoveryCategoryOptions = [
+  "SEO / AI検索対策",
+  "スクール / 教育",
+  "クリニック / 医療",
+  "EC / 商品",
+  "専門サービス",
+  "地域サービス",
+  "SaaS / 分析ツール",
+  "その他"
+];
+
+const recoveryWatchTopicOptions = ["料金", "口コミ", "比較", "公式サイト引用", "自分に合うか", "初回相談", "返品条件"];
 
 const defaultReportGoalOptions: ReportGoalOption[] = [
   { value: "visibility", label: "AI検索で候補に出るか知りたい" },
@@ -434,11 +449,28 @@ export function ProjectSetupWizard() {
       setSiteInspection({ status: "idle" });
     }
     if (promptSeedFields.has(field)) {
-      setPromptExamples(null);
+      setPromptExamples((current) => {
+        const customPrompts = (current ?? []).filter(isCustomPrompt);
+        return customPrompts.length > 0 ? customPrompts : null;
+      });
       setDraftPreview(null);
       setPromptSeedKey(null);
     }
   };
+
+  function regenerateDraftFromCurrentInput() {
+    const nextSeedInput = buildSeedInput(formState);
+    const preview = buildCustomerFacingDraftPreview(
+      nextSeedInput,
+      formState,
+      siteInspection.status === "success" ? siteInspection.result : null
+    );
+    const customPrompts = (promptExamples ?? []).filter(isCustomPrompt);
+    setDraftPreview(preview);
+    setPromptExamples(uniquePrompts([...preview.prompts, ...customPrompts]));
+    setPromptSeedKey(stableSeedKey(nextSeedInput));
+    setConfirmationDone(false);
+  }
 
   async function goNext() {
     if (isInspectingSite) return;
@@ -470,8 +502,9 @@ export function ProjectSetupWizard() {
           formState,
           siteInspection.status === "success" ? siteInspection.result : null
         );
+        const customPrompts = (promptExamples ?? []).filter(isCustomPrompt);
         setDraftPreview(preview);
-        setPromptExamples(preview.prompts);
+        setPromptExamples(uniquePrompts([...preview.prompts, ...customPrompts]));
         setPromptSeedKey(seedKey);
       }
       setStepIndex(3);
@@ -533,11 +566,14 @@ export function ProjectSetupWizard() {
         {stepIndex === 2 ? <FocusStep formState={formState} updateForm={updateForm} /> : null}
         {stepIndex === 3 ? (
           <PromptStep
+            formState={formState}
+            updateForm={updateForm}
             draftPreview={draftPreview}
             prompts={currentPrompts}
             newPromptText={newPromptText}
             setNewPromptText={setNewPromptText}
             onAddPrompt={addPrompt}
+            onRegenerate={regenerateDraftFromCurrentInput}
             onChangePrompts={(prompts) => {
               setPromptExamples(prompts);
               setConfirmationDone(false);
@@ -551,6 +587,9 @@ export function ProjectSetupWizard() {
             prompts={currentPrompts}
             seedBlockers={seedBlockers}
             confirmationDone={confirmationDone}
+            siteInspection={siteInspection}
+            updateForm={updateForm}
+            onRegenerate={regenerateDraftFromCurrentInput}
             onConfirm={() => setConfirmationDone(true)}
           />
         ) : null}
@@ -707,6 +746,12 @@ function ServiceStep({
       description="公式URLの確認結果を踏まえて、サービスカテゴリ・主に見たい相手・競合の扱いを整えます。"
     >
       <SiteInspectionPanel formState={formState} siteInspection={siteInspection} />
+      <MissingInfoRecoveryPanel
+        scope="service"
+        formState={formState}
+        updateForm={updateForm}
+        siteInspection={siteInspection}
+      />
 
       <div className="mt-3 rounded-lg border border-[#DDE8E5] bg-[#F8FBFA] px-3 py-2.5">
         <div className="flex gap-3">
@@ -826,6 +871,246 @@ function ServiceStep({
   );
 }
 
+function MissingInfoRecoveryPanel({
+  scope,
+  formState,
+  updateForm,
+  siteInspection,
+  draftPreview,
+  prompts = [],
+  onRegenerate
+}: {
+  scope: MissingInfoRecoveryScope;
+  formState: WizardState;
+  updateForm: UpdateForm;
+  siteInspection: SiteInspectionState;
+  draftPreview?: CustomerFacingDraftPreview | null;
+  prompts?: EditablePrompt[];
+  onRegenerate?: () => void;
+}) {
+  const recoveryState = buildMissingInfoRecoveryState(formState, siteInspection, draftPreview ?? null, prompts);
+  const hasServiceItems =
+    recoveryState.needsServiceDetails ||
+    recoveryState.needsCategory ||
+    recoveryState.needsAudience ||
+    recoveryState.needsBrandUrlCheck;
+  const hasFocusItems = recoveryState.needsFocusTopics;
+  const hasPromptItems = recoveryState.needsQuestionAreas || recoveryState.needsPromptExamples || recoveryState.needsRegeneration;
+  const shouldShow =
+    scope === "service" ? hasServiceItems :
+    scope === "focus" ? hasFocusItems :
+    scope === "prompt" ? hasPromptItems || hasFocusItems || recoveryState.needsServiceDetails :
+    hasServiceItems || hasFocusItems || hasPromptItems;
+
+  if (!shouldShow) return null;
+
+  const categorySuggestions = uniqueStrings([
+    formState.serviceCategory,
+    ...deriveOnboardingSuggestionProfile(formState).serviceCategories,
+    ...recoveryCategoryOptions
+  ]).slice(0, 8);
+  const audienceSuggestions = uniqueStrings([
+    ...formState.audienceTargets,
+    ...deriveOnboardingSuggestionProfile(formState).audienceTargets
+  ]).slice(0, 8);
+
+  return (
+    <section className="mb-4 rounded-xl border border-[#CFE2DA] bg-[#F6FBF8] p-4 text-sm leading-6 text-[#20352C]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 gap-3">
+          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#1B8B65]" />
+          <div>
+            <h3 className="text-sm font-bold text-[#075E44]">もう少し確認したいこと</h3>
+            <p className="mt-1 text-sm leading-6 text-[#506158]">
+              より自然なプロンプト例を作るために、足りない情報だけ確認します。
+            </p>
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#075E44] ring-1 ring-[#CFE2DA]">
+          {recoveryState.allClear ? "確認済み" : "もう少し確認が必要"}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        {(scope === "service" || scope === "confirmation" || (scope === "prompt" && recoveryState.needsServiceDetails)) && recoveryState.needsBrandUrlCheck ? (
+          <RecoveryItem title="公式URLまたはブランド名が合っているか確認してください">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextInput
+                label="ブランド名"
+                value={formState.brandName}
+                onChange={(value) => updateForm("brandName", value)}
+                placeholder="例 Recora"
+              />
+              <TextInput
+                label="公式URL"
+                value={formState.officialUrl}
+                onChange={(value) => updateForm("officialUrl", value)}
+                placeholder="例 https://recora.jp"
+              />
+            </div>
+          </RecoveryItem>
+        ) : null}
+
+        {(scope === "service" || scope === "confirmation" || (scope === "prompt" && recoveryState.needsServiceDetails)) && recoveryState.needsServiceDetails ? (
+          <RecoveryItem title="サービス内容をもう少し教えてください">
+            <TextareaInput
+              label="誰向けに、何を解決するサービスですか？"
+              value={formState.serviceDescription}
+              onChange={(value) => updateForm("serviceDescription", value)}
+              rows={3}
+              placeholder="例 中小企業のマーケティング担当者向けに、AI検索で自社サービスがどう見えるかを確認するサービス"
+            />
+          </RecoveryItem>
+        ) : null}
+
+        {(scope === "service" || scope === "confirmation") && recoveryState.needsCategory ? (
+          <RecoveryItem title="このサービスに近いカテゴリを選んでください">
+            <div className="flex flex-wrap gap-2">
+              {categorySuggestions.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-xs font-bold transition",
+                    formState.serviceCategory === category
+                      ? "border-[#075E44] bg-[#075E44] text-white"
+                      : "border-[#CFE2DA] bg-white text-[#506158] hover:border-[#1B8B65]"
+                  )}
+                  onClick={() => updateForm("serviceCategory", category)}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+          </RecoveryItem>
+        ) : null}
+
+        {(scope === "service" || scope === "confirmation") && recoveryState.needsAudience ? (
+          <RecoveryItem title="どの人に向けた診断にしたいですか？">
+            <ChipInput
+              label="主に見たい相手"
+              items={formState.audienceTargets}
+              inputValue={formState.audienceTargetInput}
+              onInputChange={(value) => updateForm("audienceTargetInput", value)}
+              onAdd={(value) => updateForm("audienceTargets", addUnique(formState.audienceTargets, value))}
+              onRemove={(value) => updateForm("audienceTargets", removeValue(formState.audienceTargets, value))}
+              placeholder="例 初めて比較する人"
+              suggestions={audienceSuggestions}
+            />
+          </RecoveryItem>
+        ) : null}
+
+        {(scope === "focus" || scope === "prompt" || scope === "confirmation") && recoveryState.needsFocusTopics ? (
+          <RecoveryItem title="特に見たいことを追加してください">
+            <div className="flex flex-wrap gap-2">
+              {recoveryWatchTopicOptions.map((topic) => {
+                const selected = formState.watchTopics.includes(topic);
+                return (
+                  <button
+                    key={topic}
+                    type="button"
+                    className={cn(
+                      "inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 py-1 text-sm font-semibold transition",
+                      selected ? "border-[#1B8B65] bg-white text-[#075E44]" : "border-[#DDE8E5] bg-white text-[#506158] hover:border-[#A9C6BA]"
+                    )}
+                    onClick={() => updateForm("watchTopics", toggleValue(formState.watchTopics, topic).slice(0, 4))}
+                  >
+                    {selected ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                    {topic}
+                  </button>
+                );
+              })}
+            </div>
+            <InlineAddInput
+              className="mt-3"
+              value={formState.watchTopicInput}
+              onChange={(value) => updateForm("watchTopicInput", value)}
+              onAdd={(value) => updateForm("watchTopics", addUnique(formState.watchTopics, value).slice(0, 4))}
+              placeholder="追加で確認したいことを入力"
+              buttonLabel="追加"
+            />
+          </RecoveryItem>
+        ) : null}
+
+        {(scope === "prompt" || scope === "confirmation") && recoveryState.needsQuestionAreas ? (
+          <RecoveryItem title="質問領域をもう少し広げられます">
+            <p className="text-sm text-[#506158]">料金、口コミ、比較、公式サイト引用などを追加すると、確認したい観点に近い質問例になります。</p>
+          </RecoveryItem>
+        ) : null}
+
+        {(scope === "prompt" || scope === "confirmation") && recoveryState.needsPromptExamples ? (
+          <RecoveryItem title="追加で確認したい質問があれば入力してください">
+            <p className="text-sm text-[#506158]">下の「プロンプトを追加」欄から質問を足せます。追加した質問は作り直し後も残ります。</p>
+          </RecoveryItem>
+        ) : null}
+
+        {(scope === "prompt" || scope === "confirmation") && recoveryState.needsRegeneration ? (
+          <RecoveryItem title="入力内容からプロンプト例を作り直せます">
+            <p className="text-sm text-[#506158]">補足した内容をもとに、生成された質問例をもう一度作ります。追加した質問はそのまま残ります。</p>
+          </RecoveryItem>
+        ) : null}
+      </div>
+
+      {onRegenerate ? (
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-semibold leading-5 text-[#64736C]">入力するとプロンプト例がより自然になります。</p>
+          <Button type="button" variant="outline" className="border-[#C9D8D2] bg-white text-[#075E44]" onClick={onRegenerate}>
+            <Wand2 className="h-4 w-4" />
+            入力内容で作り直す
+          </Button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function RecoveryItem({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-[#E1E8E5] bg-white p-3">
+      <h4 className="text-sm font-bold text-[#0B1F17]">{title}</h4>
+      <div className="mt-2">{children}</div>
+    </div>
+  );
+}
+
+function buildMissingInfoRecoveryState(
+  formState: WizardState,
+  siteInspection: SiteInspectionState,
+  draftPreview: CustomerFacingDraftPreview | null,
+  prompts: readonly EditablePrompt[]
+) {
+  const generatedPromptCount = prompts.filter((prompt) => !isCustomPrompt(prompt) && prompt.text.trim()).length;
+  const questionAreaCount = draftPreview?.questionAreas.filter(Boolean).length ?? 0;
+  const needsServiceDetails = formState.serviceDescription.trim().length < 80;
+  const needsCategory = !formState.serviceCategory.trim() || formState.serviceCategory.trim() === "その他";
+  const needsAudience = formState.audienceTargets.length < 2;
+  const needsFocusTopics = formState.watchTopics.length < 2;
+  const needsQuestionAreas = draftPreview !== null && questionAreaCount < 3;
+  const needsPromptExamples = draftPreview !== null && generatedPromptCount < 3;
+  const needsRegeneration = draftPreview === null && generatedPromptCount < 3;
+  const needsBrandUrlCheck = siteInspection.status === "success" && !siteInspection.result.brandNameFound;
+
+  return {
+    needsServiceDetails,
+    needsCategory,
+    needsAudience,
+    needsFocusTopics,
+    needsQuestionAreas,
+    needsPromptExamples,
+    needsRegeneration,
+    needsBrandUrlCheck,
+    allClear:
+      !needsServiceDetails &&
+      !needsCategory &&
+      !needsAudience &&
+      !needsFocusTopics &&
+      !needsQuestionAreas &&
+      !needsPromptExamples &&
+      !needsRegeneration &&
+      !needsBrandUrlCheck
+  };
+}
+
 function SiteInspectionPanel({
   formState,
   siteInspection
@@ -938,6 +1223,12 @@ function FocusStep({ formState, updateForm }: { formState: WizardState; updateFo
       description="特に知りたいテーマを選択してください。上位3つ程度を目安にすると、確認しやすくなります。"
       footer="選択内容をもとに、次のステップでプロンプト例をご提案します。"
     >
+      <MissingInfoRecoveryPanel
+        scope="focus"
+        formState={formState}
+        updateForm={updateForm}
+        siteInspection={{ status: "idle" }}
+      />
       <div className="grid gap-4 lg:grid-cols-2">
         <div>
           <div className="flex items-center justify-between gap-3">
@@ -1013,18 +1304,24 @@ function FocusStep({ formState, updateForm }: { formState: WizardState; updateFo
 }
 
 function PromptStep({
+  formState,
+  updateForm,
   draftPreview,
   prompts,
   newPromptText,
   setNewPromptText,
   onAddPrompt,
+  onRegenerate,
   onChangePrompts
 }: {
+  formState: WizardState;
+  updateForm: UpdateForm;
   draftPreview: CustomerFacingDraftPreview | null;
   prompts: EditablePrompt[];
   newPromptText: string;
   setNewPromptText: (value: string) => void;
   onAddPrompt: () => void;
+  onRegenerate: () => void;
   onChangePrompts: (prompts: EditablePrompt[]) => void;
 }) {
   const generatedPrompts = prompts.filter((prompt) => !isCustomPrompt(prompt));
@@ -1039,6 +1336,15 @@ function PromptStep({
       size="wide"
     >
       {draftPreview ? <DraftPreviewSummary draftPreview={draftPreview} /> : null}
+      <MissingInfoRecoveryPanel
+        scope="prompt"
+        formState={formState}
+        updateForm={updateForm}
+        siteInspection={{ status: "idle" }}
+        draftPreview={draftPreview}
+        prompts={prompts}
+        onRegenerate={onRegenerate}
+      />
 
       <div className="space-y-4">
         <section className="min-w-0 rounded-xl border border-[#DDE8E5] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] sm:p-5">
@@ -1234,6 +1540,9 @@ function ConfirmationStep({
   prompts,
   seedBlockers,
   confirmationDone,
+  siteInspection,
+  updateForm,
+  onRegenerate,
   onConfirm
 }: {
   formState: WizardState;
@@ -1241,6 +1550,9 @@ function ConfirmationStep({
   prompts: EditablePrompt[];
   seedBlockers: string[];
   confirmationDone: boolean;
+  siteInspection: SiteInspectionState;
+  updateForm: UpdateForm;
+  onRegenerate: () => void;
   onConfirm: () => void;
 }) {
   const sections = buildConfirmationSections(formState, draftPreview);
@@ -1253,6 +1565,16 @@ function ConfirmationStep({
       description="ここまでの入力とプロンプト例を、最後に確認するための画面です。"
       size="wide"
     >
+      <MissingInfoRecoveryPanel
+        scope="confirmation"
+        formState={formState}
+        updateForm={updateForm}
+        siteInspection={siteInspection}
+        draftPreview={draftPreview}
+        prompts={prompts}
+        onRegenerate={onRegenerate}
+      />
+
       {seedBlockers.length > 0 ? (
         <MessageBox title="確認が必要な項目があります" tone="error">
           <ul className="space-y-1">
