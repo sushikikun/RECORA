@@ -28,8 +28,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile scripts/.materialize-topic-child-b.py
+          python -m py_compile \
+            scripts/.materialize-topic-child-b.py \
+            scripts/.patch-topic-child-b.py
           python scripts/.materialize-topic-child-b.py
+          python scripts/.patch-topic-child-b.py
           git diff --check
 
       - name: Install dependencies
@@ -72,6 +75,7 @@ jobs:
             .github/workflows/topic-child-b-materialize.yml \
             scripts/.inspect-topic-catalog-child-b.ts \
             scripts/.materialize-topic-child-b.py \
+            scripts/.patch-topic-child-b.py \
             scripts/.topic-child-b-selection-rules.gz.b64 \
             scripts/.topic-child-b-compiler.gz.b64 \
             scripts/.topic-child-b-fixture.gz.b64 \
