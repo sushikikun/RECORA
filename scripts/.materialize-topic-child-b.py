@@ -18,10 +18,14 @@ PAYLOADS = {
 
 def decode_payload(path: Path) -> str:
     encoded = "".join(path.read_text(encoding="utf-8").split())
-    return gzip.decompress(base64.b64decode(encoded)).decode("utf-8")
+    try:
+        return gzip.decompress(base64.b64decode(encoded, validate=True)).decode("utf-8")
+    except Exception as error:
+        raise RuntimeError(f"invalid payload {path}: {error}") from error
 
 
 for destination, payload in PAYLOADS.items():
+    print("Decoding", payload, "->", destination)
     target = ROOT / destination
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
@@ -34,6 +38,7 @@ contract_path = ROOT / "lib/recora/measurement-topic-contract.ts"
 contract = contract_path.read_text(encoding="utf-8")
 if MARKER in contract:
     contract = contract[: contract.index(MARKER)].rstrip()
+print("Decoding scripts/.topic-child-b-contract-append.gz.b64 -> contract appendix")
 appendix = decode_payload(
     ROOT / "scripts/.topic-child-b-contract-append.gz.b64"
 ).strip()
