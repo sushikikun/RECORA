@@ -1,0 +1,55 @@
+/* Hallmark portable tokens · Recora marketing LP · Answer Decision Map */
+:root {
+  --color-lp-paper: oklch(98% 0.008 158);
+  --color-lp-paper-2: oklch(95% 0.014 158);
+  --color-lp-paper-3: oklch(91% 0.022 158);
+  --color-lp-surface: oklch(99.5% 0.004 158);
+  --color-lp-ink: oklch(20% 0.038 166);
+  --color-lp-ink-2: oklch(34% 0.032 166);
+  --color-lp-muted: oklch(48% 0.025 166);
+  --color-lp-rule: oklch(84% 0.024 158);
+  --color-lp-rule-strong: oklch(72% 0.034 158);
+  --color-lp-accent: oklch(62% 0.145 157);
+  --color-lp-accent-soft: oklch(93% 0.052 157);
+  --color-lp-accent-ink: oklch(18% 0.038 166);
+  --color-lp-focus: oklch(58% 0.19 157);
+  --color-lp-dark: oklch(18% 0.044 166);
+  --color-lp-dark-2: oklch(23% 0.04 166);
+  --color-lp-on-dark: oklch(96% 0.014 158);
+  --color-lp-on-dark-muted: oklch(77% 0.025 158);
+
+  --font-lp-display: "BIZ UDPGothic", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", sans-serif;
+  --font-lp-body: "Noto Sans JP", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", sans-serif;
+  --font-lp-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", ui-monospace, monospace;
+
+  --space-lp-3xs: 0.25rem;
+  --space-lp-2xs: 0.5rem;
+  --space-lp-xs: 0.75rem;
+  --space-lp-sm: 1rem;
+  --space-lp-md: 1.5rem;
+  --space-lp-lg: 2rem;
+  --space-lp-xl: 3rem;
+  --space-lp-2xl: 4.5rem;
+  --space-lp-3xl: 7rem;
+
+  --text-lp-xs: 0.75rem;
+  --text-lp-sm: 0.875rem;
+  --text-lp-base: 1rem;
+  --text-lp-lg: 1.25rem;
+  --text-lp-xl: 1.75rem;
+  --text-lp-2xl: 2.5rem;
+  --text-lp-display: clamp(2.25rem, 4.2vw, 3.5rem);
+
+  --ease-lp-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-lp-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-lp-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-lp-micro: 120ms;
+  --dur-lp-short: 220ms;
+  --dur-lp-long: 420ms;
+
+  --rule-lp-hair: 1px;
+  --radius-lp-sm: 0.375rem;
+  --radius-lp-md: 0.625rem;
+  --radius-lp-lg: 1rem;
+  --radius-lp-pill: 999px;
+}
